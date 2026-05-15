@@ -1,0 +1,702 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MAIN_MASTER
+  SUPERVISOR
+  PURCHASE_ACCOUNTANT
+  MATERIALS_RECEIVER
+  LAB_ASSISTANT
+  PRODUCTION_STAFF
+  SALES_TEAM
+}
+
+enum IdRegistryStatus {
+  ACTIVE
+  DELETED
+}
+
+enum RawMaterialPOStatus {
+  PENDING
+  ORDERED
+  RECEIVED
+  APPROVED
+  DELETED
+}
+
+enum GRNHealthCondition {
+  GOOD
+  MODERATE
+  BAD
+  RETURN
+}
+
+enum GRNConfirmationStatus {
+  APPROVED
+  RETURNED
+  STOCK_HOLD
+  OTHER
+}
+
+enum LabRMTestDecision {
+  APPROVED
+  REJECTED
+  NEED_SAMPLE
+}
+
+enum ProductionBatchStatus {
+  IN_PROGRESS
+  COMPLETED
+  QC_PASSED
+  QC_FAILED
+}
+
+enum LabProductionTestDecision {
+  QC_PASSED
+  QC_FAILED
+}
+
+model User {
+  id              String            @id @default(uuid())
+  name            String
+  email           String            @unique
+  passwordHash    String
+  role            Role
+  ipAddress       String?
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  idRegistries      IdRegistry[]
+  rawMaterialPOs    RawMaterialPO[]
+  grns              GRN[]
+  labRMTests        LabRMTest[]
+  productionBatches ProductionBatch[]
+  labProdTests      LabProductionTest[]
+  notificationsSeen Notification[]    @relation("NotificationSeenBy")
+  notificationsSent Notification[]    @relation("NotificationSender")
+  auditLogs         AuditLog[]
+  sessionLogs       UserSessionLog[]
+  notes             Note[]
+  expenses          Expense[]
+  suppliers         Supplier[]
+  customers         Customer[]
+  responsibleWastes RMWaste[]  @relation("ResponsibleUser")
+  creatorWastes     RMWaste[]  @relation("CreatorUser")
+  grnReceives       GRNReceive[] @relation("GRNReceiver")
+  grnLabTests       GRNLabTest[] @relation("LabTester")
+  purchaseReturnsResp  PurchaseReturn[] @relation("ReturnResponsible")
+  purchaseReturnsCreated PurchaseReturn[] @relation("ReturnCreator")
+  inventoryBatchesAdded  InventoryBatch[] @relation("InventoryAdder")
+  labInventoryAdded      LabInventoryItem[] @relation("LabInventoryAdder")
+  labInventoryUsages     LabInventoryUsage[] @relation("LabInventoryUser")
+
+  @@index([email])
+  @@index([role])
+}
+
+model IdRegistry {
+  id        String           @id @db.VarChar(20)
+  status    IdRegistryStatus
+  createdBy String
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user              User              @relation(fields: [createdBy], references: [id])
+  
+  // FIX: Changed from po RawMaterialPO? to an array to allow multiple POs per ID
+  rawMaterialPOs    RawMaterialPO[]
+  
+  grns              GRN[]
+  labRMTests        LabRMTest[]
+  productionBatches ProductionBatch[]
+
+  @@index([createdBy])
+  @@index([status])
+}
+
+model RawMaterialPO {
+  id               String              @id @default(uuid())
+  referenceNo      String?             @unique
+  
+  // FIX: Removed @unique to allow this ID to appear in multiple POs
+  rmId             String              @db.VarChar(20)
+  
+  name             String
+  quantity         Decimal
+  amount           Decimal
+  uomId            String
+  expectedDelivery DateTime
+  expiryDate       DateTime?
+  status           RawMaterialPOStatus
+  lockedAt         DateTime?
+  deletedAt        DateTime?
+  createdBy        String
+  supplierId       String?             // <--- ADDED
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  // Relations
+  idRegistry IdRegistry @relation(fields: [rmId], references: [id])
+  uom        UOM        @relation(fields: [uomId], references: [id])
+  user       User       @relation(fields: [createdBy], references: [id])
+  supplier   Supplier?  @relation(fields: [supplierId], references: [id])
+  grnReceives      GRNReceive[]
+  purchaseReturns  PurchaseReturn[]
+  inventoryBatches InventoryBatch[]
+
+  @@index([rmId])
+  @@index([uomId])
+  @@index([createdBy])
+  @@index([status])
+  @@index([supplierId])
+}
+
+model GRN {
+  id                 String                @id @default(uuid())
+  rmId               String                @db.VarChar(20)
+  receivedQty        Decimal
+  receivedAmount     Decimal
+  healthCondition    GRNHealthCondition
+  confirmationStatus GRNConfirmationStatus
+  notes              String?               @db.Text
+  finalApprovedQty   Decimal?
+  receivedBy         String
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  // Relations
+  idRegistry IdRegistry @relation(fields: [rmId], references: [id])
+  user       User       @relation(fields: [receivedBy], references: [id])
+
+  @@index([rmId])
+  @@index([receivedBy])
+  @@index([confirmationStatus])
+}
+
+model LabRMTest {
+  id           String            @id @default(uuid())
+  rmId         String            @db.VarChar(20)
+  fat          Decimal
+  protein      Decimal
+  carbs        Decimal
+  moisture     Decimal
+  acidity      Decimal
+  snf          Decimal?
+  customParams Json?
+  decision     LabRMTestDecision
+  notes        String?           @db.Text
+  testedBy     String
+  createdAt    DateTime          @default(now())
+
+  // Relations
+  idRegistry IdRegistry @relation(fields: [rmId], references: [id])
+  user       User       @relation(fields: [testedBy], references: [id])
+
+  @@index([rmId])
+  @@index([testedBy])
+  @@index([decision])
+}
+
+model ProductionBatch {
+  id                 String                @id @default(uuid())
+  rmId               String                @db.VarChar(20)
+  estimatedQty       Decimal
+  actualRmUsed       Decimal?
+  rmRemaining        Decimal?
+  finalMilkRemaining Decimal?
+  status             ProductionBatchStatus
+  createdBy          String
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+
+  // Relations
+  idRegistry IdRegistry         @relation(fields: [rmId], references: [id])
+  user       User               @relation(fields: [createdBy], references: [id])
+  labTest    LabProductionTest?
+
+  @@index([rmId])
+  @@index([createdBy])
+  @@index([status])
+}
+
+model LabProductionTest {
+  id         String                    @id @default(uuid())
+  batchId    String                    @unique
+  qcParams   Json
+  decision   LabProductionTestDecision
+  expiryDate DateTime?
+  notes      String?                   @db.Text
+  testedBy   String
+  createdAt  DateTime                  @default(now())
+
+  // Relations
+  batch ProductionBatch @relation(fields: [batchId], references: [id])
+  user  User            @relation(fields: [testedBy], references: [id])
+
+  @@index([batchId])
+  @@index([testedBy])
+  @@index([decision])
+}
+
+model Notification {
+  id             String    @id @default(uuid())
+  type           String
+  recipientRoles String[]
+  senderRole     String
+  senderId       String
+  referenceType  String
+  referenceId    String
+  eventAt        DateTime
+  message        String    @db.Text
+  metadata       Json
+  seenAt         DateTime?
+  seenBy         String?
+  createdAt      DateTime  @default(now())
+
+  // Relations
+  userSender     User      @relation("NotificationSender", fields: [senderId], references: [id])
+  userSeenBy     User?     @relation("NotificationSeenBy", fields: [seenBy], references: [id])
+
+  @@index([referenceId, referenceType])
+  @@index([recipientRoles, seenAt])
+}
+
+model UOM {
+  id           String   @id @default(uuid())
+  name         String
+  abbreviation String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  // Relations
+  rawMaterialPOs RawMaterialPO[]
+  rawMaterials   RawMaterial[] @relation("RawMaterialUOMs")
+  rmWasteItems   RMWasteItem[]
+  inventoryBatches InventoryBatch[]
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  tableName String
+  recordId  String
+  oldValue  Json?
+  newValue  Json?
+  ip        String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([tableName])
+  @@index([recordId])
+}
+
+model UserSessionLog {
+  id              String    @id @default(uuid())
+  userId          String
+  loginAt         DateTime
+  logoutAt        DateTime?
+  ip              String
+  durationSeconds Int?
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Note {
+  id             String   @id @default(uuid())
+  userId         String
+  referenceTable String
+  referenceId    String
+  noteText       String   @db.Text
+  createdAt      DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([referenceTable, referenceId])
+}
+
+model Supplier {
+  id             String   @id @default(uuid())
+  name           String
+  contactPerson  String?
+  email          String?
+  phone          String?
+  address        String?  @db.Text
+  openingBalance Decimal  @default(0)
+  balanceType    String   @default("CREDIT") // DEBIT or CREDIT
+  creditLimit    Decimal  @default(0)
+  note           String?  @db.Text
+  status         String   @default("ACTIVE")
+  addedBy        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User? @relation(fields: [addedBy], references: [id])
+  purchaseOrders RawMaterialPO[] // <--- ADDED
+}
+
+model Customer {
+  id              String    @id @default(uuid())
+  name            String
+  contactPerson   String?
+  email           String?
+  phone           String?
+  address         String?   @db.Text
+  openingBalance  Decimal   @default(0)
+  balanceType     String    @default("DEBIT") // DEBIT or CREDIT
+  creditLimit     Decimal   @default(0)
+  defaultDiscount Decimal   @default(0)
+  customerType    String    @default("RETAIL")
+  dob             DateTime?
+  doa             DateTime?
+  note            String?   @db.Text
+  status          String    @default("ACTIVE")
+  addedBy         String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user User? @relation(fields: [addedBy], references: [id])
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  title       String
+  amount      Decimal
+  category    String
+  date        DateTime
+  notes       String?  @db.Text
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [createdBy], references: [id])
+}
+
+model RMCategory {
+  id              String   @id @default(uuid())
+  name            String
+  code            String?  @unique // e.g. DAIRY, NUTS, SWEET
+  description     String?  @db.Text
+  labTestParams   Json?    // default test parameters for this category
+  status          String   @default("ACTIVE") // ACTIVE / INACTIVE
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  rawMaterials    RawMaterial[]
+}
+
+model RawMaterial {
+  id               String   @id @default(uuid())
+  name             String
+  printName        String?  // <--- ADDED
+  code             String   @unique
+  categoryId       String
+  unitId           String
+  consumptionUnit  String?
+  ratePerUnit      Decimal  @default(0)
+  openingStock     Decimal  @default(0)
+  currentStock     Decimal  @default(0) // <--- ADDED for inventory tracking
+  alertLevel       Decimal  @default(0)
+  description      String?  @db.Text // <--- ADDED
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  category RMCategory @relation(fields: [categoryId], references: [id])
+  uoms     UOM[]      @relation("RawMaterialUOMs")
+  wasteItems RMWasteItem[]
+}
+
+model NonInventoryItem {
+  id          String   @id @default(uuid())
+  name        String
+  code        String   @unique
+  category    String?
+  unitId      String?
+  ratePerUnit Decimal  @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ProductCategory {
+  id          String   @id @default(uuid())
+  name        String
+  description String?  @db.Text
+  status      String   @default("ACTIVE") // ACTIVE / INACTIVE
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+}
+
+model Product {
+  id           String   @id @default(uuid())
+  name         String
+  printName    String?  // display name for labels/invoices
+  code         String   @unique
+  categoryId   String
+  unitId       String
+  ratePerUnit  Decimal  @default(0)
+  openingStock Decimal  @default(0)
+  currentStock Decimal  @default(0)
+  alertLevel   Decimal  @default(0)
+  expiryDays   Int?     // shelf life in days for finished product
+  hsnCode      String?  // HSN code for GST
+  description  String?  @db.Text
+  status       String   @default("ACTIVE") // ACTIVE / INACTIVE
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  category ProductCategory @relation(fields: [categoryId], references: [id])
+}
+
+model RMWaste {
+  id              String   @id @default(uuid())
+  referenceNo     String   @unique
+  date            DateTime
+  totalLoss       Decimal  @default(0)
+  note            String?  @db.Text
+  responsibleId   String
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  responsibleUser User        @relation("ResponsibleUser", fields: [responsibleId], references: [id])
+  creatorUser     User        @relation("CreatorUser", fields: [createdBy], references: [id])
+  items           RMWasteItem[]
+}
+
+model RMWasteItem {
+  id              String   @id @default(uuid())
+  wasteId         String
+  rawMaterialId   String
+  quantity        Decimal
+  uomId           String
+  lossAmount      Decimal
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  waste           RMWaste     @relation(fields: [wasteId], references: [id], onDelete: Cascade)
+  rawMaterial     RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  uom             UOM         @relation(fields: [uomId], references: [id])
+}
+
+// ─────────────────────── GRN Receive Delivery ───────────────────────
+
+model GRNReceive {
+  id                String   @id @default(uuid())
+  referenceNo       String   @unique
+  poId              String
+  receivedDate      DateTime
+  amountPaid        Decimal  @default(0)
+  refundAmount      Decimal  @default(0)
+  discrepancyNotes  String?  @db.Text
+  // Enhanced GRN fields
+  vehicleNumber     String?  // vehicle plate number
+  driverName        String?  // driver name
+  invoiceNumber     String?  // supplier invoice number
+  invoiceDate       DateTime?
+  challanNumber     String?  // delivery challan number
+  isShortDelivery   Boolean  @default(false) // flagged when received < ordered
+  inventoryStatus   String   @default("NOT_UPLOADED") // NOT_UPLOADED / UPLOADED
+  status            String   @default("PENDING_LAB") // PENDING_LAB, LAB_APPROVED, LAB_REJECTED, LAB_RESAMPLE
+  receivedBy        String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  po              RawMaterialPO     @relation(fields: [poId], references: [id])
+  receiver        User              @relation("GRNReceiver", fields: [receivedBy], references: [id])
+  items           GRNReceiveItem[]
+  labTest         GRNLabTest?
+  purchaseReturns PurchaseReturn[]
+  inventoryBatch  InventoryBatch?
+
+  @@index([poId])
+  @@index([receivedBy])
+  @@index([status])
+}
+
+model GRNReceiveItem {
+  id                String   @id @default(uuid())
+  grnId             String
+  rmId              String
+  rmName            String
+  expectedQty       Decimal  @default(0)
+  actualReceivedQty Decimal  @default(0)
+  returnQty         Decimal  @default(0)
+  createdAt         DateTime @default(now())
+
+  grn         GRNReceive       @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  labResults  GRNLabTestResult[]
+
+  @@index([grnId])
+}
+
+model GRNLabTest {
+  id              String   @id @default(uuid())
+  grnId           String   @unique
+  status          String   @default("PENDING") // PENDING, IN_PROGRESS, INSPECTION, APPROVED, REJECTED
+  overallDecision String?  // APPROVED, REJECTED, NEED_SAMPLE
+  overrideReason  String?  @db.Text // mandatory if Lab Assistant overrides auto-result
+  labNotes        String?  @db.Text
+  sampleQty       Decimal  @default(0) // quantity consumed in testing
+  categoryParams  Json?    // per-category test parameter results as JSON
+  testedBy        String
+  approvedBy      String?  // Supervisor/Admin who approved/rejected
+  approvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime? @updatedAt
+
+  grn         GRNReceive       @relation(fields: [grnId], references: [id])
+  tester      User             @relation("LabTester", fields: [testedBy], references: [id])
+  testResults GRNLabTestResult[]
+  labUsages   LabInventoryUsage[]
+
+  @@index([grnId])
+  @@index([testedBy])
+  @@index([status])
+}
+
+model GRNLabTestResult {
+  id          String   @id @default(uuid())
+  labTestId   String
+  grnItemId   String
+  rmId        String
+  rmName      String
+  expiryDate  DateTime
+  testNotes   String?  @db.Text
+  passed      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  labTest  GRNLabTest     @relation(fields: [labTestId], references: [id], onDelete: Cascade)
+  grnItem  GRNReceiveItem @relation(fields: [grnItemId], references: [id])
+
+  @@index([labTestId])
+  @@index([grnItemId])
+}
+
+// ─────────────────────── Purchase Return ───────────────────────
+
+model PurchaseReturn {
+  id                   String   @id @default(uuid())
+  referenceNo          String   @unique
+  poId                 String
+  grnId                String   // linked GRN
+  returnQty            Decimal
+  uom                  String?
+  returnReason         String   // LAB_REJECTED / PHYSICAL_DAMAGE / WRONG_MATERIAL / SHORT_EXPIRY / QTY_MISMATCH / OTHER
+  reasonDescription    String   @db.Text
+  initiatedBy          String   // LAB_REJECTED / RECEIVER_INITIATED
+  responsibleUserId    String?
+  returnDate           DateTime @default(now())
+  transporterName      String?
+  transporterVehicle   String?
+  transporterDriver    String?
+  debitNoteNumber      String?
+  status               String   @default("PENDING") // PENDING / DISPATCHED / ACKNOWLEDGED / CLOSED
+  createdBy            String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  po              RawMaterialPO @relation(fields: [poId], references: [id])
+  grn             GRNReceive    @relation(fields: [grnId], references: [id])
+  responsibleUser User?         @relation("ReturnResponsible", fields: [responsibleUserId], references: [id])
+  creator         User          @relation("ReturnCreator", fields: [createdBy], references: [id])
+
+  @@index([poId])
+  @@index([grnId])
+  @@index([status])
+  @@index([createdBy])
+}
+
+// ─────────────────────── Inventory Batch ───────────────────────
+
+model InventoryBatch {
+  id              String   @id @default(uuid())
+  batchNumber     String   @unique // RM-YYYYMMDD-POID-GRNID
+  poId            String
+  grnId           String   @unique // one batch per GRN
+  rawMaterialId   String
+  rawMaterialName String
+  rmCategory      String?
+  supplierId      String?
+  receivedQty     Decimal  // from GRN
+  sampleQty       Decimal  @default(0) // consumed in lab testing
+  netQty          Decimal  // receivedQty - sampleQty
+  uomId           String
+  storageLocation String?
+  expiryDate      DateTime?
+  status          String   @default("AVAILABLE") // AVAILABLE / DEPLETED / RETURNED
+  addedBy         String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  po     RawMaterialPO @relation(fields: [poId], references: [id])
+  grn    GRNReceive    @relation(fields: [grnId], references: [id])
+  uom    UOM           @relation(fields: [uomId], references: [id])
+  adder  User          @relation("InventoryAdder", fields: [addedBy], references: [id])
+
+  @@index([poId])
+  @@index([grnId])
+  @@index([rawMaterialId])
+  @@index([status])
+}
+
+// ─────────────────────── Lab Inventory ───────────────────────
+
+model LabInventoryItem {
+  id                  String   @id @default(uuid())
+  name                String
+  itemCategory        String   // REAGENT / CHEMICAL / CONSUMABLE / EQUIPMENT / GLASSWARE / SAFETY
+  currentStock        Decimal  @default(0)
+  uom                 String   // ml, L, g, kg, units, boxes
+  supplierName        String?
+  invoiceNumber       String?
+  purchaseDate        DateTime?
+  expiryDate          DateTime?
+  storageCondition    String?  // ROOM_TEMP / REFRIGERATED / FREEZER / FLAMMABLE
+  minimumStockLevel   Decimal  @default(0)
+  batchLotNumber      String?
+  status              String   @default("SUFFICIENT") // SUFFICIENT / LOW_STOCK / CRITICAL / EXPIRED
+  addedBy             String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  adder  User                @relation("LabInventoryAdder", fields: [addedBy], references: [id])
+  usages LabInventoryUsage[]
+
+  @@index([itemCategory])
+  @@index([status])
+}
+
+model LabInventoryUsage {
+  id             String   @id @default(uuid())
+  labTestId      String   // links to GRNLabTest
+  labItemId      String
+  quantityUsed   Decimal
+  dateUsed       DateTime @default(now())
+  usedBy         String
+  createdAt      DateTime @default(now())
+
+  labTest  GRNLabTest       @relation(fields: [labTestId], references: [id])
+  labItem  LabInventoryItem @relation(fields: [labItemId], references: [id])
+  user     User             @relation("LabInventoryUser", fields: [usedBy], references: [id])
+
+  @@index([labTestId])
+  @@index([labItemId])
+}

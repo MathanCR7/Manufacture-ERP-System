@@ -1,0 +1,213 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String
+  roleId Int
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs        AuditLog[]
+  notes            Note[]
+  notifications    Notification[]
+  purchaseOrders   PurchaseOrder[]
+  grns             GRN[]
+  labTests         LabTest[]
+  productionBatches ProductionBatch[]
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  SUPERVISOR
+  LAB_TECH
+  OPERATOR
+}
+
+model RawMaterial {
+  id          String   @id // 6-digit ID
+  name        String
+  description String?
+  uom         UOM      @relation(fields: [uomId], references: [id])
+  uomId       Int
+  stock       Float    @default(0)
+  minStock    Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchaseOrders PurchaseOrder[]
+  grns           GRN[]
+  labTests       LabTest[]
+  batchInputs    BatchInput[]
+
+  @@index([name])
+}
+
+model UOM {
+  id   Int    @id @default(autoincrement())
+  name String @unique // e.g., kg, liters, units
+  
+  rawMaterials RawMaterial[]
+}
+
+model PurchaseOrder {
+  id            Int         @id @default(autoincrement())
+  rmId          String
+  rawMaterial   RawMaterial @relation(fields: [rmId], references: [id])
+  quantity      Float
+  supplier      String
+  status String @default("PENDING")
+  createdBy     Int
+  user          User        @relation(fields: [createdBy], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  grns GRN[]
+
+  @@index([status])
+}
+
+enum POStatus {
+  PENDING
+  PARTIAL
+  COMPLETED
+  CANCELLED
+}
+
+model GRN {
+  id            Int           @id @default(autoincrement())
+  poId          Int
+  purchaseOrder PurchaseOrder @relation(fields: [poId], references: [id])
+  rmId          String
+  rawMaterial   RawMaterial   @relation(fields: [rmId], references: [id])
+  receivedQty   Float
+  batchNumber   String?
+  status String @default("PENDING_TEST")
+  createdBy     Int
+  user          User          @relation(fields: [createdBy], references: [id])
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  labTests LabTest[]
+
+  @@index([status])
+}
+
+enum GRNStatus {
+  PENDING_TEST
+  APPROVED
+  REJECTED
+}
+
+model LabTest {
+  id            Int         @id @default(autoincrement())
+  type String
+  rmId          String?
+  rawMaterial   RawMaterial? @relation(fields: [rmId], references: [id])
+  grnId         Int?
+  grn           GRN?         @relation(fields: [grnId], references: [id])
+  batchId       Int?
+  batch         ProductionBatch? @relation(fields: [batchId], references: [id])
+  
+  parameters String        // E.g., { fatContent: 5.5, temp: 4 }
+  result String
+  notes         String?
+  testedBy      Int
+  user          User        @relation(fields: [testedBy], references: [id])
+  createdAt     DateTime    @default(now())
+
+  @@index([result])
+}
+
+enum TestType {
+  RM_TEST
+  QC_TEST
+}
+
+enum TestResult {
+  PASS
+  FAIL
+}
+
+model ProductionBatch {
+  id            Int         @id @default(autoincrement())
+  batchNumber   String      @unique
+  productName   String
+  status String @default("PLANNED")
+  yieldQty      Float?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdBy     Int
+  user          User        @relation(fields: [createdBy], references: [id])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  inputs        BatchInput[]
+  labTests      LabTest[]
+
+  @@index([status])
+}
+
+enum BatchStatus {
+  PLANNED
+  IN_PROGRESS
+  TESTING
+  COMPLETED
+  FAILED
+}
+
+model BatchInput {
+  id            Int             @id @default(autoincrement())
+  batchId       Int
+  batch         ProductionBatch @relation(fields: [batchId], references: [id])
+  rmId          String
+  rawMaterial   RawMaterial     @relation(fields: [rmId], references: [id])
+  quantity      Float
+  lotNumber     String?         // Which GRN batch was used
+}
+
+model AuditLog {
+  id          Int      @id @default(autoincrement())
+  entity      String   // e.g., 'User', 'GRN'
+  entityId    String   // String to handle both int and string IDs
+  action      String   // 'CREATE', 'UPDATE', 'DELETE'
+  changes String?    // Before/after payload
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([entity, entityId])
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  message     String
+  type        String   // 'INFO', 'ALERT', 'SUCCESS'
+  link        String?
+  isRead      Boolean  @default(false)
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model Note {
+  id          Int      @id @default(autoincrement())
+  entity      String
+  entityId    String
+  content     String
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([entity, entityId])
+}
