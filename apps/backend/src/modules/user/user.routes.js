@@ -4,12 +4,15 @@ const userController = require('./user.controller');
 const authMiddleware = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
 
-router.use(authMiddleware);
-router.use(roleMiddleware(['MAIN_MASTER']));
+// Profile routes - any authenticated user
+router.get('/profile', authMiddleware, userController.getProfile);
+router.patch('/profile', authMiddleware, userController.updateProfile);
+router.post('/request-password-change', authMiddleware, userController.requestPasswordChange);
 
-router.get('/', userController.getAllUsers);
-router.post('/', userController.createUser);
-router.patch('/:id', userController.updateUser);
-router.delete('/:id', userController.deactivateUser);
+// Admin-only user management
+router.get('/', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.getAllUsers);
+router.post('/', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.createUser);
+router.patch('/:id', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.updateUser);
+router.delete('/:id', authMiddleware, roleMiddleware(['MAIN_MASTER']), userController.deactivateUser);
 
 module.exports = router;

@@ -23,12 +23,17 @@ router.use('/', rmRoutes);
 router.use('/po', require('../modules/purchase/po.routes'));
 router.use('/grn', require('../modules/grn/grn.routes'));
 
-// New ERP modules
+// ERP modules
 router.use('/purchase-return', authMiddleware, require('../modules/purchase-return/purchase-return.routes'));
 router.use('/inventory', authMiddleware, require('../modules/inventory/inventory.routes'));
 router.use('/lab-inventory', authMiddleware, require('../modules/lab-inventory/lab-inventory.routes'));
+router.use('/rm-lab-category', authMiddleware, require('../modules/rm-lab-category/rm-lab-category.routes'));
+
+// New modules
+router.use('/attendance', require('../modules/attendance/attendance.routes'));
+router.use('/search', require('../modules/search/search.routes'));
+router.use('/qr-lifecycle', require('../modules/qr-lifecycle/qr-lifecycle.routes'));
 
 router.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
 
 module.exports = router;
-

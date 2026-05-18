@@ -10,11 +10,12 @@ const router = express.Router();
 // ─────────────────────── PURCHASE RETURN ───────────────────────
 
 const returnSchema = z.object({
-  poId: z.string().uuid(),
-  grnId: z.string().uuid(),
+  poId: z.string().uuid().optional(),
+  grnId: z.string().uuid().optional(),
+  supplierId: z.string().uuid().optional(),
   returnQty: z.coerce.number().positive(),
   uom: z.string().optional(),
-  returnReason: z.enum(['LAB_REJECTED', 'PHYSICAL_DAMAGE', 'WRONG_MATERIAL', 'SHORT_EXPIRY', 'QTY_MISMATCH', 'OTHER']),
+  returnReason: z.enum(['LAB_REJECTED', 'PHYSICAL_DAMAGE', 'WRONG_MATERIAL', 'SHORT_EXPIRY', 'QTY_MISMATCH', 'EXPIRED_RM', 'OTHER']),
   reasonDescription: z.string().min(1),
   initiatedBy: z.string().optional().default('RECEIVER_INITIATED'),
   responsibleUserId: z.string().uuid().optional(),
@@ -23,32 +24,64 @@ const returnSchema = z.object({
   transporterVehicle: z.string().optional(),
   transporterDriver: z.string().optional(),
   debitNoteNumber: z.string().optional(),
+  rawMaterialName: z.string().optional(),
 });
 
+// Helper: notify all relevant roles about a purchase return event
+async function notifyReturnEvent(tx, { type, message, referenceId, metadata }) {
+  try {
+    const targetUsers = await tx.user.findMany({
+      where: { role: { in: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] } },
+      select: { id: true },
+    });
+    if (targetUsers.length > 0) {
+      await tx.notification.createMany({
+        data: targetUsers.map(u => ({
+          userId: u.id,
+          type,
+          message,
+          referenceType: 'PurchaseReturn',
+          referenceId,
+          metadata: metadata || {},
+          isRead: false,
+        })),
+        skipDuplicates: true,
+      });
+    }
+  } catch (e) {
+    console.error('[PurchaseReturn] Notification error:', e.message);
+  }
+}
+
+// ─────────────────────── CREATE ───────────────────────
 // POST /api/purchase-return — Create a new purchase return
 router.post('/',
   authenticateToken,
-  roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT']),
+  roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF']),
   async (req, res, next) => {
     try {
       const data = returnSchema.parse(req.body);
 
-      const [po, grn] = await Promise.all([
-        prisma.rawMaterialPO.findUnique({ where: { id: data.poId }, include: { supplier: true, uom: true } }),
-        prisma.gRNReceive.findUnique({ where: { id: data.grnId } }),
-      ]);
-      if (!po) return res.status(404).json({ error: 'Purchase Order not found' });
-      if (!grn) return res.status(404).json({ error: 'GRN not found' });
+      // Fetch PO (optional for production-initiated returns) and GRN
+      const po = data.poId
+        ? await prisma.rawMaterialPO.findUnique({ where: { id: data.poId }, include: { supplier: true, uom: true } })
+        : null;
+      const grn = data.grnId
+        ? await prisma.gRNReceive.findUnique({ where: { id: data.grnId } })
+        : null;
+
+      if (data.poId && !po) return res.status(404).json({ error: 'Purchase Order not found' });
+      if (data.grnId && !grn) return res.status(404).json({ error: 'GRN not found' });
 
       const referenceNo = await generateReferenceNo(prisma, 'PurchaseReturn', 'PR');
 
       const record = await prisma.purchaseReturn.create({
         data: {
           referenceNo,
-          poId: data.poId,
-          grnId: data.grnId,
+          poId: data.poId || null,
+          grnId: data.grnId || null,
           returnQty: data.returnQty,
-          uom: data.uom || po.uom?.abbreviation || null,
+          uom: data.uom || po?.uom?.abbreviation || null,
           returnReason: data.returnReason,
           reasonDescription: data.reasonDescription,
           initiatedBy: data.initiatedBy,
@@ -78,9 +111,17 @@ router.post('/',
           tableName: 'PurchaseReturn',
           recordId: record.id,
           oldValue: null,
-          newValue: { referenceNo: record.referenceNo, status: 'PENDING' },
+          newValue: { referenceNo: record.referenceNo, status: 'PENDING', returnReason: record.returnReason },
           ip: clientIp,
         },
+      });
+
+      // Notify supervisors/accountants on creation
+      await notifyReturnEvent(prisma, {
+        type: 'PURCHASE_RETURN_CREATED',
+        message: `Purchase Return ${referenceNo} created. Reason: ${data.returnReason}. Qty: ${data.returnQty} ${data.uom || ''}. PO: ${po?.referenceNo || 'N/A'}`,
+        referenceId: record.id,
+        metadata: { referenceNo, returnReason: data.returnReason, returnQty: data.returnQty },
       });
 
       res.status(201).json(record);
@@ -91,6 +132,7 @@ router.post('/',
   }
 );
 
+// ─────────────────────── LIST ───────────────────────
 // GET /api/purchase-return — List all purchase returns
 router.get('/',
   authenticateToken,
@@ -124,6 +166,7 @@ router.get('/',
   }
 );
 
+// ─────────────────────── GET ONE ───────────────────────
 // GET /api/purchase-return/:id — Get single return
 router.get('/:id',
   authenticateToken,
@@ -146,7 +189,8 @@ router.get('/:id',
   }
 );
 
-// PATCH /api/purchase-return/:id/status — Update status
+// ─────────────────────── STATUS UPDATE + INVENTORY ───────────────────────
+// PATCH /api/purchase-return/:id/status — Update status + reduce inventory on CLOSED
 router.patch('/:id/status',
   authenticateToken,
   roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']),
@@ -156,14 +200,77 @@ router.patch('/:id/status',
         status: z.enum(['PENDING', 'DISPATCHED', 'ACKNOWLEDGED', 'CLOSED']),
       }).parse(req.body);
 
-      const existing = await prisma.purchaseReturn.findUnique({ where: { id: req.params.id } });
+      const existing = await prisma.purchaseReturn.findUnique({
+        where: { id: req.params.id },
+        include: { po: { include: { supplier: true, uom: true } }, grn: true },
+      });
       if (!existing) return res.status(404).json({ error: 'Purchase Return not found' });
 
-      const updated = await prisma.purchaseReturn.update({
-        where: { id: req.params.id },
-        data: { status },
+      // Transaction: update status + reduce inventory on CLOSED
+      const updated = await prisma.$transaction(async (tx) => {
+        const upd = await tx.purchaseReturn.update({
+          where: { id: req.params.id },
+          data: { status },
+          include: {
+            po: { include: { supplier: true, uom: true } },
+            grn: true,
+            responsibleUser: { select: { name: true } },
+            creator: { select: { name: true } },
+          },
+        });
+
+        // On CLOSED: reduce raw material inventory
+        if (status === 'CLOSED' && existing.status !== 'CLOSED') {
+          const returnQty = Number(existing.returnQty || 0);
+          const po = existing.po;
+
+          if (returnQty > 0 && po) {
+            // Find the raw material record
+            let rm = await tx.rawMaterial.findFirst({ where: { code: po.rmId } });
+            if (!rm && po.name) {
+              rm = await tx.rawMaterial.findFirst({
+                where: { name: { equals: po.name, mode: 'insensitive' } },
+              });
+            }
+
+            if (rm) {
+              const newStock = Math.max(0, Number(rm.currentStock) - returnQty);
+              await tx.rawMaterial.update({
+                where: { id: rm.id },
+                data: { currentStock: newStock },
+              });
+              console.log(`[PURCHASE RETURN CLOSED] Stock reduced: ${rm.name} -${returnQty} → ${newStock}`);
+            } else {
+              console.warn(`[PURCHASE RETURN CLOSED] Could not match RawMaterial for rmId="${po.rmId}", name="${po.name}". Stock NOT reduced.`);
+            }
+          }
+
+          // Send CLOSED notifications inside transaction context
+          await notifyReturnEvent(tx, {
+            type: 'PURCHASE_RETURN_CLOSED',
+            message: `Purchase Return ${existing.referenceNo} CLOSED. Qty: ${existing.returnQty} ${existing.uom || ''}. PO: ${po?.referenceNo || 'N/A'}. Inventory updated.`,
+            referenceId: req.params.id,
+            metadata: {
+              referenceNo: existing.referenceNo,
+              returnQty: existing.returnQty,
+              uom: existing.uom,
+              poNumber: po?.referenceNo,
+              supplierName: po?.supplier?.name,
+            },
+          });
+        } else if (status === 'DISPATCHED' && existing.status !== 'DISPATCHED') {
+          await notifyReturnEvent(tx, {
+            type: 'PURCHASE_RETURN_DISPATCHED',
+            message: `Purchase Return ${existing.referenceNo} DISPATCHED to supplier ${existing.po?.supplier?.name || 'unknown'}.`,
+            referenceId: req.params.id,
+            metadata: { referenceNo: existing.referenceNo, status: 'DISPATCHED' },
+          });
+        }
+
+        return upd;
       });
 
+      // Audit log
       const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
       await prisma.auditLog.create({
         data: {
@@ -185,7 +292,8 @@ router.patch('/:id/status',
   }
 );
 
-// PATCH /api/purchase-return/:id — Update logistics fields (complete a draft return)
+// ─────────────────────── UPDATE LOGISTICS ───────────────────────
+// PATCH /api/purchase-return/:id — Update logistics fields
 router.patch('/:id',
   authenticateToken,
   roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT']),

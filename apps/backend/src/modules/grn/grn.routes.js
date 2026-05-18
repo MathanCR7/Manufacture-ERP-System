@@ -79,7 +79,7 @@ router.get('/upcoming',
   async (req, res, next) => {
     try {
       const pos = await prisma.rawMaterialPO.findMany({
-        where: { status: 'RECEIVED' },
+        where: { status: { in: ['RECEIVED', 'APPROVED'] } },
         orderBy: { updatedAt: 'desc' },
         include: { supplier: true, uom: true, user: { select: { name: true } } }
       });
@@ -88,28 +88,38 @@ router.get('/upcoming',
       const poIds = pos.map(p => p.id);
       const existingGrns = await prisma.gRNReceive.findMany({
         where: { poId: { in: poIds } },
-        select: { poId: true, id: true }
+        select: { poId: true, id: true, status: true, receivedDate: true, amountPaid: true, refundAmount: true }
       });
       const grnMap = {};
-      existingGrns.forEach(g => { grnMap[g.poId] = g.id; });
+      existingGrns.forEach(g => { grnMap[g.poId] = g; });
 
-      const result = pos.map(po => ({
-        id: po.id,
-        referenceNo: po.referenceNo,
-        rmId: po.rmId,
-        name: po.name,
-        quantity: po.quantity,
-        amount: po.amount,
-        uom: po.uom,
-        supplierName: po.supplier?.name || null,
-        supplierPhone: po.supplier?.phone || null,
-        expectedDelivery: po.expectedDelivery,
-        status: po.status,
-        createdAt: po.createdAt,
-        updatedAt: po.updatedAt,
-        grnId: grnMap[po.id] || null,
-        hasGrn: !!grnMap[po.id],
-      }));
+      const result = pos
+        .map(po => {
+          const grn = grnMap[po.id] || null;
+          return {
+            id: po.id,
+            referenceNo: po.referenceNo,
+            rmId: po.rmId,
+            name: po.name,
+            quantity: po.quantity,
+            amount: po.amount,
+            uom: po.uom,
+            supplierName: po.supplier?.name || null,
+            supplierPhone: po.supplier?.phone || null,
+            expectedDelivery: po.expectedDelivery,
+            status: po.status,
+            createdAt: po.createdAt,
+            updatedAt: po.updatedAt,
+            grnId: grn?.id || null,
+            hasGrn: !!grn,
+            grnStatus: grn?.status || null,
+            receivedDate: grn?.receivedDate || null,
+            amountPaid: grn?.amountPaid || null,
+            refundAmount: grn?.refundAmount || null,
+          };
+        })
+        // Exclude LAB_REJECTED entries from upcoming deliveries
+        .filter(item => item.grnStatus !== 'LAB_REJECTED');
 
       res.json(result);
     } catch (error) {
@@ -264,6 +274,8 @@ const labTestSchema = z.object({
   })).min(1),
   overallDecision: z.enum(['APPROVED', 'REJECTED', 'NEED_SAMPLE']),
   labNotes: z.string().optional(),
+  rmLabCategoryId: z.string().uuid().optional(),
+  categoryParams: z.record(z.string(), z.any()).optional(),
 });
 
 router.post('/lab-test',
@@ -289,6 +301,8 @@ router.post('/lab-test',
             overallDecision: data.overallDecision,
             labNotes: data.labNotes || null,
             testedBy: req.user.id,
+            ...(data.rmLabCategoryId && { rmLabCategoryId: data.rmLabCategoryId }),
+            ...(data.categoryParams && { categoryParams: data.categoryParams }),
             testResults: {
               create: data.testResults.map(tr => ({
                 grnItemId: tr.grnItemId,

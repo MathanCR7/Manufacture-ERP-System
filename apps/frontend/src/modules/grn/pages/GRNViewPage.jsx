@@ -177,6 +177,19 @@ export default function GRNViewPage() {
                   ))}
                 </tbody>
               </table>
+              {grn.labTest.categoryParams && Object.keys(grn.labTest.categoryParams).length > 0 && (
+                <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800">
+                  <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-3">Test Parameters</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                    {Object.entries(grn.labTest.categoryParams).map(([key, value]) => (
+                      <div key={key} className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
+                        <span className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">{key}</span>
+                        <span className="block text-sm font-medium text-slate-800 dark:text-slate-200">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -56,6 +56,16 @@ import LabInventoryListPage from '@/modules/lab/pages/LabInventoryListPage';
 import LabInventoryAddPage from '@/modules/lab/pages/LabInventoryAddPage';
 import LabInventoryUsagePage from '@/modules/lab/pages/LabInventoryUsagePage';
 
+// NEW: RM Lab Category & Required Results
+import RMLabCategoryPage from '@/modules/lab/pages/RMLabCategoryPage';
+import RMRequiredLabResultsPage from '@/modules/lab/pages/RMRequiredLabResultsPage';
+
+// Shared
+import ChangeProfilePage from '@/modules/shared/pages/ChangeProfilePage';
+import ChangePasswordPage from '@/modules/shared/pages/ChangePasswordPage';
+import CheckInOutPage from '@/modules/shared/pages/CheckInOutPage';
+import QRLifecyclePage from '@/modules/shared/pages/QRLifecyclePage';
+
 // Inventory Module
 import InventoryUploadPage from '@/modules/inventory/pages/InventoryUploadPage';
 
@@ -79,6 +89,12 @@ const AppRouter = () => {
         <Route element={<AppShell />}>
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
+          
+          {/* Shared Routes */}
+          <Route path="/profile" element={<ChangeProfilePage />} />
+          <Route path="/change-password" element={<ChangePasswordPage />} />
+          <Route path="/attendance" element={<CheckInOutPage />} />
+          <Route path="/qr-lifecycle/:id" element={<QRLifecyclePage />} />
           
           {/* Parties Module */}
           <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']} />}>
@@ -117,14 +133,14 @@ const AppRouter = () => {
             <Route path="/purchase-orders/:id" element={<PODetailPage />} />
           </Route>
           
-          {/* Create PO */}
+          {/* Create PO — must come BEFORE /purchase-orders/:id to avoid conflict */}
           <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'PURCHASE_ACCOUNTANT']} />}>
             <Route path="/purchase-orders/create" element={<CreatePOPage />} />
             <Route path="/purchase-orders/edit/:id" element={<EditPOPage />} />
           </Route>
 
           {/* Purchase Return */}
-          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT']} />}>
+          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF']} />}>
             <Route path="/purchase-return/add" element={<PurchaseReturnAddPage />} />
             <Route path="/purchase-return/list" element={<PurchaseReturnListPage />} />
           </Route>
@@ -160,6 +176,12 @@ const AppRouter = () => {
           </Route>
           <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR']} />}>
             <Route path="/lab/test/:grnId" element={<LabTestPage />} />
+          </Route>
+
+          {/* NEW: RM Lab Category & Required Results */}
+          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'LAB_ASSISTANT']} />}>
+            <Route path="/lab/rm-lab-category" element={<RMLabCategoryPage />} />
+            <Route path="/lab/rm-required-results" element={<RMRequiredLabResultsPage />} />
           </Route>
 
           {/* Lab Inventory */}

@@ -3,7 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
-import { ArrowLeft, Plus, AlertTriangle, CheckCircle, Loader2, RotateCcw } from 'lucide-react';
+import {
+  ArrowLeft, Plus, AlertTriangle, CheckCircle, Loader2, RotateCcw,
+  Building2, Package, User, Calendar, IndianRupee, Truck
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +18,7 @@ const RETURN_REASONS = [
   { value: 'WRONG_MATERIAL', label: 'Wrong Material' },
   { value: 'SHORT_EXPIRY', label: 'Short Expiry' },
   { value: 'QTY_MISMATCH', label: 'Quantity Mismatch' },
+  { value: 'EXPIRED_RM', label: 'Expired Raw Material' },
   { value: 'OTHER', label: 'Other' },
 ];
 
@@ -28,6 +32,7 @@ const PurchaseReturnAddPage = () => {
   const prefill = location.state || {};
 
   const [form, setForm] = useState({
+    supplierId: prefill.supplierId || '',
     poId: prefill.poId || '',
     grnId: prefill.grnId || '',
     returnQty: prefill.returnQty || '',
@@ -42,16 +47,30 @@ const PurchaseReturnAddPage = () => {
   });
   const [error, setError] = useState(null);
 
-  // Fetch PO list
+  // Fetch suppliers
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ['suppliers-list'],
+    queryFn: () => api.get('/parties/suppliers').then(r => r.data?.data || r.data || []),
+  });
+
+  // Fetch PO list filtered by supplier
   const { data: poList = [] } = useQuery({
     queryKey: ['po-list'],
     queryFn: () => api.get('/po').then(r => r.data),
   });
 
+  // Filter POs by selected supplier
+  const filteredPOs = form.supplierId
+    ? poList.filter(p => p.supplierId === form.supplierId)
+    : poList;
+
   // Auto-fetch GRN when PO is selected
   const { data: grnForPO } = useQuery({
     queryKey: ['grn-for-po', form.poId],
-    queryFn: () => api.get(`/grn/receive?poId=${form.poId}`).then(r => r.data),
+    queryFn: () => api.get(`/grn/receive`).then(r => {
+      const allGrns = Array.isArray(r.data) ? r.data : [];
+      return allGrns.filter(g => g.poId === form.poId);
+    }),
     enabled: !!form.poId,
   });
 
@@ -61,10 +80,18 @@ const PurchaseReturnAddPage = () => {
     queryFn: () => api.get('/users').then(r => r.data),
   });
 
-  // Selected PO details
-  const selectedPO = poList.find(p => p.id === form.poId);
+  // Auto-set supplier when PO is selected
+  useEffect(() => {
+    if (form.poId) {
+      const selectedPO = poList.find(p => p.id === form.poId);
+      if (selectedPO?.supplierId && !form.supplierId) {
+        setForm(prev => ({ ...prev, supplierId: selectedPO.supplierId }));
+      }
+    }
+  }, [form.poId, poList]);
 
-  // GRNs for selected PO
+  const selectedPO = poList.find(p => p.id === form.poId);
+  const selectedSupplier = suppliers.find(s => s.id === form.supplierId);
   const grnOptions = Array.isArray(grnForPO) ? grnForPO : grnForPO ? [grnForPO] : [];
   const selectedGRN = grnOptions.find(g => g.id === form.grnId);
 
@@ -89,6 +116,7 @@ const PurchaseReturnAddPage = () => {
     mutation.mutate({
       poId: form.poId,
       grnId: form.grnId,
+      supplierId: form.supplierId || undefined,
       returnQty: Number(form.returnQty),
       returnReason: form.returnReason,
       reasonDescription: form.reasonDescription,
@@ -114,11 +142,13 @@ const PurchaseReturnAddPage = () => {
             <RotateCcw className="w-6 h-6 text-orange-500" />
             Add Purchase Return
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">Record a return of purchased raw materials to the supplier</p>
+          <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
+            Record a return of purchased raw materials to the supplier. Also used by Production for expired RM.
+          </p>
         </div>
       </div>
 
-      {/* Pre-fill notice */}
+      {/* Lab Rejection notice */}
       {prefill.returnReason === 'LAB_REJECTED' && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 flex gap-3">
           <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
@@ -129,10 +159,50 @@ const PurchaseReturnAddPage = () => {
         </div>
       )}
 
+      {/* Expired RM notice */}
+      {prefill.returnReason === 'EXPIRED_RM' && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-4 flex gap-3">
+          <AlertTriangle className="w-5 h-5 text-orange-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-orange-700 dark:text-orange-400">Production Team — Expired RM Return</p>
+            <p className="text-sm text-orange-600 dark:text-orange-400 mt-1">Return initiated for expired or suspected defective raw material from production.</p>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Supplier Selection (New) */}
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
+          <h2 className="font-semibold text-slate-900 dark:text-white text-base border-b border-slate-100 dark:border-slate-700 pb-3 flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-orange-500" /> Supplier
+          </h2>
+          <div>
+            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Supplier</Label>
+            <select
+              value={form.supplierId}
+              onChange={e => setForm(p => ({ ...p, supplierId: e.target.value, poId: '', grnId: '' }))}
+              className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            >
+              <option value="">All Suppliers / Select Supplier...</option>
+              {suppliers.map(s => (
+                <option key={s.id} value={s.id}>{s.name}{s.phone ? ` · ${s.phone}` : ''}</option>
+              ))}
+            </select>
+            {selectedSupplier && (
+              <div className="mt-2 p-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/30 rounded-lg text-sm">
+                <p className="font-semibold text-orange-800 dark:text-orange-300">{selectedSupplier.name}</p>
+                {selectedSupplier.email && <p className="text-orange-600 dark:text-orange-400 text-xs">{selectedSupplier.email}</p>}
+                {selectedSupplier.phone && <p className="text-orange-600 dark:text-orange-400 text-xs">{selectedSupplier.phone}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* PO & GRN Selection */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
-          <h2 className="font-semibold text-slate-900 dark:text-white text-base border-b border-slate-100 dark:border-slate-700 pb-3">Purchase Order Details</h2>
+          <h2 className="font-semibold text-slate-900 dark:text-white text-base border-b border-slate-100 dark:border-slate-700 pb-3 flex items-center gap-2">
+            <Package className="w-4 h-4 text-orange-500" /> Purchase Order & GRN
+          </h2>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -144,7 +214,7 @@ const PurchaseReturnAddPage = () => {
                 className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-60"
               >
                 <option value="">Select PO...</option>
-                {poList.map(po => (
+                {filteredPOs.map(po => (
                   <option key={po.id} value={po.id}>{po.referenceNo} — {po.name}</option>
                 ))}
               </select>
@@ -171,7 +241,7 @@ const PurchaseReturnAddPage = () => {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Supplier</p>
-                <p className="text-sm font-medium text-slate-900 dark:text-white">{selectedPO.supplier?.name || '—'}</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">{selectedPO.supplier?.name || selectedSupplier?.name || '—'}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Raw Material</p>
@@ -258,7 +328,9 @@ const PurchaseReturnAddPage = () => {
 
         {/* Transporter Details */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
-          <h2 className="font-semibold text-slate-900 dark:text-white text-base border-b border-slate-100 dark:border-slate-700 pb-3">Transporter Details <span className="text-xs font-normal text-slate-400">(Optional)</span></h2>
+          <h2 className="font-semibold text-slate-900 dark:text-white text-base border-b border-slate-100 dark:border-slate-700 pb-3 flex items-center gap-2">
+            <Truck className="w-4 h-4 text-orange-500" /> Transporter Details <span className="text-xs font-normal text-slate-400">(Optional)</span>
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Transporter Name</Label>

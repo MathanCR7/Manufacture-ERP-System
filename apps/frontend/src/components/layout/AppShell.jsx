@@ -5,10 +5,112 @@ import {
   LayoutDashboard, ShoppingCart, FlaskConical, Factory, 
   DollarSign, Settings, Moon, Sun, Clock, 
   User, LogOut, ChevronDown, ChevronRight, Plus, Minus,
-  Menu, X, Users, Archive
+  Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import useLanguageStore from '@/app/store/languageStore';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { api } from '@/lib/axios';
+
+const GlobalSearch = ({ onClose }) => {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (query.trim().length < 2) { setResults(null); return; }
+    const timer = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await api.get(`/search?q=${encodeURIComponent(query)}`);
+        setResults(res.data.results);
+      } catch (e) { console.error(e); }
+      finally { setLoading(false); }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  const handleSelect = (link) => {
+    navigate(link);
+    onClose();
+  };
+
+  const categories = results ? Object.entries(results).filter(([_, items]) => items.length > 0) : [];
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-20 px-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
+        <div className="p-4 border-b border-slate-100 dark:border-slate-700 flex items-center gap-3">
+          <Search className="w-5 h-5 text-slate-400" />
+          <input 
+            type="text" autoFocus value={query} onChange={e => setQuery(e.target.value)}
+            placeholder="Search POs, GRNs, Suppliers, Customers, Inventory..."
+            className="flex-1 bg-transparent border-none outline-none text-slate-800 dark:text-slate-100 placeholder-slate-400 text-lg"
+          />
+          {loading && <div className="w-5 h-5 border-2 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />}
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+          {query.trim().length < 2 ? (
+            <div className="p-8 text-center text-slate-400">Type at least 2 characters to search across the ERP</div>
+          ) : categories.length === 0 && !loading && results ? (
+            <div className="p-8 text-center text-slate-400">No results found for "{query}"</div>
+          ) : (
+            categories.map(([key, items]) => (
+              <div key={key} className="mb-4">
+                <div className="px-3 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  {key.replace(/([A-Z])/g, ' $1').trim()}
+                </div>
+                {items.map(item => (
+                  <button key={item.id} onClick={() => handleSelect(item.link)} className="w-full text-left px-3 py-2 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 rounded-xl flex items-center gap-3 group transition-colors">
+                    <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-slate-500 group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-800 dark:text-slate-200">{item.label}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">{item.subtitle}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const QRScannerModal = ({ onClose, onScan }) => {
+  useEffect(() => {
+    const scanner = new Html5QrcodeScanner('reader', { fps: 10, qrbox: { width: 250, height: 250 } }, false);
+    scanner.render((text) => {
+      scanner.clear();
+      onScan(text);
+    }, (err) => { /* ignore */ });
+    return () => scanner.clear().catch(e => console.error(e));
+  }, [onScan]);
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm flex justify-center items-center px-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <QrCode className="w-5 h-5 text-indigo-500" /> Scan QR Code
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <XCircle className="w-6 h-6" />
+          </button>
+        </div>
+        <div id="reader" className="w-full bg-black rounded-xl overflow-hidden border-2 border-indigo-500/30"></div>
+        <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-4">Point your camera at the ERP QR code</p>
+      </div>
+    </div>
+  );
+};
 
 // --- Menu Configuration based on Permissions Matrix ---
 const MENU_GROUPS = [
@@ -66,6 +168,8 @@ const MENU_GROUPS = [
     items: [
       { name: 'Pending RM Lab Tests', path: '/lab/pending', roles: ['MAIN_MASTER', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'] },
       { name: 'RM Lab Results', path: '/lab/results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: 'RM Lab Category', path: '/lab/rm-lab-category', roles: ['MAIN_MASTER', 'LAB_ASSISTANT'] },
+      { name: 'RM Required Lab Results', path: '/lab/rm-required-results', roles: ['MAIN_MASTER', 'LAB_ASSISTANT'] },
       { name: 'Lab Inventory', path: '/lab-inventory/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: 'Add Lab Item', path: '/lab-inventory/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: 'Log Lab Usage', path: '/lab-inventory/use', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
@@ -160,6 +264,8 @@ const AppShell = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
   const { language, setLanguage } = useLanguageStore();
 
   const languages = [
@@ -178,6 +284,32 @@ const AppShell = () => {
     }
     localStorage.setItem('darkMode', isDarkMode);
   }, [isDarkMode]);
+
+  // Sync Google Translate with Zustand store
+  useEffect(() => {
+    const applyLanguage = () => {
+      const select = document.querySelector('.goog-te-combo');
+      if (select) {
+        select.value = language;
+        select.dispatchEvent(new Event('change'));
+      }
+    };
+    
+    // Slight delay to ensure widget is loaded if it's the first time
+    setTimeout(applyLanguage, 500);
+  }, [language]);
+
+  // Global search shortcut
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
@@ -327,11 +459,33 @@ const AppShell = () => {
           {/* Header Right Actions */}
           <div className="flex items-center space-x-2 sm:space-x-4">
             
+            {/* Global Search Button */}
+            <button 
+              onClick={() => setShowSearch(true)}
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm transition-colors w-64 border border-transparent focus:border-indigo-400"
+            >
+              <Search className="w-4 h-4" />
+              <span className="flex-1 text-left">Search anything...</span>
+              <kbd className="text-[10px] font-sans px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900">Ctrl+K</kbd>
+            </button>
+
+            {/* QR Scan Button */}
+            <button 
+              onClick={() => setShowQRScanner(true)}
+              className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors hidden sm:block"
+              title="Scan QR Code"
+            >
+              <ScanLine className="w-5 h-5" />
+            </button>
+
             {/* Check In/Out Button */}
-            <button className="hidden sm:flex items-center px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-sm font-medium transition-colors">
+            <Link 
+              to="/attendance" 
+              className="hidden sm:flex items-center px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-sm font-medium transition-colors"
+            >
               <Clock className="w-4 h-4 mr-2" />
               Check In/Out
-            </button>
+            </Link>
 
             {/* Language Selector */}
             <div className="relative">
@@ -383,23 +537,40 @@ const AppShell = () => {
                 onClick={() => setShowProfileMenu(!showProfileMenu)}
                 className="flex items-center space-x-2 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
-                <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 flex items-center justify-center font-bold text-sm">
-                  {user?.name?.substring(0, 2).toUpperCase() || 'U'}
+                <div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900 text-indigo-600 dark:text-indigo-300 flex items-center justify-center font-bold text-sm overflow-hidden border border-indigo-200 dark:border-indigo-700">
+                  {user?.profilePhoto ? (
+                    <img src={user.profilePhoto} alt={user?.name} className="w-full h-full object-cover" />
+                  ) : (
+                    user?.name?.substring(0, 2).toUpperCase() || 'U'
+                  )}
                 </div>
               </button>
 
               {showProfileMenu && (
                 <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-md shadow-lg border border-slate-200 dark:border-slate-700 py-1 z-50">
-                  <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700">
+                  <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 mb-1">
                     <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{user?.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user?.role?.replace('_', ' ')}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate mt-0.5">{user?.role?.replace(/_/g, ' ')}</p>
                   </div>
+                  <Link
+                    to="/profile"
+                    onClick={() => setShowProfileMenu(false)}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center transition-colors"
+                  >
+                    <User className="w-4 h-4 mr-2" /> Change Profile
+                  </Link>
+                  <Link
+                    to="/change-password"
+                    onClick={() => setShowProfileMenu(false)}
+                    className="w-full text-left px-4 py-2 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center transition-colors"
+                  >
+                    <Settings className="w-4 h-4 mr-2" /> Change Password
+                  </Link>
                   <button
                     onClick={handleLogout}
-                    className="w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center transition-colors"
+                    className="w-full text-left px-4 py-2 mt-1 text-sm text-red-600 dark:text-red-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center transition-colors border-t border-slate-100 dark:border-slate-700"
                   >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Sign out
+                    <LogOut className="w-4 h-4 mr-2" /> Sign out
                   </button>
                 </div>
               )}
@@ -420,6 +591,20 @@ const AppShell = () => {
           className="fixed inset-0 bg-slate-900/50 z-40 md:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         ></div>
+      )}
+
+      {/* Global Search Modal */}
+      {showSearch && <GlobalSearch onClose={() => setShowSearch(false)} />}
+
+      {/* QR Scanner Modal */}
+      {showQRScanner && (
+        <QRScannerModal 
+          onClose={() => setShowQRScanner(false)} 
+          onScan={(text) => {
+            setShowQRScanner(false);
+            navigate(`/qr-lifecycle/${encodeURIComponent(text)}`);
+          }} 
+        />
       )}
     </div>
   );

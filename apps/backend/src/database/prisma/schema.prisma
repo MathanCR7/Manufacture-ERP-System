@@ -69,6 +69,7 @@ model User {
   passwordHash    String
   role            Role
   ipAddress       String?
+  profilePhoto    String?           @db.Text
   isActive        Boolean           @default(true)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -97,9 +98,27 @@ model User {
   inventoryBatchesAdded  InventoryBatch[] @relation("InventoryAdder")
   labInventoryAdded      LabInventoryItem[] @relation("LabInventoryAdder")
   labInventoryUsages     LabInventoryUsage[] @relation("LabInventoryUser")
+  attendanceLogs    AttendanceLog[]
 
   @@index([email])
   @@index([role])
+}
+
+model AttendanceLog {
+  id        String    @id @default(uuid())
+  userId    String
+  checkIn   DateTime
+  checkOut  DateTime?
+  duration  Int?      // duration in minutes
+  ipAddress String?
+  note      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([checkIn])
 }
 
 model IdRegistry {
@@ -550,6 +569,7 @@ model GRNReceiveItem {
 model GRNLabTest {
   id              String   @id @default(uuid())
   grnId           String   @unique
+  rmLabCategoryId String?  // links to RMLabCategory for dynamic param testing
   status          String   @default("PENDING") // PENDING, IN_PROGRESS, INSPECTION, APPROVED, REJECTED
   overallDecision String?  // APPROVED, REJECTED, NEED_SAMPLE
   overrideReason  String?  @db.Text // mandatory if Lab Assistant overrides auto-result
@@ -564,6 +584,7 @@ model GRNLabTest {
 
   grn         GRNReceive       @relation(fields: [grnId], references: [id])
   tester      User             @relation("LabTester", fields: [testedBy], references: [id])
+  rmLabCategory RMLabCategory? @relation(fields: [rmLabCategoryId], references: [id])
   testResults GRNLabTestResult[]
   labUsages   LabInventoryUsage[]
 
@@ -699,4 +720,42 @@ model LabInventoryUsage {
 
   @@index([labTestId])
   @@index([labItemId])
+}
+
+// ─────────────────────── RM Lab Category ───────────────────────
+
+model RMLabCategory {
+  id                String   @id @default(uuid())
+  name              String
+  code              String   @unique
+  labTests          String[] // array of test parameter names
+  acceptableResults String   @db.Text
+  rmExamples        String?  @db.Text
+  description       String?  @db.Text
+  status            String   @default("ACTIVE") // ACTIVE / INACTIVE
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  requiredResults   RMLabRequiredResult[]
+  grnLabTests       GRNLabTest[]
+
+  @@index([code])
+}
+
+model RMLabRequiredResult {
+  id              String   @id @default(uuid())
+  categoryId      String
+  paramName       String
+  paramUnit       String?  // e.g. %, g/L, CFU/ml
+  acceptableMin   Decimal? // minimum acceptable value
+  acceptableMax   Decimal? // maximum acceptable value
+  acceptableText  String?  @db.Text // textual description e.g. "Absent"
+  isRequired      Boolean  @default(true)
+  testMethod      String?  // test method description
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  category RMLabCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
 }
