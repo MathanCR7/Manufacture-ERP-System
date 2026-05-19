@@ -136,6 +136,8 @@ const MENU_GROUPS = [
     items: [
       { name: 'RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
       { name: 'Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: 'Stock Adjustment', path: '/rm/stock-adjustment/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: 'Stock Adjustment List', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
     ]
   },
   {
@@ -253,6 +255,7 @@ const MENU_GROUPS = [
 
 const AppShell = () => {
   const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const clearAuth = useAuthStore((state) => state.clearAuth);
   const navigate = useNavigate();
   const location = useLocation();
@@ -299,6 +302,14 @@ const AppShell = () => {
     setTimeout(applyLanguage, 500);
   }, [language]);
 
+  // Session verification
+  useEffect(() => {
+    if (!token || !user) {
+      clearAuth();
+      navigate('/login');
+    }
+  }, [token, user, clearAuth, navigate]);
+
   // Global search shortcut
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -322,20 +333,19 @@ const AppShell = () => {
 
   const toggleGroup = (groupId) => {
     setExpandedGroups((prev) => ({
-      ...prev,
       [groupId]: !prev[groupId]
     }));
   };
 
   const isItemActive = (path) => location.pathname.startsWith(path);
 
-  // Auto-expand group if it contains the active route
+  // Auto-expand group if it contains the active route (accordion mode: only one group)
   useEffect(() => {
     const currentGroup = MENU_GROUPS.find(group => 
       group.items.some(item => location.pathname.startsWith(item.path))
     );
     if (currentGroup) {
-      setExpandedGroups(prev => ({ ...prev, [currentGroup.id]: true }));
+      setExpandedGroups({ [currentGroup.id]: true });
     }
   }, [location.pathname]);
 
@@ -408,7 +418,7 @@ const AppShell = () => {
                 </button>
 
                 {/* Collapsible Sub-items */}
-                <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-96 opacity-100 mt-2' : 'max-h-0 opacity-0 mt-0'}`}>
+                <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100 mt-2' : 'max-h-0 opacity-0 mt-0'}`}>
                   <div className="ml-6 pl-4 border-l-2 border-slate-100 dark:border-slate-800 space-y-1 py-1">
                     {visibleItems.map((item) => {
                       const active = isItemActive(item.path);

@@ -15,6 +15,8 @@ import RMStockPage from '@/modules/purchase/pages/RMStockPage';
 import RMLowStockPage from '@/modules/purchase/pages/RMLowStockPage';
 import PurchaseReturnAddPage from '@/modules/purchase/pages/PurchaseReturnAddPage';
 import PurchaseReturnListPage from '@/modules/purchase/pages/PurchaseReturnListPage';
+import StockAdjustmentAddPage from '@/modules/purchase/pages/StockAdjustmentAddPage';
+import StockAdjustmentListPage from '@/modules/purchase/pages/StockAdjustmentListPage';
 
 import DashboardPage from '@/modules/dashboard/pages/DashboardPage';
 
@@ -167,6 +169,8 @@ const AppRouter = () => {
           <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']} />}>
             <Route path="/rm/stock" element={<RMStockPage />} />
             <Route path="/rm/stock/low" element={<RMLowStockPage />} />
+            <Route path="/rm/stock-adjustment/add" element={<StockAdjustmentAddPage />} />
+            <Route path="/rm/stock-adjustment/list" element={<StockAdjustmentListPage />} />
           </Route>
 
           {/* Lab Testing */}
@@ -224,6 +228,7 @@ const AppRouter = () => {
             <Route path="/setup/items" element={<PlaceholderPage title="Item Setup" />} />
             <Route path="/waste/raw-material" element={<RMWasteListPage />} />
             <Route path="/waste/raw-material/add" element={<CreateRMWastePage />} />
+            <Route path="/waste/raw-material/edit/:id" element={<CreateRMWastePage />} />
             <Route path="/audit-logs" element={<AuditLogListPage />} />
             <Route path="/admin/notifications-audit" element={<NotificationAuditPanel />} />
           </Route>

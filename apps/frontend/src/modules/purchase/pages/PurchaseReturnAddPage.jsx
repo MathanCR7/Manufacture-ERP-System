@@ -80,6 +80,12 @@ const PurchaseReturnAddPage = () => {
     queryFn: () => api.get('/users').then(r => r.data),
   });
 
+  // Fetch RM stock to get the RawMaterial's unit (unitId)
+  const { data: rmStockList = [] } = useQuery({
+    queryKey: ['rm-stock'],
+    queryFn: () => api.get('/rm-stock').then(r => r.data),
+  });
+
   // Auto-set supplier when PO is selected
   useEffect(() => {
     if (form.poId) {
@@ -94,6 +100,9 @@ const PurchaseReturnAddPage = () => {
   const selectedSupplier = suppliers.find(s => s.id === form.supplierId);
   const grnOptions = Array.isArray(grnForPO) ? grnForPO : grnForPO ? [grnForPO] : [];
   const selectedGRN = grnOptions.find(g => g.id === form.grnId);
+
+  const matchedRM = selectedPO ? rmStockList.find(rm => rm.code === selectedPO.rmId) : null;
+  const displayUom = matchedRM ? matchedRM.unit : selectedPO?.uom?.abbreviation;
 
   const mutation = useMutation({
     mutationFn: (payload) => api.post('/purchase-return', payload).then(r => r.data),
@@ -249,13 +258,13 @@ const PurchaseReturnAddPage = () => {
               </div>
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Ordered Qty</p>
-                <p className="text-sm font-medium text-slate-900 dark:text-white">{selectedPO.quantity} {selectedPO.uom?.abbreviation}</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">{selectedPO.quantity} {displayUom}</p>
               </div>
               {selectedGRN && (
                 <div>
                   <p className="text-xs text-slate-500 dark:text-slate-400">Received Qty</p>
                   <p className="text-sm font-medium text-slate-900 dark:text-white">
-                    {selectedGRN.items?.reduce((s, i) => s + Number(i.actualReceivedQty), 0)} {selectedPO.uom?.abbreviation}
+                    {selectedGRN.items?.reduce((s, i) => s + Number(i.actualReceivedQty), 0)} {displayUom}
                   </p>
                 </div>
               )}

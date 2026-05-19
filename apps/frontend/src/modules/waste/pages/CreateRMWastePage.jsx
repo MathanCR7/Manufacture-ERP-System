@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
@@ -130,18 +130,22 @@ function RawMaterialSelect({ rawMaterials, value, onChange, error }) {
 }
 
 export default function CreateRMWastePage() {
+  const { id } = useParams();
+  const isEditMode = !!id;
   const navigate = useNavigate();
   
   const [formData, setFormData] = useState({
     date: new Date(),
     note: '',
     responsibleId: '',
+    referenceNo: '',
   });
 
   const [wasteItems, setWasteItems] = useState([]);
   const [selectedRmForAdd, setSelectedRmForAdd] = useState(null);
   
   const [errorMsg, setErrorMsg] = useState('');
+  const [isDataLoaded, setIsDataLoaded] = useState(!isEditMode);
 
   const { data: refData, refetch: rotateRef, isFetching: isRotating } = useQuery({
     queryKey: ['generateRmWasteRef'],
@@ -150,20 +154,13 @@ export default function CreateRMWastePage() {
       return response.data;
     },
     refetchOnWindowFocus: false,
+    enabled: !isEditMode,
   });
 
   const { data: rawMaterials = [], isLoading: isLoadingRMs } = useQuery({
     queryKey: ['raw-materials-setup'],
     queryFn: async () => {
       const response = await api.get('/item-setup/raw-material');
-      return response.data;
-    }
-  });
-
-  const { data: allUoms = [] } = useQuery({
-    queryKey: ['uoms'],
-    queryFn: async () => {
-      const response = await api.get('/uom');
       return response.data;
     }
   });
@@ -176,6 +173,36 @@ export default function CreateRMWastePage() {
     }
   });
 
+  // Fetch Existing Data if Edit Mode
+  const { data: existingWasteData } = useQuery({
+    queryKey: ['rm-waste', id],
+    queryFn: async () => {
+      const response = await api.get(`/rm-waste/${id}`);
+      return response.data;
+    },
+    refetchOnWindowFocus: false,
+    enabled: isEditMode,
+  });
+
+  useEffect(() => {
+    if (isEditMode && existingWasteData && !isDataLoaded) {
+      setFormData({
+        referenceNo: existingWasteData.referenceNo,
+        date: new Date(existingWasteData.date),
+        note: existingWasteData.note || '',
+        responsibleId: existingWasteData.responsibleId || '',
+      });
+      setWasteItems(existingWasteData.items.map(item => ({
+        id: crypto.randomUUID(),
+        rm: item.rawMaterial,
+        quantity: item.quantity,
+        uomId: item.uomId,
+        lossAmount: item.lossAmount,
+      })));
+      setIsDataLoaded(true);
+    }
+  }, [existingWasteData, isEditMode, isDataLoaded]);
+
   const createMutation = useMutation({
     mutationFn: async (data) => {
       const response = await api.post('/rm-waste', data);
@@ -187,6 +214,20 @@ export default function CreateRMWastePage() {
     },
     onError: (err) => {
       setErrorMsg(err.response?.data?.error || 'Failed to log RM waste');
+    }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data) => {
+      const response = await api.put(`/rm-waste/${id}`, data);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      alert(`RM Waste Updated successfully — ${data.referenceNo}`);
+      navigate('/waste/raw-material');
+    },
+    onError: (err) => {
+      setErrorMsg(err.response?.data?.error || 'Failed to update RM waste');
     }
   });
 
@@ -208,13 +249,13 @@ export default function CreateRMWastePage() {
     setSelectedRmForAdd(null);
   };
 
-  const handleRemoveRm = (id) => {
-    setWasteItems(wasteItems.filter(item => item.id !== id));
+  const handleRemoveRm = (itemId) => {
+    setWasteItems(wasteItems.filter(item => item.id !== itemId));
   };
 
-  const handleItemChange = (id, field, value) => {
+  const handleItemChange = (itemId, field, value) => {
     setWasteItems(wasteItems.map(item => 
-      item.id === id ? { ...item, [field]: value } : item
+      item.id === itemId ? { ...item, [field]: value } : item
     ));
   };
 
@@ -249,7 +290,7 @@ export default function CreateRMWastePage() {
       }
     }
 
-    createMutation.mutate({
+    const payload = {
       date: formData.date.toISOString(),
       note: formData.note,
       responsibleId: formData.responsibleId,
@@ -260,10 +301,24 @@ export default function CreateRMWastePage() {
         uomId: item.uomId,
         lossAmount: Number(item.lossAmount),
       }))
-    });
+    };
+
+    if (isEditMode) {
+      updateMutation.mutate(payload);
+    } else {
+      createMutation.mutate(payload);
+    }
   };
 
+  if (!isDataLoaded) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
+  const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -272,8 +327,12 @@ export default function CreateRMWastePage() {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Add RM Waste</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Log raw material wastage and associated loss.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            {isEditMode ? 'Edit RM Waste' : 'Add RM Waste'}
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            {isEditMode ? 'Update raw material wastage and associated loss.' : 'Log raw material wastage and associated loss.'}
+          </p>
         </div>
       </div>
 
@@ -283,12 +342,16 @@ export default function CreateRMWastePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 border-b border-slate-200 dark:border-slate-800">
             <div className="space-y-2">
               <Label className="text-red-500">Reference No *</Label>
-              <div className="flex">
-                <Input value={isRotating ? '------' : refData?.candidateId || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-800/50 rounded-r-none font-mono text-indigo-600 dark:text-indigo-400" />
-                <Button type="button" variant="outline" size="icon" className="rounded-l-none border-l-0" onClick={(e) => { e.preventDefault(); rotateRef(); }} disabled={isRotating}>
-                  <RefreshCw className={twMerge("w-4 h-4 text-slate-500", isRotating && "animate-spin")} />
-                </Button>
-              </div>
+              {isEditMode ? (
+                <Input value={formData.referenceNo || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-800/50 font-mono text-indigo-600 dark:text-indigo-400" />
+              ) : (
+                <div className="flex">
+                  <Input value={isRotating ? '------' : refData?.candidateId || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-800/50 rounded-r-none font-mono text-indigo-600 dark:text-indigo-400" />
+                  <Button type="button" variant="outline" size="icon" className="rounded-l-none border-l-0" onClick={(e) => { e.preventDefault(); rotateRef(); }} disabled={isRotating}>
+                    <RefreshCw className={twMerge("w-4 h-4 text-slate-500", isRotating && "animate-spin")} />
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 flex flex-col">
@@ -417,9 +480,9 @@ export default function CreateRMWastePage() {
           )}
 
           <div className="p-6 border-t border-slate-200 dark:border-slate-800 flex space-x-4 bg-slate-50 dark:bg-slate-900/50">
-            <Button type="submit" disabled={createMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 min-w-28 text-white">
-              {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-              {createMutation.isPending ? 'Submitting...' : 'Submit'}
+            <Button type="submit" disabled={isPending} className="bg-indigo-600 hover:bg-indigo-700 min-w-28 text-white">
+              {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+              {isPending ? (isEditMode ? 'Updating...' : 'Submitting...') : (isEditMode ? 'Update' : 'Submit')}
             </Button>
             <Button type="button" variant="outline" onClick={() => navigate('/waste/raw-material')} className="min-w-28">
               Back

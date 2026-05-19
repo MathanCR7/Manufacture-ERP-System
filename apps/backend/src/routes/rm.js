@@ -543,7 +543,7 @@ const createRMWasteSchema = z.object({
   items: z.array(z.object({
     rawMaterialId: z.string().uuid(),
     quantity: z.coerce.number().positive(),
-    uomId: z.string().uuid(),
+    uomId: z.string().min(1),
     lossAmount: z.coerce.number().nonnegative(),
   })).min(1)
 });
@@ -553,6 +553,14 @@ router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPE
   try {
     const parsedData = createRMWasteSchema.parse(req.body);
     
+    const itemsWithResolvedUoms = await Promise.all(parsedData.items.map(async (item) => {
+      const resolvedUomId = await resolveUomId(item.uomId);
+      if (!resolvedUomId) {
+        throw new z.ZodError([{ path: ['items', 'uomId'], message: `Invalid UOM provided: ${item.uomId}` }]);
+      }
+      return { ...item, uomId: resolvedUomId };
+    }));
+
     const waste = await prisma.$transaction(async (tx) => {
       const referenceNo = await generateReferenceNo(tx, 'RMWaste', 'RMW');
       
@@ -565,7 +573,7 @@ router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPE
           responsibleId: parsedData.responsibleId,
           createdBy: req.user.id,
           items: {
-            create: parsedData.items.map(item => ({
+            create: itemsWithResolvedUoms.map(item => ({
               rawMaterialId: item.rawMaterialId,
               quantity: item.quantity,
               uomId: item.uomId,
@@ -606,12 +614,135 @@ router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPE
   }
 });
 
+// GET /api/rm-waste/:id
+router.get('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const waste = await prisma.rMWaste.findUnique({
+      where: { id: req.params.id },
+      include: {
+        items: {
+          include: { rawMaterial: true, uom: true }
+        },
+        responsibleUser: { select: { name: true, role: true } },
+        creatorUser: { select: { name: true, role: true } }
+      }
+    });
+    if (!waste) {
+      return res.status(404).json({ error: 'RM Waste not found' });
+    }
+    res.json(waste);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PUT /api/rm-waste/:id
+router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const existing = await prisma.rMWaste.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'RM Waste not found' });
+    }
+
+    const parsedData = createRMWasteSchema.parse(req.body);
+
+    const itemsWithResolvedUoms = await Promise.all(parsedData.items.map(async (item) => {
+      const resolvedUomId = await resolveUomId(item.uomId);
+      if (!resolvedUomId) {
+        throw new z.ZodError([{ path: ['items', 'uomId'], message: `Invalid UOM provided: ${item.uomId}` }]);
+      }
+      return { ...item, uomId: resolvedUomId };
+    }));
+
+    const updatedWaste = await prisma.$transaction(async (tx) => {
+      // Revert old stock
+      for (const oldItem of existing.items) {
+        await tx.rawMaterial.update({
+          where: { id: oldItem.rawMaterialId },
+          data: { currentStock: { increment: oldItem.quantity } }
+        });
+      }
+
+      // Update waste
+      const waste = await tx.rMWaste.update({
+        where: { id },
+        data: {
+          date: new Date(parsedData.date),
+          totalLoss: parsedData.totalLoss,
+          note: parsedData.note,
+          responsibleId: parsedData.responsibleId,
+          items: {
+            deleteMany: {},
+            create: itemsWithResolvedUoms.map(item => ({
+              rawMaterialId: item.rawMaterialId,
+              quantity: item.quantity,
+              uomId: item.uomId,
+              lossAmount: item.lossAmount
+            }))
+          }
+        },
+        include: { items: true }
+      });
+
+      // Apply new stock
+      for (const item of parsedData.items) {
+        const rm = await tx.rawMaterial.update({
+          where: { id: item.rawMaterialId },
+          data: { currentStock: { decrement: item.quantity } }
+        });
+        
+        if (Number(rm.currentStock) <= Number(rm.alertLevel)) {
+          await workflowNotifications.triggerRMLowStockAlert?.({
+            rmId: rm.id,
+            rmName: rm.name,
+            currentStock: rm.currentStock,
+            reorderLevel: rm.alertLevel
+          });
+        }
+      }
+
+      return waste;
+    });
+
+    res.json(updatedWaste);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    next(error);
+  }
+});
+
 // DELETE /api/rm-waste/:id
 router.delete('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
   try {
-    await prisma.rMWaste.delete({
-      where: { id: req.params.id }
+    const existing = await prisma.rMWaste.findUnique({
+      where: { id: req.params.id },
+      include: { items: true }
     });
+    
+    if (!existing) {
+      return res.status(404).json({ error: 'RM Waste not found' });
+    }
+    
+    await prisma.$transaction(async (tx) => {
+      // Revert stock
+      for (const item of existing.items) {
+        await tx.rawMaterial.update({
+          where: { id: item.rawMaterialId },
+          data: { currentStock: { increment: item.quantity } }
+        });
+      }
+      
+      await tx.rMWaste.delete({
+        where: { id: req.params.id }
+      });
+    });
+    
     res.json({ message: 'RM Waste deleted successfully' });
   } catch (error) {
     next(error);

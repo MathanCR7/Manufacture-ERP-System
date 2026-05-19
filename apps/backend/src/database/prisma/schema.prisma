@@ -99,6 +99,7 @@ model User {
   labInventoryAdded      LabInventoryItem[] @relation("LabInventoryAdder")
   labInventoryUsages     LabInventoryUsage[] @relation("LabInventoryUser")
   attendanceLogs    AttendanceLog[]
+  rmStockAdjustments RMStockAdjustment[]
 
   @@index([email])
   @@index([role])
@@ -439,6 +440,24 @@ model RawMaterial {
   category RMCategory @relation(fields: [categoryId], references: [id])
   uoms     UOM[]      @relation("RawMaterialUOMs")
   wasteItems RMWasteItem[]
+  stockAdjustments RMStockAdjustment[]
+}
+
+model RMStockAdjustment {
+  id              String   @id @default(uuid())
+  rawMaterialId   String
+  type            String   // ADDITION or SUBTRACTION
+  quantity        Decimal
+  notes           String?  @db.Text
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  rawMaterial     RawMaterial @relation(fields: [rawMaterialId], references: [id])
+  user            User        @relation(fields: [createdBy], references: [id])
+
+  @@index([rawMaterialId])
+  @@index([type])
 }
 
 model NonInventoryItem {

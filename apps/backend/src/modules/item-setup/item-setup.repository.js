@@ -16,7 +16,10 @@ class ItemSetupRepository {
     }); 
   }
   async getRawMaterialById(id) { return prisma.rawMaterial.findUnique({ where: { id }, include: { category: true, uoms: true } }); }
-  async updateRawMaterial(id, data) { return prisma.rawMaterial.update({ where: { id }, data }); }
+  async updateRawMaterial(id, data) { 
+    const { category, uoms, createdAt, updatedAt, id: _, stockAdjustments, wasteItems, ...updateData } = data;
+    return prisma.rawMaterial.update({ where: { id }, data: updateData }); 
+  }
   async deleteRawMaterial(id) { return prisma.rawMaterial.delete({ where: { id } }); }
 
   // Non Inventory Item

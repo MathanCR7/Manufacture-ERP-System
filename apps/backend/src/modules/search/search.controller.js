@@ -6,7 +6,7 @@ const search = async (req, res, next) => {
     if (!q || q.trim().length < 2) return res.json({ results: {} });
     const query = q.trim();
 
-    const [pos, grns, suppliers, customers, rawMaterials, purchaseReturns, inventoryBatches] = await Promise.all([
+    const [pos, grns, suppliers, customers, rawMaterials, purchaseReturns, inventoryBatches, rmWastes] = await Promise.all([
       prisma.rawMaterialPO.findMany({
         where: { OR: [{ referenceNo: { contains: query, mode: 'insensitive' } }, { name: { contains: query, mode: 'insensitive' } }] },
         select: { id: true, referenceNo: true, name: true, status: true, createdAt: true }, take: 8
@@ -35,6 +35,10 @@ const search = async (req, res, next) => {
         where: { OR: [{ batchNumber: { contains: query, mode: 'insensitive' } }, { rawMaterialName: { contains: query, mode: 'insensitive' } }] },
         select: { id: true, batchNumber: true, rawMaterialName: true, status: true }, take: 5
       }),
+      prisma.rMWaste.findMany({
+        where: { OR: [{ referenceNo: { contains: query, mode: 'insensitive' } }, { note: { contains: query, mode: 'insensitive' } }] },
+        select: { id: true, referenceNo: true, note: true }, take: 5
+      }),
     ]);
 
     res.json({
@@ -46,6 +50,7 @@ const search = async (req, res, next) => {
         rawMaterials: rawMaterials.map(r => ({ ...r, type: 'RM', label: r.name, subtitle: r.code, link: `/setup/raw-material` })),
         purchaseReturns: purchaseReturns.map(r => ({ ...r, type: 'RETURN', label: r.referenceNo, subtitle: r.status, link: `/purchase-return/list` })),
         inventoryBatches: inventoryBatches.map(b => ({ ...b, type: 'BATCH', label: b.batchNumber, subtitle: b.rawMaterialName, link: `/inventory/list` })),
+        rmWastes: rmWastes.map(r => ({ ...r, type: 'RM_WASTE', label: r.referenceNo, subtitle: r.note || 'Waste Record', link: `/waste/raw-material/edit/${r.id}` })),
       }
     });
   } catch (err) { next(err); }
