@@ -1,5 +1,5 @@
 import React from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { format } from 'date-fns';
@@ -18,7 +18,19 @@ function QRDisplay({ text }) {
       });
     }
   }, [text]);
-  return <canvas ref={canvasRef} className="rounded-lg border border-slate-200 dark:border-slate-700" />;
+  return (
+    <div 
+      draggable="true"
+      onDragStart={(e) => {
+        e.dataTransfer.setData('text/plain', text);
+        e.dataTransfer.effectAllowed = 'copy';
+      }}
+      className="cursor-grab active:cursor-grabbing hover:scale-105 hover:shadow-md transition-all duration-200 bg-white dark:bg-slate-800 p-2 rounded-xl border border-slate-100 dark:border-slate-700"
+      title="Drag and drop this QR code onto the header Scan icon to track its lifecycle!"
+    >
+      <canvas ref={canvasRef} className="rounded-lg border border-slate-200 dark:border-slate-700" />
+    </div>
+  );
 }
 
 const GRN_STATUS_MAP = {
@@ -31,6 +43,8 @@ const GRN_STATUS_MAP = {
 export default function GRNViewPage() {
   const { grnId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromNotifications = location.state?.from === '/notifications';
 
   const { data: grn, isLoading } = useQuery({
     queryKey: ['grn-detail', grnId],
@@ -42,6 +56,16 @@ export default function GRNViewPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {fromNotifications && (
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => navigate('/notifications')} 
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Notifications Center
+        </Button>
+      )}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full text-slate-500">
           <ArrowLeft className="w-5 h-5" />

@@ -100,6 +100,15 @@ model User {
   labInventoryUsages     LabInventoryUsage[] @relation("LabInventoryUser")
   attendanceLogs    AttendanceLog[]
   rmStockAdjustments RMStockAdjustment[]
+  finishedProducts FinishedProduct[] @relation("FinishedProductCreator")
+  productionBatchesNew ProductionBatchNew[] @relation("ProductionBatchNewCreator")
+  productStockLevels ProductStockLevel[]
+  productionLosses ProductionLoss[] @relation("ProductionLossCreator")
+  productionLossesResp ProductionLoss[] @relation("ProductionLossResponsible")
+  labProductionTestsNew LabProductionTestNew[] @relation("LabProductionTestNewTester")
+  productStockMovements ProductStockMovement[] @relation("StockMovementCreator")
+  customerOrdersNew CustomerOrder[] @relation("CustomerOrderCreator")
+  productWastagesCreated ProductWastage[] @relation("ProductWastagesCreated")
 
   @@index([email])
   @@index([role])
@@ -301,6 +310,7 @@ model UOM {
   rawMaterials   RawMaterial[] @relation("RawMaterialUOMs")
   rmWasteItems   RMWasteItem[]
   inventoryBatches InventoryBatch[]
+  finishedProducts FinishedProduct[] @relation("FinishedProductUOM")
 }
 
 model AuditLog {
@@ -392,6 +402,7 @@ model Customer {
   updatedAt       DateTime  @updatedAt
 
   user User? @relation(fields: [addedBy], references: [id])
+  ordersNew CustomerOrder[] @relation("CustomerOrders")
 }
 
 model Expense {
@@ -441,6 +452,9 @@ model RawMaterial {
   uoms     UOM[]      @relation("RawMaterialUOMs")
   wasteItems RMWasteItem[]
   stockAdjustments RMStockAdjustment[]
+  productBOMs ProductBOM[]
+  productionBatchRMUsages ProductionBatchRMUsage[]
+  productionLossMaterials ProductionLossMaterial[]
 }
 
 model RMStockAdjustment {
@@ -469,6 +483,7 @@ model NonInventoryItem {
   ratePerUnit Decimal  @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  productNonInventoryCosts ProductNonInventoryCost[]
 }
 
 model ProductCategory {
@@ -480,6 +495,7 @@ model ProductCategory {
   updatedAt   DateTime @updatedAt
 
   products Product[]
+  finishedProducts FinishedProduct[] @relation("FinishedProductCategory")
 }
 
 model Product {
@@ -777,4 +793,332 @@ model RMLabRequiredResult {
   category RMLabCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@index([categoryId])
+}
+
+model FinishedProduct {
+  id                    String                      @id @default(uuid())
+  code                  String                      @unique // FP-000001
+  name                  String
+  categoryId            String                      @map("category_id")
+  unitId                String                      @map("unit_id")
+  stockMethod           String                      @map("stock_method") // FIFO, LIFO, etc.
+  totalRawMaterialCost  Decimal                     @default(0) @map("total_raw_material_cost")
+  totalNonInventoryCost Decimal                     @default(0) @map("total_non_inventory_cost")
+  totalCost             Decimal                     @default(0) @map("total_cost")
+  profitMargin          Decimal                     @default(0) @map("profit_margin")
+  cgst                  Decimal                     @default(18.00)
+  sgst                  Decimal                     @default(9.00)
+  igst                  Decimal                     @default(9.00)
+  salePrice             Decimal                     @default(0) @map("sale_price")
+  openingStock          Decimal                     @default(0) @map("opening_stock")
+  currentStock          Decimal                     @default(0) @map("current_stock")
+  alertLevel            Decimal                     @default(0) @map("alert_level")
+  createdBy             String                      @map("created_by")
+  deletedAt             DateTime?                   @map("deleted_at")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  updatedAt             DateTime                    @updatedAt @map("updated_at")
+
+  // Relations
+  creator             User                        @relation("FinishedProductCreator", fields: [createdBy], references: [id])
+  category            ProductCategory             @relation("FinishedProductCategory", fields: [categoryId], references: [id])
+  unit                UOM                         @relation("FinishedProductUOM", fields: [unitId], references: [id])
+  bom                 ProductBOM[]
+  nonInventoryCosts   ProductNonInventoryCost[]
+  stages              ProductStage[]
+  stockLevels         ProductStockLevel[]
+  productionBatches   ProductionBatchNew[]
+  stockMovements      ProductStockMovement[]
+  orderItems          CustomerOrderItem[]
+  lossProducts        ProductionLossProduct[]
+  wastages            ProductWastage[] @relation("ProductWastages")
+
+  @@map("products")
+}
+
+model ProductBOM {
+  id                 String          @id @default(uuid())
+  productId          String          @map("product_id")
+  rmId               String          @map("rm_id") // raw material id
+  consumptionPerUnit Decimal         @map("consumption_per_unit")
+  unitPrice          Decimal         @map("unit_price")
+  totalCost          Decimal         @map("total_cost")
+
+  product            FinishedProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rawMaterial        RawMaterial     @relation(fields: [rmId], references: [id])
+
+  @@map("product_bom")
+}
+
+model ProductNonInventoryCost {
+  id         String            @id @default(uuid())
+  productId  String            @map("product_id")
+  itemId     String            @map("item_id")
+  cost       Decimal
+
+  product    FinishedProduct   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  item       NonInventoryItem  @relation(fields: [itemId], references: [id])
+
+  @@map("product_non_inventory_cost")
+}
+
+model ProductStage {
+  id         String                @id @default(uuid())
+  productId  String                @map("product_id")
+  stageId    String                @map("stage_id")
+  months     Int                   @default(0)
+  days       Int                   @default(0)
+  hours      Int                   @default(0)
+  minutes    Int                   @default(0)
+  sortOrder  Int                   @default(0) @map("sort_order")
+
+  product    FinishedProduct       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stage      ProductionStageMaster @relation(fields: [stageId], references: [id])
+
+  @@map("product_stages")
+}
+
+model ProductStockLevel {
+  id           String          @id @default(uuid())
+  productId    String          @unique @map("product_id")
+  minLevel     Decimal         @map("min_level")
+  maxLevel     Decimal         @map("max_level")
+  reorderPoint Decimal         @map("reorder_point")
+  updatedBy    String          @map("updated_by")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  product      FinishedProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  updater      User            @relation(fields: [updatedBy], references: [id])
+
+  @@map("product_stock_levels")
+}
+
+model ProductionBatchNew {
+  id                  String                      @id @default(uuid())
+  referenceNo         String                      @unique @map("reference_no") // MP-XXXXXX
+  productId           String                      @map("product_id")
+  productionType      String                      @map("production_type") // Make to Stock / Make to Order
+  status              String                      @default("Planned") // Planned, In Progress, Completed, On Hold, Cancelled, qc_passed, qc_failed
+  startDate           DateTime                    @map("start_date")
+  completeDate        DateTime?                   @map("complete_date")
+  batchNo             String?                     @map("batch_no")
+  expiryDays          Int                         @map("expiry_days")
+  expiryDate          DateTime?                   @map("expiry_date")
+  quantity            Decimal
+  partiallyDoneQty    Decimal                     @default(0) @map("partially_done_quantity")
+  remainingQty        Decimal                     @map("remaining_quantity")
+  currentStageId      String?                     @map("current_stage_id")
+  totalCost           Decimal                     @default(0) @map("total_cost")
+  profitMargin        Decimal                     @default(0) @map("profit_margin")
+  cgst                Decimal                     @default(18.00)
+  sgst                Decimal                     @default(9.00)
+  igst                Decimal                     @default(9.00)
+  salePrice           Decimal                     @default(0) @map("sale_price")
+  note                String?                     @db.Text
+  attachmentPath      String?                     @map("attachment_path")
+  createdBy           String                      @map("created_by")
+  deletedAt           DateTime?                   @map("deleted_at")
+  createdAt           DateTime                    @default(now()) @map("created_at")
+  updatedAt           DateTime                    @updatedAt @map("updated_at")
+
+  orderId             String?                     @map("order_id")
+  order               CustomerOrder?              @relation(fields: [orderId], references: [id])
+  product             FinishedProduct             @relation(fields: [productId], references: [id])
+  creator             User                        @relation("ProductionBatchNewCreator", fields: [createdBy], references: [id])
+  currentStage        ProductionStageMaster?      @relation(fields: [currentStageId], references: [id])
+  rmUsages            ProductionBatchRMUsage[]
+  qcTests             LabProductionTestNew[]
+  stockMovements      ProductStockMovement[]
+  losses              ProductionLoss[]
+
+  @@map("production_batches")
+}
+
+model ProductionBatchRMUsage {
+  id                  String             @id @default(uuid())
+  batchId             String             @map("batch_id")
+  rmId                String             @map("rm_id") // raw material id
+  requiredQty         Decimal            @map("required_qty")
+  availableQtyAtTime  Decimal            @map("available_qty_at_time")
+  actualUsedQty       Decimal            @map("actual_used_qty")
+  unitCost            Decimal            @map("unit_cost")
+  totalCost           Decimal            @map("total_cost")
+  status              String             @default("Sufficient") // Sufficient / Insufficient
+
+  batch               ProductionBatchNew @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rawMaterial         RawMaterial        @relation(fields: [rmId], references: [id])
+
+  @@map("production_batch_rm_usage")
+}
+
+model ProductionLoss {
+  id                  String                     @id @default(uuid())
+  date                DateTime
+  responsiblePersonId String                     @map("responsible_person_id")
+  productionBatchId   String                     @map("production_batch_id")
+  totalLoss           Decimal                    @default(0) @map("total_loss")
+  note                String?                    @db.Text
+  createdBy           String                     @map("created_by")
+  createdAt           DateTime                   @default(now()) @map("created_at")
+
+  responsiblePerson   User                       @relation("ProductionLossResponsible", fields: [responsiblePersonId], references: [id])
+  creator             User                       @relation("ProductionLossCreator", fields: [createdBy], references: [id])
+  batch               ProductionBatchNew         @relation(fields: [productionBatchId], references: [id])
+  lossProducts        ProductionLossProduct[]
+  lossMaterials       ProductionLossMaterial[]
+
+  @@map("production_loss")
+}
+
+model ProductionLossProduct {
+  id            String          @id @default(uuid())
+  lossId        String          @map("loss_id")
+  productId     String          @map("product_id")
+  productionQty Decimal         @map("production_qty")
+  lossQty       Decimal         @map("loss_qty")
+  lossAmount    Decimal         @map("loss_amount")
+
+  loss          ProductionLoss  @relation(fields: [lossId], references: [id], onDelete: Cascade)
+  product       FinishedProduct @relation(fields: [productId], references: [id])
+
+  @@map("production_loss_products")
+}
+
+model ProductionLossMaterial {
+  id            String          @id @default(uuid())
+  lossId        String          @map("loss_id")
+  rmId          String          @map("rm_id")
+  productionQty Decimal         @map("production_qty")
+  lossQty       Decimal         @map("loss_qty")
+  lossAmount    Decimal         @map("loss_amount")
+
+  loss          ProductionLoss  @relation(fields: [lossId], references: [id], onDelete: Cascade)
+  rawMaterial   RawMaterial     @relation(fields: [rmId], references: [id])
+
+  @@map("production_loss_materials")
+}
+
+model LabProductionTestNew {
+  id                String             @id @default(uuid())
+  productionBatchId String             @map("production_batch_id")
+  expiryDate        DateTime           @map("expiry_date")
+  qcNotes           String?            @db.Text @map("qc_notes")
+  result            String             // pass / fail / partial
+  action            String             // approved / rejected
+  testedBy          String             @map("tested_by")
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  batch             ProductionBatchNew @relation(fields: [productionBatchId], references: [id])
+  tester            User               @relation("LabProductionTestNewTester", fields: [testedBy], references: [id])
+
+  @@map("lab_production_test")
+}
+
+model ProductStockMovement {
+  id          String             @id @default(uuid())
+  productId   String             @map("product_id")
+  batchId     String?            @map("batch_id")
+  orderId     String?            @map("order_id")
+  type        String             // production_in / order_allocation / order_return / adjustment
+  quantity    Decimal
+  direction   Int                // +1 (in) / -1 (out)
+  note        String?            @db.Text
+  createdBy   String             @map("created_by")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  product     FinishedProduct    @relation(fields: [productId], references: [id])
+  batch       ProductionBatchNew? @relation(fields: [batchId], references: [id])
+  order       CustomerOrder?     @relation(fields: [orderId], references: [id])
+  creator     User               @relation("StockMovementCreator", fields: [createdBy], references: [id])
+
+  @@map("product_stock_movements")
+}
+
+model CustomerOrder {
+  id             String                   @id @default(uuid())
+  referenceNo    String                   @unique @map("reference_no") // CO-XXXXXX
+  customerId     String                   @map("customer_id")
+  type           String                   // Quotation / Sales Order / Invoice
+  deliveryDate   DateTime                 @map("delivery_date")
+  deliveryAddress String?                 @db.Text @map("delivery_address")
+  quotationNote  String?                  @db.Text @map("quotation_note")
+  internalNote   String?                  @db.Text @map("internal_note")
+  status         String                   @default("Quotation") // Quotation / Confirmed / Waiting for Production / In Production / Ready for Shipment / Delivered / Cancelled
+  totalSubtotal  Decimal                  @default(0) @map("total_subtotal")
+  totalCost      Decimal                  @default(0) @map("total_cost")
+  totalProfit    Decimal                  @default(0) @map("total_profit")
+  createdBy      String                   @map("created_by")
+  deletedAt      DateTime?                @map("deleted_at")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+
+  customer       Customer                 @relation("CustomerOrders", fields: [customerId], references: [id])
+  creator        User                     @relation("CustomerOrderCreator", fields: [createdBy], references: [id])
+  items          CustomerOrderItem[]
+  deliveries     CustomerOrderDelivery[]
+  stockMovements ProductStockMovement[]
+  productionBatches ProductionBatchNew[]
+
+  @@map("customer_orders")
+}
+
+model CustomerOrderItem {
+  id           String          @id @default(uuid())
+  orderId      String          @map("order_id")
+  productId    String          @map("product_id")
+  quantity     Decimal
+  unitPrice    Decimal         @map("unit_price")
+  discount     Decimal         @default(0)
+  subtotal     Decimal
+  cost         Decimal
+  profit       Decimal
+  deliveryDate DateTime        @map("delivery_date")
+
+  order        CustomerOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product      FinishedProduct @relation(fields: [productId], references: [id])
+
+  @@map("customer_order_items")
+}
+
+model CustomerOrderDelivery {
+  id           String        @id @default(uuid())
+  orderId      String        @map("order_id")
+  deliveryDate DateTime      @map("delivery_date")
+  quantity     Decimal
+  status       String        // Pending / Shipped / Delivered
+  note         String?       @db.Text
+
+  order        CustomerOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("customer_order_deliveries")
+}
+
+model ProductionStageMaster {
+  id          String               @id @default(uuid())
+  name        String
+  description String?              @db.Text
+  isActive    Boolean              @default(true) @map("is_active")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+
+  productStages ProductStage[]
+  batches       ProductionBatchNew[]
+
+  @@map("production_stages")
+}
+
+model ProductWastage {
+  id          String          @id @default(uuid())
+  referenceNo String          @unique @map("reference_no")
+  productId   String          @map("product_id")
+  quantity    Decimal
+  note        String?         @db.Text
+  date        DateTime        @default(now())
+  createdBy   String          @map("created_by")
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  product     FinishedProduct @relation("ProductWastages", fields: [productId], references: [id])
+  creator     User            @relation("ProductWastagesCreated", fields: [createdBy], references: [id])
+
+  @@map("product_wastages")
 }

@@ -1,112 +1,142 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { useForm } from 'react-hook-form';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
+import Swal from 'sweetalert2';
 import {
   ArrowLeft, Save, Loader2, AlertCircle, Package, DollarSign,
-  BarChart2, ChevronDown, Search, X, Tag, Hash, Calendar,
-  ToggleLeft, AlignLeft, Info
+  Search, Trash2, Plus, Info, Check, Percent, Settings, Clock, ChevronDown, X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
 const UOM_OPTIONS = [
-  'gm','kg','mg','lb','ton','liter','ml','dl','gallon',
-  'pcs','box','carton','pack','bag','sack','bottle','can','drum',
-  'roll','sheet','unit','dozen','set','kit','bundle'
+  // Weight
+  'gm', 'kg', 'mg', 'lb', 'oz', 'ton', 'metric ton', 'quintal',
+  // Volume
+  'liter', 'ml', 'cl', 'dl', 'gallon', 'quart', 'pint', 'fluid oz', 'cubic meter', 'cubic ft', 'cubic cm', 'cubic inch',
+  // Length
+  'meter', 'cm', 'mm', 'km', 'inch', 'feet', 'yard', 'mile',
+  // Area
+  'square meter', 'square ft', 'square cm', 'square inch', 'square yard', 'acre', 'hectare',
+  // Count / Packaging
+  'pcs', 'pair', 'dozen', 'gross', 'set', 'kit', 'bundle', 'box', 'carton', 'case', 'pack', 'bag', 'sack', 'pallet', 'tray', 'tube', 'bottle', 'can', 'drum', 'barrel', 'cylinder',
+  // Roll / Sheet
+  'roll', 'sheet', 'ream',
+  // Time-based
+  'hour', 'day',
+  // Energy
+  'kWh', 'MJ',
+  // Other
+  'unit', 'lot', 'assortment'
 ];
 
-// ─── Shared input styles ───────────────────────────────────────────────────────
-const base = 'w-full px-3 py-2.5 border rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow';
-const err  = 'w-full px-3 py-2.5 border border-red-400 rounded-lg bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-transparent transition-shadow';
-
-function FieldLabel({ children, required, hint }) {
-  return (
-    <label className="flex items-center gap-1 text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-      {children}
-      {required && <span className="text-red-500">*</span>}
-      {hint && (
-        <span title={hint}>
-          <Info className="w-3.5 h-3.5 text-slate-400 cursor-help" />
-        </span>
-      )}
-    </label>
-  );
-}
-function FieldError({ message }) {
-  return (
-    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-      <AlertCircle className="w-3 h-3 shrink-0" />{message}
-    </p>
-  );
-}
-
-// ─── Searchable UOM Select ─────────────────────────────────────────────────────
-function UomSelect({ value, onChange, error: hasError }) {
+// Searchable UOM Dropdown Component (matches raw-material setup)
+function UomSelect({ value, onChange, error }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const ref = useRef(null);
-  const inputRef = useRef(null);
-  const filtered = UOM_OPTIONS.filter(u => u.toLowerCase().includes(search.toLowerCase()));
+  const containerRef = useRef(null);
+  const searchRef = useRef(null);
+
+  const filtered = UOM_OPTIONS.filter(uom =>
+    uom.toLowerCase().includes(search.toLowerCase())
+  );
 
   useEffect(() => {
-    const handler = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setSearch(''); }};
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  useEffect(() => { if (open && inputRef.current) inputRef.current.focus(); }, [open]);
+  useEffect(() => {
+    if (open && searchRef.current) {
+      searchRef.current.focus();
+    }
+  }, [open]);
+
+  const handleSelect = (uom) => {
+    onChange(uom);
+    setOpen(false);
+    setSearch('');
+  };
+
+  const handleClear = (e) => {
+    e.stopPropagation();
+    onChange('');
+    setSearch('');
+  };
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => setOpen(p => !p)}
-        className={`${hasError ? err : base} flex items-center justify-between`}
+        onClick={() => setOpen(prev => !prev)}
+        className={`w-full px-3 py-2 border rounded-xl text-left flex items-center justify-between bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10 ${error ? 'border-red-400' : 'border-slate-200 dark:border-slate-700'}`}
       >
-        <span className={value ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-          {value || 'Select UOM…'}
+        <span className={value ? 'text-slate-950 dark:text-white font-medium text-sm' : 'text-slate-400 text-sm'}>
+          {value || 'Select UOM...'}
         </span>
         <div className="flex items-center gap-1">
           {value && (
-            <span onMouseDown={e => { e.stopPropagation(); onChange(''); }}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5 rounded">
+            <span
+              onMouseDown={handleClear}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5 rounded"
+            >
               <X className="w-3 h-3" />
             </span>
           )}
-          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
         </div>
       </button>
+
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg">
-          <div className="p-2 border-b dark:border-slate-700">
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg">
+          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-              <input ref={inputRef} type="text" value={search} onChange={e => setSearch(e.target.value)}
-                placeholder="Search UOM…"
-                className="w-full pl-7 pr-6 py-1.5 text-sm border rounded border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search UOM..."
+                className="w-full pl-7 pr-7 py-1.5 text-sm border rounded border-slate-250 dark:border-slate-650 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
               {search && (
-                <button type="button" onMouseDown={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                <button
+                  type="button"
+                  onMouseDown={() => setSearch('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
                   <X className="w-3 h-3" />
                 </button>
               )}
             </div>
           </div>
-          <ul className="max-h-48 overflow-y-auto py-1">
-            {filtered.length === 0
-              ? <li className="px-3 py-2 text-sm text-slate-400 text-center">No results</li>
-              : filtered.map(u => (
-                <li key={u} onMouseDown={() => { onChange(u); setOpen(false); setSearch(''); }}
-                  className={`px-3 py-2 text-sm cursor-pointer select-none ${value === u
-                    ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-medium'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'}`}>
-                  {u}
+
+          <ul className="max-h-52 overflow-y-auto py-1">
+            {filtered.length === 0 ? (
+              <li className="px-3 py-2 text-sm text-slate-400 text-center">No results found</li>
+            ) : (
+              filtered.map(uom => (
+                <li
+                  key={uom}
+                  onMouseDown={() => handleSelect(uom)}
+                  className={`px-3 py-2 text-sm cursor-pointer select-none ${
+                    value === uom
+                      ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-semibold'
+                      : 'text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  {uom}
                 </li>
               ))
-            }
+            )}
           </ul>
         </div>
       )}
@@ -114,341 +144,1003 @@ function UomSelect({ value, onChange, error: hasError }) {
   );
 }
 
-// ─── Section Card ─────────────────────────────────────────────────────────────
-function SectionCard({ icon: Icon, iconColor, title, subtitle, children }) {
-  return (
-    <Card className="dark:bg-[#111827] dark:border-slate-800 shadow-sm">
-      <CardHeader className="px-6 pt-5 pb-0">
-        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
-          <Icon className={`w-4 h-4 ${iconColor}`} />
-          {title}
-        </div>
-        {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
-      </CardHeader>
-      <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {children}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ─── Page ──────────────────────────────────────────────────────────────────────
 export default function AddProductPage() {
   const { id } = useParams();
   const isEditMode = !!id;
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm({
-    defaultValues: {
-      code: '', name: '', printName: '', categoryId: '', unitId: 'kg',
-      ratePerUnit: 0, openingStock: 0, alertLevel: 0, expiryDays: '',
-      hsnCode: '', description: '', status: 'ACTIVE'
-    }
+  // Masters
+  const [masters, setMasters] = useState({
+    categories: [],
+    units: [],
+    stages: [],
+    nonInventoryItems: [],
+    rawMaterials: [],
+    users: []
   });
 
-  const selectedUom = watch('unitId');
-  const watchRatePerUnit = watch('ratePerUnit');
-  const watchExpiryDays = watch('expiryDays');
+  // State
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
 
-  // ── Fetch categories ───────────────────────────────────────────────────────
-  const { data: categories } = useQuery({
-    queryKey: ['product-categories'],
-    queryFn: async () => (await api.get('/item-setup/product-category')).data
-  });
+  // Form Fields
+  const [name, setName] = useState('');
+  const [code, setCode] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [unitId, setUnitId] = useState('');
+  const [stockMethod, setStockMethod] = useState('FIFO');
+  const [openingStock, setOpeningStock] = useState(0);
+  const [alertLevel, setAlertLevel] = useState(0);
 
-  // ── Auto-generate code in add mode ────────────────────────────────────────
-  const { data: allProducts, isLoading: isLoadingAll } = useQuery({
-    queryKey: ['products'],
-    queryFn: async () => (await api.get('/item-setup/product')).data,
-    enabled: !isEditMode
-  });
+  // BoM (Raw Material Consumption)
+  const [bom, setBom] = useState([]);
+  const [selectedRmId, setSelectedRmId] = useState('');
 
+  // Non Inventory Cost
+  const [nonInventoryCosts, setNonInventoryCosts] = useState([]);
+  const [selectedNonInventoryId, setSelectedNonInventoryId] = useState('');
+
+  // Totals & Taxes
+  const [profitMargin, setProfitMargin] = useState(10);
+  const [cgst, setCgst] = useState(9);
+  const [sgst, setSgst] = useState(9);
+  const [igst, setIgst] = useState(9);
+
+  // Production Stages
+  const [stages, setStages] = useState([]);
+  const [selectedStageId, setSelectedStageId] = useState('');
+
+  // Fetch masters and product details
   useEffect(() => {
-    if (!isEditMode && allProducts) {
-      let maxNum = 0;
-      allProducts.forEach(p => {
-        const m = p.code && p.code.match(/^PRD-(\d+)$/);
-        if (m) { const n = parseInt(m[1], 10); if (n > maxNum) maxNum = n; }
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        // Fetch masters
+        const mastersRes = await api.get('/products/masters');
+        setMasters(mastersRes.data || {});
+
+        if (isEditMode) {
+          const prodRes = await api.get(`/products/${id}`);
+          const prod = prodRes.data;
+          
+          setName(prod.name || '');
+          setCode(prod.code || '');
+          setCategoryId(prod.categoryId || '');
+          setUnitId(prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '');
+          setStockMethod(prod.stockMethod || 'FIFO');
+          setOpeningStock(Number(prod.openingStock || 0));
+          setAlertLevel(Number(prod.alertLevel || 0));
+          setProfitMargin(Number(prod.profitMargin || 0));
+          setCgst(Number(prod.cgst || 0));
+          setSgst(Number(prod.sgst || 0));
+          setIgst(Number(prod.igst || 0));
+
+          // Set BoM
+          if (prod.bom) {
+            setBom(prod.bom.map(item => ({
+              rmId: item.rmId,
+              name: item.rawMaterial?.name || '',
+              code: item.rawMaterial?.code || '',
+              unitPrice: Number(item.unitPrice || 0),
+              consumption: Number(item.consumptionPerUnit || 0),
+              totalCost: Number(item.totalCost || 0)
+            })));
+          }
+
+          // Set Non Inventory Costs
+          if (prod.nonInventoryCosts) {
+            setNonInventoryCosts(prod.nonInventoryCosts.map(item => ({
+              itemId: item.itemId,
+              name: item.item?.name || '',
+              cost: Number(item.cost || 0)
+            })));
+          }
+
+          // Set Stages
+          if (prod.stages) {
+            setStages(prod.stages.map(item => ({
+              stageId: item.stageId,
+              name: item.stage?.name || '',
+              months: item.months || 0,
+              days: item.days || 0,
+              hours: item.hours || 0,
+              minutes: item.minutes || 0,
+              sortOrder: item.sortOrder || 0
+            })));
+          }
+        } else {
+          // Auto generate next code
+          const listRes = await api.get('/products');
+          const products = listRes.data || [];
+          let maxNum = 0;
+          products.forEach(p => {
+            const m = p.code && p.code.match(/^FP-(\d+)$/);
+            if (m) {
+              const n = parseInt(m[1], 10);
+              if (n > maxNum) maxNum = n;
+            }
+          });
+          setCode(`FP-${String(maxNum + 1).padStart(6, '0')}`);
+
+          // Load tax configurations to pre-populate CGST, SGST, IGST
+          const saved = localStorage.getItem('kulfi_erp_tax_settings');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              if (parsed.taxes && Array.isArray(parsed.taxes)) {
+                const cgstTax = parsed.taxes.find(t => t.name.toUpperCase() === 'CGST');
+                const sgstTax = parsed.taxes.find(t => t.name.toUpperCase() === 'SGST');
+                const igstTax = parsed.taxes.find(t => t.name.toUpperCase() === 'IGST');
+                if (cgstTax) setCgst(Number(cgstTax.rate));
+                if (sgstTax) setSgst(Number(sgstTax.rate));
+                if (igstTax) setIgst(Number(igstTax.rate));
+              }
+            } catch (e) {
+              console.error('Error pre-populating tax in product', e);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        setError('Failed to load metadata. Please refresh.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [id, isEditMode]);
+
+  // BoM Handlers
+  const handleAddRm = () => {
+    if (!selectedRmId) return;
+    if (bom.some(item => item.rmId === selectedRmId)) {
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Already Added</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">This raw material is already added to BoM.</p>`,
+        icon: 'warning',
+        iconColor: '#f59e0b',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-amber-500'
+        }
       });
-      setValue('code', `PRD-${String(maxNum + 1).padStart(5, '0')}`);
+      return;
     }
-  }, [allProducts, isEditMode, setValue]);
+    const rm = masters.rawMaterials.find(m => m.id === selectedRmId);
+    if (!rm) return;
 
-  // ── Fetch existing in edit mode ───────────────────────────────────────────
-  const { data: existingData, isLoading: isFetching } = useQuery({
-    queryKey: ['product', id],
-    queryFn: async () => (await api.get(`/item-setup/product/${id}`)).data,
-    enabled: isEditMode
-  });
+    setBom([...bom, {
+      rmId: rm.id,
+      name: rm.name,
+      code: rm.code,
+      unitPrice: Number(rm.ratePerUnit || 0),
+      consumption: 1,
+      totalCost: Number(rm.ratePerUnit || 0)
+    }]);
+    setSelectedRmId('');
+  };
 
-  useEffect(() => { if (existingData) reset(existingData); }, [existingData, reset]);
+  const handleRmChange = (index, field, value) => {
+    const updated = [...bom];
+    const val = Number(value) || 0;
+    updated[index][field] = val;
+    if (field === 'consumption' || field === 'unitPrice') {
+      updated[index].totalCost = updated[index].consumption * updated[index].unitPrice;
+    }
+    setBom(updated);
+  };
 
-  // ── Mutation ──────────────────────────────────────────────────────────────
-  const mutation = useMutation({
-    mutationFn: async (data) => {
-      const payload = {
-        ...data,
-        ratePerUnit: parseFloat(data.ratePerUnit) || 0,
-        openingStock: parseFloat(data.openingStock) || 0,
-        alertLevel: parseFloat(data.alertLevel) || 0,
-        expiryDays: data.expiryDays ? parseInt(data.expiryDays, 10) : null,
-      };
-      if (isEditMode) return (await api.put(`/item-setup/product/${id}`, payload)).data;
-      return (await api.post('/item-setup/product', payload)).data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['products'] });
+  const handleRemoveRm = (index) => {
+    setBom(bom.filter((_, i) => i !== index));
+  };
+
+  // Non Inventory Cost Handlers
+  const handleAddNonInventory = () => {
+    if (!selectedNonInventoryId) return;
+    if (nonInventoryCosts.some(item => item.itemId === selectedNonInventoryId)) {
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Already Added</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">This item is already added.</p>`,
+        icon: 'warning',
+        iconColor: '#f59e0b',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-amber-500'
+        }
+      });
+      return;
+    }
+    const item = masters.nonInventoryItems.find(n => n.id === selectedNonInventoryId);
+    if (!item) return;
+
+    setNonInventoryCosts([...nonInventoryCosts, {
+      itemId: item.id,
+      name: item.name,
+      cost: Number(item.ratePerUnit || 0)
+    }]);
+    setSelectedNonInventoryId('');
+  };
+
+  const handleNonInventoryChange = (index, value) => {
+    const updated = [...nonInventoryCosts];
+    updated[index].cost = Number(value) || 0;
+    setNonInventoryCosts(updated);
+  };
+
+  const handleRemoveNonInventory = (index) => {
+    setNonInventoryCosts(nonInventoryCosts.filter((_, i) => i !== index));
+  };
+
+  // Production Stage Handlers
+  const handleAddStage = () => {
+    if (!selectedStageId) return;
+    if (stages.some(item => item.stageId === selectedStageId)) {
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Already Added</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">This production stage is already added.</p>`,
+        icon: 'warning',
+        iconColor: '#f59e0b',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-amber-500'
+        }
+      });
+      return;
+    }
+    const stage = masters.stages.find(s => s.id === selectedStageId);
+    if (!stage) return;
+
+    setStages([...stages, {
+      stageId: stage.id,
+      name: stage.name,
+      months: 0,
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      sortOrder: stages.length
+    }]);
+    setSelectedStageId('');
+  };
+
+  const handleStageTimeChange = (index, field, value) => {
+    const updated = [...stages];
+    updated[index][field] = Math.max(0, parseInt(value, 10) || 0);
+    setStages(updated);
+  };
+
+  const handleRemoveStage = (index) => {
+    setStages(stages.filter((_, i) => i !== index));
+  };
+
+  // Calculations
+  const totalRmCost = bom.reduce((sum, item) => sum + Number(item.totalCost), 0);
+  const totalNonInventoryCost = nonInventoryCosts.reduce((sum, item) => sum + Number(item.cost), 0);
+  const totalCost = totalRmCost + totalNonInventoryCost;
+  const salePrice = totalCost * (1 + Number(profitMargin) / 100);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const isDark = document.documentElement.classList.contains('dark');
+    if (!name) {
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Validation Error</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Product name is required</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
+      return;
+    }
+    if (!categoryId) {
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Validation Error</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Category is required</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
+      return;
+    }
+    if (!unitId) {
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Validation Error</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Unit of Measure is required</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    const payload = {
+      name,
+      categoryId,
+      unitId,
+      stockMethod,
+      openingStock: Number(openingStock),
+      alertLevel: Number(alertLevel),
+      profitMargin: Number(profitMargin),
+      cgst: Number(cgst),
+      sgst: Number(sgst),
+      igst: Number(igst),
+      bom: bom.map(b => ({
+        rmId: b.rmId,
+        consumption: Number(b.consumption),
+        unitPrice: Number(b.unitPrice),
+        totalCost: Number(b.totalCost)
+      })),
+      nonInventoryCosts: nonInventoryCosts.map(n => ({
+        itemId: n.itemId,
+        cost: Number(n.cost)
+      })),
+      stages: stages.map((s, idx) => ({
+        stageId: s.stageId,
+        months: Number(s.months),
+        days: Number(s.days),
+        hours: Number(s.hours),
+        minutes: Number(s.minutes),
+        sortOrder: idx
+      }))
+    };
+
+    try {
+      let savedData;
+      if (isEditMode) {
+        savedData = (await api.put(`/products/${id}`, payload)).data;
+      } else {
+        savedData = (await api.post('/products', payload)).data;
+      }
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">${isEditMode ? 'Product Updated!' : 'Product Created!'}</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${isEditMode ? `Product "${savedData?.name || name}" has been updated.` : `Product "${savedData?.name || name}" has been added with code ${savedData?.code || code}.`}</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
       navigate('/setup/product');
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.error || 'Failed to save product. Please verify fields.');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Save Failed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.error || 'Failed to save product. Please verify fields.'}</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
+    } finally {
+      setSaving(false);
     }
-  });
+  };
 
-  // ── Loading state ─────────────────────────────────────────────────────────
-  if ((isEditMode && isFetching) || (!isEditMode && isLoadingAll)) {
+  if (loading) {
     return (
-      <div className="space-y-5">
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-48 w-full rounded-xl" />
-        <Skeleton className="h-48 w-full rounded-xl" />
-        <Skeleton className="h-10 w-40" />
+      <div className="p-8 flex flex-col items-center justify-center space-y-4">
+        <Loader2 className="w-10 h-10 animate-spin text-indigo-500" />
+        <p className="text-sm text-slate-500 dark:text-slate-400">Loading product information...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      {/* ── Header ───────────────────────────────────────────────────── */}
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      {/* Header */}
       <div className="flex items-center gap-3">
-        <button type="button" onClick={() => navigate('/setup/product')}
-          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+        <button
+          type="button"
+          onClick={() => navigate('/setup/product')}
+          className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+        >
           <ArrowLeft className="w-4 h-4 text-slate-500" />
         </button>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {isEditMode ? 'Edit Product' : 'Add Product'}
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {isEditMode ? 'Update the details for this finished product.' : 'Register a new finished ice cream product in the system.'}
+            Configure raw materials, stages, and tax profiles for production.
           </p>
         </div>
       </div>
 
-      {/* ── Error Banner ─────────────────────────────────────────────── */}
-      {mutation.isError && (
-        <div className="flex items-start gap-3 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400">
-          <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
+      {error && (
+        <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-400">
+          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
           <div>
-            <p className="font-medium text-sm">Failed to save product</p>
-            <p className="text-xs mt-0.5 opacity-80">
-              {mutation.error?.response?.data?.message || mutation.error?.message || 'An unexpected error occurred.'}
-            </p>
+            <p className="font-semibold text-sm">Error</p>
+            <p className="text-xs opacity-90">{error}</p>
           </div>
         </div>
       )}
 
-      <form onSubmit={handleSubmit(data => mutation.mutate(data))} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Core details */}
+        <Card className="relative z-30 !overflow-visible dark:bg-slate-800 dark:border-slate-700">
+          <CardHeader className="pb-3 border-b dark:border-slate-700">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-450 flex items-center">
+              <Package className="w-4 h-4 mr-1.5 text-indigo-500" /> Basic Details
+            </h2>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Name *</label>
+                <Input
+                  required
+                  placeholder="Name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
 
-        {/* ── SECTION 1 — Identity ──────────────────────────────────── */}
-        <SectionCard icon={Package} iconColor="text-indigo-500" title="Product Identity"
-          subtitle="Basic identification details that appear on labels, invoices, and reports.">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Code *</label>
+                <Input
+                  required
+                  readOnly
+                  placeholder="Code"
+                  className="bg-slate-50 dark:bg-slate-900 font-mono text-slate-500 cursor-not-allowed"
+                  value={code}
+                />
+              </div>
 
-          {/* Code — auto-generated, readonly */}
-          <div>
-            <FieldLabel hint="Auto-generated sequential ID. Cannot be edited.">Product Code</FieldLabel>
-            <div className="relative">
-              <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <input
-                {...register('code')}
-                readOnly
-                className="w-full pl-9 pr-3 py-2.5 border rounded-lg bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-mono text-sm cursor-not-allowed"
-              />
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Category *</label>
+                <select
+                  required
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
+                >
+                  <option value="">Select Category</option>
+                  {masters.categories.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Unit *</label>
+                <UomSelect
+                  value={unitId}
+                  onChange={(val) => setUnitId(val)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Stock Method *</label>
+                <select
+                  required
+                  value={stockMethod}
+                  onChange={(e) => setStockMethod(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
+                >
+                  <option value="FIFO">FIFO (First In First Out)</option>
+                  <option value="LIFO">LIFO (Last In First Out)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Opening Stock</label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  min="0"
+                  value={openingStock}
+                  onChange={(e) => setOpeningStock(Number(e.target.value) || 0)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Alert Level</label>
+                <Input
+                  type="number"
+                  placeholder="0"
+                  min="0"
+                  value={alertLevel}
+                  onChange={(e) => setAlertLevel(Number(e.target.value) || 0)}
+                />
+              </div>
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Name */}
-          <div>
-            <FieldLabel required>Product Name</FieldLabel>
-            <input
-              {...register('name', { required: 'Product name is required' })}
-              placeholder="e.g. Mango Ice Cream 500ml"
-              className={errors.name ? err : base}
-            />
-            {errors.name && <FieldError message={errors.name.message} />}
-          </div>
-
-          {/* Print Name */}
-          <div>
-            <FieldLabel hint="Name printed on labels and customer-facing invoices.">Print Name</FieldLabel>
-            <input
-              {...register('printName')}
-              placeholder="Displayed on invoices & labels"
-              className={base}
-            />
-          </div>
-
-          {/* Category */}
-          <div>
-            <FieldLabel required>Category</FieldLabel>
-            <div className="relative">
-              <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <select
-                {...register('categoryId', { required: 'Category is required' })}
-                className={`${errors.categoryId ? err : base} pl-9`}
-              >
-                <option value="">Select category…</option>
-                {(categories || [])
-                  .filter(c => (c.status || 'ACTIVE') === 'ACTIVE')
-                  .map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+        {/* BoM Raw Material Consumption */}
+        <Card className="relative z-20 dark:bg-slate-800 dark:border-slate-700">
+          <CardHeader className="pb-3 border-b dark:border-slate-700">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-450 flex items-center">
+                <Settings className="w-4 h-4 mr-1.5 text-indigo-500" /> Raw Material Consumption and Cost (BoM)
+              </h2>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={selectedRmId}
+                  onChange={(e) => setSelectedRmId(e.target.value)}
+                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Raw Material *</option>
+                  {masters.rawMaterials.map(rm => (
+                    <option key={rm.id} value={rm.id}>{rm.name} ({rm.code})</option>
+                  ))}
+                </select>
+                <Button type="button" size="sm" onClick={handleAddRm} className="bg-indigo-500 hover:bg-indigo-600">
+                  <Plus className="w-4 h-4" /> Add
+                </Button>
+              </div>
             </div>
-            {errors.categoryId && <FieldError message={errors.categoryId.message} />}
-          </div>
-
-          {/* UOM */}
-          <div>
-            <FieldLabel required>Unit of Measure (UOM)</FieldLabel>
-            <input type="hidden" {...register('unitId', { required: 'UOM is required' })} />
-            <UomSelect
-              value={selectedUom}
-              onChange={val => setValue('unitId', val, { shouldValidate: true })}
-              error={!!errors.unitId}
-            />
-            {errors.unitId && <FieldError message={errors.unitId.message} />}
-          </div>
-
-          {/* Status */}
-          <div>
-            <FieldLabel>Status</FieldLabel>
-            <div className="relative">
-              <ToggleLeft className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <select {...register('status')} className={`${base} pl-9`}>
-                <option value="ACTIVE">Active</option>
-                <option value="INACTIVE">Inactive</option>
-              </select>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase font-semibold">
+                  <tr>
+                    <th className="px-6 py-3 w-16 text-center">SN</th>
+                    <th className="px-6 py-3">Raw Material(Code)</th>
+                    <th className="px-6 py-3 text-right">Unit Price</th>
+                    <th className="px-6 py-3 text-right w-40">Consumption *</th>
+                    <th className="px-6 py-3 text-right">Total Cost</th>
+                    <th className="px-6 py-3 text-center w-24">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {bom.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-8 text-center text-slate-450 dark:text-slate-400">
+                        No raw materials selected. Pick one above to add to BoM.
+                      </td>
+                    </tr>
+                  ) : (
+                    bom.map((item, idx) => (
+                      <tr key={item.rmId} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/10">
+                        <td className="px-6 py-3 text-center font-medium text-slate-400">{idx + 1}</td>
+                        <td className="px-6 py-3 font-semibold text-slate-800 dark:text-white">
+                          {item.name} <span className="text-xs text-slate-450">({item.code})</span>
+                        </td>
+                        <td className="px-6 py-3 text-right font-mono text-slate-600 dark:text-slate-350">
+                          ₹{item.unitPrice.toFixed(2)}
+                          <Info className="inline w-3.5 h-3.5 ml-1 text-slate-400 cursor-help" title="Standard material procurement price" />
+                        </td>
+                        <td className="px-6 py-3 text-right">
+                          <Input
+                            type="number"
+                            step="0.0001"
+                            min="0.0001"
+                            className="text-right"
+                            value={item.consumption}
+                            onChange={(e) => handleRmChange(idx, 'consumption', e.target.value)}
+                          />
+                        </td>
+                        <td className="px-6 py-3 text-right font-bold text-slate-900 dark:text-white font-mono">
+                          ₹{item.totalCost.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-3 text-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                            onClick={() => handleRemoveRm(idx)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
-          </div>
 
-          {/* HSN Code */}
-          <div>
-            <FieldLabel hint="HSN code used for GST classification.">HSN Code</FieldLabel>
-            <input
-              {...register('hsnCode')}
-              placeholder="e.g. 21050000"
-              className={base}
-            />
-          </div>
-
-          {/* Expiry Days */}
-          <div>
-            <FieldLabel hint="Shelf life in days for the finished product. Used to auto-calculate expiry date during production.">
-              Expiry Days
-            </FieldLabel>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <input
-                type="number"
-                min="0"
-                {...register('expiryDays')}
-                placeholder="e.g. 180"
-                className={`${base} pl-9`}
-              />
+            <div className="p-4 border-t dark:border-slate-700 bg-slate-50/30 dark:bg-slate-900/10 flex justify-end">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-500 dark:text-slate-450 uppercase">Total Raw Material Cost *</span>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">INR</span>
+                  <Input
+                    readOnly
+                    className="pl-12 font-bold font-mono text-right w-44 bg-slate-50 dark:bg-slate-900 cursor-not-allowed"
+                    value={totalRmCost.toFixed(2)}
+                  />
+                </div>
+              </div>
             </div>
-            {watchExpiryDays > 0 && (
-              <p className="mt-1 text-xs text-indigo-500">
-                Products will expire ~{Math.round(watchExpiryDays / 30)} month(s) after production date.
-              </p>
-            )}
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Description — full width */}
-          <div className="md:col-span-2 lg:col-span-3">
-            <FieldLabel>Description</FieldLabel>
-            <div className="relative">
-              <AlignLeft className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
-              <textarea
-                {...register('description')}
-                rows={2}
-                placeholder="Optional: ingredients, flavour notes, storage instructions…"
-                className={`${base} pl-9 resize-none`}
-              />
+        {/* Non Inventory Cost */}
+        <Card className="dark:bg-slate-800 dark:border-slate-700">
+          <CardHeader className="pb-3 border-b dark:border-slate-700">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-450 flex items-center">
+                <DollarSign className="w-4 h-4 mr-1.5 text-indigo-500" /> Non Inventory Cost
+              </h2>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={selectedNonInventoryId}
+                  onChange={(e) => setSelectedNonInventoryId(e.target.value)}
+                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Non Inventory Item</option>
+                  {masters.nonInventoryItems.map(item => (
+                    <option key={item.id} value={item.id}>{item.name}</option>
+                  ))}
+                </select>
+                <Button type="button" size="sm" onClick={handleAddNonInventory} className="bg-indigo-500 hover:bg-indigo-600">
+                  <Plus className="w-4 h-4" /> Add
+                </Button>
+              </div>
             </div>
-          </div>
-        </SectionCard>
-
-        {/* ── SECTION 2 — Pricing & Stock ───────────────────────────── */}
-        <SectionCard icon={DollarSign} iconColor="text-emerald-500" title="Pricing & Stock"
-          subtitle="Selling price, opening stock, and minimum stock alert level.">
-
-          {/* Rate Per Unit */}
-          <div>
-            <FieldLabel>Selling Price (INR)</FieldLabel>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium pointer-events-none">₹</span>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                {...register('ratePerUnit')}
-                className={`${base} pl-7`}
-              />
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase font-semibold">
+                  <tr>
+                    <th className="px-6 py-3 w-16 text-center">SN</th>
+                    <th className="px-6 py-3">Non Inventory Item</th>
+                    <th className="px-6 py-3 text-right w-44">Non Inventory Cost *</th>
+                    <th className="px-6 py-3 text-center w-24">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {nonInventoryCosts.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-8 text-center text-slate-450 dark:text-slate-400">
+                        No non-inventory cost components. Click Add above to register utility/labour costs.
+                      </td>
+                    </tr>
+                  ) : (
+                    nonInventoryCosts.map((item, idx) => (
+                      <tr key={item.itemId} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/10">
+                        <td className="px-6 py-3 text-center font-medium text-slate-400">{idx + 1}</td>
+                        <td className="px-6 py-3 font-semibold text-slate-800 dark:text-white">{item.name}</td>
+                        <td className="px-6 py-3 text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="text-right font-mono"
+                            value={item.cost}
+                            onChange={(e) => handleNonInventoryChange(idx, e.target.value)}
+                          />
+                        </td>
+                        <td className="px-6 py-3 text-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                            onClick={() => handleRemoveNonInventory(idx)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
-            {parseFloat(watchRatePerUnit) > 0 && (
-              <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">
-                ₹{parseFloat(watchRatePerUnit).toFixed(2)} per {selectedUom || 'unit'}
-              </p>
-            )}
-          </div>
 
-          {/* Opening Stock */}
-          <div>
-            <FieldLabel hint="Initial quantity on hand when first setting up this product.">Opening Stock</FieldLabel>
-            <div className="relative">
-              <BarChart2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                {...register('openingStock')}
-                className={`${base} pl-9`}
-              />
+            <div className="p-4 border-t dark:border-slate-700 bg-slate-50/30 dark:bg-slate-900/10 flex justify-end">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-slate-500 dark:text-slate-450 uppercase">Total Non Inventory Cost *</span>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-semibold">INR</span>
+                  <Input
+                    readOnly
+                    className="pl-12 font-bold font-mono text-right w-44 bg-slate-50 dark:bg-slate-900 cursor-not-allowed"
+                    value={totalNonInventoryCost.toFixed(2)}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
+          </CardContent>
+        </Card>
 
-          {/* Alert Level */}
-          <div>
-            <FieldLabel hint="System alerts when stock falls below this level.">Min Stock Alert Level</FieldLabel>
-            <div className="relative">
-              <AlertCircle className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400 pointer-events-none" />
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                {...register('alertLevel')}
-                className={`${base} pl-9`}
-              />
+        {/* Cost Matrix, Taxes and Selling Price */}
+        <Card className="dark:bg-slate-800 dark:border-slate-700">
+          <CardHeader className="pb-3 border-b dark:border-slate-700">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-450 flex items-center">
+              <Percent className="w-4 h-4 mr-1.5 text-indigo-500" /> Cost Summaries and Taxes
+            </h2>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Total Cost *</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                  <Input
+                    readOnly
+                    className="pl-7 font-bold font-mono bg-slate-50 dark:bg-slate-900 cursor-not-allowed text-indigo-600 dark:text-indigo-400"
+                    value={totalCost.toFixed(2)}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Profit Margin (%)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={profitMargin}
+                  onChange={(e) => setProfitMargin(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">CGST (%)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={cgst}
+                  onChange={(e) => setCgst(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">SGST (%)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={sgst}
+                  onChange={(e) => setSgst(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">IGST (%)</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={igst}
+                  onChange={(e) => setIgst(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-500 uppercase">Sale Price *</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                  <Input
+                    readOnly
+                    className="pl-7 font-bold font-mono bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 cursor-not-allowed"
+                    value={salePrice.toFixed(2)}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
-        </SectionCard>
+          </CardContent>
+        </Card>
 
-        {/* ── Actions ───────────────────────────────────────────────── */}
+        {/* Production Stage */}
+        <Card className="dark:bg-slate-800 dark:border-slate-700">
+          <CardHeader className="pb-3 border-b dark:border-slate-700">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-450 flex items-center">
+                <Clock className="w-4 h-4 mr-1.5 text-indigo-500" /> Production Stage
+              </h2>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={selectedStageId}
+                  onChange={(e) => setSelectedStageId(e.target.value)}
+                  className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none"
+                >
+                  <option value="">Production Stage</option>
+                  {masters.stages.map(stage => (
+                    <option key={stage.id} value={stage.id}>{stage.name}</option>
+                  ))}
+                </select>
+                <Button type="button" size="sm" onClick={handleAddStage} className="bg-indigo-500 hover:bg-indigo-600">
+                  <Plus className="w-4 h-4" /> Add Stage
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-slate-50 dark:bg-slate-900/40 text-slate-500 text-xs uppercase font-semibold">
+                  <tr>
+                    <th className="px-6 py-3 w-16 text-center">SN</th>
+                    <th className="px-6 py-3">Stage</th>
+                    <th className="px-6 py-3 text-center w-96">Required Time</th>
+                    <th className="px-6 py-3 text-center w-24">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
+                  {stages.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-6 py-8 text-center text-slate-450 dark:text-slate-400">
+                        No processing stages defined. Add processing stages from the selector above.
+                      </td>
+                    </tr>
+                  ) : (
+                    stages.map((stage, idx) => (
+                      <tr key={stage.stageId} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/10">
+                        <td className="px-6 py-3 text-center font-medium text-slate-400">{idx + 1}</td>
+                        <td className="px-6 py-3 font-semibold text-slate-800 dark:text-white">{stage.name}</td>
+                        <td className="px-6 py-3">
+                          <div className="flex gap-2 items-center justify-center">
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                className="w-16 text-center font-mono"
+                                min="0"
+                                value={stage.months}
+                                onChange={(e) => handleStageTimeChange(idx, 'months', e.target.value)}
+                              />
+                              <span className="text-2xs uppercase text-slate-400">M</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                className="w-16 text-center font-mono"
+                                min="0"
+                                value={stage.days}
+                                onChange={(e) => handleStageTimeChange(idx, 'days', e.target.value)}
+                              />
+                              <span className="text-2xs uppercase text-slate-400">D</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                className="w-16 text-center font-mono"
+                                min="0"
+                                value={stage.hours}
+                                onChange={(e) => handleStageTimeChange(idx, 'hours', e.target.value)}
+                              />
+                              <span className="text-2xs uppercase text-slate-400">H</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                className="w-16 text-center font-mono"
+                                min="0"
+                                value={stage.minutes}
+                                onChange={(e) => handleStageTimeChange(idx, 'minutes', e.target.value)}
+                              />
+                              <span className="text-2xs uppercase text-slate-400">Min</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-3 text-center">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                            onClick={() => handleRemoveStage(idx)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Action buttons */}
         <div className="flex items-center gap-3">
-          <button
+          <Button
             type="submit"
-            disabled={mutation.isPending}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm shadow-sm transition-colors"
+            disabled={saving}
+            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-colors"
           >
-            {mutation.isPending
-              ? <><Loader2 className="w-4 h-4 animate-spin" />Saving…</>
-              : <><Save className="w-4 h-4" />{isEditMode ? 'Update Product' : 'Save Product'}</>}
-          </button>
-          <button
+            {saving ? (
+              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+            ) : (
+              <><Save className="w-4 h-4 mr-2" /> Submit</>
+            )}
+          </Button>
+          <Button
             type="button"
+            variant="outline"
             onClick={() => navigate('/setup/product')}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium text-sm transition-colors"
+            className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl"
           >
-            <ArrowLeft className="w-4 h-4" />
             Back
-          </button>
+          </Button>
         </div>
       </form>
     </div>

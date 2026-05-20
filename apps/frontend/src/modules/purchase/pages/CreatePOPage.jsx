@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown, Plus, AlertTriangle, FileText, CheckCircle2, Package, Tag, Calculator, Info } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
+import Swal from 'sweetalert2';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,7 +37,17 @@ function AddSupplierInline({ onAdded, onClose }) {
       onAdded(res.data);
     } catch (err) {
       console.error('Failed to add supplier', err);
-      alert('Failed to add supplier');
+      Swal.fire({
+        icon: 'error',
+        title: 'Oops...',
+        text: 'Failed to add supplier',
+        confirmButtonColor: '#4f46e5',
+        customClass: {
+          popup: 'rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900',
+          title: 'text-slate-900 dark:text-white',
+          htmlContainer: 'text-slate-600 dark:text-slate-300'
+        }
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -455,8 +466,19 @@ export default function CreatePOPage() {
       return response.data;
     },
     onSuccess: (data) => {
-      alert(`PO Created successfully — RM #${data.rmId}`);
-      navigate('/purchase-orders');
+      Swal.fire({
+        icon: 'success',
+        title: 'PO Created Successfully!',
+        text: `PO Order ID: ${data.referenceNo || data.id}`,
+        confirmButtonColor: '#4f46e5',
+        customClass: {
+          popup: 'rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900',
+          title: 'text-slate-900 dark:text-white',
+          htmlContainer: 'text-slate-600 dark:text-slate-300'
+        }
+      }).then(() => {
+        navigate('/purchase-orders');
+      });
     },
     onError: (err) => {
       setErrorMsg(err.response?.data?.error || 'Failed to create Purchase Order');
@@ -565,26 +587,49 @@ export default function CreatePOPage() {
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
               
-              {/* Expected Delivery */}
-              <div className="space-y-2 flex flex-col">
-                <Label className="text-slate-700 dark:text-slate-300 font-medium">Date (Expected Delivery) <span className="text-rose-500">*</span></Label>
+              {/* Expected Delivery - Docked MD3/Fluent UI Style */}
+              <div className="space-y-2 flex flex-col relative group/date">
+                <Label className="text-slate-700 dark:text-slate-300 font-medium transition-colors group-hover/date:text-indigo-600 dark:group-hover/date:text-indigo-400">
+                  Date (Expected Delivery) <span className="text-rose-500">*</span>
+                </Label>
                 <Popover>
                   <PopoverTrigger
                     className={twMerge(
-                      "flex h-[42px] w-full items-center justify-start rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 px-4 py-2 text-left text-sm font-medium transition-all hover:bg-white hover:border-indigo-400 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-500/10 focus-visible:border-indigo-500 dark:hover:bg-slate-800 shadow-sm",
+                      "flex h-[48px] w-full items-center justify-between rounded-t-xl rounded-b-md border-b-2 border-indigo-500/30 bg-slate-100 dark:bg-slate-800/80 px-4 py-2 text-left text-sm font-medium transition-all hover:bg-slate-200/50 dark:hover:bg-slate-700/50 focus-visible:outline-none focus-visible:border-indigo-500 focus-visible:bg-indigo-50/50 dark:focus-visible:bg-slate-900 shadow-sm relative overflow-hidden group/trigger",
                       !formData.expectedDelivery ? "text-slate-500 dark:text-slate-400" : "text-slate-900 dark:text-white"
                     )}
                   >
-                    <CalendarIcon className="mr-3 h-4 w-4 text-indigo-500" />
-                    {formData.expectedDelivery ? format(formData.expectedDelivery, "PPP") : <span>Pick a date</span>}
+                    <div className="flex items-center">
+                      <CalendarIcon className="mr-3 h-5 w-5 text-indigo-500 group-hover/trigger:text-indigo-600 dark:group-hover/trigger:text-indigo-400 transition-colors" />
+                      <span className="text-base tracking-tight">{formData.expectedDelivery ? format(formData.expectedDelivery, "PPP") : "Select a date"}</span>
+                    </div>
+                    <div className="absolute bottom-0 left-0 h-[2px] bg-indigo-600 w-0 group-hover/trigger:w-full focus-visible:w-full transition-all duration-300 ease-out"></div>
                   </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0 rounded-2xl shadow-2xl border-slate-200 dark:border-slate-700" align="start">
+                  <PopoverContent 
+                    className="w-auto p-0 rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] border border-slate-200/60 dark:border-slate-700/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl overflow-hidden" 
+                    align="start"
+                    sideOffset={8}
+                  >
+                    <div className="bg-gradient-to-br from-indigo-600 to-indigo-800 text-white p-3.5 border-b border-indigo-700/50 flex flex-col gap-1 shadow-inner">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-indigo-200/80">Expected Delivery</span>
+                      <span className="text-xl font-black tracking-tight leading-none drop-shadow-sm">{formData.expectedDelivery ? format(formData.expectedDelivery, "MMM d, yyyy") : "Select Date"}</span>
+                    </div>
                     <Calendar
                       mode="single"
                       selected={formData.expectedDelivery}
-                      onSelect={(date) => setFormData({...formData, expectedDelivery: date})}
+                      onSelect={(date) => { setFormData({...formData, expectedDelivery: date}); document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'})); }}
                       initialFocus
-                      className="p-3"
+                      disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                      className="p-3 bg-transparent"
+                      classNames={{
+                        day_selected: "bg-indigo-600 text-white hover:bg-indigo-700 hover:text-white focus:bg-indigo-600 focus:text-white rounded-full font-bold shadow-md shadow-indigo-600/30",
+                        day_today: "bg-indigo-50 text-indigo-900 dark:bg-indigo-900/30 dark:text-indigo-100 rounded-full font-bold ring-1 ring-inset ring-indigo-500/30",
+                        day: "h-8 w-8 p-0 font-medium text-sm aria-selected:opacity-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all duration-200",
+                        head_cell: "text-slate-500 dark:text-slate-400 font-medium text-[0.7rem] uppercase tracking-wider pb-1.5",
+                        nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all",
+                        caption: "flex justify-center pt-1 relative items-center mb-2",
+                        caption_label: "text-sm font-bold text-slate-900 dark:text-slate-100",
+                      }}
                     />
                   </PopoverContent>
                 </Popover>
@@ -676,13 +721,13 @@ export default function CreatePOPage() {
                         <td className="px-5 py-4 text-right">
                           <Input 
                             type="number" 
-                            step="0.01" 
-                            min="0.01"
+                            step="1" 
+                            min="1"
                             value={formData.quantity} 
                             onChange={(e) => setFormData({...formData, quantity: e.target.value})} 
                             className="w-full ml-auto text-right h-10 rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-900/50 font-medium" 
                             required
-                            placeholder="0.00"
+                            placeholder="0"
                           />
                         </td>
                         <td className="px-5 py-4">
@@ -693,13 +738,13 @@ export default function CreatePOPage() {
                         <td className="px-5 py-4 text-right">
                           <Input 
                             type="number" 
-                            step="0.01" 
-                            min="0.01"
+                            step="1" 
+                            min="1"
                             value={formData.amount} 
                             onChange={(e) => setFormData({...formData, amount: e.target.value})} 
                             className="w-full ml-auto text-right h-10 rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-900/50 font-bold text-slate-900 dark:text-white" 
                             required
-                            placeholder="0.00"
+                            placeholder="0"
                           />
                         </td>
                         <td className="px-5 py-4 text-center">

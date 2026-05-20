@@ -7,6 +7,7 @@ import { Plus, Trash2, Edit, Search, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import * as XLSX from 'xlsx';
+import Swal from 'sweetalert2';
 
 export default function RMWasteListPage() {
   const queryClient = useQueryClient();
@@ -31,9 +32,50 @@ export default function RMWasteListPage() {
   });
 
   const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this waste record?')) {
-      deleteMutation.mutate(id);
-    }
+    const isDark = document.documentElement.classList.contains('dark');
+    Swal.fire({
+      title: 'Are you sure?',
+      text: "You won't be able to revert this! The raw material stock will be restored.",
+      icon: 'warning',
+      iconColor: '#f59e0b',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, delete it!',
+      cancelButtonText: 'No, cancel!',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      background: isDark ? '#1e293b' : '#ffffff',
+      color: isDark ? '#f8fafc' : '#0f172a',
+      customClass: {
+        popup: 'rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 select-none animate__animated animate__fadeInDown animate__faster',
+        confirmButton: 'px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold transition-all mr-2',
+        cancelButton: 'px-6 py-2.5 bg-slate-600 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all'
+      },
+      buttonsStyling: false
+    }).then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(id);
+        
+        Swal.fire({
+          title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Deleted Successfully</span>`,
+          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">The raw material waste record has been deleted and stock updated.</p>`,
+          icon: 'success',
+          iconColor: '#10b981',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3500,
+          timerProgressBar: true,
+          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          color: isDark ? '#f8fafc' : '#0f172a',
+          showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+          hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+          customClass: {
+            popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+            timerProgressBar: 'bg-emerald-500'
+          }
+        });
+      }
+    });
   };
 
   const filteredWastes = wastes.filter(waste => 
@@ -45,7 +87,26 @@ export default function RMWasteListPage() {
 
   const handleExport = () => {
     if (filteredWastes.length === 0) {
-      alert("No data available to export.");
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Export Empty</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">No data available to export.</p>`,
+        icon: 'warning',
+        iconColor: '#f59e0b',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-amber-500'
+        }
+      });
       return;
     }
 

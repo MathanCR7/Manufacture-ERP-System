@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { format } from 'date-fns';
@@ -30,6 +30,8 @@ function DecisionBadge({ decision }) {
 export default function LabTestPage() {
   const { grnId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromNotifications = location.state?.from === '/notifications';
   const queryClient = useQueryClient();
   const user = useAuthStore(s => s.user);
   const canEditDecision = ['MAIN_MASTER', 'LAB_ASSISTANT'].includes(user?.role);
@@ -151,7 +153,9 @@ export default function LabTestPage() {
           )}
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={() => navigate('/lab/pending')}>Back to Pending Tests</Button>
+          <Button variant="outline" onClick={() => navigate(fromNotifications ? '/notifications' : '/lab/pending')}>
+            {fromNotifications ? 'Back to Notifications Center' : 'Back to Pending Tests'}
+          </Button>
           <Button onClick={() => navigate('/lab/results')} className="bg-indigo-600 hover:bg-indigo-700 text-white">View Lab Results</Button>
         </div>
       </div>
@@ -160,6 +164,16 @@ export default function LabTestPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {fromNotifications && (
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => navigate('/notifications')} 
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Notifications Center
+        </Button>
+      )}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate('/lab/pending')} className="rounded-full text-slate-500">
           <ArrowLeft className="w-5 h-5" />

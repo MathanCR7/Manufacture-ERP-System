@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import { CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
+import Swal from 'sweetalert2';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -209,11 +210,50 @@ export default function CreateRMWastePage() {
       return response.data;
     },
     onSuccess: (data) => {
-      alert(`RM Waste Logged successfully — ${data.referenceNo}`);
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Logged Successfully!</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">RM Waste has been logged under Reference: ${data.referenceNo}</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
       navigate('/waste/raw-material');
     },
     onError: (err) => {
       setErrorMsg(err.response?.data?.error || 'Failed to log RM waste');
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Logging Failed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.error || 'Failed to log RM waste'}</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
     }
   });
 
@@ -223,18 +263,76 @@ export default function CreateRMWastePage() {
       return response.data;
     },
     onSuccess: (data) => {
-      alert(`RM Waste Updated successfully — ${data.referenceNo}`);
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Updated Successfully!</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">RM Waste Reference ${data.referenceNo} has been updated.</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
       navigate('/waste/raw-material');
     },
     onError: (err) => {
       setErrorMsg(err.response?.data?.error || 'Failed to update RM waste');
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Update Failed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.error || 'Failed to update RM waste'}</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
     }
   });
 
   const handleAddRm = (rm) => {
     if (!rm) return;
     if (wasteItems.some(item => item.rm.id === rm.id)) {
-      alert("Item already added to the list.");
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Already Added</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">This raw material is already added to the wastage list.</p>`,
+        icon: 'warning',
+        iconColor: '#f59e0b',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-amber-500'
+        }
+      });
       setSelectedRmForAdd(null);
       return;
     }

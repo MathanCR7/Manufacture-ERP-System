@@ -3,6 +3,7 @@ import { useForm } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
+import Swal from 'sweetalert2';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -46,9 +47,51 @@ export default function AddCustomerPage() {
         return response.data;
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">${isEditMode ? 'Customer Updated!' : 'Customer Added!'}</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${isEditMode ? `Customer "${data.name}" has been updated.` : `Customer "${data.name}" has been registered successfully.`}</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
       navigate('/parties/customers');
+    },
+    onError: (err) => {
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Operation Failed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.message || 'Failed to save customer details.'}</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
     }
   });
 
@@ -155,7 +198,7 @@ export default function AddCustomerPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Date of Birth</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-305">Date of Birth</label>
               <input 
                 {...register('dob')} 
                 type="date"
@@ -164,7 +207,7 @@ export default function AddCustomerPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Date of Anniversary</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-305">Date of Anniversary</label>
               <input 
                 {...register('doa')} 
                 type="date"

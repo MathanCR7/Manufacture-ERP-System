@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { ChevronDown, Search, X } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -108,7 +109,7 @@ function UomSelect({ value, onChange, error }) {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search UOM..."
-                className="w-full pl-7 pr-7 py-1.5 text-sm border rounded border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full pl-7 pr-7 py-1.5 text-sm border rounded border-slate-200 dark:border-slate-650 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
               {search && (
                 <button
@@ -134,7 +135,7 @@ function UomSelect({ value, onChange, error }) {
                   className={`px-3 py-2 text-sm cursor-pointer select-none ${
                     value === uom
                       ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-medium'
-                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      : 'text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
                   {uom}
@@ -206,9 +207,51 @@ export default function AddRawMaterialPage() {
       if (isEditMode) return (await api.put(`/item-setup/raw-material/${id}`, data)).data;
       return (await api.post('/item-setup/raw-material', data)).data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['raw-materials'] });
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">${isEditMode ? 'Raw Material Updated!' : 'Raw Material Configured!'}</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${isEditMode ? `Raw Material "${data.name}" has been updated.` : `Raw Material "${data.name}" has been added with code ${data.code}.`}</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
       navigate('/setup/raw-material');
+    },
+    onError: (err) => {
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Operation Failed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.message || 'Failed to save raw material configuration.'}</p>`,
+        icon: 'error',
+        iconColor: '#ef4444',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3500,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+        customClass: {
+          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          timerProgressBar: 'bg-red-500'
+        }
+      });
     }
   });
 

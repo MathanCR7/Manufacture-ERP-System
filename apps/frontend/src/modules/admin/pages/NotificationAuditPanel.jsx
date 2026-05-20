@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Download, RefreshCw, Eye, Calendar } from 'lucide-react';
 import { api } from '@/lib/axios';
+import Swal from 'sweetalert2';
 
 const PhaseColors = {
   PO_CREATED: 'bg-indigo-100 text-indigo-800 border-indigo-200',
@@ -49,6 +50,69 @@ const NotificationAuditPanel = () => {
     return new Date(dateString).toLocaleString('en-GB', options);
   };
 
+  const handleExportCSV = () => {
+    if (logs.length === 0) return;
+    
+    // Define headers
+    const headers = [
+      'Notification ID',
+      'Type',
+      'Event Time',
+      'Message',
+      'Seen By',
+      'Seen By Role',
+      'Seen At',
+      'Elapsed Time'
+    ];
+
+    // Map logs to CSV rows
+    const rows = logs.map(log => [
+      log.id,
+      log.type,
+      formatDate(log.eventAt, true),
+      log.message.replace(/"/g, '""'), // escape quotes
+      log.userSeenBy ? log.userSeenBy.name : 'Unread',
+      log.userSeenBy ? log.userSeenBy.role : '-',
+      log.seenAt ? formatDate(log.seenAt, true) : '-',
+      calculateElapsed(log.eventAt, log.seenAt)
+    ]);
+
+    // Build CSV content
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(value => `"${value}"`).join(','))
+    ].join('\n');
+
+    // Create file and download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+    const filename = `notifications_audit_report_${dateStr}_${timeStr}.csv`;
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    Swal.fire({
+      title: 'Export Success',
+      text: 'Notification audit report CSV downloaded successfully.',
+      icon: 'success',
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 3000,
+      background: document.documentElement.classList.contains('dark') ? '#0f172a' : '#ffffff',
+      color: document.documentElement.classList.contains('dark') ? '#f8fafc' : '#0f172a',
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
@@ -61,7 +125,11 @@ const NotificationAuditPanel = () => {
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
-          <button className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-sm font-medium">
+          <button 
+            onClick={handleExportCSV}
+            disabled={logs.length === 0}
+            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow-sm font-medium disabled:opacity-50"
+          >
             <Download className="w-4 h-4 mr-2" />
             Export Report
           </button>

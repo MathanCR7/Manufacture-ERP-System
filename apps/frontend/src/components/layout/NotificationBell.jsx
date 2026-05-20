@@ -5,16 +5,46 @@ import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
 
 const PhaseColors = {
-  PO_CREATED: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400 border-indigo-200',
-  GRN_SUBMITTED: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400 border-cyan-200',
-  LAB_RM_APPROVED: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200',
-  LAB_RM_REJECTED: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400 border-rose-200',
-  LAB_RM_RESAMPLE: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200',
-  FINAL_QTY_SUBMITTED: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200',
-  PRODUCTION_STARTED: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 border-fuchsia-200',
-  PRODUCTION_COMPLETED: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 border-fuchsia-200',
-  PRODUCTION_QC_PASSED: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200',
-  PRODUCTION_QC_FAILED: 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-400 border-rose-200',
+  PO_CREATED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+  PO_UPDATED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  PO_AMENDED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  PO_CANCELLED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  PO_STATUS_CHANGED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+  
+  GRN_SUBMITTED: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/30',
+  
+  LAB_RM_APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  LAB_RM_REJECTED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  LAB_RM_RESAMPLE: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  
+  FINAL_QTY_SUBMITTED: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800/30',
+  
+  PRODUCTION_STARTED: 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-200 dark:border-purple-800/30',
+  PRODUCTION_ON_HOLD: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  PRODUCTION_COMPLETED: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-800/30',
+  PRODUCTION_QC_PASSED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  PRODUCTION_QC_FAILED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  
+  STOCK_LOW_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  RM_LOW_STOCK_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  STOCK_EXPIRY_ALERT: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  STOCK_CRITICAL: 'bg-rose-50 text-rose-705 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  STOCK_REORDER: 'bg-amber-50 text-amber-707 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+};
+
+const relativeTime = (dateStr) => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${diffDays}d ago`;
 };
 
 const NotificationBell = () => {
@@ -52,11 +82,12 @@ const NotificationBell = () => {
 
     // Listen to all specific events
     const events = [
-      'PO_CREATED', 'PO_AMENDED', 'PO_CANCELLED', 
+      'PO_CREATED', 'PO_AMENDED', 'PO_CANCELLED', 'PO_UPDATED', 'PO_STATUS_CHANGED',
       'GRN_SUBMITTED', 'LAB_RM_APPROVED', 'LAB_RM_REJECTED', 
       'LAB_RM_RESAMPLE', 'FINAL_QTY_SUBMITTED', 'PRODUCTION_STARTED', 
       'PRODUCTION_ON_HOLD', 'PRODUCTION_COMPLETED', 'PRODUCTION_QC_PASSED', 
-      'PRODUCTION_QC_FAILED', 'STOCK_LOW_ALERT', 'STOCK_EXPIRY_ALERT'
+      'PRODUCTION_QC_FAILED', 'STOCK_LOW_ALERT', 'STOCK_EXPIRY_ALERT',
+      'STOCK_CRITICAL', 'STOCK_REORDER', 'RM_LOW_STOCK_ALERT'
     ];
     events.forEach(e => eventSource.addEventListener(e, handleEvent));
 
@@ -76,6 +107,40 @@ const NotificationBell = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const getNotificationUrl = (notif) => {
+    const { type, metadata, referenceId } = notif;
+    const poId = metadata?.po_id || referenceId;
+    const grnId = metadata?.grn_id || referenceId;
+    const batchId = metadata?.batch_id || referenceId;
+
+    if (type.startsWith('PO_')) {
+      return `/purchase-orders/${poId}`;
+    }
+    if (type.startsWith('GRN_')) {
+      return `/grn/view/${grnId}`;
+    }
+    if (type.startsWith('LAB_RM_')) {
+      return `/lab/test/${grnId}`;
+    }
+    if (type.startsWith('FINAL_QTY_')) {
+      return `/grn/view/${grnId}`;
+    }
+    if (type.startsWith('PRODUCTION_')) {
+      if (type === 'PRODUCTION_COMPLETED') {
+        return `/production/qc-queue`;
+      }
+      return `/production/batches`;
+    }
+    if (type.includes('STOCK_') || type.includes('LOW_STOCK')) {
+      if (type.startsWith('RM_')) {
+        return `/rm/stock/low`;
+      } else {
+        return `/products/low-stock`;
+      }
+    }
+    return null;
+  };
+
   const handleOpen = async (notif) => {
     if (!notif.seenAt) {
       try {
@@ -86,6 +151,24 @@ const NotificationBell = () => {
       } catch (err) {
         console.error("Failed to mark as seen", err);
       }
+    }
+
+    const targetUrl = getNotificationUrl(notif);
+    if (targetUrl) {
+      navigate(targetUrl);
+      setIsOpen(false);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await api.patch('/notifications/seen-all');
+      setNotifications(prev => prev.map(n => ({
+        ...n,
+        seenAt: n.seenAt || new Date().toISOString()
+      })));
+    } catch (err) {
+      console.error("Failed to mark all as seen", err);
     }
   };
 
@@ -102,14 +185,14 @@ const NotificationBell = () => {
     const role = user.role;
 
     // Phase 1: PO CREATED
-    if (type === 'PO_CREATED') {
-      if (role === 'MAIN_MASTER' || role === 'SUPERVISOR') {
+    if (type === 'PO_CREATED' || type === 'PO_UPDATED' || type === 'PO_STATUS_CHANGED') {
+      if (role === 'MAIN_MASTER' || role === 'SUPERVISOR' || role === 'PURCHASE_ACCOUNTANT') {
         return (
-          <div className="bg-indigo-50 p-3 rounded-md border border-indigo-200 cursor-pointer hover:bg-indigo-100" onClick={(e) => handleActionClick(e, `/po/${metadata.po_id}`)}>
+          <div className="bg-indigo-50 p-3 rounded-md border border-indigo-200 cursor-pointer hover:bg-indigo-100" onClick={(e) => handleActionClick(e, `/purchase-orders/${metadata.po_id}`)}>
             <p className="text-sm font-medium text-indigo-900 mb-2">{message}</p>
             <div className="flex space-x-2">
               <button 
-                onClick={(e) => handleActionClick(e, `/po/${metadata.po_id}`)}
+                onClick={(e) => handleActionClick(e, `/purchase-orders/${metadata.po_id}`)}
                 className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 flex items-center shadow-sm"
               >
                 View PO Details
@@ -120,10 +203,10 @@ const NotificationBell = () => {
       }
       if (role === 'MATERIALS_RECEIVER') {
         return (
-          <div className="bg-indigo-50 p-3 rounded-md border border-indigo-200 cursor-pointer hover:bg-indigo-100" onClick={(e) => handleActionClick(e, `/po/${metadata.po_id}`)}>
-            <p className="text-sm font-medium text-indigo-900 mb-2">Prepare receiving bay for RM #{metadata.rm_id}</p>
+          <div className="bg-indigo-50 p-3 rounded-md border border-indigo-200 cursor-pointer hover:bg-indigo-100" onClick={(e) => handleActionClick(e, `/purchase-orders/${metadata.po_id}`)}>
+            <p className="text-sm font-medium text-indigo-900 mb-2">{message}</p>
             <button 
-              onClick={(e) => handleActionClick(e, `/po/${metadata.po_id}`)}
+              onClick={(e) => handleActionClick(e, `/purchase-orders/${metadata.po_id}`)}
               className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 flex items-center shadow-sm"
             >
               View PO
@@ -340,70 +423,90 @@ const NotificationBell = () => {
     <div className="relative" ref={dropdownRef}>
       <button 
         onClick={() => setIsOpen(!isOpen)}
-        className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative"
+        className="p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors relative focus:outline-none"
       >
-        <Bell className="w-5 h-5" />
+        <Bell className="w-5 h-5 text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400" />
         {unreadCount > 0 && (
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white dark:border-slate-900"></span>
+          <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-indigo-650 dark:bg-indigo-500 rounded-full border border-white dark:border-slate-900 animate-pulse"></span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-96 max-w-[100vw] bg-white dark:bg-slate-800 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 py-2 z-50 flex flex-col max-h-[80vh]">
-          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
-            <h3 className="font-semibold text-slate-800 dark:text-slate-100">Notifications</h3>
+        <div className="absolute right-0 mt-3 w-[420px] max-w-[95vw] bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200/60 dark:border-slate-800 py-2.5 z-50 flex flex-col max-h-[85vh] animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-850 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/20 rounded-t-2xl">
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold text-slate-800 dark:text-slate-100">Notifications</h3>
+              {unreadCount > 0 && (
+                <span className="bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-400 text-[11px] px-2 py-0.5 rounded-full font-bold shadow-sm">
+                  {unreadCount} new
+                </span>
+              )}
+            </div>
             {unreadCount > 0 && (
-              <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-medium">
-                {unreadCount} new
-              </span>
+              <button 
+                onClick={handleMarkAllRead} 
+                className="text-xs text-indigo-650 dark:text-indigo-400 hover:text-indigo-850 dark:hover:text-indigo-300 font-semibold transition-colors bg-indigo-50 dark:bg-indigo-950/30 px-2.5 py-1 rounded-lg border border-indigo-100 dark:border-indigo-900/20"
+              >
+                Mark all as read
+              </button>
             )}
           </div>
           
-          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-600">
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 max-h-[50vh]">
             {notifications.length === 0 ? (
-              <div className="p-8 text-center text-slate-500 flex flex-col items-center">
-                <Activity className="w-8 h-8 mb-2 opacity-20" />
-                <p>No notifications yet</p>
+              <div className="p-10 text-center text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center">
+                <Bell className="w-10 h-10 mb-3 opacity-20 text-indigo-500" />
+                <p className="text-sm font-medium">All caught up!</p>
+                <p className="text-xs mt-1 text-slate-500 dark:text-slate-500">No notifications available</p>
               </div>
             ) : (
               notifications.map((notif) => {
                 const isReturned = notif.type === 'GRN_SUBMITTED' && (notif.metadata.confirmation_status === 'Returned' || notif.metadata.confirmation_status === 'RETURNED');
                 const isLabMuted = isReturned && user.role === 'LAB_ASSISTANT';
+                const isUnread = !notif.seenAt && !isLabMuted;
                 
                 return (
                   <div 
                     key={notif.id}
                     onClick={() => handleOpen(notif)}
-                    className={`p-4 border-b border-slate-50 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer transition-colors ${!notif.seenAt && !isLabMuted ? 'bg-indigo-50/30 dark:bg-indigo-900/10' : ''} ${isLabMuted ? 'opacity-70 bg-slate-50/50' : ''} ${notif.seenAt ? 'opacity-80' : ''}`}
+                    className={`p-4 border-b border-slate-50 dark:border-slate-800/40 hover:bg-indigo-50/15 dark:hover:bg-slate-800/40 cursor-pointer transition-all duration-200 flex flex-col gap-2 relative ${isUnread ? 'bg-indigo-50/20 dark:bg-indigo-950/10 border-l-[3.5px] border-l-indigo-600 dark:border-l-indigo-500 pl-[12.5px]' : 'pl-4'} ${isLabMuted ? 'opacity-60 bg-slate-50/50 dark:bg-slate-900/50' : ''}`}
                   >
-                    <div className="flex justify-between items-start mb-2">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border ${PhaseColors[notif.type] || 'bg-slate-100 text-slate-600'}`}>
+                    <div className="flex items-center justify-between gap-3 w-full">
+                      <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border shrink-0 ${PhaseColors[notif.type] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700'}`}>
                         {notif.type.replace(/_/g, ' ')}
                       </span>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-xs text-slate-400">
-                          {new Date(notif.eventAt).toLocaleString(undefined, {
-                            day: '2-digit', month: '2-digit', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit'
-                          })}
+                      <div className="flex items-center space-x-2 shrink-0 text-slate-400 dark:text-slate-500">
+                        <span className="text-[10px] font-medium" title={new Date(notif.eventAt).toLocaleString()}>
+                          {relativeTime(notif.eventAt)}
                         </span>
                         {notif.seenAt ? (
-                          <div className="flex items-center text-emerald-500" title={`Seen at ${new Date(notif.seenAt).toLocaleString(undefined, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`}>
-                            <span className="text-[10px] mr-1 opacity-75">{new Date(notif.seenAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
-                            <CheckCircle2 className="w-4 h-4" />
+                          <div className="flex items-center text-emerald-500 shrink-0" title={`Seen at ${new Date(notif.seenAt).toLocaleString()}`}>
+                            <span className="text-[9px] mr-1 opacity-75">{new Date(notif.seenAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
                           </div>
                         ) : (
-                          <Circle className="w-4 h-4 text-slate-300" />
+                          <Circle className="w-3.5 h-3.5 text-slate-350 dark:text-slate-700 shrink-0" />
                         )}
                       </div>
                     </div>
                     
-                    {renderNotificationContent(notif)}
-                    
+                    <div className="text-slate-700 dark:text-slate-300 text-xs leading-relaxed">
+                      {renderNotificationContent(notif)}
+                    </div>
                   </div>
                 );
               })
             )}
+          </div>
+
+          <div className="px-4 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/10 text-center rounded-b-2xl">
+            <button 
+              onClick={(e) => handleActionClick(e, '/notifications')} 
+              className="text-xs font-semibold text-indigo-650 dark:text-indigo-405 hover:text-indigo-850 dark:hover:text-indigo-300 transition-colors inline-flex items-center gap-1.5 py-1 px-3 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg"
+            >
+              View all notifications
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
       )}
@@ -411,16 +514,16 @@ const NotificationBell = () => {
       {/* Toast Overlay */}
       <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
         {toastNotifs.map(t => (
-          <div key={t.toastId} className={`pointer-events-auto w-80 shadow-lg rounded-lg border p-4 bg-white dark:bg-slate-800 ${PhaseColors[t.type]?.split(' ')[3] || 'border-slate-200'}`}>
-            <div className="flex justify-between items-start mb-2">
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border ${PhaseColors[t.type] || 'bg-slate-100 text-slate-600'}`}>
+          <div key={t.toastId} className={`pointer-events-auto w-85 shadow-2xl rounded-xl border p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-all duration-300 animate-in slide-in-from-right-5 ${PhaseColors[t.type]?.split(' ')[3] || 'border-slate-200 dark:border-slate-800'}`}>
+            <div className="flex justify-between items-start mb-2.5">
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border ${PhaseColors[t.type] || 'bg-slate-100 text-slate-650 dark:bg-slate-800 dark:text-slate-400'}`}>
                 {t.type.replace(/_/g, ' ')}
               </span>
-              <button onClick={() => setToastNotifs(prev => prev.filter(x => x.toastId !== t.toastId))} className="text-slate-400 hover:text-slate-600">
+              <button onClick={() => setToastNotifs(prev => prev.filter(x => x.toastId !== t.toastId))} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-350">
                 <XCircle className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-sm text-slate-700 dark:text-slate-300 leading-snug">{t.message}</p>
+            <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug font-medium">{t.message}</p>
           </div>
         ))}
       </div>

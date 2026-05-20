@@ -23,10 +23,21 @@ class ItemSetupRepository {
   async deleteRawMaterial(id) { return prisma.rawMaterial.delete({ where: { id } }); }
 
   // Non Inventory Item
-  async createNonInventoryItem(data) { return prisma.nonInventoryItem.create({ data }); }
+  async createNonInventoryItem(data) {
+    const { name, code, category, unitId, ratePerUnit } = data;
+    return prisma.nonInventoryItem.create({
+      data: { name, code, category, unitId, ratePerUnit }
+    });
+  }
   async getNonInventoryItems() { return prisma.nonInventoryItem.findMany({ orderBy: { createdAt: 'desc' } }); }
   async getNonInventoryItemById(id) { return prisma.nonInventoryItem.findUnique({ where: { id } }); }
-  async updateNonInventoryItem(id, data) { return prisma.nonInventoryItem.update({ where: { id }, data }); }
+  async updateNonInventoryItem(id, data) {
+    const { name, code, category, unitId, ratePerUnit } = data;
+    return prisma.nonInventoryItem.update({
+      where: { id },
+      data: { name, code, category, unitId, ratePerUnit }
+    });
+  }
   async deleteNonInventoryItem(id) { return prisma.nonInventoryItem.delete({ where: { id } }); }
 
   // Product Category

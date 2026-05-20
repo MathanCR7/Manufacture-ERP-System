@@ -1,11 +1,15 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { AlertTriangle, Search } from 'lucide-react';
+import { AlertTriangle, Search, ChevronLeft } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function RMLowStockPage() {
   const [searchTerm, setSearchTerm] = React.useState('');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const fromNotifications = location.state?.from === '/notifications';
 
   const { data: stock = [], isLoading } = useQuery({
     queryKey: ['rm-stock'],
@@ -23,6 +27,14 @@ export default function RMLowStockPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {fromNotifications && (
+        <button 
+          onClick={() => navigate('/notifications')} 
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" /> Back to Notifications Center
+        </button>
+      )}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-red-600 dark:text-red-400 flex items-center">

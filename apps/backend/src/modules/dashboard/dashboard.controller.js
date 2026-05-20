@@ -11,13 +11,12 @@ class DashboardController {
         totalCustomer
       ] = await Promise.all([
         prisma.productionBatch.count({ where: { status: 'COMPLETED' } }),
-        prisma.idRegistry.count({ where: { status: 'ACTIVE' } }),
+        prisma.rawMaterial.count(),
         prisma.supplier.count(),
         prisma.customer.count()
       ]);
 
       // 2. Charts (Live from DB)
-      // Aggregate Expenses by month for Money Flow
       const currentYear = new Date().getFullYear();
       const expenses = await prisma.expense.findMany({
         where: {
@@ -42,9 +41,26 @@ class DashboardController {
         }
       });
 
+      // Let's get POs for purchases
+      const pos = await prisma.rawMaterialPO.findMany({
+        where: {
+          createdAt: {
+             gte: new Date(`${currentYear}-01-01`),
+             lte: new Date(`${currentYear}-12-31`)
+          }
+        }
+      });
+
+      pos.forEach(po => {
+        const monthName = monthNames[new Date(po.createdAt).getMonth()];
+        if (moneyFlowMap[monthName]) {
+          moneyFlowMap[monthName].Purchases += parseFloat(po.amount || 0);
+        }
+      });
+
+
       const moneyFlowData = Object.values(moneyFlowMap).slice(0, 6); // First 6 months for example
       
-      // We don't have an Account table yet, returning empty for the pie chart
       const accountBalanceData = [];
 
       // 3. Running Productions (Live from DB)
@@ -64,7 +80,7 @@ class DashboardController {
           product: b.idRegistry?.id || 'Unknown',
           startDate: b.createdAt,
           consumedTime: `${diffHours} Hour(s)`, 
-          productionCost: `INR ${b.actualRmUsed || 0}`, // Using rmUsed as a proxy for cost since no actual cost field exists
+          productionCost: `INR ${b.actualRmUsed || 0}`, 
           salePrice: '-'
         };
       });
@@ -82,15 +98,82 @@ class DashboardController {
         production: `MP-${test.batchId.substring(0, 6).toUpperCase()}`,
         name: `Batch Product`,
         code: `QC-${test.id.substring(0, 6).toUpperCase()}`,
-        expiryDate: test.expiryDate.toLocaleDateString(),
+        expiryDate: test.expiryDate ? test.expiryDate.toLocaleDateString() : 'N/A',
         status: 'expired'
       }));
 
-      // Tables that do not have dedicated DB models yet return empty arrays
       const runningCustomerOrders = [];
-      const lowRmStock = [];
-      const supplierReceivables = [];
-      const customerPayables = [];
+
+      // Live Low RM Stock
+      const allRms = await prisma.rawMaterial.findMany();
+      const rawMaterialsLowStock = allRms.filter(rm => Number(rm.currentStock) <= Number(rm.alertLevel)).slice(0, 10);
+
+      const lowRmStock = rawMaterialsLowStock.map(rm => ({
+        code: rm.code,
+        name: rm.name,
+        currentStock: rm.currentStock
+      }));
+
+      // Live Supplier Receivables
+      const suppliersWithReceivables = await prisma.supplier.findMany({
+        where: { openingBalance: { gt: 0 } },
+        take: 5
+      });
+
+      const supplierReceivables = suppliersWithReceivables.map(s => ({
+        date: s.createdAt.toLocaleDateString(),
+        supplier: s.name,
+        amount: `INR ${s.openingBalance}`
+      }));
+
+      // Live Customer Payables
+      const customersWithPayables = await prisma.customer.findMany({
+        where: { openingBalance: { gt: 0 } },
+        take: 5
+      });
+
+      const customerPayables = customersWithPayables.map(c => ({
+        referenceNo: c.id.substring(0, 6).toUpperCase(),
+        date: c.createdAt.toLocaleDateString(),
+        customer: c.name,
+        amount: `INR ${c.openingBalance}`
+      }));
+
+      // --- New Data: User Management, PO Details, Lab Assistant --- //
+      const usersData = await prisma.user.findMany({
+        select: { id: true, name: true, role: true, isActive: true },
+        take: 5
+      });
+
+      const pendingPOs = await prisma.rawMaterialPO.findMany({
+        where: { status: 'PENDING' },
+        include: { idRegistry: true, supplier: true },
+        take: 5
+      });
+
+      const poDetails = pendingPOs.map(po => ({
+        id: po.id,
+        referenceNo: po.referenceNo || 'N/A',
+        rm: po.idRegistry?.id || 'Unknown',
+        supplier: po.supplier?.name || 'Unknown',
+        quantity: `${po.quantity} Units`,
+        status: po.status
+      }));
+
+      const pendingRMLabTests = await prisma.gRNReceive.findMany({
+        where: { status: 'PENDING_LAB' },
+        include: { po: { include: { supplier: true } } },
+        take: 5,
+        orderBy: { createdAt: 'desc' }
+      });
+
+      const labAssistantTasks = pendingRMLabTests.map(grn => ({
+        id: grn.id.substring(0, 8).toUpperCase(),
+        grnId: grn.id,
+        grnRef: grn.referenceNo || 'N/A',
+        supplier: grn.po?.supplier?.name || 'Unknown',
+        status: grn.status
+      }));
 
       res.json({
         topMetrics: {
@@ -106,7 +189,11 @@ class DashboardController {
         lowRmStock,
         expireProducts,
         supplierReceivables,
-        customerPayables
+        customerPayables,
+        // new additions
+        usersData,
+        poDetails,
+        labAssistantTasks
       });
     } catch (error) {
       next(error);

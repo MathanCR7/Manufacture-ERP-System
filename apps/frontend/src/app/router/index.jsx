@@ -37,9 +37,12 @@ import AddProductCategoryPage from '@/modules/item-setup/pages/AddProductCategor
 import ProductCategoryListPage from '@/modules/item-setup/pages/ProductCategoryListPage';
 import AddProductPage from '@/modules/item-setup/pages/AddProductPage';
 import ProductListPage from '@/modules/item-setup/pages/ProductListPage';
+import TaxSettingsPage from '@/modules/item-setup/pages/TaxSettingsPage';
 
 import AuditLogListPage from '@/modules/admin/pages/AuditLogListPage';
 import NotificationAuditPanel from '@/modules/admin/pages/NotificationAuditPanel';
+import BackupListPage from '@/modules/admin/pages/BackupListPage';
+import NotificationsListPage from '@/modules/admin/pages/NotificationsListPage';
 
 import RMWasteListPage from '@/modules/waste/pages/RMWasteListPage';
 import CreateRMWastePage from '@/modules/waste/pages/CreateRMWastePage';
@@ -70,6 +73,25 @@ import QRLifecyclePage from '@/modules/shared/pages/QRLifecyclePage';
 
 // Inventory Module
 import InventoryUploadPage from '@/modules/inventory/pages/InventoryUploadPage';
+
+// Kulfi ERP Production Module Pages
+import ProductStockPage from '@/modules/production/pages/ProductStockPage';
+import LowStockAlertsPage from '@/modules/production/pages/LowStockAlertsPage';
+import ProductionsPage from '@/modules/production/pages/ProductionsPage';
+import AddProductionPage from '@/modules/production/pages/AddProductionPage';
+import ProductionLossPage from '@/modules/production/pages/ProductionLossPage';
+import LossReportPage from '@/modules/production/pages/LossReportPage';
+import QCQueuePage from '@/modules/production/pages/QCQueuePage';
+import ProductWastagePage from '@/modules/production/pages/ProductWastagePage';
+
+// Kulfi ERP Customer Order Module Pages
+import AddOrderPage from '@/modules/production/pages/AddOrderPage';
+import OrderListPage from '@/modules/production/pages/OrderListPage';
+import OrderStatusPage from '@/modules/production/pages/OrderStatusPage';
+
+// Kulfi ERP Forecasting Module Pages
+import ForecastByOrderPage from '@/modules/production/pages/ForecastByOrderPage';
+import ForecastByProductPage from '@/modules/production/pages/ForecastByProductPage';
 
 // Placeholder for missing modules
 const PlaceholderPage = ({ title }) => (
@@ -127,6 +149,7 @@ const AppRouter = () => {
             <Route path="/setup/product/add" element={<AddProductPage />} />
             <Route path="/setup/product/edit/:id" element={<AddProductPage />} />
             <Route path="/setup/product" element={<ProductListPage />} />
+            <Route path="/setup/tax" element={<TaxSettingsPage />} />
           </Route>
           
           {/* Purchase Orders (View) */}
@@ -202,19 +225,36 @@ const AppRouter = () => {
             <Route path="/sales/return/add" element={<PlaceholderPage title="Add Sale Return" />} />
             <Route path="/sales/return/list" element={<PlaceholderPage title="Sale Return List" />} />
           </Route>
-          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'LAB_ASSISTANT']} />}>
-            <Route path="/production/qc-queue" element={<PlaceholderPage title="Production QC Queue" />} />
-          </Route>
-          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
-            <Route path="/production/batches" element={<PlaceholderPage title="Production Batches" />} />
-          </Route>
-          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER']} />}>
-            <Route path="/production/wastage" element={<PlaceholderPage title="Product Wastage" />} />
+          {/* Kulfi ERP Products */}
+          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
+            <Route path="/products/stock" element={<ProductStockPage />} />
+            <Route path="/products/low-stock" element={<LowStockAlertsPage />} />
           </Route>
 
-          {/* Product Stock */}
-          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR']} />}>
-            <Route path="/product/stock" element={<PlaceholderPage title="Product Stock" />} />
+          {/* Kulfi ERP Production */}
+          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
+            <Route path="/production/batches" element={<ProductionsPage />} />
+            <Route path="/production/add" element={<AddProductionPage />} />
+            <Route path="/production/loss" element={<ProductionLossPage />} />
+            <Route path="/production/loss-report" element={<LossReportPage />} />
+            <Route path="/production/qc-queue" element={<QCQueuePage />} />
+          </Route>
+
+          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
+            <Route path="/production/wastage" element={<ProductWastagePage />} />
+          </Route>
+
+          {/* Kulfi ERP Customer Orders */}
+          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
+            <Route path="/orders/add" element={<AddOrderPage />} />
+            <Route path="/orders/list" element={<OrderListPage />} />
+            <Route path="/orders/status" element={<OrderStatusPage />} />
+          </Route>
+
+          {/* Kulfi ERP Forecasting */}
+          <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
+            <Route path="/forecasting/by-order" element={<ForecastByOrderPage />} />
+            <Route path="/forecasting/by-product" element={<ForecastByProductPage />} />
           </Route>
 
           {/* Finance & Accounts */}
@@ -231,10 +271,11 @@ const AppRouter = () => {
             <Route path="/waste/raw-material/edit/:id" element={<CreateRMWastePage />} />
             <Route path="/audit-logs" element={<AuditLogListPage />} />
             <Route path="/admin/notifications-audit" element={<NotificationAuditPanel />} />
+            <Route path="/admin/backups" element={<BackupListPage />} />
           </Route>
           
           {/* Notifications (All Roles) */}
-          <Route path="/notifications" element={<PlaceholderPage title="Notifications" />} />
+          <Route path="/notifications" element={<NotificationsListPage />} />
           
           {/* Admin only */}
           <Route element={<RoleGuard allowedRoles={['MAIN_MASTER']} />}>

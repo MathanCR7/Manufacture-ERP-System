@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { format } from 'date-fns';
@@ -56,6 +56,8 @@ function LifecycleStep({ step, active, done, icon: Icon }) {
 export default function PODetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromNotifications = location.state?.from === '/notifications';
   const queryClient = useQueryClient();
   const [showQR, setShowQR] = useState(true);
 
@@ -157,6 +159,16 @@ export default function PODetailPage() {
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {fromNotifications && (
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => navigate('/notifications')} 
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Notifications Center
+        </Button>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
@@ -338,7 +350,15 @@ export default function PODetailPage() {
               </span>
             </h3>
 
-            <div className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700">
+            <div 
+              draggable="true"
+              onDragStart={(e) => {
+                e.dataTransfer.setData('text/plain', qrData);
+                e.dataTransfer.effectAllowed = 'copy';
+              }}
+              className="bg-white p-3 rounded-xl shadow-sm border border-slate-100 dark:border-slate-700 cursor-grab active:cursor-grabbing hover:scale-105 hover:shadow-md transition-all duration-200"
+              title="Drag and drop this QR code onto the header Scan icon to track its lifecycle!"
+            >
               <QRCode value={qrData} size={168} level="M" fgColor="#0f172a" />
             </div>
 

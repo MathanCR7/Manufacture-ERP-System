@@ -28,16 +28,59 @@ const markAsSeen = async (req, res, next) => {
 const getNotifications = async (req, res, next) => {
   try {
     const role = req.user.role;
-    const notifications = await prisma.notification.findMany({
+    const { paginated, page, limit } = req.query;
+
+    let queryOptions = {
       where: {
         recipientRoles: {
           has: role
         }
       },
       orderBy: { eventAt: 'desc' },
+    };
+
+    if (paginated === 'true') {
+      const pageNum = parseInt(page, 10) || 1;
+      const limitNum = parseInt(limit, 10) || 50;
+      queryOptions.skip = (pageNum - 1) * limitNum;
+      queryOptions.take = limitNum;
+
+      const notifications = await prisma.notification.findMany(queryOptions);
+      const total = await prisma.notification.count({
+        where: {
+          recipientRoles: {
+            has: role
+          }
+        }
+      });
+
+      return res.status(200).json({
+        data: notifications,
+        meta: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum)
+        }
+      });
+    }
+
+    const notifications = await prisma.notification.findMany({
+      ...queryOptions,
       take: 50
     });
     res.status(200).json(notifications);
+  } catch (err) {
+    next(err);
+  }
+};
+
+const markAllAsSeen = async (req, res, next) => {
+  try {
+    const role = req.user.role;
+    const userId = req.user.id;
+    await notificationService.markAllAsSeen(role, userId);
+    res.status(200).json({ success: true });
   } catch (err) {
     next(err);
   }
@@ -63,6 +106,7 @@ const getAuditLogs = async (req, res, next) => {
 module.exports = {
   connectSSE,
   markAsSeen,
+  markAllAsSeen,
   getNotifications,
   getAuditLogs
 };

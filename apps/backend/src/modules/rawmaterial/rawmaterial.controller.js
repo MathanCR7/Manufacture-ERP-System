@@ -1,106 +1,8 @@
-const express = require('express');
 const { z } = require('zod');
-const prisma = require('../database/prisma');
-const authenticateToken = require('../middlewares/auth.middleware');
-const roleMiddleware = require('../middlewares/role.middleware');
-const { generateRmId } = require('../utils/rmIdGenerator');
-const { generateReferenceNo } = require('../utils/referenceGenerator');
-const workflowNotifications = require('../modules/notifications/workflow.notifications');
-
-const router = express.Router();
-
-// GET /api/rm/id/generate
-router.get('/rm/id/generate', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), async (req, res, next) => {
-  try {
-    const candidateId = await generateRmId(prisma);
-    res.json({ candidateId });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/rm/id/rotate
-router.post('/rm/id/rotate', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), async (req, res, next) => {
-  try {
-    const candidateId = await generateRmId(prisma);
-    res.json({ candidateId });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/rm/po
-router.get('/rm/po', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']), async (req, res, next) => {
-  try {
-    const pos = await prisma.rawMaterialPO.findMany({
-      where: {
-        status: { not: 'DELETED' }
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        uom: true,
-        supplier: true
-      }
-    });
-
-    const formattedPos = pos.map(po => ({
-      id: po.id,
-      referenceNo: po.referenceNo || 'N/A',
-      rmId: po.rmId,
-      name: po.name,
-      quantity: po.quantity,
-      amount: po.amount,
-      uom: po.uom ? po.uom.name : null,
-      supplierName: po.supplier ? po.supplier.name : null,
-      expectedDelivery: po.expectedDelivery,
-      status: po.status,
-      createdAt: po.createdAt
-    }));
-
-    res.json(formattedPos);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/rm/po/:id
-router.get('/rm/po/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']), async (req, res, next) => {
-  try {
-    const po = await prisma.rawMaterialPO.findUnique({
-      where: { id: req.params.id },
-      include: {
-        uom: true,
-        user: { select: { name: true, email: true } },
-        idRegistry: true,
-        supplier: true
-      }
-    });
-
-    if (!po) {
-      return res.status(404).json({ error: 'Purchase Order not found' });
-    }
-
-    res.json(po);
-  } catch (error) {
-    next(error);
-  }
-});
-
-/**
- * UPDATED SCHEMA
- * 1. max(20) to match your DB VarChar(20) for IDs like RM-00001
- * 2. z.coerce.number() to handle string inputs from forms
- * 3. Relaxed date validation to handle various frontend formats
- */
-const createPOSchema = z.object({
-  rmId: z.string().trim().min(1).max(20, "RM ID cannot exceed 20 characters"), 
-  name: z.string().min(2),
-  quantity: z.coerce.number().positive(),
-  amount: z.coerce.number().positive(),
-  uomId: z.string().min(1),
-  expectedDelivery: z.string().min(1),
-  supplierId: z.string().uuid().optional(),
-});
+const prisma = require('../../database/prisma');
+const { generateRmId } = require('../../utils/rmIdGenerator');
+const { generateReferenceNo } = require('../../utils/referenceGenerator');
+const workflowNotifications = require('../notifications/workflow.notifications');
 
 const isUuid = (value) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -139,8 +41,90 @@ const resolveUomId = async (value) => {
   return newUom.id;
 };
 
-// POST /api/rm/po
-router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), async (req, res, next) => {
+exports.generateRmId = async (req, res, next) => {
+  try {
+    const candidateId = await generateRmId(prisma);
+    res.json({ candidateId });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.rotateRmId = async (req, res, next) => {
+  try {
+    const candidateId = await generateRmId(prisma);
+    res.json({ candidateId });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getPOs = async (req, res, next) => {
+  try {
+    const pos = await prisma.rawMaterialPO.findMany({
+      where: {
+        status: { not: 'DELETED' }
+      },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        uom: true,
+        supplier: true
+      }
+    });
+
+    const formattedPos = pos.map(po => ({
+      id: po.id,
+      referenceNo: po.referenceNo || 'N/A',
+      rmId: po.rmId,
+      name: po.name,
+      quantity: po.quantity,
+      amount: po.amount,
+      uom: po.uom ? po.uom.name : null,
+      supplierName: po.supplier ? po.supplier.name : null,
+      expectedDelivery: po.expectedDelivery,
+      status: po.status,
+      createdAt: po.createdAt
+    }));
+
+    res.json(formattedPos);
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getPOById = async (req, res, next) => {
+  try {
+    const po = await prisma.rawMaterialPO.findUnique({
+      where: { id: req.params.id },
+      include: {
+        uom: true,
+        user: { select: { name: true, email: true } },
+        idRegistry: true,
+        supplier: true
+      }
+    });
+
+    if (!po) {
+      return res.status(404).json({ error: 'Purchase Order not found' });
+    }
+
+    res.json(po);
+  } catch (error) {
+    next(error);
+  }
+};
+
+const createPOSchema = z.object({
+  rmId: z.string().trim().min(1).max(20, "RM ID cannot exceed 20 characters"), 
+  name: z.string().min(2),
+  quantity: z.coerce.number().positive(),
+  amount: z.coerce.number().positive(),
+  uomId: z.string().min(1),
+  expectedDelivery: z.string().min(1),
+  supplierId: z.string().uuid().optional(),
+});
+
+exports.createPO = async (req, res, next) => {
   try {
     const parsedData = createPOSchema.parse(req.body);
     const resolvedUomId = await resolveUomId(parsedData.uomId);
@@ -149,11 +133,9 @@ router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 
       return res.status(400).json({ error: 'Invalid UOM provided' });
     }
     
-    // Generate PO Reference No
     const referenceNo = await generateReferenceNo(prisma, 'RawMaterialPO', 'PO');
 
     const createdPO = await prisma.$transaction(async (tx) => {
-      // 1. Create or Update IdRegistry (Upsert allows reuse of RM IDs)
       await tx.idRegistry.upsert({
         where: { id: parsedData.rmId },
         update: { status: 'ACTIVE' },
@@ -164,7 +146,6 @@ router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 
         }
       });
 
-      // 2. Create RawMaterialPO
       const po = await tx.rawMaterialPO.create({
         data: {
           referenceNo,
@@ -183,10 +164,8 @@ router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 
       return po;
     });
 
-    // Fetch actual UOM name for notification
     const actualUom = await prisma.uOM.findUnique({ where: { id: resolvedUomId } });
 
-    // Fire Notification Event
     try {
       await workflowNotifications.triggerPOCreated({
         rmId: parsedData.rmId,
@@ -211,7 +190,6 @@ router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
     }
-    // Specific check for column length or unique constraint errors
     if (error.code === 'P2000') {
         return res.status(400).json({ error: "Value too long for database. Check RM ID length." });
     }
@@ -220,9 +198,8 @@ router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 
     }
     next(error);
   }
-});
+};
 
-// PUT /api/rm/po/:id  — Edit a PENDING PO and write a full audit log
 const updatePOSchema = z.object({
   name: z.string().min(2).optional(),
   quantity: z.coerce.number().positive().optional(),
@@ -232,11 +209,10 @@ const updatePOSchema = z.object({
   supplierId: z.string().uuid().nullable().optional(),
 });
 
-router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), async (req, res, next) => {
+exports.updatePO = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // 1. Load current PO with all relations for "old values" snapshot
     const existing = await prisma.rawMaterialPO.findUnique({
       where: { id },
       include: {
@@ -254,14 +230,12 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
       return res.status(409).json({ error: 'Only PENDING purchase orders can be edited.' });
     }
 
-    // Only PURCHASE_ACCOUNTANT who owns the PO (or MAIN_MASTER) can edit
     if (req.user.role === 'PURCHASE_ACCOUNTANT' && existing.createdBy !== req.user.id) {
       return res.status(403).json({ error: 'You can only edit your own purchase orders.' });
     }
 
     const parsedData = updatePOSchema.parse(req.body);
 
-    // 2. Resolve UOM if provided
     let resolvedUomId = existing.uomId;
     if (parsedData.uomId) {
       resolvedUomId = await resolveUomId(parsedData.uomId);
@@ -270,7 +244,6 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
       }
     }
 
-    // 3. Build update payload (only changed fields)
     const updateData = {};
     if (parsedData.name !== undefined) updateData.name = parsedData.name;
     if (parsedData.quantity !== undefined) updateData.quantity = parsedData.quantity;
@@ -279,7 +252,6 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
     if (parsedData.supplierId !== undefined) updateData.supplierId = parsedData.supplierId || null;
     if (parsedData.uomId !== undefined) updateData.uomId = resolvedUomId;
 
-    // 4. Capture full old-value snapshot for audit log
     const oldSnapshot = {
       referenceNo: existing.referenceNo,
       rmId: existing.rmId,
@@ -297,7 +269,6 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
       createdAt: existing.createdAt,
     };
 
-    // 5. Perform update
     const updatedPO = await prisma.rawMaterialPO.update({
       where: { id },
       data: updateData,
@@ -308,7 +279,6 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
       }
     });
 
-    // 6. Capture full new-value snapshot for audit log
     const newSnapshot = {
       referenceNo: updatedPO.referenceNo,
       rmId: updatedPO.rmId,
@@ -329,7 +299,6 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
       editedByRole: req.user.role,
     };
 
-    // 7. Write audit log
     const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
     await prisma.auditLog.create({
       data: {
@@ -343,7 +312,6 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
       }
     });
 
-    // 8. Fire notification (best-effort)
     try {
       await workflowNotifications.triggerPOUpdated?.({
         poId: id,
@@ -366,10 +334,9 @@ router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT
     }
     next(error);
   }
-});
+};
 
-// DELETE /api/rm/po/:id
-router.delete('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), async (req, res, next) => {
+exports.deletePO = async (req, res, next) => {
   try {
     const po = await prisma.rawMaterialPO.findUnique({
       where: { id: req.params.id }
@@ -396,7 +363,6 @@ router.delete('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNT
         }
       });
 
-      // Optional: Logic to check if any other active POs use this rmId before marking registry as DELETED
       const otherPOs = await tx.rawMaterialPO.findFirst({
         where: { rmId: po.rmId, status: { not: 'DELETED' }, id: { not: req.params.id } }
       });
@@ -409,13 +375,12 @@ router.delete('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNT
       }
     });
 
-    // Fire Notification Event for Cancellation
     try {
       await workflowNotifications.triggerPOCancelled({
         poId: po.id,
         rmId: po.rmId,
         rmName: po.name,
-        cancelReason: 'Cancelled by user', // Or read from req.body if provided
+        cancelReason: 'Cancelled by user', 
         actorName: req.user.name || 'User',
         actorId: req.user.id,
         actorRole: req.user.role
@@ -428,10 +393,9 @@ router.delete('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNT
   } catch (error) {
     next(error);
   }
-});
+};
 
-// GET /api/uom
-router.get('/uom', authenticateToken, async (req, res, next) => {
+exports.getUOMs = async (req, res, next) => {
   try {
     const { rawMaterialId } = req.query;
 
@@ -479,15 +443,14 @@ router.get('/uom', authenticateToken, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+};
 
 const createUOMSchema = z.object({
   name: z.string().min(2),
   abbreviation: z.string().min(1),
 });
 
-// POST /api/uom
-router.post('/uom', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
+exports.createUOM = async (req, res, next) => {
   try {
     const parsedData = createUOMSchema.parse(req.body);
     const newUOM = await prisma.uOM.create({
@@ -504,20 +467,18 @@ router.post('/uom', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (r
     }
     next(error);
   }
-});
+};
 
-// GET /api/rm-waste/reference/generate
-router.get('/rm-waste/reference/generate', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+exports.generateWasteReference = async (req, res, next) => {
   try {
     const candidateId = await generateReferenceNo(prisma, 'RMWaste', 'RMW');
     res.json({ candidateId });
   } catch (error) {
     next(error);
   }
-});
+};
 
-// GET /api/rm-waste
-router.get('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+exports.getWastes = async (req, res, next) => {
   try {
     const wastes = await prisma.rMWaste.findMany({
       include: {
@@ -533,7 +494,7 @@ router.get('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
   } catch (error) {
     next(error);
   }
-});
+};
 
 const createRMWasteSchema = z.object({
   date: z.string().min(1),
@@ -548,8 +509,7 @@ const createRMWasteSchema = z.object({
   })).min(1)
 });
 
-// POST /api/rm-waste
-router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+exports.createWaste = async (req, res, next) => {
   try {
     const parsedData = createRMWasteSchema.parse(req.body);
     
@@ -584,14 +544,12 @@ router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPE
         include: { items: true }
       });
 
-      // Update currentStock and check for low stock
       for (const item of parsedData.items) {
         const rm = await tx.rawMaterial.update({
           where: { id: item.rawMaterialId },
           data: { currentStock: { decrement: item.quantity } }
         });
 
-        // Trigger notification if stock drops to or below alertLevel
         if (Number(rm.currentStock) <= Number(rm.alertLevel)) {
           await workflowNotifications.triggerRMLowStockAlert({
             rmId: rm.id,
@@ -612,10 +570,9 @@ router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPE
     }
     next(error);
   }
-});
+};
 
-// GET /api/rm-waste/:id
-router.get('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+exports.getWasteById = async (req, res, next) => {
   try {
     const waste = await prisma.rMWaste.findUnique({
       where: { id: req.params.id },
@@ -634,10 +591,9 @@ router.get('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
   } catch (error) {
     next(error);
   }
-});
+};
 
-// PUT /api/rm-waste/:id
-router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+exports.updateWaste = async (req, res, next) => {
   try {
     const { id } = req.params;
     const existing = await prisma.rMWaste.findUnique({
@@ -659,7 +615,6 @@ router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
     }));
 
     const updatedWaste = await prisma.$transaction(async (tx) => {
-      // Revert old stock
       for (const oldItem of existing.items) {
         await tx.rawMaterial.update({
           where: { id: oldItem.rawMaterialId },
@@ -667,7 +622,6 @@ router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
         });
       }
 
-      // Update waste
       const waste = await tx.rMWaste.update({
         where: { id },
         data: {
@@ -688,7 +642,6 @@ router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
         include: { items: true }
       });
 
-      // Apply new stock
       for (const item of parsedData.items) {
         const rm = await tx.rawMaterial.update({
           where: { id: item.rawMaterialId },
@@ -715,10 +668,9 @@ router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
     }
     next(error);
   }
-});
+};
 
-// DELETE /api/rm-waste/:id
-router.delete('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+exports.deleteWaste = async (req, res, next) => {
   try {
     const existing = await prisma.rMWaste.findUnique({
       where: { id: req.params.id },
@@ -730,7 +682,6 @@ router.delete('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER',
     }
     
     await prisma.$transaction(async (tx) => {
-      // Revert stock
       for (const item of existing.items) {
         await tx.rawMaterial.update({
           where: { id: item.rawMaterialId },
@@ -747,12 +698,10 @@ router.delete('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER',
   } catch (error) {
     next(error);
   }
-});
+};
 
-// GET /api/rm-stock
-router.get('/rm-stock', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']), async (req, res, next) => {
+exports.getStock = async (req, res, next) => {
   try {
-    // Disable HTTP caching — stock changes on every lab approval, 304s must never be served
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -761,7 +710,6 @@ router.get('/rm-stock', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
       orderBy: { name: 'asc' },
     });
     
-    // Map to required fields: SN, Code, Material Name, Available Quantity, Floating Stock, Rate Per Unit, Value
     const stock = rms.map(rm => {
       const qty = Number(rm.currentStock) || 0;
       const rate = Number(rm.ratePerUnit) || 0;
@@ -770,10 +718,10 @@ router.get('/rm-stock', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
         code: rm.code,
         name: rm.name,
         availableQuantity: qty,
-        floatingStock: 0, // Mock for floating stock for now
+        floatingStock: 0,
         ratePerUnit: rate,
         value: qty * rate,
-        unit: rm.unitId, // Used for display "Piece", "Yard"
+        unit: rm.unitId,
         alertLevel: rm.alertLevel
       };
     });
@@ -782,6 +730,4 @@ router.get('/rm-stock', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
   } catch (error) {
     next(error);
   }
-});
-
-module.exports = router;
+};

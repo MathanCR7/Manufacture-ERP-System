@@ -7,6 +7,7 @@ router.use(authMiddleware);
 
 router.get('/stream', notificationsController.connectSSE);
 router.get('/', notificationsController.getNotifications);
+router.patch('/seen-all', notificationsController.markAllAsSeen);
 router.patch('/:id/seen', notificationsController.markAsSeen);
 router.get('/audit', notificationsController.getAuditLogs);
 

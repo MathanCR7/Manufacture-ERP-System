@@ -20,7 +20,7 @@ const checkIn = async (req, res, next) => {
 const checkOut = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { note } = req.body;
+    const { note } = req.body || {};
     const existing = await prisma.attendanceLog.findFirst({
       where: { userId, checkOut: null },
       orderBy: { checkIn: 'desc' }
