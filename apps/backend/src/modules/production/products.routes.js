@@ -6,6 +6,58 @@ const roleMiddleware = require('../../middlewares/role.middleware');
 
 const router = express.Router();
 
+const cache = {};
+const CACHE_TTL = 3000; // 3 seconds cache
+const activeRequests = {};
+
+const cacheMiddleware = (req, res, next) => {
+  if (req.method !== 'GET') {
+    return next();
+  }
+  const cacheKey = `${req.user?.role || 'anonymous'}:${req.originalUrl}`;
+  const now = Date.now();
+  const entry = cache[cacheKey];
+  if (entry && (now - entry.timestamp) < CACHE_TTL) {
+    res.setHeader('X-Cache', 'HIT');
+    return res.json(entry.data);
+  }
+
+  // Request Coalescing (Singleflight Pattern)
+  if (activeRequests[cacheKey]) {
+    activeRequests[cacheKey].push(res);
+    return;
+  }
+
+  activeRequests[cacheKey] = [];
+
+  const originalJson = res.json;
+  res.json = function (body) {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      cache[cacheKey] = {
+        timestamp: Date.now(),
+        data: body
+      };
+    }
+
+    const queue = activeRequests[cacheKey] || [];
+    delete activeRequests[cacheKey];
+
+    for (const pendingRes of queue) {
+      try {
+        pendingRes.setHeader('X-Cache', 'HIT-COALESCED');
+        originalJson.call(pendingRes, body);
+      } catch (err) {
+        console.error('Coalesced response error:', err);
+      }
+    }
+
+    return originalJson.call(this, body);
+  };
+
+  res.setHeader('X-Cache', 'MISS');
+  next();
+};
+
 // Helper to generate unique product code (FP-XXXXXX)
 const generateProductCode = async (tx) => {
   // Lock table row to prevent race conditions
@@ -122,35 +174,43 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/products/stock - Current stock per finished product
-router.get('/stock', authenticateToken, async (req, res, next) => {
+router.get('/stock', authenticateToken, cacheMiddleware, async (req, res, next) => {
   try {
-    const products = await prisma.finishedProduct.findMany({
-      where: { deletedAt: null },
-      include: {
-        category: true,
-        unit: true,
-        stockLevels: true
-      }
-    });
+    const productsData = await prisma.$queryRaw`
+      SELECT 
+        p.id, 
+        p.code, 
+        p.name, 
+        p.opening_stock AS "openingStock", 
+        p.sale_price AS "salePrice", 
+        p.alert_level AS "alertLevel",
+        p.unit_id AS "unitId",
+        c.name AS "categoryName",
+        u.abbreviation AS "unitAbbr", 
+        u.name AS "unitName",
+        psl.min_level AS "minLevel", 
+        psl.max_level AS "maxLevel", 
+        psl.reorder_point AS "reorderPoint",
+        COALESCE(sm.net_movement, 0)::float AS "netMovement"
+      FROM products p
+      LEFT JOIN "ProductCategory" c ON p.category_id = c.id
+      LEFT JOIN "UOM" u ON p.unit_id = u.id
+      LEFT JOIN product_stock_levels psl ON p.id = psl.product_id
+      LEFT JOIN (
+        SELECT product_id, SUM(direction * quantity) AS net_movement
+        FROM product_stock_movements
+        GROUP BY product_id
+      ) sm ON p.id = sm.product_id
+      WHERE p.deleted_at IS NULL
+    `;
 
     const result = [];
-    for (const prod of products) {
-      // Calculate current stock from movements
-      const sumIn = await prisma.productStockMovement.aggregate({
-        where: { productId: prod.id, direction: 1 },
-        _sum: { quantity: true }
-      });
-      const sumOut = await prisma.productStockMovement.aggregate({
-        where: { productId: prod.id, direction: -1 },
-        _sum: { quantity: true }
-      });
-
-      const currentStock = Number(prod.openingStock || 0) + Number(sumIn._sum.quantity || 0) - Number(sumOut._sum.quantity || 0);
-
-      const stockLevel = prod.stockLevels[0] || null;
-      const minLevel = stockLevel ? Number(stockLevel.minLevel) : Number(prod.alertLevel || 0) * 0.5;
-      const maxLevel = stockLevel ? Number(stockLevel.maxLevel) : 0;
-      const reorderPoint = stockLevel ? Number(stockLevel.reorderPoint) : Number(prod.alertLevel || 0);
+    for (const row of productsData) {
+      const currentStock = Number(row.openingStock || 0) + Number(row.netMovement || 0);
+      
+      const minLevel = row.minLevel !== null ? Number(row.minLevel) : Number(row.alertLevel || 0) * 0.5;
+      const maxLevel = row.maxLevel !== null ? Number(row.maxLevel) : 0;
+      const reorderPoint = row.reorderPoint !== null ? Number(row.reorderPoint) : Number(row.alertLevel || 0);
 
       let status = 'OK';
       if (currentStock <= minLevel && minLevel > 0) {
@@ -160,19 +220,19 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
       }
 
       result.push({
-        id: prod.id,
-        code: prod.code,
-        name: prod.name,
-        category: prod.category?.name || 'N/A',
-        unit: prod.unit?.abbreviation || prod.unit?.name || prod.unitId || 'pcs',
+        id: row.id,
+        code: row.code,
+        name: row.name,
+        category: row.categoryName || 'N/A',
+        unit: row.unitAbbr || row.unitName || row.unitId || 'pcs',
         currentStock,
         minLevel,
         maxLevel,
         reorderPoint,
-        unitValue: Number(prod.salePrice || 0),
-        totalValue: currentStock * Number(prod.salePrice || 0),
+        unitValue: Number(row.salePrice || 0),
+        totalValue: currentStock * Number(row.salePrice || 0),
         status,
-        salePrice: Number(prod.salePrice || 0)
+        salePrice: Number(row.salePrice || 0)
       });
     }
 
@@ -183,61 +243,71 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/products/low-stock - Products below min stock
-router.get('/low-stock', authenticateToken, async (req, res, next) => {
+router.get('/low-stock', authenticateToken, cacheMiddleware, async (req, res, next) => {
   try {
-    const products = await prisma.finishedProduct.findMany({
-      where: { deletedAt: null },
-      include: {
-        category: true,
-        unit: true,
-        stockLevels: true
-      }
-    });
+    const productsData = await prisma.$queryRaw`
+      SELECT 
+        p.id, 
+        p.code, 
+        p.name, 
+        p.opening_stock AS "openingStock", 
+        p.sale_price AS "salePrice", 
+        p.alert_level AS "alertLevel",
+        p.unit_id AS "unitId",
+        c.name AS "categoryName",
+        u.abbreviation AS "unitAbbr", 
+        u.name AS "unitName",
+        psl.min_level AS "minLevel", 
+        psl.max_level AS "maxLevel", 
+        psl.reorder_point AS "reorderPoint",
+        COALESCE(sm.net_movement, 0)::float AS "netMovement"
+      FROM products p
+      LEFT JOIN "ProductCategory" c ON p.category_id = c.id
+      LEFT JOIN "UOM" u ON p.unit_id = u.id
+      LEFT JOIN product_stock_levels psl ON p.id = psl.product_id
+      LEFT JOIN (
+        SELECT product_id, SUM(direction * quantity) AS net_movement
+        FROM product_stock_movements
+        GROUP BY product_id
+      ) sm ON p.id = sm.product_id
+      WHERE p.deleted_at IS NULL
+    `;
 
     const result = [];
-    for (const prod of products) {
-      const sumIn = await prisma.productStockMovement.aggregate({
-        where: { productId: prod.id, direction: 1 },
-        _sum: { quantity: true }
-      });
-      const sumOut = await prisma.productStockMovement.aggregate({
-        where: { productId: prod.id, direction: -1 },
-        _sum: { quantity: true }
-      });
-
-      const currentStock = Number(prod.openingStock || 0) + Number(sumIn._sum.quantity || 0) - Number(sumOut._sum.quantity || 0);
-      const stockLevel = prod.stockLevels[0] || null;
-      const minLevel = stockLevel ? Number(stockLevel.minLevel) : Number(prod.alertLevel || 0) * 0.5;
-      const maxLevel = stockLevel ? Number(stockLevel.maxLevel) : 0;
-      const reorderPoint = stockLevel ? Number(stockLevel.reorderPoint) : Number(prod.alertLevel || 0);
+    for (const row of productsData) {
+      const currentStock = Number(row.openingStock || 0) + Number(row.netMovement || 0);
+      
+      const minLevel = row.minLevel !== null ? Number(row.minLevel) : Number(row.alertLevel || 0) * 0.5;
+      const maxLevel = row.maxLevel !== null ? Number(row.maxLevel) : 0;
+      const reorderPoint = row.reorderPoint !== null ? Number(row.reorderPoint) : Number(row.alertLevel || 0);
 
       if (currentStock <= minLevel && minLevel > 0) {
         result.push({
-          id: prod.id,
-          code: prod.code,
-          name: prod.name,
-          category: prod.category?.name || 'N/A',
-          unit: prod.unit?.abbreviation || prod.unit?.name || prod.unitId || 'pcs',
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          category: row.categoryName || 'N/A',
+          unit: row.unitAbbr || row.unitName || row.unitId || 'pcs',
           currentStock,
           minLevel,
           maxLevel,
           reorderPoint,
           status: 'Critical',
-          salePrice: Number(prod.salePrice || 0)
+          salePrice: Number(row.salePrice || 0)
         });
       } else if (currentStock <= reorderPoint && reorderPoint > 0) {
         result.push({
-          id: prod.id,
-          code: prod.code,
-          name: prod.name,
-          category: prod.category?.name || 'N/A',
-          unit: prod.unit?.abbreviation || prod.unit?.name || prod.unitId || 'pcs',
+          id: row.id,
+          code: row.code,
+          name: row.name,
+          category: row.categoryName || 'N/A',
+          unit: row.unitAbbr || row.unitName || row.unitId || 'pcs',
           currentStock,
           minLevel,
           maxLevel,
           reorderPoint,
           status: 'Low',
-          salePrice: Number(prod.salePrice || 0)
+          salePrice: Number(row.salePrice || 0)
         });
       }
     }

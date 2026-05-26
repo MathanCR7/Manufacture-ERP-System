@@ -17,9 +17,66 @@ const dashboardPaths = [
   '/notifications'
 ];
 
+const cache = {};
+const CACHE_TTL = 3000; // 3 seconds in-memory cache
+const activeRequests = {};
+
+const cacheMiddleware = (req, res, next) => {
+  if (req.method !== 'GET') {
+    return next();
+  }
+
+  const cacheKey = `${req.user?.role || 'anonymous'}:${req.originalUrl}`;
+  const now = Date.now();
+  const entry = cache[cacheKey];
+
+  if (entry && (now - entry.timestamp) < CACHE_TTL) {
+    res.setHeader('X-Cache', 'HIT');
+    return res.json(entry.data);
+  }
+
+  // Request Coalescing (Singleflight Pattern)
+  if (activeRequests[cacheKey]) {
+    activeRequests[cacheKey].push(res);
+    return;
+  }
+
+  activeRequests[cacheKey] = [];
+
+  const originalJson = res.json;
+  res.json = function (body) {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      cache[cacheKey] = {
+        timestamp: Date.now(),
+        data: body
+      };
+    }
+
+    const queue = activeRequests[cacheKey] || [];
+    delete activeRequests[cacheKey];
+
+    for (const pendingRes of queue) {
+      try {
+        pendingRes.setHeader('X-Cache', 'HIT-COALESCED');
+        originalJson.call(pendingRes, body);
+      } catch (err) {
+        console.error('Coalesced response error:', err);
+      }
+    }
+
+    return originalJson.call(this, body);
+  };
+
+  res.setHeader('X-Cache', 'MISS');
+  next();
+};
+
 router.use((req, res, next) => {
   if (dashboardPaths.includes(req.path)) {
-    return authenticateToken(req, res, next);
+    return authenticateToken(req, res, (err) => {
+      if (err) return next(err);
+      return cacheMiddleware(req, res, next);
+    });
   }
   next();
 });

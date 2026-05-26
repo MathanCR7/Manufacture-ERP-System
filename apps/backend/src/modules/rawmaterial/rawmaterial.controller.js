@@ -79,7 +79,7 @@ exports.getPOs = async (req, res, next) => {
       name: po.name,
       quantity: po.quantity,
       amount: po.amount,
-      uom: po.uom ? po.uom.name : null,
+      uom: po.uom ? (po.uom.abbreviation || po.uom.name) : null,
       supplierName: po.supplier ? po.supplier.name : null,
       expectedDelivery: po.expectedDelivery,
       status: po.status,

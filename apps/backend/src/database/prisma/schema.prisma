@@ -1031,6 +1031,7 @@ model ProductStockMovement {
   order       CustomerOrder?     @relation(fields: [orderId], references: [id])
   creator     User               @relation("StockMovementCreator", fields: [createdBy], references: [id])
 
+  @@index([productId])
   @@map("product_stock_movements")
 }
 

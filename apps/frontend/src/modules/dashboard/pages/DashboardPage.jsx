@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -47,6 +47,14 @@ export default function DashboardPage() {
   const isAdmin = userRole === 'ADMIN';
 
   const [productionTab, setProductionTab] = useState('active');
+  const [chartsMounted, setChartsMounted] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setChartsMounted(true);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, []);
 
   // ----------------------------------------------------
   // QUERIES SETUP WITH AUTO-POLLING / MANUAL REFRESH
@@ -179,19 +187,14 @@ export default function DashboardPage() {
     }
   };
 
-  // Critical queries check (we exclude productionsQuery loading so tab clicks do not trigger full screen spinner)
-  const isCriticalLoading = kpiQuery.isLoading || poQuery.isLoading || grnQuery.isLoading || lossQuery.isLoading;
-
-  if (isCriticalLoading) {
-    return (
-      <div className="flex h-[80vh] items-center justify-center bg-[#F4F3FF] dark:bg-slate-950 rounded-2xl">
-        <div className="text-center space-y-4">
-          <RotateCw className="w-10 h-10 text-indigo-600 animate-spin mx-auto" />
-          <p className="text-slate-600 dark:text-slate-400 font-medium">Synchronizing ERP modules...</p>
-        </div>
-      </div>
-    );
-  }
+  const renderKpiValue = (query, valKey) => {
+    if (query.isLoading) {
+      return (
+        <span className="inline-block h-8 w-16 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-md mt-1"></span>
+      );
+    }
+    return query.data?.[valKey] || 0;
+  };
 
   // ----------------------------------------------------
   // RENDER SECTIONS HELPER
@@ -252,7 +255,7 @@ export default function DashboardPage() {
           <div className="mt-4">
             <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Active Productions</p>
             <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
-              {kpiQuery.data?.activeProductions || 0}
+              {renderKpiValue(kpiQuery, 'activeProductions')}
             </h3>
           </div>
         </div>
@@ -268,7 +271,7 @@ export default function DashboardPage() {
           <div className="mt-4">
             <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">POs Pending Approval</p>
             <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
-              {kpiQuery.data?.posPendingApproval || 0}
+              {renderKpiValue(kpiQuery, 'posPendingApproval')}
             </h3>
           </div>
         </div>
@@ -279,12 +282,12 @@ export default function DashboardPage() {
             <div className="p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl">
               <AlertTriangle className="w-5 h-5" />
             </div>
-            {kpiQuery.data?.lowStockMaterials > 0 ? renderDelta("Critical", 'danger') : renderDelta("All Good")}
+            {kpiQuery.isLoading ? renderDelta("Syncing") : kpiQuery.data?.lowStockMaterials > 0 ? renderDelta("Critical", 'danger') : renderDelta("All Good")}
           </div>
           <div className="mt-4">
             <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Low Stock Materials</p>
-            <h3 className={`text-2xl font-black mt-1 ${kpiQuery.data?.lowStockMaterials > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>
-              {kpiQuery.data?.lowStockMaterials || 0}
+            <h3 className={`text-2xl font-black mt-1 ${(!kpiQuery.isLoading && kpiQuery.data?.lowStockMaterials > 0) ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>
+              {renderKpiValue(kpiQuery, 'lowStockMaterials')}
             </h3>
           </div>
         </div>
@@ -295,12 +298,12 @@ export default function DashboardPage() {
             <div className="p-3 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
               <CheckSquare className="w-5 h-5" />
             </div>
-            {kpiQuery.data?.qcBatchesPending > 0 ? renderDelta("Action Required", 'danger') : renderDelta("Queue Clear")}
+            {kpiQuery.isLoading ? renderDelta("Syncing") : kpiQuery.data?.qcBatchesPending > 0 ? renderDelta("Action Required", 'danger') : renderDelta("Queue Clear")}
           </div>
           <div className="mt-4">
             <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">QC Queue Pending</p>
             <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
-              {kpiQuery.data?.qcBatchesPending || 0}
+              {renderKpiValue(kpiQuery, 'qcBatchesPending')}
             </h3>
           </div>
         </div>
@@ -316,7 +319,7 @@ export default function DashboardPage() {
           <div className="mt-4">
             <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Orders to Dispatch</p>
             <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
-              {kpiQuery.data?.ordersToDispatch || 0}
+              {renderKpiValue(kpiQuery, 'ordersToDispatch')}
             </h3>
           </div>
         </div>
@@ -363,28 +366,35 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="space-y-3 flex-1">
-                      {visiblePos.map((po) => (
-                        <div 
-                          key={po.id} 
-                          onClick={() => navigate(`/purchase-orders/${po.id}`)}
-                          className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-100 dark:border-slate-800/80 shadow-sm cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all"
-                        >
-                          <div className="flex justify-between items-start">
-                            <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">{po.referenceNo}</span>
+                      {poQuery.isLoading ? (
+                        <>
+                          <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-100 dark:border-slate-800/85 shadow-sm animate-pulse h-[80px]"></div>
+                          <div className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-100 dark:border-slate-800/85 shadow-sm animate-pulse h-[80px]"></div>
+                        </>
+                      ) : (
+                        visiblePos.map((po) => (
+                          <div 
+                            key={po.id} 
+                            onClick={() => navigate(`/purchase-orders/${po.id}`)}
+                            className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-100 dark:border-slate-800/80 shadow-sm cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                          >
+                            <div className="flex justify-between items-start">
+                              <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">{po.referenceNo}</span>
+                            </div>
+                            <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 font-semibold truncate">{po.supplierName}</p>
+                            <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-50 dark:border-slate-800/40">
+                              {isAdmin ? (
+                                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{formatCurrency(po.amount)}</span>
+                              ) : (
+                                <span className="text-[10px] uppercase font-bold text-slate-400">Restricted</span>
+                              )}
+                              <span className="text-[10px] text-slate-400 dark:text-slate-500">{formatDate(po.createdAt)}</span>
+                            </div>
                           </div>
-                          <p className="text-xs text-slate-700 dark:text-slate-300 mt-1 font-semibold truncate">{po.supplierName}</p>
-                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-50 dark:border-slate-800/40">
-                            {isAdmin ? (
-                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{formatCurrency(po.amount)}</span>
-                            ) : (
-                              <span className="text-[10px] uppercase font-bold text-slate-400">Restricted</span>
-                            )}
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500">{formatDate(po.createdAt)}</span>
-                          </div>
-                        </div>
-                      ))}
+                        ))
+                      )}
 
-                      {stagePos.length === 0 && (
+                      {!poQuery.isLoading && stagePos.length === 0 && (
                         <div className="h-full flex items-center justify-center border-2 border-dashed border-slate-200/60 dark:border-slate-800/60 rounded-lg p-4 text-center">
                           <span className="text-xs text-slate-400 dark:text-slate-600">No Orders</span>
                         </div>
@@ -545,37 +555,50 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {grnQuery.data?.grns?.map((g) => {
-                      let statusColor = "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400";
-                      if (g.status === 'ACCEPTED') statusColor = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400";
-                      if (g.status === 'REJECTED') statusColor = "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400";
-
-                      return (
-                        <tr key={g.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 even:bg-[#FAF9FF] dark:even:bg-slate-900/10 transition-colors text-sm text-slate-700 dark:text-slate-300">
-                          <td className="p-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">{g.grnNo}</td>
-                          <td className="p-4">
-                            <p className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[120px]">{g.supplier}</p>
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500">{g.materialName}</span>
-                          </td>
-                          <td className="p-4 text-xs font-semibold">
-                            {g.qtyReceived} <span className="text-slate-400">{g.unit}</span>
-                          </td>
-                          <td className="p-4 text-xs text-slate-500 dark:text-slate-400">{formatDate(g.receivedDate)}</td>
-                          <td className="p-4">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
-                              {g.status}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-
-                    {grnQuery.data?.grns?.length === 0 && (
+                    {grnQuery.isLoading ? (
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-slate-400 dark:text-slate-600 text-sm">
-                          No recent material deliveries logged.
+                        <td colSpan={5} className="p-8 text-center">
+                          <div className="flex justify-center items-center gap-2 text-indigo-600 dark:text-indigo-400 font-semibold animate-pulse">
+                            <RotateCw className="w-4 h-4 animate-spin" />
+                            <span>Loading deliveries...</span>
+                          </div>
                         </td>
                       </tr>
+                    ) : (
+                      <>
+                        {grnQuery.data?.grns?.map((g) => {
+                          let statusColor = "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400";
+                          if (g.status === 'ACCEPTED') statusColor = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400";
+                          if (g.status === 'REJECTED') statusColor = "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400";
+
+                          return (
+                            <tr key={g.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 even:bg-[#FAF9FF] dark:even:bg-slate-900/10 transition-colors text-sm text-slate-700 dark:text-slate-300">
+                              <td className="p-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">{g.grnNo}</td>
+                              <td className="p-4">
+                                <p className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[120px]">{g.supplier}</p>
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500">{g.materialName}</span>
+                              </td>
+                              <td className="p-4 text-xs font-semibold">
+                                {g.qtyReceived} <span className="text-slate-400">{g.unit}</span>
+                              </td>
+                              <td className="p-4 text-xs text-slate-500 dark:text-slate-400">{formatDate(g.receivedDate)}</td>
+                              <td className="p-4">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}`}>
+                                  {g.status}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {grnQuery.data?.grns?.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="p-8 text-center text-slate-400 dark:text-slate-600 text-sm">
+                              No recent material deliveries logged.
+                            </td>
+                          </tr>
+                        )}
+                      </>
                     )}
                   </tbody>
                 </table>
@@ -589,15 +612,21 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="h-[180px] mt-4">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={grnQuery.data?.last7Days || []}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
-                      <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
-                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
-                      <RechartsTooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                      <Bar dataKey="qty_kg" fill="#6366F1" radius={[4, 4, 0, 0]} maxBarSize={25} />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  {grnQuery.isLoading || !chartsMounted ? (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-100/50 dark:bg-slate-900/30 rounded-xl animate-pulse">
+                      <RotateCw className="w-6 h-6 text-slate-400 animate-spin" />
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={grnQuery.data?.last7Days || []}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
+                        <RechartsTooltip cursor={{ fill: 'transparent' }} contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                        <Bar dataKey="qty_kg" fill="#6366F1" radius={[4, 4, 0, 0]} maxBarSize={25} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
 
@@ -616,42 +645,52 @@ export default function DashboardPage() {
             <SectionHeader title="System Alerts & Logs" queryRef={alertsQuery} />
 
             <div className="overflow-y-auto space-y-4 pr-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800">
-              {alertsQuery.data?.map((alert) => {
-                let alertIcon = <AlertCircle className="w-4 h-4 text-amber-600" />;
-                let alertBg = "bg-amber-50 dark:bg-amber-950/20";
-                
-                if (alert.category === 'QC_FAIL') {
-                  alertIcon = <XCircle className="w-4 h-4 text-rose-600" />;
-                  alertBg = "bg-rose-50 dark:bg-rose-950/20";
-                } else if (alert.category === 'PRODUCTION_COMPLETE') {
-                  alertIcon = <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
-                  alertBg = "bg-emerald-50 dark:bg-emerald-500/10";
-                } else if (alert.category === 'PO_PENDING') {
-                  alertIcon = <Clock className="w-4 h-4 text-indigo-600" />;
-                  alertBg = "bg-indigo-50 dark:bg-indigo-950/20";
-                }
+              {alertsQuery.isLoading ? (
+                <>
+                  <div className="h-14 bg-slate-50 dark:bg-slate-800/40 animate-pulse rounded-xl"></div>
+                  <div className="h-14 bg-slate-50 dark:bg-slate-800/40 animate-pulse rounded-xl"></div>
+                  <div className="h-14 bg-slate-50 dark:bg-slate-800/40 animate-pulse rounded-xl"></div>
+                </>
+              ) : (
+                <>
+                  {alertsQuery.data?.map((alert) => {
+                    let alertIcon = <AlertCircle className="w-4 h-4 text-amber-600" />;
+                    let alertBg = "bg-amber-50 dark:bg-amber-950/20";
+                    
+                    if (alert.category === 'QC_FAIL') {
+                      alertIcon = <XCircle className="w-4 h-4 text-rose-600" />;
+                      alertBg = "bg-rose-50 dark:bg-rose-950/20";
+                    } else if (alert.category === 'PRODUCTION_COMPLETE') {
+                      alertIcon = <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
+                      alertBg = "bg-emerald-50 dark:bg-emerald-500/10";
+                    } else if (alert.category === 'PO_PENDING') {
+                      alertIcon = <Clock className="w-4 h-4 text-indigo-600" />;
+                      alertBg = "bg-indigo-50 dark:bg-indigo-950/20";
+                    }
 
-                return (
-                  <div key={alert.id} className="flex gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <div className={`p-2 rounded-xl shrink-0 ${alertBg}`}>
-                      {alertIcon}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold break-words">
-                        {alert.title}
-                      </p>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">
-                        {formatDate(alert.timestamp)} • {formatTime(alert.timestamp)}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+                    return (
+                      <div key={alert.id} className="flex gap-3 p-3 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                        <div className={`p-2 rounded-xl shrink-0 ${alertBg}`}>
+                          {alertIcon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold break-words">
+                            {alert.title}
+                          </p>
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 block">
+                            {formatDate(alert.timestamp)} • {formatTime(alert.timestamp)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
 
-              {alertsQuery.data?.length === 0 && (
-                <div className="py-8 text-center text-slate-400 dark:text-slate-600 text-xs">
-                  All alerts clear. No critical alerts reported.
-                </div>
+                  {alertsQuery.data?.length === 0 && (
+                    <div className="py-8 text-center text-slate-400 dark:text-slate-600 text-xs">
+                      All alerts clear. No critical alerts reported.
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -664,67 +703,73 @@ export default function DashboardPage() {
               <SectionHeader title="Lab QC Tests (Today)" queryRef={labSummaryQuery} />
 
               {/* Summary Pie */}
-              <div className="flex justify-between items-center gap-4 bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl">
-                <div className="w-[120px] h-[120px] relative shrink-0">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={[
-                          { name: 'Passed', value: labSummaryQuery.data?.passed || 0, color: '#10B981' },
-                          { name: 'Failed', value: labSummaryQuery.data?.failed || 0, color: '#EF4444' },
-                          { name: 'Pending', value: labSummaryQuery.data?.pending || 0, color: '#F59E0B' }
-                        ].filter(item => item.value > 0)}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={36}
-                        outerRadius={48}
-                        paddingAngle={4}
-                        dataKey="value"
-                      >
-                        {[
-                          { name: 'Passed', value: labSummaryQuery.data?.passed || 0, color: '#10B981' },
-                          { name: 'Failed', value: labSummaryQuery.data?.failed || 0, color: '#EF4444' },
-                          { name: 'Pending', value: labSummaryQuery.data?.pending || 0, color: '#F59E0B' }
-                        ].filter(item => item.value > 0).map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                  
-                  {/* Center Total */}
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="text-lg font-black text-slate-800 dark:text-slate-200">
-                      {labSummaryQuery.data?.total || 0}
-                    </span>
-                    <span className="text-[8px] text-slate-400 uppercase tracking-widest">Tests</span>
-                  </div>
+              {labSummaryQuery.isLoading || !chartsMounted ? (
+                <div className="flex justify-center items-center h-[120px] bg-slate-50 dark:bg-slate-950 rounded-2xl animate-pulse">
+                  <RotateCw className="w-5 h-5 text-slate-400 animate-spin" />
                 </div>
+              ) : (
+                <div className="flex justify-between items-center gap-4 bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl">
+                  <div className="w-[120px] h-[120px] relative shrink-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Passed', value: labSummaryQuery.data?.passed || 0, color: '#10B981' },
+                            { name: 'Failed', value: labSummaryQuery.data?.failed || 0, color: '#EF4444' },
+                            { name: 'Pending', value: labSummaryQuery.data?.pending || 0, color: '#F59E0B' }
+                          ].filter(item => item.value > 0)}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={36}
+                          outerRadius={48}
+                          paddingAngle={4}
+                          dataKey="value"
+                        >
+                          {[
+                            { name: 'Passed', value: labSummaryQuery.data?.passed || 0, color: '#10B981' },
+                            { name: 'Failed', value: labSummaryQuery.data?.failed || 0, color: '#EF4444' },
+                            { name: 'Pending', value: labSummaryQuery.data?.pending || 0, color: '#F59E0B' }
+                          ].filter(item => item.value > 0).map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+                    
+                    {/* Center Total */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-lg font-black text-slate-800 dark:text-slate-200">
+                        {labSummaryQuery.data?.total || 0}
+                      </span>
+                      <span className="text-[8px] text-slate-400 uppercase tracking-widest">Tests</span>
+                    </div>
+                  </div>
 
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                      Passed
-                    </span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{labSummaryQuery.data?.passed || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-                      Failed
-                    </span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{labSummaryQuery.data?.failed || 0}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-                      Pending
-                    </span>
-                    <span className="font-bold text-slate-800 dark:text-slate-200">{labSummaryQuery.data?.pending || 0}</span>
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        Passed
+                      </span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{labSummaryQuery.data?.passed || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                        <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                        Failed
+                      </span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{labSummaryQuery.data?.failed || 0}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                        Pending
+                      </span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{labSummaryQuery.data?.pending || 0}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Table */}
               <div className="mt-4 overflow-x-auto">
@@ -737,23 +782,34 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-700 dark:text-slate-300">
-                    {labTestsQuery.data?.map((test) => {
-                      let resColor = "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400";
-                      if (test.result === 'PASS') resColor = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400";
-                      if (test.result === 'FAIL') resColor = "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400";
+                    {labTestsQuery.isLoading ? (
+                      <tr>
+                        <td colSpan={3} className="p-4 text-center">
+                          <div className="flex justify-center items-center gap-1.5 text-slate-400 animate-pulse">
+                            <RotateCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Loading tests...</span>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      labTestsQuery.data?.map((test) => {
+                        let resColor = "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400";
+                        if (test.result === 'PASS') resColor = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400";
+                        if (test.result === 'FAIL') resColor = "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400";
 
-                      return (
-                        <tr key={test.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
-                          <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">{test.batchNo}</td>
-                          <td className="p-3 font-semibold truncate max-w-[100px]">{test.productName}</td>
-                          <td className="p-3 text-right">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${resColor}`}>
-                              {test.result}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                        return (
+                          <tr key={test.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
+                            <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">{test.batchNo}</td>
+                            <td className="p-3 font-semibold truncate max-w-[100px]">{test.productName}</td>
+                            <td className="p-3 text-right">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${resColor}`}>
+                                {test.result}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -766,32 +822,45 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800">
             <SectionHeader title="Production Loss Trends" queryRef={lossQuery} />
 
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl">
-                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Weight Loss</span>
-                <h4 className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">
-                  {lossQuery.data?.totalLossKg?.toFixed(1) || 0} kg
-                </h4>
+            {lossQuery.isLoading ? (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl animate-pulse h-16"></div>
+                <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl animate-pulse h-16"></div>
               </div>
-              <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl">
-                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Loss Value</span>
-                <h4 className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">
-                  {isAdmin ? formatCurrency(lossQuery.data?.lossValueINR || 0) : 'Restricted'}
-                </h4>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl">
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Weight Loss</span>
+                  <h4 className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                    {lossQuery.data?.totalLossKg?.toFixed(1) || 0} kg
+                  </h4>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl">
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Loss Value</span>
+                  <h4 className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">
+                    {isAdmin ? formatCurrency(lossQuery.data?.lossValueINR || 0) : 'Restricted'}
+                  </h4>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="h-[140px] mt-2">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={lossQuery.data?.dailyLoss || []}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
-                  <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 8 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 8 }} />
-                  <RechartsTooltip contentStyle={{ fontSize: 10, borderRadius: 6 }} />
-                  <Line type="monotone" dataKey="loss_qty_kg" stroke="#EF4444" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+                  {lossQuery.isLoading || !chartsMounted ? (
+                    <div className="w-full h-full flex items-center justify-center bg-slate-100/50 dark:bg-slate-900/30 rounded-xl animate-pulse">
+                      <RotateCw className="w-5 h-5 text-slate-400 animate-spin" />
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={lossQuery.data?.dailyLoss || []}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
+                        <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 8 }} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 8 }} />
+                        <RechartsTooltip contentStyle={{ fontSize: 10, borderRadius: 6 }} />
+                        <Line type="monotone" dataKey="loss_qty_kg" stroke="#EF4444" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
           </div>
 
         </div>
@@ -907,15 +976,21 @@ export default function DashboardPage() {
             <SectionHeader title="Top 5 Products by Forecasted Demand" queryRef={forecastProductQuery} />
             
             <div className="h-[250px] mt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={forecastProductQuery.data || []} layout="vertical" margin={{ left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
-                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
-                  <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} width={120} />
-                  <RechartsTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  <Bar dataKey="demand" fill="#818CF8" radius={[0, 4, 4, 0]} maxBarSize={20} />
-                </BarChart>
-              </ResponsiveContainer>
+              {forecastProductQuery.isLoading || !chartsMounted ? (
+                <div className="w-full h-full flex items-center justify-center bg-slate-100/50 dark:bg-slate-900/30 rounded-xl animate-pulse">
+                  <RotateCw className="w-5 h-5 text-slate-400 animate-spin" />
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={forecastProductQuery.data || []} layout="vertical" margin={{ left: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
+                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} width={120} />
+                    <RechartsTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Bar dataKey="demand" fill="#818CF8" radius={[0, 4, 4, 0]} maxBarSize={20} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 
@@ -924,21 +999,27 @@ export default function DashboardPage() {
             <SectionHeader title="Upcoming Orders Demand Forecast" queryRef={forecastOrderQuery} />
 
             <div className="h-[250px] mt-4">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={forecastOrderQuery.data || []}>
-                  <defs>
-                    <linearGradient id="colorUnits" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366F1" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="#6366F1" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
-                  <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
-                  <RechartsTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                  <Area type="monotone" dataKey="forecasted_units" stroke="#6366F1" strokeWidth={3} fillOpacity={1} fill="url(#colorUnits)" />
-                </AreaChart>
-              </ResponsiveContainer>
+              {forecastOrderQuery.isLoading || !chartsMounted ? (
+                <div className="w-full h-full flex items-center justify-center bg-slate-100/50 dark:bg-slate-900/30 rounded-xl animate-pulse">
+                  <RotateCw className="w-5 h-5 text-slate-400 animate-spin" />
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={forecastOrderQuery.data || []}>
+                    <defs>
+                      <linearGradient id="colorUnits" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#6366F1" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#6366F1" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" className="dark:stroke-slate-800" />
+                    <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
+                    <RechartsTooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+                    <Area type="monotone" dataKey="forecasted_units" stroke="#6366F1" strokeWidth={3} fillOpacity={1} fill="url(#colorUnits)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 

@@ -7,6 +7,58 @@ const notificationService = require('../notifications/notifications.service');
 
 const router = express.Router();
 
+const cache = {};
+const CACHE_TTL = 3000; // 3 seconds cache
+const activeRequests = {};
+
+const cacheMiddleware = (req, res, next) => {
+  if (req.method !== 'GET') {
+    return next();
+  }
+  const cacheKey = `${req.user?.role || 'anonymous'}:${req.originalUrl}`;
+  const now = Date.now();
+  const entry = cache[cacheKey];
+  if (entry && (now - entry.timestamp) < CACHE_TTL) {
+    res.setHeader('X-Cache', 'HIT');
+    return res.json(entry.data);
+  }
+
+  // Request Coalescing (Singleflight Pattern)
+  if (activeRequests[cacheKey]) {
+    activeRequests[cacheKey].push(res);
+    return;
+  }
+
+  activeRequests[cacheKey] = [];
+
+  const originalJson = res.json;
+  res.json = function (body) {
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      cache[cacheKey] = {
+        timestamp: Date.now(),
+        data: body
+      };
+    }
+
+    const queue = activeRequests[cacheKey] || [];
+    delete activeRequests[cacheKey];
+
+    for (const pendingRes of queue) {
+      try {
+        pendingRes.setHeader('X-Cache', 'HIT-COALESCED');
+        originalJson.call(pendingRes, body);
+      } catch (err) {
+        console.error('Coalesced response error:', err);
+      }
+    }
+
+    return originalJson.call(this, body);
+  };
+
+  res.setHeader('X-Cache', 'MISS');
+  next();
+};
+
 // Helper to generate unique production batch reference (MP-XXXXXX)
 const generateBatchReference = async (tx) => {
   const result = await tx.$queryRaw`
@@ -79,7 +131,7 @@ const checkAndNotifyStockAlerts = async (productId, tx) => {
 };
 
 // GET /api/production/qc-queue - Batches pending QC
-router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR']), async (req, res, next) => {
+router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR']), cacheMiddleware, async (req, res, next) => {
   try {
     const batches = await prisma.productionBatchNew.findMany({
       where: {

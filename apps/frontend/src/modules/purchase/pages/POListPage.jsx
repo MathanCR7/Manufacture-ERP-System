@@ -183,33 +183,15 @@ export default function POListPage() {
     }
   });
 
-  // Fetch all raw materials to get UOM data
-  const { data: rawMaterials = [] } = useQuery({
-    queryKey: ['raw-materials-setup'],
-    queryFn: async () => {
-      const res = await api.get('/item-setup/raw-material');
-      return res.data;
-    }
-  });
-
-  // Build a map: rmCode → UOM label
-  const rmUomMap = {};
-  rawMaterials.forEach(rm => {
-    const uomLabel = rm.uoms?.length > 0
-      ? rm.uoms.map(u => u.abbreviation || u.name).join(' / ')
-      : rm.unitId || rm.consumptionUnit || '';
-    if (rm.code) rmUomMap[rm.code] = uomLabel;
-  });
-
   const deleteMutation = useMutation({
     mutationFn: async (id) => { await api.delete(`/rm/po/${id}`); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['pos'] }); }
   });
 
-  // Augment POs with real UOM label
+  // Augment POs with UOM label directly from backend PO
   const augmentedPos = pos.map(po => ({
     ...po,
-    uomLabel: rmUomMap[po.rmId] || po.uom || '-'
+    uomLabel: po.uom || '-'
   }));
 
   const filteredPOs = augmentedPos.filter(po => {
