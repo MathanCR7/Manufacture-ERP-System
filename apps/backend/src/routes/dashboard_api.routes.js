@@ -39,10 +39,12 @@ router.get('/dashboard/kpis', async (req, res, next) => {
       }
     });
 
-    const allRms = await prisma.rawMaterial.findMany({
-      select: { currentStock: true, alertLevel: true }
-    });
-    const lowStockMaterials = allRms.filter(rm => Number(rm.currentStock) <= Number(rm.alertLevel)).length;
+    const lowStockRaw = await prisma.$queryRaw`
+      SELECT COUNT(*)::int AS count 
+      FROM "RawMaterial" 
+      WHERE "currentStock" <= "alertLevel"
+    `;
+    const lowStockMaterials = lowStockRaw[0]?.count || 0;
 
     const prodPending = await prisma.productionBatchNew.count({
       where: {
@@ -353,6 +355,25 @@ router.get('/grn', async (req, res, next) => {
     });
 
     // Materials Received — Last 7 Days (x: date, y: qty_kg)
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const allItemsIn7Days = await prisma.gRNReceiveItem.findMany({
+      where: {
+        grn: {
+          receivedDate: {
+            gte: sevenDaysAgo
+          }
+        }
+      },
+      include: {
+        grn: {
+          select: { receivedDate: true }
+        }
+      }
+    });
+
     const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
@@ -362,15 +383,9 @@ router.get('/grn', async (req, res, next) => {
       const endOfDay = new Date(d);
       endOfDay.setHours(23, 59, 59, 999);
 
-      const itemsInDay = await prisma.gRNReceiveItem.findMany({
-        where: {
-          grn: {
-            receivedDate: {
-              gte: startOfDay,
-              lte: endOfDay
-            }
-          }
-        }
+      const itemsInDay = allItemsIn7Days.filter(item => {
+        const itemDate = new Date(item.grn?.receivedDate);
+        return itemDate >= startOfDay && itemDate <= endOfDay;
       });
 
       const totalQty = itemsInDay.reduce((sum, it) => sum + parseFloat(it.actualReceivedQty || 0), 0);

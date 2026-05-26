@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const compression = require('compression');
 const routes = require('./routes');
 const errorHandler = require('./middlewares/error.middleware');
 
@@ -9,6 +10,7 @@ const app = express();
 
 // Global Middlewares
 app.use(morgan('dev'));
+app.use(compression());
 app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5173',
