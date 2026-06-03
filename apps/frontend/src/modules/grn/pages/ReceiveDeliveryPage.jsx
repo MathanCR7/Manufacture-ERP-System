@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 
-function QRDisplay({ text }) {
+function QRDisplay({ text, onDragStart }) {
   const canvasRef = useRef(null);
   useEffect(() => {
     if (text && canvasRef.current) {
@@ -19,7 +19,18 @@ function QRDisplay({ text }) {
       });
     }
   }, [text]);
-  return <canvas ref={canvasRef} className="rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm" />;
+  return (
+    <div 
+      draggable="true" 
+      onDragStart={onDragStart}
+      className="cursor-grab active:cursor-grabbing p-1 bg-white dark:bg-slate-850 rounded-xl border border-slate-200 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-all group relative flex items-center justify-center"
+    >
+      <canvas ref={canvasRef} className="rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm" />
+      <div className="absolute inset-0 bg-indigo-500/10 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-xl transition-opacity pointer-events-none">
+        <span className="bg-indigo-605 text-white text-[10px] px-2 py-0.5 rounded-md font-semibold shadow-sm animate-bounce">Drag QR Code</span>
+      </div>
+    </div>
+  );
 }
 
 export default function ReceiveDeliveryPage() {
@@ -92,7 +103,7 @@ export default function ReceiveDeliveryPage() {
         </div>
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">GRN Submitted Successfully</h2>
-          <p className="text-slate-500 dark:text-slate-400">The delivery has been logged and sent for lab testing.</p>
+          <p className="text-slate-505 dark:text-slate-400">The delivery has been logged and sent for lab testing.</p>
         </div>
         <div className="flex gap-3">
           <Button variant="outline" onClick={() => navigate('/grn/upcoming')}>Back to Deliveries</Button>
@@ -105,12 +116,12 @@ export default function ReceiveDeliveryPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/grn/upcoming')} className="rounded-full text-slate-500">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/grn/upcoming')} className="rounded-full text-slate-505">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Receive Delivery</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Fill in actual received quantities and payment details</p>
+          <p className="text-sm text-slate-505 dark:text-slate-400">Fill in actual received quantities and payment details</p>
         </div>
       </div>
 
@@ -127,23 +138,32 @@ export default function ReceiveDeliveryPage() {
                 <Package className="w-5 h-5 text-indigo-500" /> Purchase Order Details
               </h3>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-slate-500 block">PO Reference</span><span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{po.referenceNo}</span></div>
-                <div><span className="text-slate-500 block">RM ID</span><span className="font-medium text-slate-900 dark:text-slate-100">{po.rmId}</span></div>
-                <div><span className="text-slate-500 block">Material Name</span><span className="font-medium text-slate-900 dark:text-slate-100">{po.name}</span></div>
-                <div><span className="text-slate-500 block">Supplier</span><span className="font-medium text-slate-900 dark:text-slate-100">{po.supplier?.name || '-'}</span></div>
-                <div><span className="text-slate-500 block">Expected Qty</span><span className="font-bold text-slate-900 dark:text-slate-100">{Number(po.quantity).toLocaleString()} {po.uom?.abbreviation || ''}</span></div>
-                <div><span className="text-slate-500 block">PO Amount</span><span className="font-bold text-slate-900 dark:text-slate-100">₹{Number(po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                <div><span className="text-slate-505 block">PO Reference</span><span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{po.referenceNo}</span></div>
+                <div><span className="text-slate-505 block">RM ID</span><span className="font-medium text-slate-900 dark:text-slate-100">{po.rmId}</span></div>
+                <div><span className="text-slate-505 block">Material Name</span><span className="font-medium text-slate-900 dark:text-slate-101">{po.name}</span></div>
+                <div><span className="text-slate-505 block">Supplier</span><span className="font-medium text-slate-900 dark:text-slate-101">{po.supplier?.name || '-'}</span></div>
+                <div><span className="text-slate-505 block">Expected Qty</span><span className="font-bold text-slate-900 dark:text-slate-101">{Number(po.quantity).toLocaleString()} {po.uom?.abbreviation || ''}</span></div>
+                <div><span className="text-slate-505 block">PO Amount</span><span className="font-bold text-slate-900 dark:text-slate-101">₹{Number(po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
               </div>
             </div>
 
-            {/* QR Code */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col items-center gap-3">
-              <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2 self-start">
-                <QrCode className="w-5 h-5 text-indigo-500" /> QR Code
-              </h3>
-              <QRDisplay text={`PO:${po.referenceNo}|ID:${po.id}|RM:${po.rmId}|${po.name}`} />
-              <p className="text-xs text-slate-400 text-center">Scan to verify PO details</p>
-              <p className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">{po.referenceNo}</p>
+            {/* Sticky Sidebar containing QR Code card */}
+            <div className="lg:sticky lg:top-6 lg:self-start space-y-6">
+              {/* QR Code Card */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col items-center gap-3">
+                <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2 self-start">
+                  <QrCode className="w-5 h-5 text-indigo-500" /> QR Code
+                </h3>
+                <QRDisplay 
+                  text={`PO:${po.referenceNo}|ID:${po.id}|RM:${po.rmId}|${po.name}`} 
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData('text/plain', `PO:${po.referenceNo}|ID:${po.id}|RM:${po.rmId}|${po.name}`);
+                    e.dataTransfer.effectAllowed = 'copy';
+                  }}
+                />
+                <p className="text-xs text-slate-400 text-center">Scan to verify PO details</p>
+                <p className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">{po.referenceNo}</p>
+              </div>
             </div>
           </div>
 
@@ -163,12 +183,12 @@ export default function ReceiveDeliveryPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/50">
                   <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">RM ID</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Material</th>
-                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Expected Qty</th>
-                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Actual Received *</th>
-                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Return Qty</th>
-                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Diff</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-404">RM ID</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-404">Material</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-404">Expected Qty</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-404">Actual Received *</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-404">Return Qty</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-404">Diff</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -178,7 +198,7 @@ export default function ReceiveDeliveryPage() {
                       <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
                         <td className="px-4 py-3 font-mono text-xs text-slate-500">{item.rmId}</td>
                         <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{item.rmName}</td>
-                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{item.expectedQty}</td>
+                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-404">{item.expectedQty}</td>
                         <td className="px-4 py-3 text-right">
                           <Input type="number" step="0.01" min="0" value={item.actualReceivedQty} onChange={e => updateItem(idx, 'actualReceivedQty', e.target.value)} className="w-24 ml-auto text-right h-8" required />
                         </td>
@@ -194,7 +214,7 @@ export default function ReceiveDeliveryPage() {
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-800/50 font-semibold text-sm border-t border-slate-200 dark:border-slate-700">
                   <tr>
-                    <td colSpan={2} className="px-4 py-3 text-slate-600 dark:text-slate-400">Totals</td>
+                    <td colSpan={2} className="px-4 py-3 text-slate-600 dark:text-slate-404">Totals</td>
                     <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{totalExpected.toFixed(2)}</td>
                     <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{totalActual.toFixed(2)}</td>
                     <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300">{totalReturn.toFixed(2)}</td>
@@ -236,7 +256,7 @@ export default function ReceiveDeliveryPage() {
           </div>
 
           {error && (
-            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-400">
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-600 dark:text-red-404">
               {error}
             </div>
           )}

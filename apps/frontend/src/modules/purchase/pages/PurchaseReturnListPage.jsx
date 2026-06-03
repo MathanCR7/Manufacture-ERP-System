@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import useAuthStore from '@/app/store/authStore';
+import { SortSelect } from '@/components/ui/SortSelect';
 
 // Safely import QRCode
 import _QRCode from 'react-qr-code';
@@ -159,6 +160,16 @@ const PurchaseReturnListPage = () => {
     statusMutation.mutate({ id: ret.id, status: nextStatus });
   };
 
+  const [sortBy, setSortBy] = useState('recent');
+  const sortOptions = [
+    { value: 'recent', label: 'Recent Returned' },
+    { value: 'oldest', label: 'Oldest Returned' },
+    { value: 'qty_desc', label: 'Qty: High to Low' },
+    { value: 'qty_asc', label: 'Qty: Low to High' },
+    { value: 'name_asc', label: 'Material: A to Z' },
+    { value: 'name_desc', label: 'Material: Z to A' },
+  ];
+
   const filtered = returns.filter(r => {
     if (!search) return true;
     const term = search.toLowerCase();
@@ -167,6 +178,32 @@ const PurchaseReturnListPage = () => {
       r.po?.supplier?.name?.toLowerCase().includes(term) ||
       r.po?.name?.toLowerCase().includes(term)
     );
+  });
+
+  const getSortDate = (r) => {
+    return new Date(r.returnDate || r.createdAt || 0);
+  };
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'recent') {
+      return getSortDate(b) - getSortDate(a);
+    }
+    if (sortBy === 'oldest') {
+      return getSortDate(a) - getSortDate(b);
+    }
+    if (sortBy === 'qty_desc') {
+      return Number(b.returnQty || 0) - Number(a.returnQty || 0);
+    }
+    if (sortBy === 'qty_asc') {
+      return Number(a.returnQty || 0) - Number(b.returnQty || 0);
+    }
+    if (sortBy === 'name_asc') {
+      return (a.po?.name || '').localeCompare(b.po?.name || '');
+    }
+    if (sortBy === 'name_desc') {
+      return (b.po?.name || '').localeCompare(a.po?.name || '');
+    }
+    return 0;
   });
 
   const stats = {
@@ -235,13 +272,19 @@ const PurchaseReturnListPage = () => {
           <option value="">All Reasons</option>
           {Object.entries(REASON_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
+        <SortSelect
+          value={sortBy}
+          onChange={setSortBy}
+          options={sortOptions}
+          className="w-full sm:w-auto"
+        />
       </div>
 
       {/* Table */}
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-48 text-slate-400">Loading returns...</div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-slate-400">
             <RotateCcw className="w-10 h-10 mb-3 opacity-30" />
             <p className="font-medium">No purchase returns found</p>
@@ -258,7 +301,7 @@ const PurchaseReturnListPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                {filtered.map(ret => {
+                {sorted.map(ret => {
                   const cfg = STATUS_CONFIG[ret.status] || STATUS_CONFIG.PENDING;
                   const isLabRejected = ret.returnReason === 'LAB_REJECTED';
                   const isExpiredRM = ret.returnReason === 'EXPIRED_RM';

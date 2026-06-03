@@ -8,6 +8,7 @@ import {
   XCircle, AlertTriangle, Clock, RefreshCw, BarChart3, QrCode, Printer
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SortSelect } from '@/components/ui/SortSelect';
 
 // Safely import QRCode
 import _QRCode from 'react-qr-code';
@@ -117,6 +118,16 @@ const GRNListPage = () => {
     queryFn: () => api.get('/grn/receive').then(r => r.data),
   });
 
+  const [sortBy, setSortBy] = useState('recent');
+  const sortOptions = [
+    { value: 'recent', label: 'Recent Received' },
+    { value: 'oldest', label: 'Oldest Received' },
+    { value: 'price_desc', label: 'Value: High to Low' },
+    { value: 'price_asc', label: 'Value: Low to High' },
+    { value: 'name_asc', label: 'Material: A to Z' },
+    { value: 'name_desc', label: 'Material: Z to A' },
+  ];
+
   const filtered = grns.filter(g => {
     if (filterLabStatus && g.status !== filterLabStatus) return false;
     if (filterInvStatus && g.inventoryStatus !== filterInvStatus) return false;
@@ -132,6 +143,36 @@ const GRNListPage = () => {
       );
     }
     return true;
+  });
+
+  const getSortDate = (g) => {
+    return new Date(g.receivedDate || g.createdAt || 0);
+  };
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'recent') {
+      return getSortDate(b) - getSortDate(a);
+    }
+    if (sortBy === 'oldest') {
+      return getSortDate(a) - getSortDate(b);
+    }
+    if (sortBy === 'price_desc') {
+      return Number(b.amountPaid || b.po?.amount || 0) - Number(a.amountPaid || a.po?.amount || 0);
+    }
+    if (sortBy === 'price_asc') {
+      return Number(a.amountPaid || a.po?.amount || 0) - Number(b.amountPaid || b.po?.amount || 0);
+    }
+    if (sortBy === 'name_asc') {
+      const nameA = a.po?.name || a.items?.[0]?.rmName || '';
+      const nameB = b.po?.name || b.items?.[0]?.rmName || '';
+      return nameA.localeCompare(nameB);
+    }
+    if (sortBy === 'name_desc') {
+      const nameA = a.po?.name || a.items?.[0]?.rmName || '';
+      const nameB = b.po?.name || b.items?.[0]?.rmName || '';
+      return nameB.localeCompare(nameA);
+    }
+    return 0;
   });
 
   // Stats
@@ -236,13 +277,19 @@ const GRNListPage = () => {
           className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
           title="To date"
         />
+        <SortSelect
+          value={sortBy}
+          onChange={setSortBy}
+          options={sortOptions}
+          className="w-full sm:w-auto"
+        />
       </div>
 
       {/* Table */}
       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
         {isLoading ? (
           <div className="flex items-center justify-center h-48 text-slate-400">Loading GRN records...</div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-48 text-slate-400">
             <FileText className="w-10 h-10 mb-3 opacity-30" />
             <p className="font-medium">No GRN records found</p>
@@ -259,7 +306,7 @@ const GRNListPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-                {filtered.map(grn => {
+                {sorted.map(grn => {
                   const orderedQty = Number(grn.po?.quantity || 0);
                   const receivedQty = grn.items?.reduce((s, i) => s + Number(i.actualReceivedQty), 0) || 0;
                   const shortfall = Math.max(0, orderedQty - receivedQty);

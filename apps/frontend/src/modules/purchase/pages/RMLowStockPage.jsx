@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { AlertTriangle, Search, ChevronLeft } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { SortSelect } from '@/components/ui/SortSelect';
 
 export default function RMLowStockPage() {
   const [searchTerm, setSearchTerm] = React.useState('');
@@ -19,11 +20,43 @@ export default function RMLowStockPage() {
     }
   });
 
+  const [sortBy, setSortBy] = useState('name_asc');
+  const sortOptions = [
+    { value: 'name_asc', label: 'Material: A to Z' },
+    { value: 'name_desc', label: 'Material: Z to A' },
+    { value: 'quantity_desc', label: 'Qty: High to Low' },
+    { value: 'quantity_asc', label: 'Qty: Low to High' },
+    { value: 'value_desc', label: 'Value: High to Low' },
+    { value: 'value_asc', label: 'Value: Low to High' },
+  ];
+
   const lowStock = stock.filter(item => item.availableQuantity <= item.alertLevel);
   const filteredStock = lowStock.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     item.code.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const sortedStock = [...filteredStock].sort((a, b) => {
+    if (sortBy === 'name_asc') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    if (sortBy === 'name_desc') {
+      return (b.name || '').localeCompare(a.name || '');
+    }
+    if (sortBy === 'quantity_desc') {
+      return Number(b.availableQuantity || 0) - Number(a.availableQuantity || 0);
+    }
+    if (sortBy === 'quantity_asc') {
+      return Number(a.availableQuantity || 0) - Number(b.availableQuantity || 0);
+    }
+    if (sortBy === 'value_desc') {
+      return Number(b.value || 0) - Number(a.value || 0);
+    }
+    if (sortBy === 'value_asc') {
+      return Number(a.value || 0) - Number(b.value || 0);
+    }
+    return 0;
+  });
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -44,16 +77,22 @@ export default function RMLowStockPage() {
           <p className="text-sm text-slate-500 dark:text-slate-400">Items that have reached or fallen below their reorder levels.</p>
         </div>
         
-        <div className="flex items-center space-x-3 w-full sm:w-auto">
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
               placeholder="Search by code or name..." 
-              className="pl-9 bg-white dark:bg-slate-900"
+              className="pl-9 h-9 rounded-xl bg-white dark:bg-slate-950 border-slate-205 dark:border-slate-800 w-full"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
+          <SortSelect
+            value={sortBy}
+            onChange={setSortBy}
+            options={sortOptions}
+            className="w-full sm:w-auto"
+          />
         </div>
       </div>
 
@@ -78,14 +117,14 @@ export default function RMLowStockPage() {
                     Loading stock data...
                   </td>
                 </tr>
-              ) : filteredStock.length === 0 ? (
+              ) : sortedStock.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
                     No items are currently in low stock.
                   </td>
                 </tr>
               ) : (
-                filteredStock.map((item, index) => (
+                sortedStock.map((item, index) => (
                   <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
                     <td className="px-6 py-4 text-center text-slate-500">{index + 1}</td>
                     <td className="px-6 py-4 font-medium text-slate-900 dark:text-white">

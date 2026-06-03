@@ -18,6 +18,7 @@ const GlobalSearch = ({ onClose }) => {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
     if (query.trim().length < 2) { setResults(null); return; }
@@ -37,7 +38,34 @@ const GlobalSearch = ({ onClose }) => {
     onClose();
   };
 
-  const categories = results ? Object.entries(results).filter(([_, items]) => items.length > 0) : [];
+  // Search local navigation items matching user role & query
+  const matchedNavItems = [];
+  if (query.trim().length >= 2) {
+    const qLower = query.toLowerCase();
+    MENU_GROUPS.forEach(group => {
+      if (group.roles.includes(user?.role)) {
+        group.items.forEach(item => {
+          if (item.roles.includes(user?.role)) {
+            if (item.name.toLowerCase().includes(qLower) || group.title.toLowerCase().includes(qLower)) {
+              matchedNavItems.push({
+                id: `nav-${item.path}`,
+                label: item.name,
+                subtitle: `Page in ${group.title}`,
+                link: item.path
+              });
+            }
+          }
+        });
+      }
+    });
+  }
+
+  const categories = results 
+    ? Object.entries({
+        navigationPages: matchedNavItems,
+        ...results
+      }).filter(([_, items]) => items && items.length > 0)
+    : (matchedNavItems.length > 0 ? [['navigationPages', matchedNavItems]] : []);
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex justify-center items-start pt-20 px-4" onClick={onClose}>
@@ -384,16 +412,6 @@ const MENU_GROUPS = [
       { name: 'Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
       { name: 'Stock Adjustment', path: '/rm/stock-adjustment/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
       { name: 'Stock Adjustment List', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-    ]
-  },
-  {
-    id: 'inventory',
-    title: 'Inventory',
-    icon: Archive,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
-    items: [
-      { name: 'Upload to Inventory', path: '/inventory/upload', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: 'Inventory Batches', path: '/inventory/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
     ]
   },
   {
@@ -991,11 +1009,21 @@ const AppShell = () => {
             {/* Global Search Button */}
             <button 
               onClick={() => setShowSearch(true)}
-              className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-205 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-505 dark:text-slate-404 rounded-lg text-sm transition-colors w-64 border border-transparent focus:border-indigo-400"
+              className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-205 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg text-sm transition-colors w-64 border border-transparent focus:border-indigo-400"
             >
               <Search className="w-4 h-4" />
               <span className="flex-1 text-left">Search anything...</span>
               <kbd className="text-[10px] font-sans px-1.5 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900">Ctrl+K</kbd>
+            </button>
+
+            {/* Mobile Global Search Button (Icon only) */}
+            <button 
+              type="button"
+              onClick={() => setShowSearch(true)}
+              className="md:hidden p-2 text-slate-500 hover:bg-slate-105 dark:hover:bg-slate-800 rounded-full transition-colors"
+              title="Search anything..."
+            >
+              <Search className="w-5 h-5" />
             </button>
 
             {/* QR Scan Button / Drop Zone */}
@@ -1012,7 +1040,7 @@ const AppShell = () => {
                   navigate(`/qr-lifecycle/${encodeURIComponent(text)}`);
                 }
               }}
-              className="p-2 text-slate-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 hover:text-indigo-650 dark:hover:text-indigo-400 rounded-full transition-colors hidden sm:block relative group border border-transparent hover:border-indigo-100 dark:hover:border-indigo-900/30"
+              className="p-2 text-slate-500 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 hover:text-indigo-650 dark:hover:text-indigo-400 rounded-full transition-colors relative group border border-transparent hover:border-indigo-100 dark:hover:border-indigo-900/30"
               title="Scan QR Code (or Drag & Drop QR code here to scan!)"
             >
               <ScanLine className="w-5 h-5 group-hover:scale-110 transition-transform text-slate-500 group-hover:text-indigo-600 dark:group-hover:text-indigo-400" />
