@@ -197,7 +197,7 @@ export default function HRDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {(d.userStats || []).sort((a,b) => b.daysPresent - a.daysPresent).map(u => {
+                {[...(d.userStats || [])].sort((a,b) => b.daysPresent - a.daysPresent).map(u => {
                   const c = ROLE_COLORS[u.role] || '#6366f1';
                   return (
                     <tr key={u.id} className="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">

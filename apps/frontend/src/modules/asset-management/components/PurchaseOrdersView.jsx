@@ -220,6 +220,108 @@ const handleDownloadPOPDF = (po, shouldPrint = false) => {
   doc.setTextColor(79, 70, 229);
   doc.text('GRAND TOTAL:', calcX, currentY + offset);
   doc.text(`Rs. ${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' });
+
+  // Page 2: General Terms and Conditions (GTC)
+  doc.addPage();
+
+  // Letterhead / Header banner
+  doc.setFillColor(79, 70, 229);
+  doc.rect(0, 0, 210, 8, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.setTextColor(30, 41, 59);
+  doc.text('General Terms and Conditions (GTC)', 14, 20);
+
+  // GTC Box
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(14, 25, 182, 175, 3, 3, 'D');
+
+  const termsList = [
+    "1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.",
+    "2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.",
+    "3. Warranty: The Vendor warrants that all supplied goods are brand new, genuine, and free from defects in material and workmanship for 12 months from the date of acceptance. For services, the Vendor guarantees performance by qualified personnel matching industry standards. Any defective goods or substandard services identified within this period must be replaced, repaired, or re-performed by the Vendor within 7 business days at no additional cost to the Buyer.",
+    "4. Billing Instructions: Invoices must be raised as statutory Tax Invoices clearly bearing the Vendor’s valid GSTIN, correct HSN/SAC codes, and the exact Buyer PO number. Delayed submission of invoices or failure to upload invoice data to the GST portal (preventing the Buyer from claiming Input Tax Credit) will directly result in a corresponding delay in payment processing.",
+    "5. Payment Terms: Payment shall be processed via electronic transfer (NEFT/RTGS) split across two strict milestones: 50% Advance Payment: Processed within 7 working days upon written confirmation and formal acceptance of the Purchase Order (PO) by the Vendor, against the submission of a valid Proforma Invoice. 50% Final Payment: Processed within 45 days from the date of successful physical delivery of all materials at the designated site. This is subject to the submission of complete, error-free documents (Tax Invoice, Delivery Challan, and validated E-way Bill) and physical inspection and acceptance of the defect-free materials by the Buyer's site team.",
+    "6. Delivery & Liquidated Damages (LD): The delivery timeline starts immediately upon the Vendor's receipt of the 50% advance payment and must be completed strictly within 25Days. Failure to deliver on time will result in a penalty of 0.5% of the total PO value per week of delay, capped at 10%. Exceeding this 10% limit gives the Buyer the right to terminate the contract immediately and source elsewhere at the Vendor's expense.",
+    "7. Quality & Inspection: All deliverables must strictly match the technical specifications mentioned in the PO. The Buyer reserves the right to inspect materials upon arrival at the site. The Buyer can reject any defective, damaged, or substandard items. Rejected goods must be collected and removed by the Vendor from the Buyer's premises within 7 days of rejection notification at the Vendor's sole risk and expense.",
+    "8. Statutory Compliance: The Vendor shall strictly comply with all applicable Central, State, and local government laws, labor regulations (including Provident Fund, ESIC, and Minimum Wages acts), and anti-bribery policies. The use of child labor is strictly prohibited. The Vendor is solely responsible for generating accurate E-way bills for all transit movements.",
+    "9. Dispute Resolution: Any dispute arising out of this PO shall first be resolved through amicable mutual discussions. Unresolved disputes shall be referred to a sole arbitrator appointed mutually by both parties, governed by the Indian Arbitration and Conciliation Act, 1996. The venue and seat of arbitration shall be madurai, Tamil Nadu, and proceedings will be conducted in English. The courts in Salem shall have exclusive jurisdiction over this contract."
+  ];
+
+  let termsY = 30;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(71, 85, 105);
+  termsList.forEach(term => {
+    const splitLines = doc.splitTextToSize(term, 174);
+    doc.text(splitLines, 18, termsY);
+    termsY += (splitLines.length * 3.5) + 2;
+  });
+
+  // Signature boxes
+  let sigY = 210;
+  const vendorName = (po.vendorName || 'Supplier').toUpperCase();
+
+  // Left Signature Box (Supplier)
+  doc.setDrawColor(226, 232, 240);
+  doc.setFillColor(250, 250, 250);
+  doc.roundedRect(14, sigY, 86, 30, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`For ${vendorName}`, 18, sigY + 5);
+
+  // Embed supplier signature and seal inside the supplier box if available
+  if (po.supplier?.signatureImage) {
+    try {
+      doc.addImage(po.supplier.signatureImage, 'PNG', 18, sigY + 7, 30, 12);
+    } catch (err) {
+      console.error('Failed to embed supplier signature in PO PDF:', err);
+    }
+  }
+  if (po.supplier?.companySealImage) {
+    try {
+      doc.addImage(po.supplier.companySealImage, 'PNG', 56, sigY + 7, 30, 12);
+    } catch (err) {
+      console.error('Failed to embed supplier company seal in PO PDF:', err);
+    }
+  }
+
+  doc.setDrawColor(203, 213, 225);
+  doc.line(18, sigY + 22, 14 + 82, sigY + 22);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Authorized Signatory (Sign & Stamp)', 18, sigY + 26);
+
+  // Right Signature Box (Buyer)
+  const sig2X = 110;
+  doc.setDrawColor(226, 232, 240);
+  doc.setFillColor(250, 250, 250);
+  doc.roundedRect(sig2X, sigY, 86, 30, 2, 2, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  doc.setTextColor(15, 23, 42);
+  doc.text('For ERP MANUFACTURING SYSTEM', sig2X + 4, sigY + 5);
+
+  doc.setDrawColor(203, 213, 225);
+  doc.line(sig2X + 4, sigY + 22, sig2X + 82, sigY + 22);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6.5);
+  doc.setTextColor(148, 163, 184);
+  doc.text('Authorized Signatory (with Company Seal)', sig2X + 4, sigY + 26);
+
+  // Draw the "VERIFIED & APPROVED" seal stamp inside the buyer box
+  doc.setDrawColor(79, 70, 229, 0.4);
+  doc.setFillColor(245, 243, 255);
+  doc.ellipse(sig2X + 86 - 16, sigY + 13, 12, 7, 'FD');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(5.5);
+  doc.setTextColor(79, 70, 229);
+  doc.text('VERIFIED &', sig2X + 86 - 16, sigY + 12, { align: 'center' });
+  doc.text('APPROVED', sig2X + 86 - 16, sigY + 15, { align: 'center' });
+
   const dateStr = po.poDate ? format(new Date(po.poDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
   const cleanVendorName = (po.vendorName || 'Vendor').replace(/[^a-zA-Z0-9]/g, '_');
   const filename = `PO-${dateStr}-${po.poNo || 'ORDER'}_${cleanVendorName}.pdf`;

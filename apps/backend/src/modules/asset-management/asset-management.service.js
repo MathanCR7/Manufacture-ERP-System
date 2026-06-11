@@ -1097,7 +1097,17 @@ class AssetManagementService {
       include: { items: true },
       orderBy: { createdAt: 'desc' }
     });
-    return pos.map(mapPOToFrontend);
+    const suppliers = await prisma.supplier.findMany({
+      select: { name: true, signatureImage: true, companySealImage: true }
+    });
+    return pos.map(po => {
+      const mapped = mapPOToFrontend(po);
+      if (mapped) {
+        const supplier = suppliers.find(s => s.name.toLowerCase() === po.vendorName.toLowerCase());
+        mapped.supplier = supplier || null;
+      }
+      return mapped;
+    });
   }
 
   async getPOById(id) {
@@ -1105,7 +1115,16 @@ class AssetManagementService {
       where: { id },
       include: { items: true }
     });
-    return mapPOToFrontend(po);
+    if (!po) return null;
+    const supplier = await prisma.supplier.findFirst({
+      where: { name: { equals: po.vendorName, mode: 'insensitive' } },
+      select: { signatureImage: true, companySealImage: true }
+    });
+    const mapped = mapPOToFrontend(po);
+    if (mapped) {
+      mapped.supplier = supplier || null;
+    }
+    return mapped;
   }
 
   async createPO(data, userId) {
@@ -1382,8 +1401,14 @@ class AssetManagementService {
       return po;
     });
 
+    const supplier = await prisma.supplier.findFirst({
+      where: { name: { equals: result.vendorName, mode: 'insensitive' } },
+      select: { name: true, signatureImage: true, companySealImage: true }
+    });
+
     const poResponse = {
       ...mapPOToFrontend(result),
+      supplier: supplier || null,
       budget_check: {
         allocated: budget ? Number(budget.allocated) : 0,
         utilized: budget ? Number(budget.utilized) + grandTotal : 0,
@@ -1666,7 +1691,17 @@ class AssetManagementService {
       include: { items: true },
       orderBy: { createdAt: 'desc' }
     });
-    return invoices.map(mapInvoiceToFrontend);
+    const suppliers = await prisma.supplier.findMany({
+      select: { name: true, signatureImage: true, companySealImage: true }
+    });
+    return invoices.map(inv => {
+      const mapped = mapInvoiceToFrontend(inv);
+      if (mapped) {
+        const supplier = suppliers.find(s => s.name.toLowerCase() === inv.vendorName.toLowerCase());
+        mapped.supplier = supplier || null;
+      }
+      return mapped;
+    });
   }
 
   async createAPInvoice(data) {
@@ -1906,7 +1941,15 @@ class AssetManagementService {
       include: { items: true }
     });
 
+    const supplier = await prisma.supplier.findFirst({
+      where: { name: { equals: res.vendorName, mode: 'insensitive' } },
+      select: { name: true, signatureImage: true, companySealImage: true }
+    });
+
     const mappedInv = mapInvoiceToFrontend(res);
+    if (mappedInv) {
+      mappedInv.supplier = supplier || null;
+    }
 
     triggerAssetAPInvoiceCreated({
       invoiceNo: res.invoiceNo,
@@ -1931,7 +1974,16 @@ class AssetManagementService {
       data: { status: 'Paid' },
       include: { items: true }
     });
+
+    const supplier = await prisma.supplier.findFirst({
+      where: { name: { equals: res.vendorName, mode: 'insensitive' } },
+      select: { name: true, signatureImage: true, companySealImage: true }
+    });
+
     const mapped = mapInvoiceToFrontend(res);
+    if (mapped) {
+      mapped.supplier = supplier || null;
+    }
 
     triggerAssetInvoicePaid({
       invoiceNo: res.invoiceNo,
@@ -1944,8 +1996,8 @@ class AssetManagementService {
 
     prisma.supplier.findFirst({
       where: { name: { equals: res.vendorName, mode: 'insensitive' } }
-    }).then(supplier => {
-      sendAPInvoiceAutomatedEmail(res, supplier, pdfBase64);
+    }).then(supplierData => {
+      sendAPInvoiceAutomatedEmail(res, supplierData, pdfBase64);
     }).catch(err => console.error('Failed to send AP Invoice email/whatsapp on mark paid:', err));
 
     return mapped;

@@ -670,6 +670,22 @@ const handleDownloadPDF = (invoice, mode = 'download') => {
   doc.setTextColor(15, 23, 42);
   doc.text(`For ${invoice.vendorName || 'Supplier'}`, startX + 4, sigStartY + 5);
 
+  // Embed supplier signature and seal inside the supplier box if available
+  if (invoice.supplier?.signatureImage) {
+    try {
+      doc.addImage(invoice.supplier.signatureImage, 'PNG', startX + 4, sigStartY + 6, 25, 9);
+    } catch (err) {
+      console.error('Failed to embed supplier signature in Invoice PDF:', err);
+    }
+  }
+  if (invoice.supplier?.companySealImage) {
+    try {
+      doc.addImage(invoice.supplier.companySealImage, 'PNG', startX + 40, sigStartY + 6, 25, 9);
+    } catch (err) {
+      console.error('Failed to embed supplier company seal in Invoice PDF:', err);
+    }
+  }
+
   doc.setDrawColor(203, 213, 225);
   doc.line(startX + 4, sigStartY + 16, startX + sigBoxWidth - 4, sigStartY + 16);
   doc.setFont('helvetica', 'normal');

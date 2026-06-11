@@ -683,7 +683,7 @@ class DashboardController {
 
       // User with attendance stats
       const users = await prisma.user.findMany({
-        where: { isActive: true }, select: { id: true, name: true, role: true, createdAt: true }
+        where: { isActive: true, ...(userId ? { id: userId } : {}) }, select: { id: true, name: true, role: true, createdAt: true }
       });
       const userAttendanceStats = await Promise.all(
         users.slice(0, 25).map(async (u) => {
