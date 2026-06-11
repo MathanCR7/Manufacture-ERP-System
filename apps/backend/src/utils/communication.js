@@ -1178,6 +1178,147 @@ ${settings.companyAddress}
 GSTIN : ${settings.companyGstin}
 Phone : ${settings.companyMobile}`;
 
+  // Build HTML Billed Items rows
+  let htmlItemsRows = '';
+  items.forEach((item, index) => {
+    const descParts = (item.description || '').split('|');
+    const mainName = descParts[0].trim();
+    const specs = descParts.slice(1).map(p => p.trim()).join(' | ');
+
+    htmlItemsRows += `
+      <tr style="border-bottom: 1px solid #e2e8f0; ${index % 2 === 1 ? 'background-color: #f8fafc;' : ''}">
+        <td style="padding: 12px 10px; font-size: 13px; color: #64748b; text-align: center; font-family: sans-serif;">${index + 1}</td>
+        <td style="padding: 12px 10px; font-family: sans-serif;">
+          <div style="font-weight: 600; font-size: 13px; color: #0f172a;">${mainName}</div>
+          ${specs ? `<div style="font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.4;">${specs}</div>` : ''}
+        </td>
+        <td style="padding: 12px 10px; font-size: 13px; color: #334155; text-align: center; font-family: sans-serif;">${item.quantity}</td>
+        <td style="padding: 12px 10px; font-size: 13px; color: #334155; text-align: right; font-family: sans-serif;">Rs. ${Number(item.unitPrice).toFixed(2)}</td>
+        <td style="padding: 12px 10px; font-size: 13px; color: #334155; text-align: center; font-family: sans-serif;">${item.gstRate || 18}%</td>
+        <td style="padding: 12px 10px; font-size: 13px; font-weight: 600; color: #0f172a; text-align: right; font-family: sans-serif;">Rs. ${Number(item.lineTotal).toFixed(2)}</td>
+      </tr>
+    `;
+  });
+
+  const htmlBody = `
+    <div style="background-color: #f1f5f9; padding: 20px; font-family: 'Segoe UI', Helvetica, Arial, sans-serif; line-height: 1.6; color: #334155;">
+      <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);">
+        
+        <!-- Header -->
+        <div style="background-color: #4f46e5; padding: 24px; text-align: center;">
+          <h2 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; font-family: sans-serif;">
+            Invoice Recorded
+          </h2>
+          <p style="color: #c7d2fe; margin: 4px 0 0 0; font-size: 12px; font-family: sans-serif;">
+            Recorded against ${settings.companyName}
+          </p>
+        </div>
+
+        <!-- Body -->
+        <div style="padding: 24px;">
+          <p style="margin-top: 0; font-size: 14px; color: #334155; font-family: sans-serif;">
+            Dear <strong>${invoice.vendorName}</strong>,
+          </p>
+          <p style="font-size: 14px; color: #475569; font-family: sans-serif;">
+            We acknowledge receipt of your invoice and confirm it has been successfully recorded in our system for processing.
+          </p>
+
+          <!-- Bill Details Card -->
+          <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 20px 0;">
+            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #4f46e5; font-weight: 700; font-family: sans-serif;">
+              Bill Details
+            </h3>
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <tr>
+                <td style="padding: 4px 0; color: #64748b; font-family: sans-serif; width: 45%;">Our Bill No:</td>
+                <td style="padding: 4px 0; color: #0f172a; font-weight: 600; font-family: sans-serif;">${invoice.invoiceNo}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #64748b; font-family: sans-serif;">Supplier Invoice #:</td>
+                <td style="padding: 4px 0; color: #0f172a; font-weight: 600; font-family: sans-serif;">${invoice.vendorInvoiceNo}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #64748b; font-family: sans-serif;">Invoice Date:</td>
+                <td style="padding: 4px 0; color: #0f172a; font-family: sans-serif;">${new Date(invoice.vendorInvoiceDate).toLocaleDateString('en-IN')}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #64748b; font-family: sans-serif;">Due Date:</td>
+                <td style="padding: 4px 0; color: #ef4444; font-weight: 600; font-family: sans-serif;">${new Date(invoice.dueDate).toLocaleDateString('en-IN')}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #64748b; font-family: sans-serif;">Linked PO:</td>
+                <td style="padding: 4px 0; color: #0f172a; font-family: sans-serif;">${invoice.poNo || 'Direct'}</td>
+              </tr>
+              <tr>
+                <td style="padding: 4px 0; color: #64748b; font-family: sans-serif;">Linked GRPO:</td>
+                <td style="padding: 4px 0; color: #0f172a; font-family: sans-serif;">${invoice.grpoNo || 'Direct'}</td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Items Table -->
+          <h3 style="margin-top: 24px; margin-bottom: 8px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #4f46e5; font-weight: 700; font-family: sans-serif;">
+            Billed Items
+          </h3>
+          <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+              <thead>
+                <tr style="background-color: #4f46e5; color: #ffffff; border-bottom: 2px solid #3730a3;">
+                  <th style="padding: 8px 10px; font-size: 11px; text-transform: uppercase; font-weight: 700; text-align: center; width: 8%; font-family: sans-serif;">S.No</th>
+                  <th style="padding: 8px 10px; font-size: 11px; text-transform: uppercase; font-weight: 700; text-align: left; width: 44%; font-family: sans-serif;">Description</th>
+                  <th style="padding: 8px 10px; font-size: 11px; text-transform: uppercase; font-weight: 700; text-align: center; width: 8%; font-family: sans-serif;">Qty</th>
+                  <th style="padding: 8px 10px; font-size: 11px; text-transform: uppercase; font-weight: 700; text-align: right; width: 16%; font-family: sans-serif;">Rate</th>
+                  <th style="padding: 8px 10px; font-size: 11px; text-transform: uppercase; font-weight: 700; text-align: center; width: 10%; font-family: sans-serif;">GST</th>
+                  <th style="padding: 8px 10px; font-size: 11px; text-transform: uppercase; font-weight: 700; text-align: right; width: 14%; font-family: sans-serif;">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${htmlItemsRows}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Total Calculation Card -->
+          <div style="width: 100%; margin-top: 20px; font-family: sans-serif;">
+            <div style="float: right; width: 240px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
+              <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 4px 0; color: #64748b; font-family: sans-serif;">Sub Total:</td>
+                  <td style="padding: 4px 0; text-align: right; color: #334155; font-family: sans-serif;">Rs. ${Number(invoice.taxableAmount).toFixed(2)}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                  <td style="padding: 4px 0; color: #64748b; font-family: sans-serif;">GST Total:</td>
+                  <td style="padding: 4px 0; text-align: right; color: #334155; font-family: sans-serif;">Rs. ${Number(invoice.totalTax).toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0 4px 0; color: #4f46e5; font-weight: 700; font-size: 13px; font-family: sans-serif;">Grand Total:</td>
+                  <td style="padding: 8px 0 4px 0; text-align: right; color: #4f46e5; font-weight: 700; font-size: 14px; font-family: sans-serif;">Rs. ${Number(invoice.invoiceTotal).toFixed(2)}</td>
+                </tr>
+              </table>
+            </div>
+            <div style="clear: both;"></div>
+          </div>
+
+          <p style="margin-top: 24px; font-size: 13px; color: #475569; font-family: sans-serif;">
+            Payment will be processed as per agreed terms: <strong>${invoice.paymentTerms || 'Net 30'}</strong>.
+          </p>
+
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 24px; font-size: 12px; color: #64748b; font-family: sans-serif;">
+          <p style="margin-top: 0; font-weight: bold; color: #334155; font-size: 13px;">Regards,</p>
+          <p style="margin: 2px 0; font-weight: 600; color: #4f46e5; font-size: 13px;">${settings.companyName}</p>
+          <p style="margin: 2px 0; line-height: 1.4;">${settings.companyAddress}</p>
+          <p style="margin: 2px 0;"><strong>GSTIN:</strong> ${settings.companyGstin}</p>
+          <p style="margin: 2px 0;"><strong>Phone:</strong> ${settings.companyMobile}</p>
+        </div>
+
+      </div>
+    </div>
+  `;
+
   try {
     let pdfBuffer;
     if (pdfBase64) {
@@ -1192,6 +1333,7 @@ Phone : ${settings.companyMobile}`;
       to: email,
       subject,
       text: body,
+      html: htmlBody,
       attachments: [{
         filename: `Invoice_${invoice.invoiceNo}_${settings.companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
         content: pdfBuffer
