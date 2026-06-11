@@ -5,15 +5,27 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useNavigate, useLocation } from 'react-router-dom';
 
+import AddProductionPage from './AddProductionPage';
+
 export default function ProductionsPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [view, setView] = useState({ type: 'list', prefill: null });
+
+  useEffect(() => {
+    if (location.pathname === '/production/add' || location.state?.prefill) {
+      setView({ type: 'create', prefill: location.state });
+    } else {
+      setView({ type: 'list', prefill: null });
+    }
+  }, [location]);
+
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const navigate = useNavigate();
-  const location = useLocation();
   const fromNotifications = location.state?.from === '/notifications';
 
   const fetchBatches = async () => {
@@ -53,6 +65,10 @@ export default function ProductionsPage() {
       alert(e.response?.data?.error || 'Failed to update status');
     }
   };
+
+  if (view.type === 'create') {
+    return <AddProductionPage />;
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

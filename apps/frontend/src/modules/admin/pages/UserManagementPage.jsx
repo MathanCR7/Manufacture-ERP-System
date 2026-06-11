@@ -51,7 +51,8 @@ export default function UserManagementPage() {
     email: '',
     password: '',
     role: '',
-    ipAddress: ''
+    ipAddress: '',
+    empId: ''
   });
 
   const { data: users, isLoading } = useQuery({
@@ -83,7 +84,7 @@ export default function UserManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setIsCreating(false);
-      setFormData({ name: '', email: '', password: '', role: '', ipAddress: '' });
+      setFormData({ name: '', email: '', password: '', role: '', ipAddress: '', empId: '' });
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
         title: 'User Created!',
@@ -131,7 +132,7 @@ export default function UserManagementPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditingUser(null);
-      setFormData({ name: '', email: '', password: '', role: '', ipAddress: '' });
+      setFormData({ name: '', email: '', password: '', role: '', ipAddress: '', empId: '' });
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
         title: 'User Updated!',
@@ -239,6 +240,39 @@ export default function UserManagementPage() {
     }
   });
 
+  const generateNextEmpId = () => {
+    const dateStr = format(new Date(), 'MMdd');
+    const prefix = `emp-${dateStr}-`;
+    const matchingIds = (users || [])
+      .map(u => u.empId)
+      .filter(id => id && id.startsWith(prefix));
+
+    let maxNum = 0;
+    matchingIds.forEach(id => {
+      const numPart = id.substring(prefix.length);
+      const num = parseInt(numPart, 10);
+      if (!isNaN(num) && num > maxNum) {
+        maxNum = num;
+      }
+    });
+
+    const nextNum = maxNum + 1;
+    const runningNumberStr = String(nextNum).padStart(3, '0');
+    return `${prefix}${runningNumberStr}`;
+  };
+
+  const handleAddUserClick = () => {
+    setIsCreating(true);
+    setFormData({
+      name: '',
+      email: '',
+      password: '',
+      role: '',
+      ipAddress: '',
+      empId: generateNextEmpId()
+    });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (editingUser) {
@@ -256,14 +290,15 @@ export default function UserManagementPage() {
       email: user.email,
       password: '', // security: do not pre-fill existing password hashes
       role: user.role,
-      ipAddress: user.ipAddress || ''
+      ipAddress: user.ipAddress || '',
+      empId: user.empId || ''
     });
   };
 
   const handleCancel = () => {
     setIsCreating(false);
     setEditingUser(null);
-    setFormData({ name: '', email: '', password: '', role: '', ipAddress: '' });
+    setFormData({ name: '', email: '', password: '', role: '', ipAddress: '', empId: '' });
   };
 
   const ROLES_FALLBACK = [
@@ -372,7 +407,7 @@ export default function UserManagementPage() {
         </div>
         {!isCreating && !editingUser && (
           <Button 
-            onClick={() => setIsCreating(true)} 
+            onClick={handleAddUserClick} 
             className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all font-semibold flex items-center gap-2 h-11 px-5"
           >
             <Plus className="w-5 h-5" />
@@ -496,6 +531,21 @@ export default function UserManagementPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <Label className="text-slate-700 dark:text-slate-300 font-medium">Employee ID</Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                    <Users className="w-4 h-4" />
+                  </span>
+                  <Input 
+                    value={formData.empId} 
+                    onChange={e => setFormData({...formData, empId: e.target.value})} 
+                    placeholder="emp-0610-001" 
+                    className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-11 font-mono"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label className="text-slate-700 dark:text-slate-300 font-medium">Full Name</Label>
                 <div className="relative">
@@ -701,6 +751,7 @@ export default function UserManagementPage() {
             <TableHeader className="bg-slate-50/60 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800/85">
               <TableRow>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">User Identity</TableHead>
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Employee ID</TableHead>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Designation Role</TableHead>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">IP Security Lock</TableHead>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Status Flag</TableHead>
@@ -730,7 +781,7 @@ export default function UserManagementPage() {
                 ))
               ) : filteredUsers?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-48 text-center">
+                  <TableCell colSpan={7} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 gap-3">
                       <div className="p-3 rounded-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                         <AlertCircle className="w-6 h-6 text-slate-400 dark:text-slate-600" />
@@ -764,6 +815,7 @@ export default function UserManagementPage() {
                         </div>
                       </div>
                     </TableCell>
+                    <TableCell className="font-mono text-xs text-slate-650 dark:text-slate-300 font-semibold">{user.empId || '—'}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${getRoleBadgeStyle(user.role)}`}>
                         {user.role.replace('_', ' ')}

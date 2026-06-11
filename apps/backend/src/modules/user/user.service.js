@@ -8,11 +8,11 @@ class UserService {
   }
 
   async createUser(userData) {
-    const { name, email, password, role, ipAddress } = userData;
+    const { name, email, password, role, ipAddress, empId } = userData;
     const existingUser = await userRepository.findByEmail(email);
     if (existingUser) throw { status: 400, message: 'Email already exists.' };
     const passwordHash = await bcrypt.hash(password, 10);
-    return userRepository.create({ name, email, passwordHash, role, ipAddress: ipAddress || null });
+    return userRepository.create({ name, email, passwordHash, role, ipAddress: ipAddress || null, empId: empId || null });
   }
 
   async updateUser(id, updateData) {

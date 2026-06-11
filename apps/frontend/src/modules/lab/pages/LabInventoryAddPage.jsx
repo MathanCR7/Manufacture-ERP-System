@@ -6,6 +6,7 @@ import { FlaskConical, ArrowLeft, Plus, Loader2, AlertTriangle } from 'lucide-re
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import DatePicker from '@/components/ui/DatePicker';
 
 const CATEGORIES = ['REAGENT', 'CHEMICAL', 'CONSUMABLE', 'EQUIPMENT', 'GLASSWARE', 'SAFETY'];
 const STORAGE_CONDITIONS = [
@@ -171,8 +172,22 @@ const LabInventoryAddPage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {field('supplierName', 'Supplier Name', 'text', false, 'Chemical supplier name')}
             {field('invoiceNumber', 'Invoice Number', 'text', false, 'INV-XXXX')}
-            {field('purchaseDate', 'Purchase Date', 'date')}
-            {field('expiryDate', 'Expiry Date', 'date')}
+            <DatePicker
+              label="Purchase Date"
+              value={form.purchaseDate ? new Date(form.purchaseDate) : null}
+              onChange={date => setForm(p => ({ ...p, purchaseDate: date ? date.toISOString() : '' }))}
+              modalTitle="Purchase Date"
+              placeholder="Select Date"
+              triggerClassName="h-10 text-sm"
+            />
+            <DatePicker
+              label="Expiry Date"
+              value={form.expiryDate ? new Date(form.expiryDate) : null}
+              onChange={date => setForm(p => ({ ...p, expiryDate: date ? date.toISOString() : '' }))}
+              modalTitle="Expiry Date"
+              placeholder="Select Date"
+              triggerClassName="h-10 text-sm"
+            />
             {field('batchLotNumber', 'Batch/Lot Number', 'text', false, 'Lot# from supplier')}
           </div>
         </div>

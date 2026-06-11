@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SortSelect } from '@/components/ui/SortSelect';
+import DatePicker from '@/components/ui/DatePicker';
 
 // Safely import QRCode
 import _QRCode from 'react-qr-code';
@@ -109,8 +110,8 @@ const GRNListPage = () => {
   const [search, setSearch] = useState('');
   const [filterLabStatus, setFilterLabStatus] = useState('');
   const [filterInvStatus, setFilterInvStatus] = useState('');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [fromDate, setFromDate] = useState(null);
+  const [toDate, setToDate] = useState(null);
   const [qrGRN, setQRGRN] = useState(null);
 
   const { data: grns = [], isLoading, refetch } = useQuery({
@@ -131,8 +132,8 @@ const GRNListPage = () => {
   const filtered = grns.filter(g => {
     if (filterLabStatus && g.status !== filterLabStatus) return false;
     if (filterInvStatus && g.inventoryStatus !== filterInvStatus) return false;
-    if (fromDate && new Date(g.receivedDate) < new Date(fromDate)) return false;
-    if (toDate && new Date(g.receivedDate) > new Date(toDate)) return false;
+    if (fromDate && new Date(g.receivedDate) < fromDate) return false;
+    if (toDate && new Date(g.receivedDate) > toDate) return false;
     if (search) {
       const term = search.toLowerCase();
       return (
@@ -263,19 +264,21 @@ const GRNListPage = () => {
           <option value="">All Inventory Statuses</option>
           {Object.entries(INV_STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
         </select>
-        <input
-          type="date"
+        <DatePicker
           value={fromDate}
-          onChange={e => setFromDate(e.target.value)}
-          className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          title="From date"
+          onChange={setFromDate}
+          modalTitle="From Date"
+          placeholder="From Date"
+          className="w-full sm:w-auto"
+          triggerClassName="h-[38px] text-sm border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
         />
-        <input
-          type="date"
+        <DatePicker
           value={toDate}
-          onChange={e => setToDate(e.target.value)}
-          className="border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          title="To date"
+          onChange={setToDate}
+          modalTitle="To Date"
+          placeholder="To Date"
+          className="w-full sm:w-auto"
+          triggerClassName="h-[38px] text-sm border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
         />
         <SortSelect
           value={sortBy}

@@ -5,7 +5,8 @@ import {
   Download, Printer, X, ChevronLeft, ChevronRight, Package,
   TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import AddOrderPage from './AddOrderPage';
 
 const STATUS_CONFIG = {
   'Quotation':            { bg: 'bg-blue-50 dark:bg-blue-500/10',   text: 'text-blue-600 dark:text-blue-400',   dot: 'bg-blue-500 dark:bg-blue-400',   border: 'border-blue-100 dark:border-blue-500/20' },
@@ -20,6 +21,18 @@ const STATUS_CONFIG = {
 const PAGE_SIZE = 12;
 
 export default function OrderListPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [view, setView] = useState({ type: 'list', prefill: null });
+
+  useEffect(() => {
+    if (location.pathname === '/orders/add' || location.pathname.startsWith('/orders/edit/') || location.state) {
+      setView({ type: 'create', prefill: location.state });
+    } else {
+      setView({ type: 'list', prefill: null });
+    }
+  }, [location]);
+
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -27,7 +40,6 @@ export default function OrderListPage() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [showInvoice, setShowInvoice] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const navigate = useNavigate();
 
   // Load Company & Tax Settings dynamically from localStorage
   const savedSettings = localStorage.getItem('kulfi_erp_tax_settings');
@@ -288,6 +300,10 @@ export default function OrderListPage() {
   const totalRevenue = orders.reduce((s, o) => s + Number(o.totalSubtotal || 0), 0);
   const totalProfit = orders.reduce((s, o) => s + Number(o.totalProfit || 0), 0);
   const pending = orders.filter(o => !['Delivered','Cancelled'].includes(o.status)).length;
+
+  if (view.type === 'create') {
+    return <AddOrderPage />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-55 via-white to-slate-100/50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-100">

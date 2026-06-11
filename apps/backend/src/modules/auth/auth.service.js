@@ -4,7 +4,7 @@ const env = require('../../config/env');
 const authRepository = require('./auth.repository');
 
 class AuthService {
-  async login(email, password) {
+  async login(email, password, ip) {
     if (!email || !password) {
       throw { status: 400, message: 'Email and password are required.' };
     }
@@ -25,6 +25,15 @@ class AuthService {
       { expiresIn: '7d' }
     );
 
+    const prisma = require('../../database/prisma');
+    await prisma.userSessionLog.create({
+      data: {
+        userId: user.id,
+        loginAt: new Date(),
+        ip: ip || '127.0.0.1'
+      }
+    });
+
     return {
       token,
       user: {
@@ -32,7 +41,8 @@ class AuthService {
         name: user.name,
         email: user.email,
         role: user.role,
-        profilePhoto: user.profilePhoto || null
+        profilePhoto: user.profilePhoto || null,
+        empId: user.empId || null
       }
     };
   }

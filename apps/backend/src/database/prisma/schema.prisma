@@ -69,6 +69,7 @@ model User {
   email           String            @unique
   passwordHash    String
   role            Role
+  empId           String?           @unique @map("emp_id")
   ipAddress       String?
   profilePhoto    String?           @db.Text
   isActive        Boolean           @default(true)
@@ -110,6 +111,8 @@ model User {
   productStockMovements ProductStockMovement[] @relation("StockMovementCreator")
   customerOrdersNew CustomerOrder[] @relation("CustomerOrderCreator")
   productWastagesCreated ProductWastage[] @relation("ProductWastagesCreated")
+  assetRequests      AssetRequest[]   @relation("AssetRequestCreator")
+  assetPOs           AssetPO[]        @relation("AssetPOCreator")
 
   @@index([email])
   @@index([role])
@@ -369,6 +372,8 @@ model Supplier {
   email          String?
   phone          String?
   address        String?  @db.Text
+  gstin          String?
+  pan            String?
   openingBalance Decimal  @default(0)
   balanceType    String   @default("CREDIT") // DEBIT or CREDIT
   creditLimit    Decimal  @default(0)
@@ -445,6 +450,7 @@ model RawMaterial {
   openingStock     Decimal  @default(0)
   currentStock     Decimal  @default(0) // <--- ADDED for inventory tracking
   alertLevel       Decimal  @default(0)
+  hsnCode          String?
   description      String?  @db.Text // <--- ADDED
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
@@ -1123,4 +1129,400 @@ model ProductWastage {
   creator     User            @relation("ProductWastagesCreated", fields: [createdBy], references: [id])
 
   @@map("product_wastages")
+}
+
+// ─────────────────────── Asset Management Module ───────────────────────
+
+model AssetRequest {
+  id                 String   @id @default(uuid())
+  prNo               String   @unique @map("pr_no")
+  requestDate        DateTime @default(now()) @map("request_date")
+  requesterName      String   @map("requester_name")
+  requesterEmpId     String   @map("requester_emp_id")
+  department         String
+  costCenter         String   @map("cost_center")
+  category           String
+  assetName          String   @map("asset_name")
+  hsnCode            String?  @map("hsn_code")
+  hsnDescription     String?  @map("hsn_description")
+  specifications     String   @db.Text
+  quantity           Int
+  estimatedUnitCost  Decimal  @map("estimated_unit_cost")
+  estimatedTotalCost Decimal  @map("estimated_total_cost")
+  requiredByDate     DateTime @map("required_by_date")
+  priority           String
+  justification      String   @db.Text
+  preferredVendor    String?  @map("preferred_vendor")
+  attachments        String?
+  status             String   @default("Draft")
+  approverName       String?  @map("approver_name")
+  approverLevel      String?  @map("approver_level")
+  items              Json?    @map("items")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  createdById        String   @map("created_by_id")
+  createdBy          User     @relation("AssetRequestCreator", fields: [createdById], references: [id])
+
+  @@map("asset_requests")
+}
+
+model AssetPQ {
+  id                   String        @id @default(uuid())
+  pqNo                 String        @unique @map("pq_no")
+  quotationDate        DateTime      @default(now()) @map("quotation_date")
+  validUntil           DateTime      @map("valid_until")
+  prNo                 String        @map("pr_no")
+  vendorCode           String        @map("vendor_code")
+  vendorName           String        @map("vendor_name")
+  vendorGstin          String        @map("vendor_gstin")
+  vendorPan            String        @map("vendor_pan")
+  contactPerson        String?       @map("contact_person")
+  email                String?
+  phone                String?
+  address              String        @db.Text
+  stateCode            String        @map("state_code")
+  currency             String        @default("INR")
+  exchangeRate         Decimal       @default(1.00) @map("exchange_rate")
+  paymentTerms         String        @map("payment_terms")
+  paymentMode          String?       @map("payment_mode")
+  deliveryTerms        String        @map("delivery_terms")
+  leadTime             Int           @map("lead_time")
+  warrantyPeriod       Int           @map("warranty_period")
+  amcAvailable         Boolean       @default(false) @map("amc_available")
+  amcCost              Decimal       @default(0.00) @map("amc_cost")
+  subtotal             Decimal
+  discount             Decimal
+  cgst                 Decimal
+  sgst                 Decimal
+  igst                 Decimal
+  cess                 Decimal       @default(0.00)
+  taxAmount            Decimal       @map("tax_amount")
+  shippingCharges      Decimal       @default(0.00) @map("shipping_charges")
+  otherCharges         Decimal       @default(0.00) @map("other_charges")
+  roundOff             Decimal       @default(0.00) @map("round_off")
+  grandTotal           Decimal       @map("grand_total")
+  status               String        @default("Draft")
+  isRecommended        Boolean       @default(false) @map("is_recommended")
+  recommendationReason String?       @db.Text @map("recommendation_reason")
+  items                AssetPQItem[]
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  @@map("asset_pqs")
+}
+
+model AssetPQItem {
+  id              String   @id @default(uuid())
+  pqId            String   @map("pq_id")
+  pq              AssetPQ  @relation(fields: [pqId], references: [id], onDelete: Cascade)
+  lineNo          Int      @map("line_no")
+  itemCode        String   @map("item_code")
+  description     String
+  category        String
+  hsnCode         String   @map("hsn_code")
+  uom             String
+  quantity        Int
+  unitPrice       Decimal  @map("unit_price")
+  discountPercent Decimal  @default(0.00) @map("discount_percent")
+  discountedPrice Decimal  @map("discounted_price")
+  baseAmount      Decimal  @map("base_amount")
+  gstRate         Decimal  @map("gst_rate")
+  cgst            Decimal
+  sgst            Decimal
+  igst            Decimal
+  cess            Decimal  @default(0.00)
+  lineTotal       Decimal  @map("line_total")
+  specMatch       String   @map("spec_match")
+  remarks         String?
+
+  @@map("asset_pq_items")
+}
+
+model AssetPO {
+  id              String        @id @default(uuid())
+  poNo            String        @unique @map("po_no")
+  poDate          DateTime      @default(now()) @map("po_date")
+  poType          String        @default("Standard") @map("po_type")
+  pqNo            String?       @map("pq_no")
+  prNo            String?       @map("pr_no")
+  vendorCode      String        @map("vendor_code")
+  vendorName      String        @map("vendor_name")
+  vendorGstin     String        @map("vendor_gstin")
+  vendorPan       String        @map("vendor_pan")
+  address         String        @db.Text
+  shipTo          String        @db.Text @map("ship_to")
+  billTo          String        @db.Text @map("bill_to")
+  companyGstin    String        @map("company_gstin")
+  companyPan      String        @map("company_pan")
+  deliveryDate    DateTime      @map("delivery_date")
+  paymentTerms    String        @map("payment_terms")
+  paymentMode     String?       @map("payment_mode")
+  paymentDueDate  DateTime      @map("payment_due_date")
+  incoterms       String?
+  placeOfSupply   String        @map("place_of_supply")
+  purchaseType    String        @default("Asset Capitalization") @map("purchase_type")
+  glAccount       String?       @map("gl_account")
+  costCenter      String        @map("cost_center")
+  projectCode     String?       @map("project_code")
+  approverName    String?       @map("approver_name")
+  approvalLevel   String?       @map("approval_level")
+  status          String        @default("Draft")
+  termsBlock      String        @db.Text @map("terms_block")
+  subtotal        Decimal
+  discount        Decimal
+  cgst            Decimal
+  sgst            Decimal
+  igst            Decimal
+  cess            Decimal       @default(0.00)
+  taxAmount       Decimal       @map("tax_amount")
+  shippingCharges Decimal       @default(0.00) @map("shipping_charges")
+  otherCharges    Decimal       @default(0.00) @map("other_charges")
+  freight         Decimal       @default(0.00)
+  loadingCharges  Decimal       @default(0.00) @map("loading_charges")
+  unloadingCharges Decimal      @default(0.00) @map("unloading_charges")
+  packingCharges   Decimal      @default(0.00) @map("packing_charges")
+  insurance       Decimal       @default(0.00)
+  isInterState    Boolean       @default(false) @map("is_inter_state")
+  applyGst        Boolean       @default(true) @map("apply_gst")
+  chargeGstStates Json?         @map("charge_gst_states")
+  roundOff        Decimal       @default(0.00) @map("round_off")
+  grandTotal      Decimal       @map("grand_total")
+  items           AssetPOItem[]
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+  createdById     String        @map("created_by_id")
+  createdBy       User          @relation("AssetPOCreator", fields: [createdById], references: [id])
+
+  @@map("asset_pos")
+}
+
+model AssetPOItem {
+  id                String    @id @default(uuid())
+  poId              String    @map("po_id")
+  po                AssetPO   @relation(fields: [poId], references: [id], onDelete: Cascade)
+  lineNo            Int       @map("line_no")
+  itemCode          String    @map("item_code")
+  description       String
+  hsnCode           String    @map("hsn_code")
+  uom               String
+  orderedQty        Int       @map("ordered_qty")
+  receivedQty       Int       @default(0) @map("received_qty")
+  pendingQty        Int       @map("pending_qty")
+  unitPrice         Decimal   @map("unit_price")
+  discountPercent   Decimal   @default(0.00) @map("discount_percent")
+  baseAmount        Decimal   @map("base_amount")
+  gstRate           Decimal   @map("gst_rate")
+  cgst              Decimal
+  sgst              Decimal
+  igst              Decimal
+  cess              Decimal   @default(0.00)
+  lineTotal         Decimal   @map("line_total")
+  assetTag          String?   @map("asset_tag")
+  targetDeliveryDate DateTime? @map("target_delivery_date")
+  remarks           String?
+
+  @@map("asset_po_items")
+}
+
+model AssetGRPO {
+  id            String         @id @default(uuid())
+  grpoNo        String         @unique @map("grpo_no")
+  grpoDate      DateTime       @default(now()) @map("grpo_date")
+  poNo          String         @map("po_no")
+  vendorCode    String         @map("vendor_code")
+  vendorName    String         @map("vendor_name")
+  challanNo     String         @map("challan_no")
+  transporter   String?
+  vehicleNo     String?        @map("vehicle_no")
+  receivedBy    String         @map("received_by")
+  receivedById  String         @map("received_by_id")
+  location      String
+  qcStatus      String         @map("qc_status")
+  qcInspector   String?        @map("qc_inspector")
+  items         AssetGRPOItem[]
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@map("asset_grpos")
+}
+
+model AssetGRPOItem {
+  id              String    @id @default(uuid())
+  grpoId          String    @map("grpo_id")
+  grpo            AssetGRPO @relation(fields: [grpoId], references: [id], onDelete: Cascade)
+  poLineRef       Int       @map("po_line_ref")
+  description     String
+  orderedQty      Int       @map("ordered_qty")
+  receivedQty     Int       @map("received_qty")
+  acceptedQty     Int       @map("accepted_qty")
+  rejectedQty     Int       @map("rejected_qty")
+  rejectionReason String?   @map("rejection_reason")
+  condition       String
+  serialNo        String?   @map("serial_no")
+  assetTag        String?   @map("asset_tag")
+  batchNo         String?   @map("batch_no")
+  remarks         String?
+
+  @@map("asset_grpo_items")
+}
+
+model AssetAPInvoice {
+  id                  String               @id @default(uuid())
+  invoiceNo           String               @unique @map("invoice_no")
+  vendorInvoiceNo     String               @map("vendor_invoice_no")
+  vendorInvoiceDate   DateTime             @map("vendor_invoice_date")
+  postingDate         DateTime             @default(now()) @map("posting_date")
+  dueDate             DateTime             @map("due_date")
+  poNo                String               @map("po_no")
+  grpoNo              String               @map("grpo_no")
+  vendorCode          String               @map("vendor_code")
+  vendorName          String               @map("vendor_name")
+  vendorGstin         String               @map("vendor_gstin")
+  vendorPan           String               @map("vendor_pan")
+  address             String               @db.Text
+  companyGstin        String               @map("company_gstin")
+  companyPan          String               @map("company_pan")
+  placeOfSupply       String               @map("place_of_supply")
+  irn                 String?
+  qrCodeRef           String?              @map("qr_code_ref")
+  currency            String               @default("INR")
+  exchangeRate        Decimal              @default(1.00) @map("exchange_rate")
+  taxableAmount       Decimal              @map("taxable_amount")
+  totalCgst           Decimal              @map("total_cgst")
+  totalSgst           Decimal              @map("total_sgst")
+  totalIgst           Decimal              @map("total_igst")
+  totalCess           Decimal              @default(0.00) @map("total_cess")
+  totalTax            Decimal              @map("total_tax")
+  freight             Decimal              @default(0.00)
+  discount            Decimal              @default(0.00)
+  otherCharges        Decimal              @default(0.00) @map("other_charges")
+  loadingCharges      Decimal              @default(0.00) @map("loading_charges")
+  unloadingCharges    Decimal              @default(0.00) @map("unloading_charges")
+  packingCharges      Decimal              @default(0.00) @map("packing_charges")
+  insurance           Decimal              @default(0.00)
+  isInterState        Boolean              @default(false) @map("is_inter_state")
+  applyGst            Boolean              @default(true) @map("apply_gst")
+  chargeGstStates     Json?                @map("charge_gst_states")
+  paymentMode         String?              @map("payment_mode")
+  paymentTerms        String?              @map("payment_terms")
+  roundOff            Decimal              @default(0.00) @map("round_off")
+  invoiceTotal        Decimal              @map("invoice_total")
+  amountInWords       String               @map("amount_in_words")
+  tdsAmount           Decimal              @default(0.00) @map("tds_amount")
+  netPayable          Decimal              @map("net_payable")
+  bankName            String               @map("bank_name")
+  bankAccountHolder   String               @map("bank_account_holder")
+  bankAccountNo       String               @map("bank_account_no")
+  bankIfsc            String               @map("bank_ifsc")
+  bankBranch          String               @map("bank_branch")
+  bankUpi             String?              @map("bank_upi")
+  paymentInstructions String?              @map("payment_instructions")
+  lateInterestClause  String?              @map("late_interest_clause")
+  contactQuery        String?              @map("contact_query")
+  signatoryBlock      String?              @map("signatory_block")
+  status              String               @default("Open")
+  items               AssetAPInvoiceItem[]
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  @@map("asset_ap_invoices")
+}
+
+model AssetAPInvoiceItem {
+  id              String         @id @default(uuid())
+  invoiceId       String         @map("invoice_id")
+  invoice         AssetAPInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  lineNo          Int            @map("line_no")
+  itemCode        String         @map("item_code")
+  description     String
+  hsnCode         String         @map("hsn_code")
+  uom             String
+  quantity        Int
+  unitPrice       Decimal        @map("unit_price")
+  discountPercent Decimal        @default(0.00) @map("discount_percent")
+  taxableValue    Decimal        @map("taxable_value")
+  gstRate         Decimal        @map("gst_rate")
+  cgst            Decimal
+  sgst            Decimal
+  igst            Decimal
+  cess            Decimal        @default(0.00)
+  lineTotal       Decimal        @map("line_total")
+
+  @@map("asset_ap_invoice_items")
+}
+
+model Asset {
+  id                     String    @id @default(uuid())
+  assetId                String    @unique @map("asset_id")
+  assetName              String    @map("asset_name")
+  description            String    @db.Text
+  category               String
+  subCategory            String?   @map("sub_category")
+  manufacturer           String?
+  modelNo                String?   @map("model_no")
+  serialNo               String    @unique @map("serial_no")
+  barcode                String?
+  purchaseDate           DateTime  @map("purchase_date")
+  capitalizationDate     DateTime  @map("capitalization_date")
+  purchaseCost           Decimal   @map("purchase_cost")
+  incidentalCosts        Decimal   @default(0.00) @map("incidental_costs")
+  capitalizedCost        Decimal   @map("capitalized_cost")
+  usefulLife             Int       @map("useful_life")
+  depreciationMethod     String    @default("SLM") @map("depreciation_method")
+  depreciationRate       Decimal   @map("depreciation_rate")
+  monthlyDepreciation    Decimal   @map("monthly_depreciation")
+  accumulatedDepreciation Decimal   @default(0.00) @map("accumulated_depreciation")
+  bookValue              Decimal   @map("book_value")
+  salvageValue           Decimal   @map("salvage_value")
+  location               String
+  assignedTo             String?   @map("assigned_to")
+  assignedToEmpId        String?   @map("assigned_to_emp_id")
+  department             String
+  costCenter             String    @map("cost_center")
+  status                 String    @default("Active")
+  vendorName             String?   @map("vendor_name")
+  vendorCode             String?   @map("vendor_code")
+  poNo                   String?   @map("po_no")
+  invoiceNo              String?   @map("invoice_no")
+  warrantyExpiry         DateTime? @map("warranty_expiry")
+  amcStart               DateTime? @map("amc_start")
+  amcEnd                 DateTime? @map("amc_end")
+  insurancePolicyNo      String?   @map("insurance_policy_no")
+  insuranceExpiry        DateTime? @map("insurance_expiry")
+  nextMaintenance        DateTime? @map("next_maintenance")
+  disposalDate           DateTime? @map("disposal_date")
+  disposalMethod         String?   @map("disposal_method")
+  disposalProceeds       Decimal?  @map("disposal_proceeds")
+  disposalGainLoss       Decimal?  @map("disposal_gain_loss")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@map("assets")
+}
+
+model DepartmentBudget {
+  id         String   @id @default(uuid())
+  department String   @unique
+  fiscalYear String   @map("fiscal_year")
+  allocated  Decimal
+  utilized   Decimal
+  remaining  Decimal
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("department_budgets")
+}
+
+model AssetMaster {
+  id             String   @id @default(uuid())
+  assetName      String   @unique @map("asset_name")
+  category       String
+  hsnCode        String   @map("hsn_code")
+  hsnDescription String?  @map("hsn_description")
+  specifications String?  @db.Text
+  lastUnitCost   Decimal? @map("last_unit_cost")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("asset_masters")
 }

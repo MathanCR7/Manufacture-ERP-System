@@ -3,6 +3,7 @@ import { api } from '@/lib/axios';
 import { Trash2, Plus, FileText, Calendar, User, Save, ListFilter, Percent } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import DatePicker from '@/components/ui/DatePicker';
 import { useNavigate } from 'react-router-dom';
 
 export default function ProductionLossPage() {
@@ -134,15 +135,17 @@ export default function ProductionLossPage() {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-500 uppercase">Loss Date</label>
-              <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-              />
-            </div>
+            <DatePicker
+              label="Loss Date"
+              required
+              value={date ? new Date(date) : null}
+              onChange={(d) => setDate(d ? d.toISOString().split('T')[0] : '')}
+              modalTitle="Loss Date"
+              placeholder="Select Date"
+              className="space-y-1"
+              labelClassName="text-xs font-semibold text-slate-500 uppercase block"
+              triggerClassName="h-10 text-sm"
+            />
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-500 uppercase">Responsible Person</label>

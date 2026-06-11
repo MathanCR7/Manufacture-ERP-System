@@ -21,6 +21,13 @@ const StockAdjustmentAddPage = lazy(() => import('@/modules/purchase/pages/Stock
 const StockAdjustmentListPage = lazy(() => import('@/modules/purchase/pages/StockAdjustmentListPage'));
 
 const DashboardPage = lazy(() => import('@/modules/dashboard/pages/DashboardPage'));
+const ExecutiveDashboardPage    = lazy(() => import('@/modules/dashboard/pages/ExecutiveDashboardPage'));
+const SalesDashboardPage        = lazy(() => import('@/modules/dashboard/pages/SalesDashboardPage'));
+const ProductionDashboardPage   = lazy(() => import('@/modules/dashboard/pages/ProductionDashboardPage'));
+const InventoryDashboardPage    = lazy(() => import('@/modules/dashboard/pages/InventoryDashboardPage'));
+const FinanceDashboardPage      = lazy(() => import('@/modules/dashboard/pages/FinanceDashboardPage'));
+const HRDashboardPage           = lazy(() => import('@/modules/dashboard/pages/HRDashboardPage'));
+const MaintenanceDashboardPage  = lazy(() => import('@/modules/dashboard/pages/MaintenanceDashboardPage'));
 
 // Parties Module
 const CustomerListPage = lazy(() => import('@/modules/parties/pages/CustomerListPage'));
@@ -29,15 +36,10 @@ const SupplierListPage = lazy(() => import('@/modules/parties/pages/SupplierList
 const AddSupplierPage = lazy(() => import('@/modules/parties/pages/AddSupplierPage'));
 
 // Item Setup Module
-const AddRMCategoryPage = lazy(() => import('@/modules/item-setup/pages/AddRMCategoryPage'));
 const RMCategoryListPage = lazy(() => import('@/modules/item-setup/pages/RMCategoryListPage'));
-const AddRawMaterialPage = lazy(() => import('@/modules/item-setup/pages/AddRawMaterialPage'));
 const RawMaterialListPage = lazy(() => import('@/modules/item-setup/pages/RawMaterialListPage'));
-const AddNonInventoryItemPage = lazy(() => import('@/modules/item-setup/pages/AddNonInventoryItemPage'));
 const NonInventoryItemListPage = lazy(() => import('@/modules/item-setup/pages/NonInventoryItemListPage'));
-const AddProductCategoryPage = lazy(() => import('@/modules/item-setup/pages/AddProductCategoryPage'));
 const ProductCategoryListPage = lazy(() => import('@/modules/item-setup/pages/ProductCategoryListPage'));
-const AddProductPage = lazy(() => import('@/modules/item-setup/pages/AddProductPage'));
 const ProductListPage = lazy(() => import('@/modules/item-setup/pages/ProductListPage'));
 const TaxSettingsPage = lazy(() => import('@/modules/item-setup/pages/TaxSettingsPage'));
 
@@ -95,6 +97,9 @@ const OrderStatusPage = lazy(() => import('@/modules/production/pages/OrderStatu
 const ForecastByOrderPage = lazy(() => import('@/modules/production/pages/ForecastByOrderPage'));
 const ForecastByProductPage = lazy(() => import('@/modules/production/pages/ForecastByProductPage'));
 
+// Asset Management Module
+const AssetManagementPage = lazy(() => import('@/modules/asset-management/pages/AssetManagementPage'));
+
 // Placeholder for missing modules
 const PlaceholderPage = ({ title }) => (
   <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
@@ -122,42 +127,49 @@ const AppRouter = () => {
         <Route element={<ProtectedRoute />}>
           <Route element={<AppShell />}>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
             
             {/* Shared Routes */}
             <Route path="/profile" element={<ChangeProfilePage />} />
             <Route path="/change-password" element={<ChangePasswordPage />} />
             <Route path="/attendance" element={<CheckInOutPage />} />
             <Route path="/qr-lifecycle/:id" element={<QRLifecyclePage />} />
+
+            {/* Dashboard Routes */}
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
+              <Route path="/dashboard/executive"   element={<ExecutiveDashboardPage />} />
+              <Route path="/dashboard/hr"          element={<HRDashboardPage />} />
+              <Route path="/dashboard/maintenance" element={<MaintenanceDashboardPage />} />
+            </Route>
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM']} />}>
+              <Route path="/dashboard/sales"     element={<SalesDashboardPage />} />
+              <Route path="/dashboard/finance"   element={<FinanceDashboardPage />} />
+            </Route>
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']} />}>
+              <Route path="/dashboard/production" element={<ProductionDashboardPage />} />
+            </Route>
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT']} />}>
+              <Route path="/dashboard/inventory" element={<InventoryDashboardPage />} />
+            </Route>
             
             {/* Parties Module */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']} />}>
               <Route path="/parties/customers" element={<CustomerListPage />} />
-              <Route path="/parties/customers/add" element={<AddCustomerPage />} />
-              <Route path="/parties/customers/edit/:id" element={<AddCustomerPage />} />
+              <Route path="/parties/customers/add" element={<CustomerListPage />} />
+              <Route path="/parties/customers/edit/:id" element={<CustomerListPage />} />
               <Route path="/parties/suppliers" element={<SupplierListPage />} />
-              <Route path="/parties/suppliers/add" element={<AddSupplierPage />} />
-              <Route path="/parties/suppliers/edit/:id" element={<AddSupplierPage />} />
+              <Route path="/parties/suppliers/add" element={<SupplierListPage />} />
+              <Route path="/parties/suppliers/edit/:id" element={<SupplierListPage />} />
             </Route>
 
             {/* Item Setup Module */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT']} />}>
-              <Route path="/setup/rm-category/add" element={<AddRMCategoryPage />} />
-              <Route path="/setup/rm-category/edit/:id" element={<AddRMCategoryPage />} />
               <Route path="/setup/rm-category" element={<RMCategoryListPage />} />
             </Route>
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
-              <Route path="/setup/raw-material/add" element={<AddRawMaterialPage />} />
-              <Route path="/setup/raw-material/edit/:id" element={<AddRawMaterialPage />} />
               <Route path="/setup/raw-material" element={<RawMaterialListPage />} />
-              <Route path="/setup/non-inventory/add" element={<AddNonInventoryItemPage />} />
-              <Route path="/setup/non-inventory/edit/:id" element={<AddNonInventoryItemPage />} />
               <Route path="/setup/non-inventory" element={<NonInventoryItemListPage />} />
-              <Route path="/setup/product-category/add" element={<AddProductCategoryPage />} />
-              <Route path="/setup/product-category/edit/:id" element={<AddProductCategoryPage />} />
               <Route path="/setup/product-category" element={<ProductCategoryListPage />} />
-              <Route path="/setup/product/add" element={<AddProductPage />} />
-              <Route path="/setup/product/edit/:id" element={<AddProductPage />} />
               <Route path="/setup/product" element={<ProductListPage />} />
               <Route path="/setup/tax" element={<TaxSettingsPage />} />
             </Route>
@@ -176,7 +188,7 @@ const AppRouter = () => {
 
             {/* Purchase Return */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF']} />}>
-              <Route path="/purchase-return/add" element={<PurchaseReturnAddPage />} />
+              <Route path="/purchase-return/add" element={<PurchaseReturnListPage />} />
               <Route path="/purchase-return/list" element={<PurchaseReturnListPage />} />
             </Route>
             
@@ -202,7 +214,7 @@ const AppRouter = () => {
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']} />}>
               <Route path="/rm/stock" element={<RMStockPage />} />
               <Route path="/rm/stock/low" element={<RMLowStockPage />} />
-              <Route path="/rm/stock-adjustment/add" element={<StockAdjustmentAddPage />} />
+              <Route path="/rm/stock-adjustment/add" element={<StockAdjustmentListPage />} />
               <Route path="/rm/stock-adjustment/list" element={<StockAdjustmentListPage />} />
             </Route>
 
@@ -224,7 +236,7 @@ const AppRouter = () => {
             {/* Lab Inventory */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT']} />}>
               <Route path="/lab-inventory/list" element={<LabInventoryListPage />} />
-              <Route path="/lab-inventory/add" element={<LabInventoryAddPage />} />
+              <Route path="/lab-inventory/add" element={<LabInventoryListPage />} />
               <Route path="/lab-inventory/use" element={<LabInventoryUsagePage />} />
             </Route>
 
@@ -244,7 +256,7 @@ const AppRouter = () => {
             {/* Kulfi ERP Production */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/production/batches" element={<ProductionsPage />} />
-              <Route path="/production/add" element={<AddProductionPage />} />
+              <Route path="/production/add" element={<ProductionsPage />} />
               <Route path="/production/loss" element={<ProductionLossPage />} />
               <Route path="/production/loss-report" element={<LossReportPage />} />
               <Route path="/production/qc-queue" element={<QCQueuePage />} />
@@ -256,8 +268,9 @@ const AppRouter = () => {
 
             {/* Kulfi ERP Customer Orders */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
-              <Route path="/orders/add" element={<AddOrderPage />} />
+              <Route path="/orders/add" element={<OrderListPage />} />
               <Route path="/orders/list" element={<OrderListPage />} />
+              <Route path="/orders/edit/:id" element={<OrderListPage />} />
               <Route path="/orders/status" element={<OrderStatusPage />} />
             </Route>
 
@@ -277,8 +290,8 @@ const AppRouter = () => {
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
               <Route path="/setup/items" element={<PlaceholderPage title="Item Setup" />} />
               <Route path="/waste/raw-material" element={<RMWasteListPage />} />
-              <Route path="/waste/raw-material/add" element={<CreateRMWastePage />} />
-              <Route path="/waste/raw-material/edit/:id" element={<CreateRMWastePage />} />
+              <Route path="/waste/raw-material/add" element={<RMWasteListPage />} />
+              <Route path="/waste/raw-material/edit/:id" element={<RMWasteListPage />} />
               <Route path="/audit-logs" element={<AuditLogListPage />} />
               <Route path="/admin/notifications-audit" element={<NotificationAuditPanel />} />
               <Route path="/admin/backups" element={<BackupListPage />} />
@@ -287,6 +300,17 @@ const AppRouter = () => {
             {/* Notifications (All Roles) */}
             <Route path="/notifications" element={<NotificationsListPage />} />
             
+            {/* Asset Management Module */}
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
+              <Route path="/asset-management/requests" element={<AssetManagementPage defaultTab="requests" />} />
+              <Route path="/asset-management/quotations" element={<AssetManagementPage defaultTab="quotations" />} />
+              <Route path="/asset-management/orders" element={<AssetManagementPage defaultTab="orders" />} />
+              <Route path="/asset-management/grpo" element={<AssetManagementPage defaultTab="grpo" />} />
+              <Route path="/asset-management/invoice" element={<AssetManagementPage defaultTab="invoice" />} />
+              <Route path="/asset-management/register" element={<AssetManagementPage defaultTab="register" />} />
+              <Route path="/asset-management/reports" element={<AssetManagementPage defaultTab="reports" />} />
+            </Route>
+
             {/* Admin only */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER']} />}>
               <Route path="/admin/users" element={<UserManagementPage />} />

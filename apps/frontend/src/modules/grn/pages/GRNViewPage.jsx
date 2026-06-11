@@ -55,7 +55,7 @@ export default function GRNViewPage() {
   const status = grn ? (GRN_STATUS_MAP[grn.status] || GRN_STATUS_MAP.PENDING_LAB) : null;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       {fromNotifications && (
         <Button 
           variant="outline" 
@@ -71,8 +71,8 @@ export default function GRNViewPage() {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">GRN Details</h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Goods Received Note — full delivery record</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">GRN Details</h1>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">Goods Received Note — full delivery record</p>
         </div>
       </div>
 
@@ -81,30 +81,30 @@ export default function GRNViewPage() {
       ) : !grn ? (
         <div className="text-center py-16 text-slate-400">GRN not found.</div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Header Cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+            <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
                 <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                   <Package className="w-5 h-5 text-indigo-500" /> GRN Information
                 </h3>
                 {status && (
-                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${status.cls}`}>
+                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border w-fit ${status.cls}`}>
                     <status.Icon className="w-3 h-3" /> {status.label}
                   </span>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-slate-500 block mb-0.5">GRN Reference</span><span className="font-mono font-bold text-violet-600 dark:text-violet-400">{grn.referenceNo}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">PO Reference</span><span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{grn.po?.referenceNo}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">Material</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.po?.name}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">RM ID</span><span className="font-mono text-slate-700 dark:text-slate-300">{grn.po?.rmId}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">Supplier</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.po?.supplier?.name || '-'}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">Received By</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.receiver?.name || '-'}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">Received Date</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.receivedDate ? format(new Date(grn.receivedDate), 'dd MMM yyyy HH:mm') : '-'}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">Amount Paid</span><span className="font-bold text-emerald-600 dark:text-emerald-400">₹{Number(grn.amountPaid).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
-                <div><span className="text-slate-500 block mb-0.5">Refund Amount</span><span className="font-medium text-slate-900 dark:text-slate-100">₹{Number(grn.refundAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">GRN Reference</span><span className="font-mono font-bold text-violet-600 dark:text-violet-400 text-sm sm:text-base">{grn.referenceNo}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">PO Reference</span><span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm sm:text-base">{grn.po?.referenceNo}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">Material</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.po?.name}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">RM ID</span><span className="font-mono text-slate-700 dark:text-slate-300">{grn.po?.rmId}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">Supplier</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.po?.supplier?.name || '-'}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">Received By</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.receiver?.name || '-'}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">Received Date</span><span className="font-medium text-slate-900 dark:text-slate-100">{grn.receivedDate ? format(new Date(grn.receivedDate), 'dd MMM yyyy HH:mm') : '-'}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">Amount Paid</span><span className="font-bold text-emerald-600 dark:text-emerald-400">₹{Number(grn.amountPaid).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                <div><span className="text-slate-500 block mb-0.5 text-xs sm:text-sm">Refund Amount</span><span className="font-medium text-slate-900 dark:text-slate-100">₹{Number(grn.refundAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
               </div>
               {grn.discrepancyNotes && (
                 <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg text-sm text-amber-700 dark:text-amber-400 flex items-start gap-2">
@@ -114,7 +114,7 @@ export default function GRNViewPage() {
               )}
             </div>
 
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 flex flex-col items-center gap-3">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6 flex flex-col items-center gap-3">
               <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2 self-start">
                 <QrCode className="w-5 h-5 text-indigo-500" /> QR Code
               </h3>
@@ -125,84 +125,154 @@ export default function GRNViewPage() {
 
           {/* Items */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800">
               <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                 <Truck className="w-5 h-5 text-indigo-500" /> Received Items
               </h3>
             </div>
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-800/50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">RM ID</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Material</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Expected</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Actual Received</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Return Qty</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Net Received</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {grn.items?.map(item => {
-                  const net = Number(item.actualReceivedQty) - Number(item.returnQty || 0);
-                  return (
-                    <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                      <td className="px-4 py-3 font-mono text-xs text-slate-500">{item.rmId}</td>
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{item.rmName}</td>
-                      <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{Number(item.expectedQty).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-900 dark:text-slate-100">{Number(item.actualReceivedQty).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right text-red-500">{Number(item.returnQty || 0).toLocaleString()}</td>
-                      <td className="px-4 py-3 text-right font-bold text-emerald-600 dark:text-emerald-400">{net.toLocaleString()}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50">
+                  <tr>
+                    <th className="px-6 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">RM ID</th>
+                    <th className="px-6 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Material</th>
+                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Expected</th>
+                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Actual Received</th>
+                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Return Qty</th>
+                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Net Received</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {grn.items?.map(item => {
+                    const net = Number(item.actualReceivedQty) - Number(item.returnQty || 0);
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                        <td className="px-6 py-4 font-mono text-xs text-slate-500">{item.rmId}</td>
+                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{item.rmName}</td>
+                        <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-400">{Number(item.expectedQty).toLocaleString()}</td>
+                        <td className="px-6 py-4 text-right font-semibold text-slate-900 dark:text-slate-100">{Number(item.actualReceivedQty).toLocaleString()}</td>
+                        <td className="px-6 py-4 text-right text-red-500">{Number(item.returnQty || 0).toLocaleString()}</td>
+                        <td className="px-6 py-4 text-right font-bold text-emerald-600 dark:text-emerald-400">{net.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Cards View */}
+            <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+              {grn.items?.map(item => {
+                const net = Number(item.actualReceivedQty) - Number(item.returnQty || 0);
+                return (
+                  <div key={item.id} className="p-4 space-y-3 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100 block text-sm">{item.rmName}</span>
+                        <span className="font-mono text-xs text-slate-500 block mt-0.5">RM ID: {item.rmId}</span>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] uppercase tracking-wider text-slate-400 block font-semibold">Net Recv</span>
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">{net.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-2.5 border-t border-slate-100 dark:border-slate-800 text-xs">
+                      <div>
+                        <span className="text-slate-400 block mb-0.5 text-[10px] uppercase tracking-wider font-semibold">Expected</span>
+                        <span className="font-medium text-slate-800 dark:text-slate-200">{Number(item.expectedQty).toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block mb-0.5 text-[10px] uppercase tracking-wider font-semibold">Actual Recv</span>
+                        <span className="font-medium text-slate-800 dark:text-slate-200">{Number(item.actualReceivedQty).toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block mb-0.5 text-[10px] uppercase tracking-wider font-semibold">Returned</span>
+                        <span className="font-semibold text-red-500">{Number(item.returnQty || 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Lab Test Results */}
           {grn.labTest && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                   <FlaskConical className="w-5 h-5 text-violet-500" /> Lab Test Results
                 </h3>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border ${grn.labTest.overallDecision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200' : grn.labTest.overallDecision === 'REJECTED' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border w-fit ${grn.labTest.overallDecision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200' : grn.labTest.overallDecision === 'REJECTED' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
                   {grn.labTest.overallDecision}
                 </span>
               </div>
               {grn.labTest.labNotes && (
-                <div className="px-6 py-3 bg-slate-50 dark:bg-slate-800/30 text-sm text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                <div className="px-4 sm:px-6 py-3 bg-slate-50 dark:bg-slate-800/30 text-sm text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
                   <span className="font-medium">Lab Notes: </span>{grn.labTest.labNotes}
                 </div>
               )}
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/50">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Material</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Expiry Date</th>
-                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Test Notes</th>
-                    <th className="px-4 py-3 text-center font-semibold text-slate-600 dark:text-slate-400">Result</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {grn.labTest.testResults?.map(tr => (
-                    <tr key={tr.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                      <td className="px-4 py-3 font-medium text-slate-900 dark:text-slate-100">{tr.rmName}</td>
-                      <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{tr.expiryDate ? format(new Date(tr.expiryDate), 'dd MMM yyyy') : '-'}</td>
-                      <td className="px-4 py-3 text-slate-500 dark:text-slate-400">{tr.testNotes || '-'}</td>
-                      <td className="px-4 py-3 text-center">
-                        {tr.passed ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"><CheckCircle2 className="w-3 h-3" />Pass</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"><XCircle className="w-3 h-3" />Fail</span>
-                        )}
-                      </td>
+
+              {/* Desktop Table View */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50">
+                    <tr>
+                      <th className="px-6 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Material</th>
+                      <th className="px-6 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Expiry Date</th>
+                      <th className="px-6 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Test Notes</th>
+                      <th className="px-6 py-3 text-center font-semibold text-slate-600 dark:text-slate-400">Result</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {grn.labTest.testResults?.map(tr => (
+                      <tr key={tr.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{tr.rmName}</td>
+                        <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{tr.expiryDate ? format(new Date(tr.expiryDate), 'dd MMM yyyy') : '-'}</td>
+                        <td className="px-6 py-4 text-slate-500 dark:text-slate-400">{tr.testNotes || '-'}</td>
+                        <td className="px-6 py-4 text-center">
+                          {tr.passed ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"><CheckCircle2 className="w-3 h-3" />Pass</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"><XCircle className="w-3 h-3" />Fail</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Mobile Cards View */}
+              <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
+                {grn.labTest.testResults?.map(tr => (
+                  <div key={tr.id} className="p-4 space-y-3 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{tr.rmName}</span>
+                      {tr.passed ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"><CheckCircle2 className="w-3.5 h-3.5" />Pass</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"><XCircle className="w-3.5 h-3.5" />Fail</span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1">
+                      <div>
+                        <span className="text-slate-400 block mb-0.5 text-[10px] uppercase tracking-wider font-semibold">Expiry Date</span>
+                        <span className="text-slate-800 dark:text-slate-200">{tr.expiryDate ? format(new Date(tr.expiryDate), 'dd MMM yyyy') : '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block mb-0.5 text-[10px] uppercase tracking-wider font-semibold">Test Notes</span>
+                        <span className="text-slate-600 dark:text-slate-400">{tr.testNotes || '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               {grn.labTest.categoryParams && Object.keys(grn.labTest.categoryParams).length > 0 && (
-                <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800">
+                <div className="px-4 sm:px-6 py-4 border-t border-slate-100 dark:border-slate-800">
                   <h4 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-3">Test Parameters</h4>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                     {Object.entries(grn.labTest.categoryParams).map(([key, value]) => (
@@ -220,7 +290,10 @@ export default function GRNViewPage() {
           {/* Action for lab test if pending */}
           {grn.status === 'PENDING_LAB' && (
             <div className="flex justify-end">
-              <Button onClick={() => navigate(`/lab/test/${grn.id}`)} className="bg-violet-600 hover:bg-violet-700 text-white gap-2">
+              <Button 
+                onClick={() => navigate(`/lab/test/${grn.id}`)} 
+                className="w-full sm:w-auto bg-violet-600 hover:bg-violet-700 text-white gap-2 justify-center"
+              >
                 <FlaskConical className="w-4 h-4" /> Enter Lab Results
               </Button>
             </div>

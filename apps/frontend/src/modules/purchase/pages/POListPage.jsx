@@ -2,6 +2,8 @@ import React, { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { Link, useNavigate } from 'react-router-dom';
+import CreatePOPage from './CreatePOPage';
+import EditPOPage from './EditPOPage';
 import { format } from 'date-fns';
 import {
   Plus, Search, Trash2, Eye, FileText, Download, Printer,
@@ -185,6 +187,7 @@ export default function POListPage() {
   const user = useAuthStore(s => s.user);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [view, setView] = useState({ type: 'list', id: null });
 
   const canChangeStatus = ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'].includes(user?.role);
 
@@ -208,6 +211,13 @@ export default function POListPage() {
   }));
 
   const [sortBy, setSortBy] = useState('recent');
+
+  if (view.type === 'create') {
+    return <CreatePOPage onBack={() => setView({ type: 'list', id: null })} />;
+  }
+  if (view.type === 'edit') {
+    return <EditPOPage id={view.id} onBack={() => setView({ type: 'list', id: null })} />;
+  }
   const sortOptions = [
     { value: 'recent', label: 'Recent Raised' },
     { value: 'oldest', label: 'Oldest Raised' },
@@ -263,13 +273,13 @@ export default function POListPage() {
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Manage and track all raw material purchase orders</p>
         </div>
         {['MAIN_MASTER', 'PURCHASE_ACCOUNTANT'].includes(user?.role) && (
-          <Link
-            to="/purchase-orders/create"
+          <Button
+            onClick={() => setView({ type: 'create', id: null })}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl text-sm font-semibold h-11 px-5 bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 shadow-md shadow-slate-900/10 dark:shadow-none transition-all active:scale-[0.98] select-none"
           >
             <Plus className="w-4 h-4" />
             Add Purchase
-          </Link>
+          </Button>
         )}
       </div>
 
@@ -486,8 +496,8 @@ export default function POListPage() {
                         {po.status === 'PENDING' && ['MAIN_MASTER', 'PURCHASE_ACCOUNTANT'].includes(user?.role) && (
                           <Button
                             variant="ghost" size="icon"
-                            onClick={() => navigate(`/purchase-orders/edit/${po.id}`)}
-                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            onClick={() => setView({ type: 'edit', id: po.id })}
+                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-blue-650 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                             title="Edit"
                           >
                             <Edit className="w-4 h-4" />
@@ -647,7 +657,7 @@ export default function POListPage() {
                       variant="outline"
                       size="sm"
                       onClick={() => navigate(`/purchase-orders/${po.id}`)}
-                      className="h-8 px-2.5 text-xs text-slate-650 dark:text-slate-350 border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                      className="h-8 px-2.5 text-xs text-slate-655 dark:text-slate-355 border-slate-200 dark:border-slate-800 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                     >
                       <Eye className="w-3.5 h-3.5 mr-1" /> View
                     </Button>
@@ -656,8 +666,8 @@ export default function POListPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => navigate(`/purchase-orders/edit/${po.id}`)}
-                          className="h-8 px-2.5 text-xs text-blue-650 dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
+                          onClick={() => setView({ type: 'edit', id: po.id })}
+                          className="h-8 px-2.5 text-xs text-blue-655 dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-950/20 transition-colors"
                         >
                           <Edit className="w-3.5 h-3.5 mr-1" /> Edit
                         </Button>

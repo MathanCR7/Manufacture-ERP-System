@@ -30,6 +30,16 @@ const PhaseColors = {
   STOCK_EXPIRY_ALERT: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   STOCK_CRITICAL: 'bg-rose-50 text-rose-705 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   STOCK_REORDER: 'bg-amber-50 text-amber-707 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+
+  // Asset Management
+  ASSET_PR_CREATED: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border-violet-200 dark:border-violet-800/30',
+  ASSET_PR_APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  ASSET_PQ_CREATED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  ASSET_PO_CREATED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+  ASSET_GRPO_CREATED: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/30',
+  ASSET_INVOICE_CREATED: 'bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300 border-orange-200 dark:border-orange-800/30',
+  ASSET_INVOICE_PAID: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  ASSET_DECOMMISSIONED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
 };
 
 const relativeTime = (dateStr) => {
@@ -87,7 +97,11 @@ const NotificationBell = () => {
       'LAB_RM_RESAMPLE', 'FINAL_QTY_SUBMITTED', 'PRODUCTION_STARTED', 
       'PRODUCTION_ON_HOLD', 'PRODUCTION_COMPLETED', 'PRODUCTION_QC_PASSED', 
       'PRODUCTION_QC_FAILED', 'STOCK_LOW_ALERT', 'STOCK_EXPIRY_ALERT',
-      'STOCK_CRITICAL', 'STOCK_REORDER', 'RM_LOW_STOCK_ALERT'
+      'STOCK_CRITICAL', 'STOCK_REORDER', 'RM_LOW_STOCK_ALERT',
+      // Asset Management
+      'ASSET_PR_CREATED', 'ASSET_PR_APPROVED', 'ASSET_PQ_CREATED',
+      'ASSET_PO_CREATED', 'ASSET_GRPO_CREATED', 'ASSET_INVOICE_CREATED',
+      'ASSET_INVOICE_PAID', 'ASSET_DECOMMISSIONED'
     ];
     events.forEach(e => eventSource.addEventListener(e, handleEvent));
 
@@ -137,6 +151,25 @@ const NotificationBell = () => {
       } else {
         return `/products/low-stock`;
       }
+    }
+    // Asset Management routes
+    if (type === 'ASSET_PR_CREATED' || type === 'ASSET_PR_APPROVED') {
+      return `/asset-management/requests`;
+    }
+    if (type === 'ASSET_PQ_CREATED') {
+      return `/asset-management/quotations`;
+    }
+    if (type === 'ASSET_PO_CREATED') {
+      return `/asset-management/orders`;
+    }
+    if (type === 'ASSET_GRPO_CREATED') {
+      return `/asset-management/grpo`;
+    }
+    if (type === 'ASSET_INVOICE_CREATED' || type === 'ASSET_INVOICE_PAID') {
+      return `/asset-management/invoice`;
+    }
+    if (type === 'ASSET_DECOMMISSIONED') {
+      return `/asset-management/register`;
     }
     return null;
   };
@@ -407,6 +440,114 @@ const NotificationBell = () => {
               <Activity className="w-3.5 h-3.5 mr-1" /> Re-process
             </button>
           </div>
+        </div>
+      );
+    }
+
+    // Asset Management notifications
+    if (type.startsWith('ASSET_PR')) {
+      const isApproved = type === 'ASSET_PR_APPROVED';
+      return (
+        <div className={`p-3 rounded-md border cursor-pointer hover:opacity-90 ${isApproved ? 'bg-emerald-50 border-emerald-200' : 'bg-violet-50 border-violet-200'}`}
+          onClick={(e) => handleActionClick(e, '/asset-management/requests')}>
+          <p className={`text-sm font-medium mb-2 ${isApproved ? 'text-emerald-900' : 'text-violet-900'}`}>{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, '/asset-management/requests')}
+            className={`text-xs text-white px-3 py-1.5 rounded-md flex items-center shadow-sm ${isApproved ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-violet-600 hover:bg-violet-700'}`}
+          >
+            {isApproved ? '📋 View & Proceed to Quotation' : '📋 View Purchase Request'}
+          </button>
+        </div>
+      );
+    }
+
+    if (type === 'ASSET_PQ_CREATED') {
+      return (
+        <div className="bg-sky-50 p-3 rounded-md border border-sky-200 cursor-pointer hover:bg-sky-100"
+          onClick={(e) => handleActionClick(e, '/asset-management/quotations')}>
+          <p className="text-sm font-medium text-sky-900 mb-2">{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, '/asset-management/quotations')}
+            className="text-xs bg-sky-600 text-white px-3 py-1.5 rounded-md hover:bg-sky-700 flex items-center shadow-sm"
+          >
+            📄 Compare Quotations
+          </button>
+        </div>
+      );
+    }
+
+    if (type === 'ASSET_PO_CREATED') {
+      return (
+        <div className="bg-indigo-50 p-3 rounded-md border border-indigo-200 cursor-pointer hover:bg-indigo-100"
+          onClick={(e) => handleActionClick(e, '/asset-management/orders')}>
+          <p className="text-sm font-medium text-indigo-900 mb-2">{message}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={(e) => handleActionClick(e, '/asset-management/orders')}
+              className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 flex items-center shadow-sm"
+            >
+              🛒 View Purchase Order
+            </button>
+            <button
+              onClick={(e) => handleActionClick(e, '/asset-management/grpo')}
+              className="text-xs bg-white text-indigo-700 border border-indigo-200 px-3 py-1.5 rounded-md hover:bg-indigo-50 flex items-center shadow-sm"
+            >
+              📦 Prepare GRPO
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (type === 'ASSET_GRPO_CREATED') {
+      return (
+        <div className="bg-cyan-50 p-3 rounded-md border border-cyan-200 cursor-pointer hover:bg-cyan-100"
+          onClick={(e) => handleActionClick(e, '/asset-management/invoice')}>
+          <p className="text-sm font-medium text-cyan-900 mb-2">{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, '/asset-management/invoice')}
+            className="text-xs bg-cyan-600 text-white px-3 py-1.5 rounded-md hover:bg-cyan-700 flex items-center shadow-sm"
+          >
+            🧾 Create A/P Invoice
+          </button>
+        </div>
+      );
+    }
+
+    if (type === 'ASSET_INVOICE_CREATED') {
+      return (
+        <div className="bg-orange-50 p-3 rounded-md border border-orange-200 cursor-pointer hover:bg-orange-100"
+          onClick={(e) => handleActionClick(e, '/asset-management/invoice')}>
+          <p className="text-sm font-medium text-orange-900 mb-2">{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, '/asset-management/invoice')}
+            className="text-xs bg-orange-600 text-white px-3 py-1.5 rounded-md hover:bg-orange-700 flex items-center shadow-sm"
+          >
+            💳 Mark Invoice Paid
+          </button>
+        </div>
+      );
+    }
+
+    if (type === 'ASSET_INVOICE_PAID') {
+      return (
+        <div className="bg-emerald-50 p-3 rounded-md border border-emerald-200">
+          <p className="text-sm font-medium text-emerald-900">{message}</p>
+        </div>
+      );
+    }
+
+    if (type === 'ASSET_DECOMMISSIONED') {
+      return (
+        <div className="bg-rose-50 p-3 rounded-md border border-rose-200 cursor-pointer hover:bg-rose-100"
+          onClick={(e) => handleActionClick(e, '/asset-management/register')}>
+          <p className="text-sm font-medium text-rose-900 mb-2">{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, '/asset-management/register')}
+            className="text-xs bg-rose-600 text-white px-3 py-1.5 rounded-md hover:bg-rose-700 flex items-center shadow-sm"
+          >
+            🗑️ View Asset Register
+          </button>
         </div>
       );
     }

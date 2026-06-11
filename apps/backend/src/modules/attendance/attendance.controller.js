@@ -97,4 +97,38 @@ const getAllUsers = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-module.exports = { checkIn, checkOut, getStatus, getMyLogs, getAllLogs, getAllUsers };
+const getMySessions = async (req, res, next) => {
+  try {
+    const userId = req.user.id;
+    const { fromDate, toDate } = req.query;
+    const where = { userId };
+    if (fromDate) where.loginAt = { ...where.loginAt, gte: new Date(fromDate) };
+    if (toDate) where.loginAt = { ...where.loginAt, lte: new Date(toDate + 'T23:59:59') };
+    const sessions = await prisma.userSessionLog.findMany({
+      where, orderBy: { loginAt: 'desc' }, take: 150,
+      include: { user: { select: { name: true, role: true } } }
+    });
+    res.json(sessions);
+  } catch (err) { next(err); }
+};
+
+const getAllSessions = async (req, res, next) => {
+  try {
+    const role = req.user.role;
+    if (role !== 'MAIN_MASTER' && role !== 'SUPERVISOR') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    const { fromDate, toDate, userId } = req.query;
+    const where = {};
+    if (userId) where.userId = userId;
+    if (fromDate) where.loginAt = { ...where.loginAt, gte: new Date(fromDate) };
+    if (toDate) where.loginAt = { ...where.loginAt, lte: new Date(toDate + 'T23:59:59') };
+    const sessions = await prisma.userSessionLog.findMany({
+      where, orderBy: { loginAt: 'desc' }, take: 250,
+      include: { user: { select: { id: true, name: true, role: true } } }
+    });
+    res.json(sessions);
+  } catch (err) { next(err); }
+};
+
+module.exports = { checkIn, checkOut, getStatus, getMyLogs, getAllLogs, getAllUsers, getMySessions, getAllSessions };

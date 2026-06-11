@@ -21,14 +21,13 @@ import { twMerge } from 'tailwind-merge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import DatePicker from '@/components/ui/DatePicker';
 import { Skeleton } from '@/components/ui/skeleton';
 
 /* ─────────────────────── Inline Add Supplier ─────────────────────── */
 function AddSupplierInline({ onAdded, onClose }) {
   const [fields, setFields] = useState({
-    name: '', contactPerson: '', phone: '', email: '',
+    name: '', contactPerson: '', phone: '', email: '', gstin: '', pan: '',
     openingBalance: '0.00', creditLimit: '0.00', address: '', note: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -58,6 +57,8 @@ function AddSupplierInline({ onAdded, onClose }) {
             <div><Label>Contact Person</Label><Input value={fields.contactPerson} onChange={set('contactPerson')} placeholder="John Doe" /></div>
             <div><Label>Phone *</Label><Input required value={fields.phone} onChange={set('phone')} placeholder="Phone number" /></div>
             <div><Label>Email</Label><Input type="email" value={fields.email} onChange={set('email')} placeholder="email@example.com" /></div>
+            <div><Label>GSTIN</Label><Input value={fields.gstin} onChange={set('gstin')} placeholder="GSTIN" className="font-mono" /></div>
+            <div><Label>PAN</Label><Input value={fields.pan} onChange={set('pan')} placeholder="PAN" className="font-mono" /></div>
             <div><Label>Opening Balance</Label><Input type="number" step="0.01" value={fields.openingBalance} onChange={set('openingBalance')} /></div>
             <div><Label>Credit Limit</Label><Input type="number" step="0.01" value={fields.creditLimit} onChange={set('creditLimit')} /></div>
             <div className="md:col-span-2"><Label>Address</Label><Input value={fields.address} onChange={set('address')} placeholder="123 Main St..." /></div>
@@ -146,9 +147,14 @@ function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
 }
 
 /* ─────────────────────── Main EditPOPage ─────────────────────── */
-export default function EditPOPage() {
-  const { id } = useParams();
+export default function EditPOPage({ id: propId, onBack }) {
+  const { id: paramId } = useParams();
+  const id = propId || paramId;
   const navigate = useNavigate();
+  const handleBack = () => {
+    if (onBack) onBack();
+    else navigate(`/purchase-orders/${id}`);
+  };
   const queryClient = useQueryClient();
 
   const [form, setForm] = useState(null);          // null until PO loaded
@@ -208,7 +214,7 @@ export default function EditPOPage() {
       queryClient.invalidateQueries({ queryKey: ['audit-logs'] });
       setSuccessMsg('Purchase Order updated successfully! Audit log has been recorded.');
       setErrorMsg('');
-      setTimeout(() => navigate('/purchase-orders'), 1800);
+      setTimeout(() => handleBack(), 1800);
     },
     onError: (err) => {
       setErrorMsg(err.response?.data?.error || 'Failed to update Purchase Order.');
@@ -260,7 +266,7 @@ export default function EditPOPage() {
       <div className="p-6 max-w-5xl mx-auto text-center mt-20">
         <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-200">PO Not Found</h2>
-        <Button onClick={() => navigate('/purchase-orders')} variant="outline" className="mt-4">
+        <Button onClick={handleBack} variant="outline" className="mt-4">
           Back to List
         </Button>
       </div>
@@ -273,7 +279,7 @@ export default function EditPOPage() {
         <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
         <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-200">Cannot Edit This PO</h2>
         <p className="text-slate-500 mt-2">Only <strong>PENDING</strong> purchase orders can be edited. This PO status is <strong>{po.status}</strong>.</p>
-        <Button onClick={() => navigate('/purchase-orders')} variant="outline" className="mt-4">
+        <Button onClick={handleBack} variant="outline" className="mt-4">
           Back to List
         </Button>
       </div>
@@ -298,7 +304,7 @@ export default function EditPOPage() {
 
       {/* Header */}
       <div className="flex items-center space-x-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/purchase-orders')} className="text-slate-500 rounded-full">
+        <Button variant="ghost" size="icon" onClick={handleBack} className="text-slate-500 rounded-full">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
@@ -380,31 +386,14 @@ export default function EditPOPage() {
                 />
               </div>
 
-              {/* Expected Delivery Date */}
-              <div className="space-y-2 flex flex-col">
-                <Label className="text-slate-700 dark:text-slate-300">
-                  Expected Delivery Date <span className="text-red-500">*</span>
-                </Label>
-                <Popover>
-                  <PopoverTrigger
-                    className={twMerge(
-                      'flex h-10 w-full items-center justify-start rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm font-normal text-slate-900 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
-                      !form.expectedDelivery && 'text-slate-500 dark:text-slate-400'
-                    )}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4 text-slate-400" />
-                    {form.expectedDelivery ? format(form.expectedDelivery, 'PPP') : <span>Pick a date</span>}
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={form.expectedDelivery}
-                      onSelect={date => setForm(prev => ({ ...prev, expectedDelivery: date }))}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
+              <DatePicker
+                label="Expected Delivery Date"
+                required
+                value={form.expectedDelivery}
+                onChange={date => setForm(prev => ({ ...prev, expectedDelivery: date }))}
+                modalTitle="Expected Delivery"
+                placeholder="Select Date"
+              />
 
               {/* Quantity */}
               <div className="space-y-2">
@@ -475,6 +464,14 @@ export default function EditPOPage() {
                   onChange={s => setForm(prev => ({ ...prev, selectedSupplier: s }))}
                   onAddNew={() => setShowAddSupplier(true)}
                 />
+                {form.selectedSupplier && (
+                  <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1 text-slate-600 dark:text-slate-400">
+                    <p><strong>Phone:</strong> {form.selectedSupplier.phone || 'N/A'}</p>
+                    <p><strong>GSTIN:</strong> {form.selectedSupplier.gstin || 'N/A'}</p>
+                    <p><strong>PAN:</strong> {form.selectedSupplier.pan || 'N/A'}</p>
+                    <p><strong>Address:</strong> {form.selectedSupplier.address || 'N/A'}</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -527,7 +524,7 @@ export default function EditPOPage() {
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => navigate(`/purchase-orders/${id}`)}
+                onClick={handleBack}
                 className="border-slate-300 dark:border-slate-700"
               >
                 Cancel

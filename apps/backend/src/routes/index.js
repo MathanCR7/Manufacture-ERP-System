@@ -43,6 +43,9 @@ router.use('/production', authMiddleware, require('../modules/production/product
 router.use('/orders', authMiddleware, require('../modules/production/orders.routes'));
 router.use('/forecasting', authMiddleware, require('../modules/production/forecasting.routes'));
 
+// Asset Management Module
+router.use('/asset-management', authMiddleware, require('../modules/asset-management/asset-management.routes'));
+
 router.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
 
 module.exports = router;

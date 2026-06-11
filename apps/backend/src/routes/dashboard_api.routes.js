@@ -125,12 +125,28 @@ router.get('/dashboard/kpis', async (req, res, next) => {
       }
     });
 
+    const activeSessions = await prisma.userSessionLog.count({
+      where: {
+        logoutAt: null
+      }
+    });
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const presentToday = await prisma.attendanceLog.count({
+      where: {
+        checkIn: { gte: startOfToday }
+      }
+    });
+
     res.json({
       activeProductions,
       posPendingApproval,
       lowStockMaterials,
       qcBatchesPending,
-      ordersToDispatch
+      ordersToDispatch,
+      activeSessions,
+      presentToday
     });
   } catch (error) {
     next(error);

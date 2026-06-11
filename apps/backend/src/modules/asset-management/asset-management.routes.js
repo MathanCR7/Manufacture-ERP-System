@@ -1,0 +1,68 @@
+const express = require('express');
+const router = express.Router();
+const assetController = require('./asset-management.controller');
+const authMiddleware = require('../../middlewares/auth.middleware');
+
+router.use(authMiddleware);
+
+// Budgets
+router.get('/budgets', assetController.getAllBudgets);
+router.put('/budgets', assetController.updateBudget);
+
+// Purchase Requests (PR)
+router.get('/requests', assetController.getAllPRs);
+router.get('/requests/:id', assetController.getPRById);
+router.post('/requests', assetController.createPR);
+router.patch('/requests/:id/approve', assetController.approvePR);
+
+// Purchase Quotations (PQ)
+router.get('/quotations', assetController.getAllPQs);
+router.get('/quotations/:id', assetController.getPQById);
+router.post('/quotations', assetController.createPQ);
+router.put('/quotations/:id', assetController.updatePQ);
+router.get('/quotations/compare/:prNo', assetController.getPQComparison);
+
+// Purchase Orders (PO) — both /orders and /purchase-orders (frontend alias)
+router.get('/orders', assetController.getAllPOs);
+router.get('/orders/:id', assetController.getPOById);
+router.post('/orders', assetController.createPO);
+router.get('/purchase-orders', assetController.getAllPOs);
+router.get('/purchase-orders/:id', assetController.getPOById);
+router.post('/purchase-orders', assetController.createPO);
+
+// Goods Receipt PO (GRPO)
+router.get('/grpo', assetController.getAllGRPOs);
+router.post('/grpo', assetController.createGRPO);
+
+// A/P Invoices — both /invoices and /ap-invoices (frontend alias)
+router.get('/invoices', assetController.getAllInvoices);
+router.post('/invoices', assetController.createInvoice);
+router.get('/ap-invoices', assetController.getAllInvoices);
+router.post('/ap-invoices', assetController.createInvoice);
+router.patch('/ap-invoices/:id/mark-paid', assetController.markInvoicePaid);
+router.patch('/invoices/:id/mark-paid', assetController.markInvoicePaid);
+
+// Asset Register — both /register and /assets (frontend alias)
+router.get('/register', assetController.getAllAssets);
+router.get('/register/:id', assetController.getAssetById);
+router.get('/register/:id/depreciation', assetController.getAssetDepreciation);
+router.post('/register', assetController.createAsset);
+router.get('/assets', assetController.getAllAssets);
+router.post('/assets', assetController.createAsset);
+router.patch('/assets/:id/decommission', assetController.decommissionAsset);
+router.get('/assets/:id', assetController.getAssetById);
+router.get('/assets/:id/depreciation', assetController.getAssetDepreciation);
+router.patch('/register/:id/decommission', assetController.decommissionAsset);
+
+// Autocomplete & Master Lookup
+router.get('/master/assets', assetController.searchAssetMaster);
+router.get('/master/ai-hsn', assetController.getAiHsnCode);
+router.post('/master/assets', assetController.createAssetMaster);
+
+// GSTIN Live Verification (proxy to GST portal)
+router.get('/verify-gstin/:gstin', assetController.verifyGSTIN);
+
+// Reports
+router.get('/reports', assetController.getReports);
+
+module.exports = router;

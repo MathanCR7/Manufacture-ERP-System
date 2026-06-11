@@ -3,6 +3,7 @@ import { api } from '@/lib/axios';
 import { FlaskConical, Search, RefreshCw, Check, X, ShieldAlert, Award, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import DatePicker from '@/components/ui/DatePicker';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function QCQueuePage() {
@@ -224,15 +225,17 @@ export default function QCQueuePage() {
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-500 uppercase">Expiry Date</label>
-                <Input
-                  type="date"
-                  value={expiryDate}
-                  onChange={(e) => setExpiryDate(e.target.value)}
-                  required
-                />
-              </div>
+              <DatePicker
+                label="Expiry Date"
+                required
+                value={expiryDate ? new Date(expiryDate) : null}
+                onChange={(d) => setExpiryDate(d ? d.toISOString().split('T')[0] : '')}
+                modalTitle="Expiry Date"
+                placeholder="Select Date"
+                className="space-y-1"
+                labelClassName="text-xs font-semibold text-slate-500 uppercase block"
+                triggerClassName="h-10 text-sm"
+              />
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-500 uppercase">QC Analysis Notes</label>

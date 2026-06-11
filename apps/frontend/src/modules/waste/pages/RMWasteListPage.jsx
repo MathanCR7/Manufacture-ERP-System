@@ -1,17 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import { Plus, Trash2, Edit, Search, FileDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import * as XLSX from 'xlsx';
 import Swal from 'sweetalert2';
+import CreateRMWastePage from './CreateRMWastePage';
 
 export default function RMWasteListPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [view, setView] = useState({ type: 'list', prefill: null });
+
+  useEffect(() => {
+    if (location.pathname === '/waste/raw-material/add' || location.pathname.startsWith('/waste/raw-material/edit/') || location.state) {
+      setView({ type: 'create', prefill: location.state });
+    } else {
+      setView({ type: 'list', prefill: null });
+    }
+  }, [location]);
+
   const [searchQuery, setSearchQuery] = useState('');
 
   const { data: wastes = [], isLoading } = useQuery({
@@ -129,6 +141,10 @@ export default function RMWasteListPage() {
     const fileName = `raw material waste ${format(new Date(), 'yyyy-MM-dd HH-mm-ss')}.xlsx`;
     XLSX.writeFile(workbook, fileName);
   };
+
+  if (view.type === 'create') {
+    return <CreateRMWastePage />;
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

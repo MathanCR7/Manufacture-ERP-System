@@ -11,8 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import DatePicker from '@/components/ui/DatePicker';
 import { Badge } from '@/components/ui/badge';
 
 // Reusing RawMaterialSelect logic for RM Waste
@@ -452,23 +451,14 @@ export default function CreateRMWastePage() {
               )}
             </div>
 
-            <div className="space-y-2 flex flex-col">
-              <Label className="text-red-500">Date *</Label>
-              <Popover>
-                <PopoverTrigger
-                  className={twMerge(
-                    "flex h-10 w-full items-center justify-start rounded-md border border-slate-200 bg-white px-4 py-2 text-left text-sm font-normal text-slate-900 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:hover:bg-slate-800 dark:hover:text-slate-50 dark:focus-visible:ring-slate-800",
-                    !formData.date && "text-slate-500 dark:text-slate-400"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {formData.date ? format(formData.date, "PPP") : <span>Pick a date</span>}
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <Calendar mode="single" selected={formData.date} onSelect={(date) => setFormData({...formData, date})} initialFocus />
-                </PopoverContent>
-              </Popover>
-            </div>
+            <DatePicker
+              label="Date"
+              required
+              value={formData.date}
+              onChange={(date) => setFormData({ ...formData, date })}
+              modalTitle="Waste Log Date"
+              placeholder="Select Date"
+            />
 
             <div className="space-y-2">
               <Label className="text-red-500">Responsible Person *</Label>

@@ -11,5 +11,7 @@ router.get('/status', controller.getStatus);
 router.get('/my', controller.getMyLogs);
 router.get('/all', controller.getAllLogs);
 router.get('/users', controller.getAllUsers);
+router.get('/sessions/my', controller.getMySessions);
+router.get('/sessions/all', controller.getAllSessions);
 
 module.exports = router;

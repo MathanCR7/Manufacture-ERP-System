@@ -9,7 +9,7 @@ import {
 import { 
   Factory, AlertTriangle, Truck, ClipboardList, CheckSquare, 
   RotateCw, ChevronRight, Activity, TrendingUp, Calendar, 
-  TrendingDown, CheckCircle2, AlertCircle, XCircle, Clock
+  TrendingDown, CheckCircle2, AlertCircle, XCircle, Clock, Users
 } from 'lucide-react';
 import useAuthStore from '@/app/store/authStore';
 
@@ -238,7 +238,7 @@ export default function DashboardPage() {
       {/* ----------------------------------------------------
           SECTION 1: KPI SUMMARY ROW (Polling 60s)
          ---------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
         {/* Active Productions */}
         <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex justify-between items-start">
@@ -303,8 +303,8 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Orders to Dispatch (Spans full width on mobile grid columns of 2 for symmetry) */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow col-span-2 sm:col-span-1">
+        {/* Orders to Dispatch */}
+        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
           <div className="flex justify-between items-start">
             <div className="p-2 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl">
               <Truck className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -315,6 +315,38 @@ export default function DashboardPage() {
             <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Orders to Dispatch</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
               {renderKpiValue(kpiQuery, 'ordersToDispatch')}
+            </h3>
+          </div>
+        </div>
+
+        {/* Active Login Sessions */}
+        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex justify-between items-start">
+            <div className="p-2 sm:p-3 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl">
+              <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
+            </div>
+            {renderDelta("Live", 'success')}
+          </div>
+          <div className="mt-2 sm:mt-4">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Active Sessions</p>
+            <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
+              {renderKpiValue(kpiQuery, 'activeSessions')}
+            </h3>
+          </div>
+        </div>
+
+        {/* Employees Checked In */}
+        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+          <div className="flex justify-between items-start">
+            <div className="p-2 sm:p-3 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl">
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
+            {renderDelta("Today", 'success')}
+          </div>
+          <div className="mt-2 sm:mt-4">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Checked In Today</p>
+            <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
+              {renderKpiValue(kpiQuery, 'presentToday')}
             </h3>
           </div>
         </div>

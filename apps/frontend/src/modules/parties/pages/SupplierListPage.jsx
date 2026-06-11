@@ -1,15 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Edit, Trash2, Plus, Search, Download } from 'lucide-react';
 import { api } from '@/lib/axios';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import AddSupplierPage from './AddSupplierPage';
 
 export default function SupplierListPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [view, setView] = useState({ type: 'list', prefill: null });
+
+  useEffect(() => {
+    if (location.pathname === '/parties/suppliers/add' || location.pathname.startsWith('/parties/suppliers/edit/') || location.state) {
+      setView({ type: 'create', prefill: location.state });
+    } else {
+      setView({ type: 'list', prefill: null });
+    }
+  }, [location]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -48,6 +61,10 @@ export default function SupplierListPage() {
 
   if (isLoading) {
     return <div className="p-8 space-y-6"><Skeleton className="h-[400px] w-full" /></div>;
+  }
+
+  if (view.type === 'create') {
+    return <AddSupplierPage />;
   }
 
   return (

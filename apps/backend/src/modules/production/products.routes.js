@@ -63,7 +63,7 @@ const generateProductCode = async (tx) => {
   // Lock table row to prevent race conditions
   const result = await tx.$queryRaw`
     SELECT code FROM products 
-    WHERE code LIKE 'FP-%' 
+    WHERE code LIKE 'FP-%'
     ORDER BY code DESC 
     LIMIT 1 
     FOR UPDATE
@@ -356,8 +356,9 @@ router.post('/stock/levels', authenticateToken, roleMiddleware(['MAIN_MASTER', '
 // GET /api/products - list all products
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
+    const includeDeleted = req.query.includeDeleted === 'true';
     const products = await prisma.finishedProduct.findMany({
-      where: { deletedAt: null },
+      where: includeDeleted ? undefined : { deletedAt: null },
       include: {
         category: true,
         unit: true,
@@ -716,7 +717,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
   }
 });
 
-// DELETE /api/products/:id - Soft Delete
+// DELETE /api/products/:id - Try Hard Delete, fallback to Soft Delete
 router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
   try {
     const id = req.params.id;
@@ -728,10 +729,18 @@ router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async 
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    await prisma.finishedProduct.update({
-      where: { id },
-      data: { deletedAt: new Date() }
-    });
+    try {
+      // Attempt hard delete first
+      await prisma.finishedProduct.delete({
+        where: { id }
+      });
+    } catch (e) {
+      // Fallback to soft delete if referenced by other tables (foreign key violation)
+      await prisma.finishedProduct.update({
+        where: { id },
+        data: { deletedAt: new Date() }
+      });
+    }
 
     res.status(204).send();
   } catch (error) {

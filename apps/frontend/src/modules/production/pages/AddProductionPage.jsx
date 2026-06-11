@@ -3,6 +3,7 @@ import { api } from '@/lib/axios';
 import { Factory, Calendar, Info, Layers, Users, TrendingUp, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import DatePicker from '@/components/ui/DatePicker';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 export default function AddProductionPage() {
@@ -169,15 +170,17 @@ export default function AddProductionPage() {
                 />
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-500 uppercase">Start Date</label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  required
-                />
-              </div>
+              <DatePicker
+                label="Start Date"
+                required
+                value={startDate ? new Date(startDate) : null}
+                onChange={(date) => setStartDate(date ? date.toISOString().split('T')[0] : '')}
+                modalTitle="Start Date"
+                placeholder="Select Date"
+                className="space-y-1"
+                labelClassName="text-xs font-semibold text-slate-500 uppercase block"
+                triggerClassName="h-10 text-sm"
+              />
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-500 uppercase">Expiry Duration (Days)</label>

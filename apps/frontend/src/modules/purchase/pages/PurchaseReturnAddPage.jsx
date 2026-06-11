@@ -22,14 +22,14 @@ const RETURN_REASONS = [
   { value: 'OTHER', label: 'Other' },
 ];
 
-const PurchaseReturnAddPage = () => {
+const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
-  // Pre-fill from navigation state (from GRN page or lab rejection)
-  const prefill = location.state || {};
+  // Pre-fill from navigation state (from GRN page or lab rejection) or props
+  const prefill = prefillData || (location && location.state) || {};
 
   const [form, setForm] = useState({
     supplierId: prefill.supplierId || '',
@@ -108,7 +108,11 @@ const PurchaseReturnAddPage = () => {
     mutationFn: (payload) => api.post('/purchase-return', payload).then(r => r.data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['purchase-returns'] });
-      navigate('/purchase-return/list');
+      if (onBack) {
+        onBack();
+      } else {
+        navigate('/purchase-return/list');
+      }
     },
     onError: (err) => setError(err?.response?.data?.error || 'Failed to create purchase return'),
   });
@@ -143,7 +147,7 @@ const PurchaseReturnAddPage = () => {
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <button onClick={() => navigate('/purchase-return/list')} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+        <button onClick={onBack || (() => navigate('/purchase-return/list'))} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
           <ArrowLeft className="w-5 h-5 text-slate-500" />
         </button>
         <div>
@@ -367,7 +371,7 @@ const PurchaseReturnAddPage = () => {
         )}
 
         <div className="flex items-center justify-end gap-3">
-          <Button type="button" variant="outline" onClick={() => navigate('/purchase-return/list')}>Cancel</Button>
+          <Button type="button" variant="outline" onClick={onBack || (() => navigate('/purchase-return/list'))}>Cancel</Button>
           <Button type="submit" disabled={mutation.isPending} className="bg-orange-600 hover:bg-orange-700 text-white">
             {mutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
             Submit Return

@@ -455,6 +455,218 @@ const triggerPOStatusChanged = async ({ poId, referenceNo, rmName, newStatus, ac
   });
 };
 
+// ─────────────────────── ASSET MANAGEMENT NOTIFICATIONS ───────────────────────
+
+// Asset PR Created
+const triggerAssetPRCreated = async ({ prNo, prId, assetName, department, category, quantity, estimatedTotalCost, priority, requesterName, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_PR_CREATED',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET_PR',
+    reference_id: prId,
+    event_at,
+    message: `📋 Asset Purchase Request — ${prNo} · ${assetName} · Dept: ${department} · Category: ${category} · Qty: ${quantity} · Est. Cost: ₹${Number(estimatedTotalCost).toLocaleString('en-IN')} · Priority: ${priority} · By ${requesterName} at ${event_at_local}`,
+    metadata: {
+      pr_no: prNo,
+      pr_id: prId,
+      asset_name: assetName,
+      department,
+      category,
+      quantity,
+      estimated_total_cost: estimatedTotalCost,
+      priority,
+      requester_name: requesterName
+    }
+  });
+};
+
+// Asset PR Approved
+const triggerAssetPRApproved = async ({ prNo, prId, assetName, department, estimatedTotalCost, approverName, approverLevel, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_PR_APPROVED',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET_PR',
+    reference_id: prId,
+    event_at,
+    message: `✅ Asset PR Approved — ${prNo} · ${assetName} · Dept: ${department} · Est. Cost: ₹${Number(estimatedTotalCost).toLocaleString('en-IN')} · Approval Level: ${approverLevel} · Approved by ${approverName} at ${event_at_local} — Proceed to Quotation`,
+    metadata: {
+      pr_no: prNo,
+      pr_id: prId,
+      asset_name: assetName,
+      department,
+      estimated_total_cost: estimatedTotalCost,
+      approver_name: approverName,
+      approver_level: approverLevel
+    }
+  });
+};
+
+// Asset PQ Created
+const triggerAssetPQCreated = async ({ pqNo, pqId, prNo, vendorName, vendorGstin, grandTotal, validUntil, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_PQ_CREATED',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET_PQ',
+    reference_id: pqId,
+    event_at,
+    message: `📄 Asset Quotation Received — ${pqNo} · PR: ${prNo} · Vendor: ${vendorName} · GSTIN: ${vendorGstin || 'N/A'} · Total: ₹${Number(grandTotal).toLocaleString('en-IN')} · Valid Until: ${new Date(validUntil).toLocaleDateString('en-IN')} · Logged at ${event_at_local}`,
+    metadata: {
+      pq_no: pqNo,
+      pq_id: pqId,
+      pr_no: prNo,
+      vendor_name: vendorName,
+      vendor_gstin: vendorGstin,
+      grand_total: grandTotal,
+      valid_until: validUntil
+    }
+  });
+};
+
+// Asset PO Created
+const triggerAssetPOCreated = async ({ poNo, poId, prNo, pqNo, vendorName, vendorGstin, grandTotal, deliveryDate, department, actorName, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_PO_CREATED',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET_PO',
+    reference_id: poId,
+    event_at,
+    message: `🛒 Asset Purchase Order Issued — ${poNo} · PQ: ${pqNo || 'Direct'} · PR: ${prNo || 'Direct'} · Vendor: ${vendorName} · GSTIN: ${vendorGstin || 'N/A'} · Total: ₹${Number(grandTotal).toLocaleString('en-IN')} · Delivery: ${new Date(deliveryDate).toLocaleDateString('en-IN')} · By ${actorName} at ${event_at_local}`,
+    metadata: {
+      po_no: poNo,
+      po_id: poId,
+      pr_no: prNo,
+      pq_no: pqNo,
+      vendor_name: vendorName,
+      vendor_gstin: vendorGstin,
+      grand_total: grandTotal,
+      delivery_date: deliveryDate,
+      department,
+      actor_name: actorName
+    }
+  });
+};
+
+// Asset GRPO Created
+const triggerAssetGRPOCreated = async ({ grpoNo, grpoId, poNo, vendorName, receivedBy, qcStatus, itemCount, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_GRPO_CREATED',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET_GRPO',
+    reference_id: grpoId,
+    event_at,
+    message: `📦 Asset Goods Received — ${grpoNo} · PO: ${poNo} · Vendor: ${vendorName} · QC: ${qcStatus} · Items: ${itemCount} line(s) · Received by ${receivedBy} at ${event_at_local} — Assets capitalized in register`,
+    metadata: {
+      grpo_no: grpoNo,
+      grpo_id: grpoId,
+      po_no: poNo,
+      vendor_name: vendorName,
+      received_by: receivedBy,
+      qc_status: qcStatus,
+      item_count: itemCount
+    }
+  });
+};
+
+// Asset AP Invoice Created
+const triggerAssetAPInvoiceCreated = async ({ invoiceNo, invoiceId, poNo, grpoNo, vendorName, vendorGstin, grandTotal, netPayable, dueDate, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_INVOICE_CREATED',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET_INVOICE',
+    reference_id: invoiceId,
+    event_at,
+    message: `🧾 Asset A/P Invoice Posted — ${invoiceNo} · PO: ${poNo} · GRPO: ${grpoNo} · Vendor: ${vendorName} · GSTIN: ${vendorGstin || 'N/A'} · Total: ₹${Number(grandTotal).toLocaleString('en-IN')} · Net Payable: ₹${Number(netPayable).toLocaleString('en-IN')} · Due: ${new Date(dueDate).toLocaleDateString('en-IN')} · Posted at ${event_at_local}`,
+    metadata: {
+      invoice_no: invoiceNo,
+      invoice_id: invoiceId,
+      po_no: poNo,
+      grpo_no: grpoNo,
+      vendor_name: vendorName,
+      vendor_gstin: vendorGstin,
+      grand_total: grandTotal,
+      net_payable: netPayable,
+      due_date: dueDate
+    }
+  });
+};
+
+// Asset Invoice Paid
+const triggerAssetInvoicePaid = async ({ invoiceNo, invoiceId, vendorName, netPayable, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_INVOICE_PAID',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET_INVOICE',
+    reference_id: invoiceId,
+    event_at,
+    message: `💳 Asset Invoice Marked Paid — ${invoiceNo} · Vendor: ${vendorName} · Amount Settled: ₹${Number(netPayable).toLocaleString('en-IN')} · Cleared at ${event_at_local}`,
+    metadata: {
+      invoice_no: invoiceNo,
+      invoice_id: invoiceId,
+      vendor_name: vendorName,
+      net_payable: netPayable
+    }
+  });
+};
+
+// Asset Decommissioned
+const triggerAssetDecommissioned = async ({ assetId, assetName, category, department, bookValue, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'ASSET_DECOMMISSIONED',
+    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    sender_role: actorRole,
+    sender_id: actorId,
+    reference_type: 'ASSET',
+    reference_id: assetId,
+    event_at,
+    message: `🗑️ Asset Decommissioned — ${assetId} · ${assetName} · Category: ${category} · Dept: ${department} · Book Value at Disposal: ₹${Number(bookValue).toLocaleString('en-IN')} · Decommissioned at ${event_at_local}`,
+    metadata: {
+      asset_id: assetId,
+      asset_name: assetName,
+      category,
+      department,
+      book_value: bookValue
+    }
+  });
+};
+
 module.exports = {
   triggerPOCreated,
   triggerPOAmended,
@@ -473,5 +685,14 @@ module.exports = {
   triggerRMLowStockAlert,
   triggerStockExpiryAlert,
   triggerPOUpdated,
-  triggerPOStatusChanged
+  triggerPOStatusChanged,
+  // Asset Management
+  triggerAssetPRCreated,
+  triggerAssetPRApproved,
+  triggerAssetPQCreated,
+  triggerAssetPOCreated,
+  triggerAssetGRPOCreated,
+  triggerAssetAPInvoiceCreated,
+  triggerAssetInvoicePaid,
+  triggerAssetDecommissioned
 };

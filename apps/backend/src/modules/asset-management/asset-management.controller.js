@@ -1,0 +1,287 @@
+const assetService = require('./asset-management.service');
+
+class AssetManagementController {
+  async getAllBudgets(req, res, next) {
+    try {
+      const budgets = await assetService.getBudgets();
+      res.json(budgets);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateBudget(req, res, next) {
+    try {
+      const { department, allocated } = req.body;
+      const budget = await assetService.updateBudget(department, allocated);
+      res.json(budget);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAllPRs(req, res, next) {
+    try {
+      const prs = await assetService.getPRs();
+      res.json(prs);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPRById(req, res, next) {
+    try {
+      const pr = await assetService.getPRById(req.params.id);
+      if (!pr) return res.status(404).json({ error: 'PR not found' });
+      res.json(pr);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createPR(req, res, next) {
+    try {
+      const pr = await assetService.createPR(req.body, req.user.id);
+      res.status(201).json(pr);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async approvePR(req, res, next) {
+    try {
+      const pr = await assetService.approvePR(req.params.id, req.user.name);
+      res.json(pr);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getAllPQs(req, res, next) {
+    try {
+      const pqs = await assetService.getPQs();
+      res.json(pqs);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPQById(req, res, next) {
+    try {
+      const pq = await assetService.getPQById(req.params.id);
+      if (!pq) return res.status(404).json({ error: 'PQ not found' });
+      res.json(pq);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createPQ(req, res, next) {
+    try {
+      const pq = await assetService.createPQ({
+        ...req.body,
+        actorId: req.user.id,
+        actorRole: req.user.role
+      });
+      res.status(201).json(pq);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async updatePQ(req, res, next) {
+    try {
+      const pq = await assetService.updatePQ(req.params.id, req.body);
+      res.json(pq);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getPQComparison(req, res, next) {
+    try {
+      const comp = await assetService.getPQComparison(req.params.prNo);
+      res.json(comp);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAllPOs(req, res, next) {
+    try {
+      const pos = await assetService.getPOs();
+      res.json(pos);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPOById(req, res, next) {
+    try {
+      const po = await assetService.getPOById(req.params.id);
+      if (!po) return res.status(404).json({ error: 'PO not found' });
+      res.json(po);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createPO(req, res, next) {
+    try {
+      const po = await assetService.createPO(req.body, req.user.id);
+      res.status(201).json(po);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getAllGRPOs(req, res, next) {
+    try {
+      const grpos = await assetService.getGRPOs();
+      res.json(grpos);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createGRPO(req, res, next) {
+    try {
+      const grpo = await assetService.createGRPO({
+        ...req.body,
+        actorId: req.user.id,
+        actorRole: req.user.role
+      });
+      res.status(201).json(grpo);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getAllInvoices(req, res, next) {
+    try {
+      const invoices = await assetService.getInvoices();
+      res.json(invoices);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createInvoice(req, res, next) {
+    try {
+      const invoice = await assetService.createAPInvoice({
+        ...req.body,
+        actorId: req.user.id,
+        actorRole: req.user.role
+      });
+      res.status(201).json(invoice);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async createAsset(req, res, next) {
+    try {
+      const asset = await assetService.capitalizeManualAsset(req.body, req.user.id, req.user.role);
+      res.status(201).json(asset);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getAllAssets(req, res, next) {
+    try {
+      const assets = await assetService.getAssets();
+      res.json(assets);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAssetById(req, res, next) {
+    try {
+      const asset = await assetService.getAssetById(req.params.id);
+      if (!asset) return res.status(404).json({ error: 'Asset not found' });
+      res.json(asset);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAssetDepreciation(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { date } = req.query;
+      const dep = await assetService.getAssetDepreciation(id, date);
+      res.json(dep);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async decommissionAsset(req, res, next) {
+    try {
+      const asset = await assetService.decommissionAsset(req.params.id, req.user.id, req.user.role);
+      res.json(asset);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async markInvoicePaid(req, res, next) {
+    try {
+      const invoice = await assetService.markInvoicePaid(req.params.id, req.user.id, req.user.role);
+      res.json(invoice);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getReports(req, res, next) {
+    try {
+      const { type, date } = req.query;
+      const rep = await assetService.getReports(type, date);
+      res.json(rep);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async searchAssetMaster(req, res, next) {
+    try {
+      const { search } = req.query;
+      const results = await assetService.searchAssetMaster(search);
+      res.json(results);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAiHsnCode(req, res, next) {
+    try {
+      const { name } = req.query;
+      const result = await assetService.getAiHsnCode(name);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createAssetMaster(req, res, next) {
+    try {
+      const result = await assetService.createAssetMaster(req.body);
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+  async verifyGSTIN(req, res, next) {
+    try {
+      const result = await assetService.verifyGSTIN(req.params.gstin);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+}
+
+module.exports = new AssetManagementController();

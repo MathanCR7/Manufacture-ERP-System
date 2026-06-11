@@ -2,8 +2,8 @@ const prisma = require('../../database/prisma');
 class ItemSetupRepository {
   // RM Category
   async createRMCategory(data) { return prisma.rMCategory.create({ data }); }
-  async getRMCategories() { return prisma.rMCategory.findMany({ orderBy: { createdAt: 'desc' } }); }
-  async getRMCategoryById(id) { return prisma.rMCategory.findUnique({ where: { id } }); }
+  async getRMCategories() { return prisma.rMCategory.findMany({ orderBy: { createdAt: 'desc' }, include: { rawMaterials: true } }); }
+  async getRMCategoryById(id) { return prisma.rMCategory.findUnique({ where: { id }, include: { rawMaterials: true } }); }
   async updateRMCategory(id, data) { return prisma.rMCategory.update({ where: { id }, data }); }
   async deleteRMCategory(id) { return prisma.rMCategory.delete({ where: { id } }); }
 
@@ -42,8 +42,8 @@ class ItemSetupRepository {
 
   // Product Category
   async createProductCategory(data) { return prisma.productCategory.create({ data }); }
-  async getProductCategories() { return prisma.productCategory.findMany({ orderBy: { createdAt: 'desc' } }); }
-  async getProductCategoryById(id) { return prisma.productCategory.findUnique({ where: { id } }); }
+  async getProductCategories() { return prisma.productCategory.findMany({ orderBy: { createdAt: 'desc' }, include: { products: true } }); }
+  async getProductCategoryById(id) { return prisma.productCategory.findUnique({ where: { id }, include: { products: true } }); }
   async updateProductCategory(id, data) { return prisma.productCategory.update({ where: { id }, data }); }
   async deleteProductCategory(id) { return prisma.productCategory.delete({ where: { id } }); }
 

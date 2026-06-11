@@ -6,7 +6,8 @@ import {
   DollarSign, Settings, Moon, Sun, Clock, 
   User, LogOut, ChevronDown, ChevronRight, ChevronLeft, Plus, Minus,
   Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText, Bell,
-  AlertTriangle, TrendingUp, Layers, Camera, Upload, Image, VideoOff
+  AlertTriangle, TrendingUp, Layers, Camera, Upload, Image, VideoOff, HardDrive,
+  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import useLanguageStore from '@/app/store/languageStore';
@@ -389,41 +390,46 @@ const QRScannerModal = ({ onClose, onScan }) => {
 // --- Menu Configuration based on Permissions Matrix ---
 const MENU_GROUPS = [
   {
+    id: 'dashboards',
+    title: 'Dashboards',
+    icon: BarChart2,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
+    items: [
+      { name: '📊 Overall Dashboard',     path: '/dashboard',             roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '🏢 Executive / CEO',        path: '/dashboard/executive',   roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🧾 Sales',                  path: '/dashboard/sales',       roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: '🏭 Production',             path: '/dashboard/production',  roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: '📦 Inventory / Stock',      path: '/dashboard/inventory',   roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
+      { name: '💰 Finance',               path: '/dashboard/finance',     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '🧑‍💼 HR / Workforce',       path: '/dashboard/hr',          roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🛠 Maintenance / Assets',   path: '/dashboard/maintenance', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+    ]
+  },
+  {
     id: 'purchases',
     title: 'Purchases',
     icon: ShoppingCart,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'],
     items: [
-      { name: 'Add Purchase', path: '/purchase-orders/create', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: 'Purchase List', path: '/purchase-orders', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
+      { name: 'Purchase Order', path: '/purchase-orders', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
       { name: 'Upcoming Deliveries', path: '/grn/upcoming', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
       { name: 'GRN Records', path: '/grn/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'] },
-      { name: 'Add Purchase Return', path: '/purchase-return/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
-      { name: 'Purchase Returns', path: '/purchase-return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
+      { name: 'Purchase Return', path: '/purchase-return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
     ]
   },
   {
-    id: 'rmStock',
-    title: 'RM Stock',
-    icon: Factory,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
+    id: 'assetManagement',
+    title: 'Asset Management',
+    icon: HardDrive,
+    roles: ['MAIN_MASTER', 'SUPERVISOR'],
     items: [
-      { name: 'RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: 'Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: 'Stock Adjustment', path: '/rm/stock-adjustment/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: 'Stock Adjustment List', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-    ]
-  },
-  {
-    id: 'sales',
-    title: 'Sales',
-    icon: DollarSign,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
-    items: [
-      { name: 'Add Sale', path: '/sales/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: 'Sale List', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: 'Add Sale Return', path: '/sales/return/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: 'Sale Return List', path: '/sales/return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: 'Purchase Requests', path: '/asset-management/requests', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Purchase Quotations', path: '/asset-management/quotations', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Purchase Orders', path: '/asset-management/orders', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Goods Receipt PO', path: '/asset-management/grpo', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'A/P Invoice', path: '/asset-management/invoice', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Asset Register', path: '/asset-management/register', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Reports & Analytics', path: '/asset-management/reports', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
     ]
   },
   {
@@ -437,33 +443,20 @@ const MENU_GROUPS = [
       { name: 'RM Lab Category', path: '/lab/rm-lab-category', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: 'RM Required Lab Results', path: '/lab/rm-required-results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: 'Lab Inventory', path: '/lab-inventory/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: 'Add Lab Item', path: '/lab-inventory/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: 'Log Lab Usage', path: '/lab-inventory/use', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: 'QC Queue', path: '/production/qc-queue', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'], badgeKey: 'qcPending' },
       { name: 'Product Stock (Setup)', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
     ]
   },
   {
-    id: 'products',
-    title: 'Products',
-    icon: Layers,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
-    items: [
-      { name: 'Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
-      { name: 'Low Stock Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'], badgeKey: 'lowStock' },
-    ]
-  },
-  {
-    id: 'production',
-    title: 'Production',
+    id: 'rmStock',
+    title: 'RM Stock',
     icon: Factory,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
     items: [
-      { name: 'Productions', path: '/production/batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: 'Add Production', path: '/production/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: 'Production Loss', path: '/production/loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: 'Loss Report', path: '/production/loss-report', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: 'Product Wastage', path: '/production/wastage', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: 'Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: 'Stock Adjustment', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
     ]
   },
   {
@@ -472,7 +465,6 @@ const MENU_GROUPS = [
     icon: ShoppingCart,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
     items: [
-      { name: 'Add Order', path: '/orders/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
       { name: 'Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
       { name: 'Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] }
     ]
@@ -488,6 +480,28 @@ const MENU_GROUPS = [
     ]
   },
   {
+    id: 'production',
+    title: 'Production',
+    icon: Factory,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
+    items: [
+      { name: 'Production Batches', path: '/production/batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: 'Production Loss', path: '/production/loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: 'Loss Report', path: '/production/loss-report', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: 'Product Wastage', path: '/production/wastage', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+    ]
+  },
+  {
+    id: 'products',
+    title: 'Products',
+    icon: Layers,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
+    items: [
+      { name: 'Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
+      { name: 'Low Stock Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'], badgeKey: 'lowStock' },
+    ]
+  },
+  {
     id: 'finance',
     title: 'Finance',
     icon: DollarSign,
@@ -498,34 +512,15 @@ const MENU_GROUPS = [
     ]
   },
   {
-    id: 'parties',
-    title: 'Parties',
-    icon: Users,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    id: 'sales',
+    title: 'Sales',
+    icon: DollarSign,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
     items: [
-      { name: 'Add Customer', path: '/parties/customers/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: 'Customer List', path: '/parties/customers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: 'Add Supplier', path: '/parties/suppliers/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: 'Supplier List', path: '/parties/suppliers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-    ]
-  },
-  {
-    id: 'itemSetup',
-    title: 'Item Setup',
-    icon: Settings,
-    roles: ['MAIN_MASTER', 'SUPERVISOR'],
-    items: [
-      { name: 'Add RM Category', path: '/setup/rm-category/add', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'RM Category List', path: '/setup/rm-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Add Raw Material', path: '/setup/raw-material/add', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Raw Material List', path: '/setup/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Add Non Inventory Item', path: '/setup/non-inventory/add', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Non Inventory Item List', path: '/setup/non-inventory', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Add Product Category', path: '/setup/product-category/add', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Product Category List', path: '/setup/product-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Add Product', path: '/setup/product/add', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Product List', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Categories', path: '/setup/categories', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
+      { name: 'Add Sale', path: '/sales/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: 'Sale List', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: 'Add Sale Return', path: '/sales/return/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: 'Sale Return List', path: '/sales/return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
     ]
   },
   {
@@ -535,7 +530,29 @@ const MENU_GROUPS = [
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'],
     items: [
       { name: 'RM Waste', path: '/waste/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'] },
-      { name: 'Add RM Waste', path: '/waste/raw-material/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'] },
+    ]
+  },
+  {
+    id: 'parties',
+    title: 'Parties',
+    icon: Users,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    items: [
+      { name: 'Customer List', path: '/parties/customers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: 'Supplier List', path: '/parties/suppliers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+    ]
+  },
+  {
+    id: 'itemSetup',
+    title: 'Item Setup',
+    icon: Settings,
+    roles: ['MAIN_MASTER', 'SUPERVISOR'],
+    items: [
+      { name: 'RM Category', path: '/setup/rm-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Raw Material', path: '/setup/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Non Inventory', path: '/setup/non-inventory', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Product Category', path: '/setup/product-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: 'Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
     ]
   },
   {
@@ -551,6 +568,25 @@ const MENU_GROUPS = [
       { name: 'Database Backups', path: '/admin/backups', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
     ]
   }
+];
+
+const SIDEBAR_LAYOUT = [
+  { type: 'group', id: 'dashboards' },
+  { type: 'group', id: 'purchases' },
+  { type: 'group', id: 'assetManagement' },
+  { type: 'group', id: 'lab' },
+  { type: 'group', id: 'rmStock' },
+  { type: 'group', id: 'orders' },
+  { type: 'group', id: 'forecasting' },
+  { type: 'group', id: 'production' },
+  { type: 'group', id: 'products' },
+  { type: 'group', id: 'finance' },
+  { type: 'group', id: 'sales' },
+  { type: 'group', id: 'waste' },
+  { type: 'group', id: 'parties' },
+  { type: 'group', id: 'itemSetup' },
+  { type: 'link', id: 'notifications' },
+  { type: 'group', id: 'system' }
 ];
 
 const AppShell = () => {
@@ -573,6 +609,7 @@ const AppShell = () => {
 
   const [lowStockCount, setLowStockCount] = useState(0);
   const [qcPendingCount, setQcPendingCount] = useState(0);
+  const [attendanceStatus, setAttendanceStatus] = useState(null);
 
   // Collapsible and Search States for Sidebar
   const [sidebarSearch, setSidebarSearch] = useState('');
@@ -611,6 +648,23 @@ const AppShell = () => {
     const interval = setInterval(fetchBadges, 15000);
     return () => clearInterval(interval);
   }, [token]);
+
+  // Fetch attendance status
+  useEffect(() => {
+    const fetchAttendanceStatus = async () => {
+      if (!token) return;
+      try {
+        const res = await api.get('/attendance/status');
+        setAttendanceStatus(res.data);
+      } catch (e) {
+        console.error('Failed to fetch attendance status', e);
+      }
+    };
+
+    fetchAttendanceStatus();
+    const interval = setInterval(fetchAttendanceStatus, 15000);
+    return () => clearInterval(interval);
+  }, [token, location.pathname]);
 
   // Initialize Dark Mode based on HTML class or local storage
   useEffect(() => {
@@ -731,7 +785,6 @@ const AppShell = () => {
   return (
     <div className={`flex h-screen overflow-hidden ${isDarkMode ? 'dark bg-slate-900' : 'bg-slate-50'}`}>
       
-      {/* --- Sidebar --- */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col shadow-xl md:shadow-none
         transition-all duration-300 ease-in-out md:overflow-visible
@@ -745,7 +798,7 @@ const AppShell = () => {
             and is perfectly styled with a white fill, slate border, high shadow, and centered arrow. */}
         <button 
           onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
-          className="hidden md:flex absolute top-6 -right-3.5 z-[60] items-center justify-center w-7 h-7 rounded-full bg-white dark:bg-slate-900 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-800 shadow-md hover:shadow-lg transition-all focus:outline-none"
+          className="hidden md:flex absolute top-[50px] -right-3.5 z-[60] items-center justify-center w-7 h-7 rounded-full bg-white dark:bg-slate-900 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-800 shadow-md hover:shadow-lg transition-all duration-200 hover:scale-110 active:scale-95 focus:outline-none"
           title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
           {isSidebarCollapsed ? (
@@ -756,45 +809,55 @@ const AppShell = () => {
         </button>
 
         {/* Sidebar Header Logo */}
-        {isSidebarCollapsed ? (
-          <div className="h-16 flex items-center justify-center border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300">
-            <button 
-              onClick={() => setIsSidebarCollapsed(false)}
-              className="flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all border border-indigo-100 dark:border-indigo-900/30 shadow-sm group"
-              title="Expand Sidebar"
-            >
-              <Factory className="w-5 h-5 group-hover:scale-110 transition-transform text-indigo-600 dark:text-indigo-400" />
-            </button>
-          </div>
-        ) : (
-          <div className="h-16 flex items-center justify-between px-6 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300">
-            <div className="flex items-center space-x-3 text-indigo-600 dark:text-indigo-400 font-bold text-xl tracking-tight overflow-hidden">
-              <Factory className="w-7 h-7 flex-shrink-0" />
-              <span className="transition-all duration-300 whitespace-nowrap bg-gradient-to-r from-indigo-600 to-violet-600 dark:from-indigo-400 dark:to-violet-400 bg-clip-text text-transparent">
-                Manufacture ERP
-              </span>
+        <div className="h-16 flex items-center border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 transition-all duration-300 w-full overflow-hidden">
+          {isSidebarCollapsed ? (
+            <div className="w-full flex justify-center px-2">
+              <button 
+                onClick={() => setIsSidebarCollapsed(false)}
+                className="flex items-center justify-center w-12 h-12 rounded-xl bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all border border-indigo-100 dark:border-indigo-900/50 shadow-sm hover:shadow-indigo-500/10 group"
+                title="Expand Sidebar"
+              >
+                <img 
+                  src="/favicon.ico" 
+                  onError={(e) => { e.target.src = "/favicon.svg"; }}
+                  alt="Manufacture ERP Logo" 
+                  className="w-7 h-7 flex-shrink-0 group-hover:scale-110 transition-transform object-contain" 
+                />
+              </button>
             </div>
-            
-            <div className="flex items-center space-x-1">
+          ) : (
+            <div className="w-full flex items-center justify-between px-6">
+              <div className="flex items-center space-x-3 text-indigo-600 dark:text-indigo-400 font-bold text-xl tracking-tight overflow-hidden">
+                <img 
+                  src="/favicon.ico" 
+                  onError={(e) => { e.target.src = "/favicon.svg"; }}
+                  alt="Manufacture ERP Logo" 
+                  className="w-7 h-7 flex-shrink-0 object-contain" 
+                />
+                <span className="transition-all duration-300 whitespace-nowrap bg-gradient-to-r from-indigo-600 to-violet-600 dark:from-indigo-400 dark:to-violet-400 bg-clip-text text-transparent">
+                  Manufacture ERP
+                </span>
+              </div>
+              
               {/* Mobile Close Button (Hidden on Desktop) */}
               <button className="md:hidden text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 p-1 rounded-lg" onClick={() => setIsMobileMenuOpen(false)}>
                 <X className="w-5 h-5" />
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {/* Sidebar Search Input (Hidden on collapsed desktop mode) */}
-        {!isSidebarCollapsed ? (
-          <div className="px-4 mt-4 mb-2">
-            <div className="relative flex items-center">
+        {/* Sidebar Search Input / Only displays when open */}
+        {!isSidebarCollapsed && (
+          <div className="mt-4 mb-2 px-4 w-full flex">
+            <div className="relative flex items-center w-full">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 pointer-events-none" />
               <input 
                 type="text" 
                 value={sidebarSearch}
                 onChange={e => setSidebarSearch(e.target.value)}
                 placeholder="Search navigation..." 
-                className="w-full bg-slate-50 hover:bg-slate-100 focus:bg-white dark:bg-slate-800 dark:hover:bg-slate-750 dark:focus:bg-slate-800 text-slate-750 dark:text-slate-200 placeholder-slate-400 text-sm rounded-xl pl-9 pr-8 py-2 border border-slate-200/60 dark:border-slate-755/60 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
+                className="w-full bg-slate-50 hover:bg-slate-105 focus:bg-white dark:bg-slate-800 dark:hover:bg-slate-750 dark:focus:bg-slate-800 text-slate-750 dark:text-slate-200 placeholder-slate-400 text-sm rounded-xl pl-9 pr-8 py-2 border border-slate-200/60 dark:border-slate-755/60 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 transition-all"
               />
               {sidebarSearch && (
                 <button 
@@ -806,16 +869,6 @@ const AppShell = () => {
               )}
             </div>
           </div>
-        ) : (
-          <div className="px-4 mt-4 mb-2 flex justify-center hidden md:flex">
-            <button 
-              onClick={() => setIsSidebarCollapsed(false)}
-              className="p-2.5 text-slate-400 hover:text-indigo-505 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-xl transition-colors border border-transparent hover:border-slate-200/50 dark:hover:border-slate-700/50 shadow-sm"
-              title="Search Navigation"
-            >
-              <Search className="w-4.5 h-4.5" />
-            </button>
-          </div>
         )}
 
         {/* Sidebar Navigation Links */}
@@ -823,158 +876,207 @@ const AppShell = () => {
           isSidebarCollapsed ? 'md:overflow-visible' : 'overflow-y-auto'
         }`}>
           
-          {/* Dashboard Link */}
-          {showDashboard && (
-            <div className="px-4 mb-2">
-              <Link 
-                to="/dashboard" 
-                className={`flex items-center rounded-xl transition-all duration-200 group ${
-                  isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'
-                } ${
-                  location.pathname === '/dashboard' 
-                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium shadow-sm' 
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
-                } ${isSidebarCollapsed ? '' : 'hover:translate-x-1'}`}
-                title={isSidebarCollapsed ? "Dashboard" : undefined}
-              >
-                <LayoutDashboard className={`w-5 h-5 transition-colors ${
-                  isSidebarCollapsed ? '' : 'mr-3'
-                } ${location.pathname === '/dashboard' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-indigo-500'}`} />
-                {!isSidebarCollapsed && <span className="flex-1 whitespace-nowrap">Dashboard</span>}
-              </Link>
-            </div>
-          )}
+          {SIDEBAR_LAYOUT.map((layoutItem) => {
+            if (layoutItem.type === 'link') {
+              if (layoutItem.id === 'dashboard') {
+                return showDashboard && (
+                  <div key="dashboard" className={`mb-2 w-full flex transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-2' : 'px-4'}`}>
+                    <Link 
+                      to="/dashboard" 
+                      className={`flex items-center rounded-xl transition-all duration-200 group/btn relative ${
+                        isSidebarCollapsed ? 'w-12 h-12 justify-center px-0' : 'w-full px-4 py-3 hover:translate-x-1'
+                      } ${
+                        location.pathname === '/dashboard' 
+                          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium shadow-sm border border-indigo-100 dark:border-indigo-900/30' 
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
+                      }`}
+                      title={isSidebarCollapsed ? "Dashboard" : undefined}
+                    >
+                      <LayoutDashboard className={`w-5 h-5 flex-shrink-0 transition-colors ${
+                        isSidebarCollapsed ? '' : 'mr-3'
+                      } ${location.pathname === '/dashboard' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover/btn:text-indigo-500'}`} />
+                      
+                      <span className={`transition-all duration-300 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
+                        isSidebarCollapsed ? 'w-0 opacity-0' : 'w-full opacity-100'
+                      }`}>
+                        Dashboard
+                      </span>
 
-          {/* Notifications Link */}
-          {showNotifications && (
-            <div className="px-4 mb-3">
-              <Link 
-                to="/notifications" 
-                className={`flex items-center rounded-xl transition-all duration-200 group ${
-                  isSidebarCollapsed ? 'justify-center p-3' : 'px-4 py-3'
-                } ${
-                  location.pathname === '/notifications' 
-                    ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium shadow-sm' 
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200'
-                } ${isSidebarCollapsed ? '' : 'hover:translate-x-1'}`}
-                title={isSidebarCollapsed ? "Notifications Center" : undefined}
-              >
-                <Bell className={`w-5 h-5 transition-colors ${
-                  isSidebarCollapsed ? '' : 'mr-3'
-                } ${location.pathname === '/notifications' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover:text-indigo-500'}`} />
-                {!isSidebarCollapsed && <span className="flex-1 whitespace-nowrap">Notifications Center</span>}
-              </Link>
-            </div>
-          )}
+                      {/* Subtle active indicator dot in collapsed mode */}
+                      {isSidebarCollapsed && location.pathname === '/dashboard' && (
+                        <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-650 dark:bg-indigo-400 shadow-sm" />
+                      )}
+                    </Link>
+                  </div>
+                );
+              }
+              if (layoutItem.id === 'notifications') {
+                return showNotifications && (
+                  <div key="notifications" className={`mb-3 w-full flex transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-2' : 'px-4'}`}>
+                    <Link 
+                      to="/notifications" 
+                      className={`flex items-center rounded-xl transition-all duration-200 group/btn relative ${
+                        isSidebarCollapsed ? 'w-12 h-12 justify-center px-0' : 'w-full px-4 py-3 hover:translate-x-1'
+                      } ${
+                        location.pathname === '/notifications' 
+                          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium shadow-sm border border-indigo-100 dark:border-indigo-900/30' 
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
+                      }`}
+                      title={isSidebarCollapsed ? "Notifications Center" : undefined}
+                    >
+                      <Bell className={`w-5 h-5 flex-shrink-0 transition-colors ${
+                        isSidebarCollapsed ? '' : 'mr-3'
+                      } ${location.pathname === '/notifications' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover/btn:text-indigo-500'}`} />
+                      
+                      <span className={`transition-all duration-300 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
+                        isSidebarCollapsed ? 'w-0 opacity-0' : 'w-full opacity-100'
+                      }`}>
+                        Notifications Center
+                      </span>
 
-          {/* Dynamic Menu Groups based on Roles */}
-          {filteredMenuGroups.map((group) => {
+                      {/* Subtle active indicator dot in collapsed mode */}
+                      {isSidebarCollapsed && location.pathname === '/notifications' && (
+                        <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-650 dark:bg-indigo-400 shadow-sm" />
+                      )}
+                    </Link>
+                  </div>
+                );
+              }
+              return null;
+            }
+
+            const group = filteredMenuGroups.find((g) => g.id === layoutItem.id);
+            if (!group) return null;
+
             const isExpanded = expandedGroups[group.id] || group.forceExpand;
             const GroupIcon = group.icon;
             const visibleItems = group.filteredItems;
+            const hasActiveChild = visibleItems.some(item => isItemActive(item.path));
 
             return (
-              <div key={group.id} className={`px-4 mb-2 relative ${isSidebarCollapsed ? 'flex justify-center' : ''}`}>
-                {isSidebarCollapsed ? (
-                  /* Collapsed Mode: Icon-Only Group with Hover Floating Dropdown */
-                  <div className="relative group/menu flex justify-center w-full">
-                    <button
-                      className={`p-3 rounded-xl transition-all duration-250 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-indigo-600 dark:hover:text-indigo-400 ${
-                        visibleItems.some(item => isItemActive(item.path))
-                          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium'
-                          : ''
-                      }`}
-                    >
-                      <GroupIcon className="w-5 h-5" />
-                    </button>
+              <div key={group.id} className={`mb-2 relative w-full flex flex-col transition-all duration-300 group/menu ${isSidebarCollapsed ? 'items-center px-2' : 'px-4'}`}>
+                {/* The main group toggle button */}
+                <button
+                  onClick={() => {
+                    if (isSidebarCollapsed) {
+                      setIsSidebarCollapsed(false);
+                      setExpandedGroups({ [group.id]: true });
+                    } else {
+                      toggleGroup(group.id);
+                    }
+                  }}
+                  className={`flex items-center rounded-xl transition-all duration-300 group/btn relative ${
+                    isSidebarCollapsed ? 'w-12 h-12 justify-center px-0' : 'w-full px-4 py-3'
+                  } ${
+                    isExpanded && !isSidebarCollapsed ? 'bg-slate-50 dark:bg-slate-800/50' : ''
+                  } ${
+                    hasActiveChild
+                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium border border-indigo-100 dark:border-indigo-900/30'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
+                  }`}
+                  title={isSidebarCollapsed ? group.title : undefined}
+                >
+                  <GroupIcon className={`w-5 h-5 flex-shrink-0 transition-all duration-300 ${
+                    isSidebarCollapsed ? '' : 'mr-3'
+                  } ${
+                    isExpanded && !isSidebarCollapsed ? 'text-indigo-500 scale-110' : 'text-slate-400 group-hover/btn:text-indigo-500'
+                  }`} />
+                  
+                  {/* Animated Text Label */}
+                  <span className={`transition-all duration-300 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
+                    isSidebarCollapsed ? 'w-0 opacity-0' : 'w-full opacity-100'
+                  }`}>
+                    {group.title}
+                  </span>
 
-                    {/* Floating Premium Submenu on Hover */}
-                    <div className="absolute left-full top-0 ml-3 w-60 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xl py-2 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-200 z-[100] transform translate-x-2 group-hover/menu:translate-x-0">
-                      <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800/80 mb-1 flex items-center justify-between">
-                        <span className="font-bold text-xs text-slate-850 dark:text-slate-200 uppercase tracking-wider">{group.title}</span>
-                        <GroupIcon className="w-4 h-4 text-indigo-550" />
-                      </div>
-                      <div className="max-h-80 overflow-y-auto py-1 px-2 space-y-0.5 scrollbar-thin">
-                        {visibleItems.map((item) => {
-                          const active = isItemActive(item.path);
-                          return (
-                            <Link
-                              key={item.path}
-                              to={item.path}
-                              className={`flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all duration-150 ${
-                                active
-                                  ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 font-semibold'
-                                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                              }`}
-                            >
-                              <span>{item.name}</span>
-                              {item.badgeKey && (
-                                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
-                                  item.badgeKey === 'lowStock'
-                                    ? 'bg-rose-500 text-white'
-                                    : 'bg-amber-500 text-white'
-                                }`}>
-                                  {item.badgeKey === 'lowStock' ? lowStockCount : qcPendingCount}
-                                </span>
-                              )}
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </div>
+                  {/* Animated Plus/Minus Chevron Toggle */}
+                  <div className={`transition-all duration-300 flex items-center justify-center p-1 rounded-md ${
+                    isSidebarCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-auto opacity-100 ml-2'
+                  } ${isExpanded ? 'bg-indigo-100 dark:bg-indigo-500/20' : ''}`}>
+                    {isExpanded ? (
+                      <Minus className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : (
+                      <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300" />
+                    )}
                   </div>
-                ) : (
-                  /* Standard Expanded Accordion Mode */
-                  <div>
-                    <button
-                      onClick={() => toggleGroup(group.id)}
-                      className={`w-full flex items-center px-4 py-3 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 rounded-xl transition-all duration-205 group ${isExpanded ? 'bg-slate-50 dark:bg-slate-800/50' : ''}`}
-                    >
-                      <GroupIcon className={`w-5 h-5 mr-3 transition-colors ${isExpanded ? 'text-indigo-500' : 'text-slate-400 group-hover:text-indigo-500'}`} />
-                      <span className="flex-1 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis">{group.title}</span>
-                      <div className={`p-1 rounded-md transition-colors ${isExpanded ? 'bg-indigo-100 dark:bg-indigo-500/20' : ''}`}>
-                        {isExpanded ? (
-                          <Minus className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                        ) : (
-                          <Plus className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300" />
-                        )}
-                      </div>
-                    </button>
 
-                    {/* Collapsible Sub-items */}
-                    <div className={`overflow-hidden transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100 mt-2' : 'max-h-0 opacity-0 mt-0'}`}>
-                      <div className="ml-6 pl-4 border-l-2 border-slate-100 dark:border-slate-800 space-y-1 py-1">
-                        {visibleItems.map((item) => {
-                          const active = isItemActive(item.path);
-                          return (
-                            <Link
-                              key={item.path}
-                              to={item.path}
-                              className={`flex items-center justify-between px-4 py-2.5 text-sm rounded-lg transition-all duration-200 relative ${
-                                active 
-                                  ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 font-semibold' 
-                                  : 'text-slate-550 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-205 hover:bg-slate-50 dark:hover:bg-slate-800 hover:translate-x-1'
-                              }`}
-                            >
-                              <div className="flex items-center">
-                                {active && (
-                                  <span className="absolute left-[-17px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-indigo-500 border-2 border-white dark:border-slate-900" />
-                                )}
-                                <span>{item.name}</span>
-                              </div>
-                              {item.badgeKey && (
-                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  item.badgeKey === 'lowStock' 
-                                    ? 'bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-404' 
-                                    : 'bg-amber-505 text-white dark:bg-amber-500/20 dark:text-amber-404'
-                                }`}>
-                                  {item.badgeKey === 'lowStock' ? lowStockCount : qcPendingCount}
-                                </span>
-                              )}
-                            </Link>
-                          );
-                        })}
-                      </div>
+                  {/* Subtle active indicator dot in collapsed mode if has active children */}
+                  {isSidebarCollapsed && hasActiveChild && (
+                    <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-650 dark:bg-indigo-400 shadow-sm" />
+                  )}
+                </button>
+
+                {/* Expanded State Collapsible Items (Accordion style) */}
+                <div className={`overflow-hidden transition-all duration-300 ease-in-out w-full ${
+                  isExpanded && !isSidebarCollapsed ? 'max-h-[2000px] opacity-100 mt-2' : 'max-h-0 opacity-0 mt-0 pointer-events-none'
+                }`}>
+                  <div className="ml-6 pl-4 border-l-2 border-slate-100 dark:border-slate-800 space-y-1 py-1">
+                    {visibleItems.map((item) => {
+                      const active = isItemActive(item.path);
+                      return (
+                        <Link
+                          key={item.path}
+                          to={item.path}
+                          className={`flex items-center justify-between px-4 py-2.5 text-sm rounded-lg transition-all duration-200 relative ${
+                            active 
+                              ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 font-semibold shadow-sm' 
+                              : 'text-slate-550 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-205 hover:bg-slate-50/80 dark:hover:bg-slate-800/80 hover:translate-x-1'
+                          }`}
+                        >
+                          <div className="flex items-center">
+                            {active && (
+                              <span className="absolute left-[-17px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-indigo-500 border-2 border-white dark:border-slate-900" />
+                            )}
+                            <span>{item.name}</span>
+                          </div>
+                          {item.badgeKey && (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              item.badgeKey === 'lowStock' 
+                                ? 'bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-404' 
+                                : 'bg-amber-550 text-white dark:bg-amber-500/20 dark:text-amber-404'
+                            }`}>
+                              {item.badgeKey === 'lowStock' ? lowStockCount : qcPendingCount}
+                            </span>
+                          )}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Collapsed State Hover Menu (Floating Submenu overlay) */}
+                {isSidebarCollapsed && (
+                  <div className="absolute left-full top-0 ml-3 w-60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200/80 dark:border-slate-850 rounded-2xl shadow-xl py-2 opacity-0 invisible group-hover/menu:opacity-100 group-hover/menu:visible transition-all duration-200 z-[100] transform translate-x-2 group-hover/menu:translate-x-0 border-l-4 border-l-indigo-500/80">
+                    <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800/80 mb-1.5 flex items-center justify-between">
+                      <span className="font-bold text-xs text-slate-800 dark:text-slate-200 uppercase tracking-wider">{group.title}</span>
+                      <GroupIcon className="w-4 h-4 text-indigo-500" />
+                    </div>
+                    <div className="max-h-80 overflow-y-auto py-1 px-2 space-y-1 scrollbar-thin">
+                      {visibleItems.map((item) => {
+                        const active = isItemActive(item.path);
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            className={`flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all duration-150 ${
+                              active
+                                ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 font-semibold shadow-sm'
+                                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                            }`}
+                          >
+                            <span>{item.name}</span>
+                            {item.badgeKey && (
+                              <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
+                                item.badgeKey === 'lowStock'
+                                  ? 'bg-rose-500 text-white'
+                                  : 'bg-amber-500 text-white'
+                              }`}>
+                                {item.badgeKey === 'lowStock' ? lowStockCount : qcPendingCount}
+                              </span>
+                            )}
+                          </Link>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1053,10 +1155,21 @@ const AppShell = () => {
             {/* Check In/Out Button */}
             <Link 
               to="/attendance" 
-              className="hidden sm:flex items-center px-3 py-1.5 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-650 dark:text-indigo-404 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-md text-sm font-medium transition-colors"
+              className={`flex items-center p-2 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-md text-sm font-medium transition-colors relative ${
+                attendanceStatus?.isCheckedIn
+                  ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-650 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-500/30 border border-emerald-250/20'
+                  : 'bg-indigo-50 dark:bg-indigo-500/10 text-indigo-650 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 border border-transparent'
+              }`}
+              title={attendanceStatus?.isCheckedIn ? "Live Session — Checked In" : "Checked Out — Click to Check In/Out"}
             >
-              <Clock className="w-4 h-4 mr-2" />
-              Check In/Out
+              <Clock className={`w-5 h-5 sm:w-4 sm:h-4 sm:mr-2 ${attendanceStatus?.isCheckedIn ? 'text-emerald-500 animate-pulse' : 'text-slate-550 group-hover:text-indigo-650'}`} />
+              <span className="hidden sm:inline">Check In/Out</span>
+              {attendanceStatus?.isCheckedIn && (
+                <span className="absolute top-1.5 right-1.5 sm:top-1 sm:right-1 flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              )}
             </Link>
 
             {/* Language Selector */}

@@ -89,7 +89,7 @@ class PartiesController {
 
   async createSupplier(req, res, next) {
     try {
-      const { name, contactPerson, phone, email, openingBalance, balanceType, creditLimit, address, note } = req.body;
+      const { name, contactPerson, phone, email, gstin, pan, openingBalance, balanceType, creditLimit, address, note } = req.body;
 
       if (!name || !phone) {
         return res.status(400).json({ message: 'Name and Phone are required' });
@@ -100,6 +100,8 @@ class PartiesController {
         contactPerson,
         phone,
         email,
+        gstin,
+        pan,
         openingBalance: openingBalance ? parseFloat(openingBalance) : 0,
         balanceType: balanceType || 'CREDIT',
         creditLimit: creditLimit ? parseFloat(creditLimit) : 0,
@@ -135,13 +137,15 @@ class PartiesController {
 
   async updateSupplier(req, res, next) {
     try {
-      const { name, contactPerson, phone, email, openingBalance, balanceType, creditLimit, address, note } = req.body;
+      const { name, contactPerson, phone, email, gstin, pan, openingBalance, balanceType, creditLimit, address, note } = req.body;
 
       const updatedData = {
         name,
         contactPerson,
         phone,
         email,
+        gstin,
+        pan,
         openingBalance: openingBalance ? parseFloat(openingBalance) : 0,
         balanceType: balanceType || 'CREDIT',
         creditLimit: creditLimit ? parseFloat(creditLimit) : 0,

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
@@ -7,6 +7,7 @@ import Swal from 'sweetalert2';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import DatePicker from '@/components/ui/DatePicker';
 
 export default function AddCustomerPage() {
   const { id } = useParams();
@@ -14,7 +15,7 @@ export default function AddCustomerPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm({
+  const { register, handleSubmit, reset, control, formState: { errors } } = useForm({
     defaultValues: { balanceType: 'DEBIT', customerType: 'RETAIL' }
   });
 
@@ -199,19 +200,35 @@ export default function AddCustomerPage() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-305">Date of Birth</label>
-              <input 
-                {...register('dob')} 
-                type="date"
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+              <Controller
+                control={control}
+                name="dob"
+                render={({ field: { value, onChange } }) => (
+                  <DatePicker
+                    value={value ? new Date(value) : null}
+                    onChange={date => onChange(date ? date.toISOString().split('T')[0] : '')}
+                    modalTitle="Date of Birth"
+                    placeholder="Select Date"
+                    triggerClassName="h-10 text-sm"
+                  />
+                )}
               />
             </div>
 
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-305">Date of Anniversary</label>
-              <input 
-                {...register('doa')} 
-                type="date"
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+              <Controller
+                control={control}
+                name="doa"
+                render={({ field: { value, onChange } }) => (
+                  <DatePicker
+                    value={value ? new Date(value) : null}
+                    onChange={date => onChange(date ? date.toISOString().split('T')[0] : '')}
+                    modalTitle="Date of Anniversary"
+                    placeholder="Select Date"
+                    triggerClassName="h-10 text-sm"
+                  />
+                )}
               />
             </div>
 

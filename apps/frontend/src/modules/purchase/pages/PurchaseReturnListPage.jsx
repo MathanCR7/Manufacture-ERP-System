@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import PurchaseReturnAddPage from './PurchaseReturnAddPage';
 import { format } from 'date-fns';
 import {
   Plus, Search, RotateCcw, AlertTriangle, CheckCircle, Clock, Truck,
@@ -104,6 +105,7 @@ function ReturnQRModal({ ret, onClose }) {
 
 const PurchaseReturnListPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const canManage = ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'].includes(user?.role);
@@ -113,6 +115,16 @@ const PurchaseReturnListPage = () => {
   const [filterReason, setFilterReason] = useState('');
   const [qrReturn, setQRReturn] = useState(null);
   const [closingId, setClosingId] = useState(null);
+
+  const [view, setView] = useState({ type: 'list', prefill: null });
+
+  useEffect(() => {
+    if (location.pathname === '/purchase-return/add' || location.state) {
+      setView({ type: 'create', prefill: location.state });
+    } else {
+      setView({ type: 'list', prefill: null });
+    }
+  }, [location]);
 
   const { data: returns = [], isLoading } = useQuery({
     queryKey: ['purchase-returns', filterStatus, filterReason],
@@ -213,6 +225,21 @@ const PurchaseReturnListPage = () => {
     closed: returns.filter(r => r.status === 'CLOSED').length,
   };
 
+  if (view.type === 'create') {
+    return (
+      <PurchaseReturnAddPage 
+        prefillData={view.prefill} 
+        onBack={() => {
+          if (location.pathname === '/purchase-return/add') {
+            navigate('/purchase-return/list');
+          } else {
+            setView({ type: 'list', prefill: null });
+          }
+        }} 
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -224,7 +251,7 @@ const PurchaseReturnListPage = () => {
           <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">{returns.length} return record{returns.length !== 1 ? 's' : ''}</p>
         </div>
         {canManage && (
-          <Button onClick={() => navigate('/purchase-return/add')} className="bg-orange-600 hover:bg-orange-700 text-white">
+          <Button onClick={() => setView({ type: 'create', prefill: null })} className="bg-orange-600 hover:bg-orange-700 text-white">
             <Plus className="w-4 h-4 mr-2" /> Add Return
           </Button>
         )}

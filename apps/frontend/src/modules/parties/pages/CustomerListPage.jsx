@@ -1,15 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Edit, Trash2, Plus, Search, Download } from 'lucide-react';
 import { api } from '@/lib/axios';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import AddCustomerPage from './AddCustomerPage';
 
 export default function CustomerListPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [view, setView] = useState({ type: 'list', prefill: null });
+
+  useEffect(() => {
+    if (location.pathname === '/parties/customers/add' || location.pathname.startsWith('/parties/customers/edit/') || location.state) {
+      setView({ type: 'create', prefill: location.state });
+    } else {
+      setView({ type: 'list', prefill: null });
+    }
+  }, [location]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -49,6 +62,10 @@ export default function CustomerListPage() {
     return <div className="p-8 space-y-6"><Skeleton className="h-[400px] w-full" /></div>;
   }
 
+  if (view.type === 'create') {
+    return <AddCustomerPage />;
+  }
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">Customers</h1>
@@ -67,6 +84,11 @@ export default function CustomerListPage() {
               <input 
                 type="text" 
                 placeholder="Search Here" 
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setCurrentPage(1);
+                }}
                 className="px-3 py-2 border rounded-md text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
             </div>

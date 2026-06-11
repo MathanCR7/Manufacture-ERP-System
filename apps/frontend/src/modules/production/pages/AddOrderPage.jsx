@@ -3,6 +3,8 @@ import { api } from '@/lib/axios';
 import { ShoppingCart, PlusCircle, Trash2, Info, Printer, X, Check, AlertTriangle, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import DatePicker from '@/components/ui/DatePicker';
+import SearchSelect from '@/components/ui/SearchSelect';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -17,7 +19,7 @@ export default function AddOrderPage() {
   const [customerId, setCustomerId] = useState('');
   const [orderType, setOrderType] = useState('Sales Order');
   const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0]);
-  const [orderDate, setOrderDate] = useState(new Date().toISOString().slice(0, 16));
+  const [orderDate, setOrderDate] = useState(new Date());
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [quotationNote, setQuotationNote] = useState('');
   const [internalNote, setInternalNote] = useState('');
@@ -53,7 +55,7 @@ export default function AddOrderPage() {
           setCustomerId(order.customerId);
           setOrderType(order.type);
           setDeliveryDate(new Date(order.deliveryDate).toISOString().split('T')[0]);
-          setOrderDate(new Date(order.createdAt).toISOString().slice(0, 16));
+          setOrderDate(new Date(order.createdAt));
           setDeliveryAddress(order.deliveryAddress || '');
           setQuotationNote(order.quotationNote || '');
           setInternalNote(order.internalNote || '');
@@ -305,51 +307,62 @@ export default function AddOrderPage() {
           <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-500 uppercase">Customer *</label>
-              <select
+              <SearchSelect
                 value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
+                onChange={setCustomerId}
+                options={customers.map(c => ({
+                  value: c.id,
+                  label: c.name,
+                  subLabel: c.phone || null
+                }))}
+                placeholder="Select customer..."
+                searchPlaceholder="Search customer name or phone..."
                 required
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
-              >
-                <option value="">Select customer...</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+                triggerClassName="h-10 text-sm"
+              />
             </div>
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-500 uppercase">Order Type</label>
-              <select
+              <SearchSelect
                 value={orderType}
-                onChange={(e) => setOrderType(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 h-10"
-              >
-                <option value="Sales Order">Sales Order</option>
-                <option value="Quotation">Quotation</option>
-                <option value="Invoice">Invoice</option>
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-500 uppercase">Order Date & Time</label>
-              <Input
-                type="datetime-local"
-                value={orderDate}
-                onChange={(e) => setOrderDate(e.target.value)}
+                onChange={setOrderType}
+                options={[
+                  { value: 'Sales Order', label: 'Sales Order' },
+                  { value: 'Quotation', label: 'Quotation' },
+                  { value: 'Invoice', label: 'Invoice' }
+                ]}
+                showSearch={false}
+                placeholder="Select type..."
                 required
+                triggerClassName="h-10 text-sm"
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-500 uppercase">Delivery Date</label>
-              <Input
-                type="date"
-                value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
-                required
-              />
-            </div>
+            <DatePicker
+              label="Order Date & Time"
+              required
+              showTime
+              value={orderDate}
+              onChange={setOrderDate}
+              modalTitle="Order Date & Time"
+              placeholder="Select Date & Time"
+              className="space-y-1"
+              labelClassName="text-xs font-semibold text-slate-500 uppercase block"
+              triggerClassName="h-10 text-sm"
+            />
+
+            <DatePicker
+              label="Delivery Date"
+              required
+              value={deliveryDate ? new Date(deliveryDate) : null}
+              onChange={(date) => setDeliveryDate(date ? date.toISOString().split('T')[0] : '')}
+              modalTitle="Delivery Date"
+              placeholder="Select Date"
+              className="space-y-1"
+              labelClassName="text-xs font-semibold text-slate-500 uppercase block"
+              triggerClassName="h-10 text-sm"
+            />
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-500 uppercase">GSTIN Registration</label>
@@ -473,18 +486,21 @@ export default function AddOrderPage() {
                     return (
                       <tr key={idx} className="hover:bg-slate-50/30 dark:hover:bg-slate-900/10">
                         <td className="px-3 py-3 text-center font-medium text-slate-400">{idx + 1}</td>
-                        <td className="px-2 py-2">
-                          <select
+                        <td className="px-2 py-2 min-w-[200px]">
+                          <SearchSelect
                             value={item.productId}
-                            onChange={(e) => handleItemChange(idx, 'productId', e.target.value)}
+                            onChange={(val) => handleItemChange(idx, 'productId', val)}
+                            options={products.map(p => ({
+                              value: p.id,
+                              label: p.name,
+                              subLabel: p.code || null
+                            }))}
+                            placeholder="Select Product"
+                            searchPlaceholder="Search product..."
                             required
-                            className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1.5 text-xs text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                          >
-                            <option value="">Select Product</option>
-                            {products.map(p => (
-                              <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-                            ))}
-                          </select>
+                            size="sm"
+                            triggerClassName="w-full text-xs font-semibold"
+                          />
                         </td>
 
                         <td className="px-2 py-2">
@@ -548,12 +564,13 @@ export default function AddOrderPage() {
                         </td>
 
                         <td className="px-2 py-2">
-                          <Input
-                            type="date"
-                            className="text-xs p-1 h-8 font-mono"
-                            value={item.deliveryDate}
-                            onChange={(e) => handleItemChange(idx, 'deliveryDate', e.target.value)}
-                            required
+                          <DatePicker
+                            value={item.deliveryDate ? new Date(item.deliveryDate) : null}
+                            onChange={(date) => handleItemChange(idx, 'deliveryDate', date ? date.toISOString().split('T')[0] : '')}
+                            modalTitle="Item Delivery Date"
+                            placeholder="Date"
+                            className="w-24 space-y-0"
+                            triggerClassName="h-8 text-xs p-1 font-mono rounded-lg"
                           />
                         </td>
 
