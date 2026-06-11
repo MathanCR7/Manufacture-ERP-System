@@ -820,13 +820,51 @@ function APInvoiceDetailModal({ invoice, onClose }) {
     const cleanPhone = supplierPhone.replace(/[^0-9]/g, '');
     const recipient = cleanPhone.startsWith('91') && cleanPhone.length === 12 ? cleanPhone : (cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone);
     
+    // Compile items list for WhatsApp message
+    let itemsText = '';
+    invoice.items?.forEach((item) => {
+      const cleanDesc = item.itemDescription?.split('|')[0]?.trim() || '';
+      itemsText += `• ${cleanDesc} - ${item.quantity} ${item.unit || 'Nos'} @ Rs.${Number(item.unitPrice).toFixed(2)} (GST ${item.gstRate}%)\n`;
+    });
+
+    // Compile charges and totals
+    let chargesText = '';
+    chargesText += `Subtotal (Taxable): Rs. ${taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (applyGst) {
+      if (isInterState) {
+        chargesText += `IGST: Rs. ${igst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+      } else {
+        chargesText += `CGST: Rs. ${cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+        chargesText += `SGST: Rs. ${sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+      }
+    }
+    if (freight > 0) chargesText += `Freight Charges: Rs. ${freight.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (loadingCharges > 0) chargesText += `Loading Charges: Rs. ${loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (unloadingCharges > 0) chargesText += `Unloading Charges: Rs. ${unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (packingCharges > 0) chargesText += `Packing Charges: Rs. ${packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (insurance > 0) chargesText += `Insurance: Rs. ${insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (otherCharges > 0) chargesText += `Other Charges: Rs. ${otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (discount > 0) chargesText += `Discount: -Rs. ${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (roundOff !== 0) {
+      chargesText += `Round Off: ${(roundOff >= 0 ? '+' : '')}Rs. ${roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    }
+
     const text = `🧾 *A/P Invoice Paid Notification*
     
+*BILL DETAILS:*
 Our Bill No: ${invoice.apInvoiceNo}
 Supplier Invoice #: ${invoice.vendorInvoiceNo}
 Invoice Date: ${format(new Date(invoice.invoiceDate), 'dd/MM/yyyy')}
-Grand Total: Rs. ${Number(invoice.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-Status: PAID
+Due Date: ${dueDate ? format(dueDate, 'dd/MM/yyyy') : '—'}
+Payment Mode: ${invoice.paymentMode || 'N/A'}
+Payment Terms: ${invoice.paymentTerms || 'N/A'}
+Status: *PAID*
+
+*ITEMS:*
+${itemsText}
+*CHARGES:*
+${chargesText}----------------------------------
+*GRAND TOTAL: Rs. ${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}*
 
 Please check the invoice PDF sent to your email.
 Regards,

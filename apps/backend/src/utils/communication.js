@@ -1228,13 +1228,59 @@ Phone : ${settings.companyMobile}`;
     const formattedPhone = formatPhoneNumber(phone);
     const isWhatsAppAvailable = await checkWhatsAppEligibility(phone);
     
+    let itemsText = '';
+    const items = Array.isArray(invoice.items) ? invoice.items : [];
+    items.forEach((item) => {
+      const cleanDesc = item.description?.split('|')[0]?.trim() || '';
+      itemsText += `• ${cleanDesc} - ${item.quantity} ${item.uom || 'Nos'} @ Rs.${Number(item.unitPrice).toFixed(2)} (GST ${item.gstRate || 18}%)\n`;
+    });
+
+    let chargesText = '';
+    chargesText += `Subtotal (Taxable): Rs. ${Number(invoice.taxableAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (invoice.applyGst !== false) {
+      if (invoice.isInterState) {
+        chargesText += `IGST: Rs. ${Number(invoice.totalIgst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+      } else {
+        chargesText += `CGST: Rs. ${Number(invoice.totalCgst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+        chargesText += `SGST: Rs. ${Number(invoice.totalSgst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+      }
+    }
+    const freight = Number(invoice.freight || 0);
+    const loadingCharges = Number(invoice.loadingCharges || 0);
+    const unloadingCharges = Number(invoice.unloadingCharges || 0);
+    const packingCharges = Number(invoice.packingCharges || 0);
+    const insurance = Number(invoice.insurance || 0);
+    const otherCharges = Number(invoice.otherCharges || 0);
+    const discount = Number(invoice.discount || 0);
+    const roundOff = Number(invoice.roundOff || 0);
+
+    if (freight > 0) chargesText += `Freight Charges: Rs. ${freight.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (loadingCharges > 0) chargesText += `Loading Charges: Rs. ${loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (unloadingCharges > 0) chargesText += `Unloading Charges: Rs. ${unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (packingCharges > 0) chargesText += `Packing Charges: Rs. ${packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (insurance > 0) chargesText += `Insurance: Rs. ${insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (otherCharges > 0) chargesText += `Other Charges: Rs. ${otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (discount > 0) chargesText += `Discount: -Rs. ${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    if (roundOff !== 0) {
+      chargesText += `Round Off: ${(roundOff >= 0 ? '+' : '')}Rs. ${roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\n`;
+    }
+
     const caption = `🧾 *A/P Invoice Paid Notification from ${settings.companyName}*
     
-Our Bill No        : ${invoice.invoiceNo}
-Supplier Invoice # : ${invoice.vendorInvoiceNo}
-Invoice Date       : ${new Date(invoice.vendorInvoiceDate).toLocaleDateString('en-IN')}
-Grand Total        : Rs. ${Number(invoice.invoiceTotal).toFixed(2)}
-Status             : PAID
+*BILL DETAILS:*
+Our Bill No: ${invoice.invoiceNo}
+Supplier Invoice #: ${invoice.vendorInvoiceNo}
+Invoice Date: ${new Date(invoice.vendorInvoiceDate).toLocaleDateString('en-IN')}
+Due Date: ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('en-IN') : '—'}
+Payment Mode: ${invoice.paymentMode || 'N/A'}
+Payment Terms: ${invoice.paymentTerms || 'N/A'}
+Status: *PAID*
+
+*ITEMS:*
+${itemsText}
+*CHARGES:*
+${chargesText}----------------------------------
+*GRAND TOTAL: Rs. ${Number(invoice.invoiceTotal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}*
 
 Please find the details in the attached invoice PDF sent to your email.
 For queries, call ${settings.companyMobile}
