@@ -4,12 +4,12 @@ const axios = require('axios');
 const prisma = require('../database/prisma');
 const { getTaxSettingsData } = require('../modules/setup/tax.controller');
 
-// Create standard Nodemailer transporter using credentials supplied by user
+// Create standard Nodemailer transporter using credentials supplied by user in environment
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: 'mathanleonex123@gmail.com',
-    pass: 'dbwk kcfm ibcl uklh'
+    user: process.env.SMTP_EMAIL,
+    pass: process.env.SMTP_PASSWORD
   }
 });
 
