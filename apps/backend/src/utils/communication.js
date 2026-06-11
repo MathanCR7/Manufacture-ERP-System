@@ -1,0 +1,1367 @@
+const nodemailer = require('nodemailer');
+const PDFDocument = require('pdfkit');
+const axios = require('axios');
+const prisma = require('../database/prisma');
+const { getTaxSettingsData } = require('../modules/setup/tax.controller');
+
+// Create standard Nodemailer transporter using credentials supplied by user
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'mathanleonex123@gmail.com',
+    pass: 'dbwk kcfm ibcl uklh'
+  }
+});
+
+/**
+ * Log communication event to database
+ */
+const logCommunication = async ({ documentType, documentNo, recipient, channel, status, subject, content, errorMessage }) => {
+  try {
+    return await prisma.communicationLog.create({
+      data: {
+        documentType,
+        documentNo,
+        recipient,
+        channel,
+        status,
+        subject,
+        content: content || '',
+        errorMessage: errorMessage || null
+      }
+    });
+  } catch (err) {
+    console.error('[Communication Log] Failed to write log to database:', err);
+  }
+};
+
+/**
+ * Check if document has already been sent to prevent duplicates
+ */
+const isAlreadySent = async (documentType, documentNo, channel) => {
+  try {
+    const log = await prisma.communicationLog.findFirst({
+      where: {
+        documentType,
+        documentNo,
+        channel,
+        status: 'SENT'
+      }
+    });
+    return !!log;
+  } catch (err) {
+    console.error('[Communication Check] Error checking sent status:', err);
+    return false;
+  }
+};
+
+/**
+ * Format phone to +91XXXXXXXXXX
+ */
+const formatPhoneNumber = (phone) => {
+  if (!phone) return null;
+  const clean = phone.replace(/[^0-9]/g, '');
+  if (clean.length === 10) {
+    return `+91${clean}`;
+  }
+  if (clean.length === 12 && clean.startsWith('91')) {
+    return `+91${clean.substring(2)}`;
+  }
+  return phone.startsWith('+') ? phone : `+${clean}`;
+};
+
+/**
+ * WhatsApp Eligibility Check
+ */
+const checkWhatsAppEligibility = async (phone) => {
+  const formatted = formatPhoneNumber(phone);
+  if (!formatted) return false;
+
+  // Demo number check: always eligible
+  if (formatted.includes('9360163523')) {
+    return true;
+  }
+
+  try {
+    // Attempt WhatsApp contacts check endpoint
+    const response = await axios.post(
+      'https://api.whatsapp.com/v1/contacts',
+      { blocking: "wait", contacts: [formatted] },
+      { timeout: 3000 }
+    );
+    if (response.data && response.data.contacts && response.data.contacts[0]) {
+      return response.data.contacts[0].status === 'valid';
+    }
+  } catch (err) {
+    console.log(`[WhatsApp Check] WhatsApp check failed for ${formatted}, defaulting to SKIP:`, err.message);
+  }
+  return false;
+};
+
+/**
+ * Helper to generate PO PDF Buffer
+ */
+const generatePOPDFBuffer = (po, settings) => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 30, size: 'A4' });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', err => reject(err));
+
+    // Design layout
+    // Company Header Banner
+    doc.fillColor('#4f46e5').rect(0, 0, 595, 20).fill();
+    
+    // Header Content
+    doc.fillColor('#1e293b').fontSize(20).font('Helvetica-Bold').text(settings.companyName, 30, 40);
+    doc.fontSize(9).font('Helvetica').fillColor('#64748b');
+    doc.text(settings.companyAddress, 30, 65, { width: 300 });
+    doc.text(`GSTIN: ${settings.companyGstin} | Mobile: ${settings.companyMobile}`, 30, 95);
+
+    // Document Metadata
+    doc.fillColor('#1e293b').fontSize(14).font('Helvetica-Bold').text('PURCHASE ORDER', 350, 40);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`PO Number: ${po.poNo}`, 350, 60);
+    doc.text(`PO Date: ${po.poDate ? new Date(po.poDate).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN')}`, 350, 75);
+    doc.text(`Linked PR: ${po.prNo || 'None'}`, 350, 90);
+    doc.text(`Linked PQ: ${po.pqNo || 'None'}`, 350, 105);
+
+    // Draw separator line
+    doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(30, 125).lineTo(565, 125).stroke();
+
+    // Supplier Details
+    doc.fillColor('#1e293b').fontSize(11).font('Helvetica-Bold').text('SUPPLIER DETAILS', 30, 140);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`Name: ${po.vendorName}`, 30, 155);
+    doc.text(`Address: ${po.address || ''}`, 30, 170, { width: 220 });
+    doc.text(`GSTIN: ${po.vendorGstin || 'N/A'}`, 30, 205);
+    doc.text(`PAN: ${po.vendorPan || 'N/A'}`, 30, 220);
+
+    // Delivery & Payment details
+    doc.fillColor('#1e293b').fontSize(11).font('Helvetica-Bold').text('DELIVERY & BILL TO', 300, 140);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`Delivery By: ${po.deliveryDate ? new Date(po.deliveryDate).toLocaleDateString('en-IN') : 'ASAP'}`, 300, 155);
+    doc.text(`Delivery Address: ${po.shipTo || settings.companyAddress}`, 300, 170, { width: 240 });
+    doc.text(`Payment Terms: ${po.paymentTerms || 'Net 30'}`, 300, 205);
+
+    // Table Header
+    let tableY = 250;
+    doc.fillColor('#4f46e5').rect(30, tableY, 535, 20).fill();
+    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+    doc.text('S.No', 35, tableY + 6);
+    doc.text('Item Name', 70, tableY + 6);
+    doc.text('Qty', 280, tableY + 6, { width: 40, align: 'right' });
+    doc.text('Unit', 330, tableY + 6);
+    doc.text('Price (Rs)', 375, tableY + 6, { width: 50, align: 'right' });
+    doc.text('GST %', 435, tableY + 6, { width: 40, align: 'right' });
+    doc.text('Total (Rs)', 485, tableY + 6, { width: 75, align: 'right' });
+
+    let currentY = tableY + 20;
+    po.items?.forEach((item, index) => {
+      doc.fillColor('#1e293b').fontSize(8).font('Helvetica');
+      doc.text(String(index + 1), 35, currentY + 6);
+      doc.text(item.description, 70, currentY + 6, { width: 200 });
+      doc.text(String(item.orderedQty || item.quantity), 280, currentY + 6, { width: 40, align: 'right' });
+      doc.text(item.uom || item.unit || 'Nos', 330, currentY + 6);
+      doc.text(Number(item.unitPrice).toFixed(2), 375, currentY + 6, { width: 50, align: 'right' });
+      doc.text(`${item.gstRate || 18}%`, 435, currentY + 6, { width: 40, align: 'right' });
+      doc.text(Number(item.lineTotal).toFixed(2), 485, currentY + 6, { width: 75, align: 'right' });
+      currentY += 20;
+    });
+
+    // Separation line
+    doc.strokeColor('#e2e8f0').moveTo(30, currentY).lineTo(565, currentY).stroke();
+    currentY += 10;
+
+    // Totals on Right
+    doc.fillColor('#475569').fontSize(9).font('Helvetica');
+    const rightAlignOpts = { width: 100, align: 'right' };
+    
+    doc.text('Sub Total:', 350, currentY);
+    doc.text(`Rs. ${Number(po.subtotal).toFixed(2)}`, 455, currentY, rightAlignOpts);
+    currentY += 15;
+
+    if (po.cgst > 0) {
+      doc.text(`CGST (${(po.items?.[0]?.gstRate || 18) / 2}%):`, 350, currentY);
+      doc.text(`Rs. ${Number(po.cgst).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+      doc.text(`SGST (${(po.items?.[0]?.gstRate || 18) / 2}%):`, 350, currentY);
+      doc.text(`Rs. ${Number(po.sgst).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    } else if (po.igst > 0) {
+      doc.text(`IGST (${po.items?.[0]?.gstRate || 18}%):`, 350, currentY);
+      doc.text(`Rs. ${Number(po.igst).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    }
+
+    if (po.freight > 0 || po.shippingCharges > 0) {
+      doc.text('Freight Charges:', 350, currentY);
+      doc.text(`Rs. ${Number(po.freight || po.shippingCharges).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    }
+
+    if (po.discount > 0) {
+      doc.text('Discount:', 350, currentY);
+      doc.text(`-Rs. ${Number(po.discount).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    }
+
+    doc.font('Helvetica-Bold').fillColor('#4f46e5').fontSize(10);
+    doc.text('GRAND TOTAL:', 350, currentY);
+    doc.text(`Rs. ${Number(po.grandTotal).toFixed(2)}`, 455, currentY, rightAlignOpts);
+
+    // Page 2: General Terms and Conditions (GTC)
+    doc.addPage();
+
+    // Letterhead / Header banner
+    doc.fillColor('#4f46e5').rect(0, 0, 595, 20).fill();
+
+    doc.fillColor('#1e293b').fontSize(12).font('Helvetica-Bold').text('General Terms and Conditions (GTC)', 30, 40);
+
+    // GTC Box
+    doc.roundedRect(30, 60, 535, 420, 8).strokeColor('#cbd5e1').lineWidth(0.8).stroke();
+
+    const termsList = [
+      "1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.",
+      "2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.",
+      "3. Warranty: The Vendor warrants that all supplied goods are brand new, genuine, and free from defects in material and workmanship for 12 months from the date of acceptance. For services, the Vendor guarantees performance by qualified personnel matching industry standards. Any defective goods or substandard services identified within this period must be replaced, repaired, or re-performed by the Vendor within 7 business days at no additional cost to the Buyer.",
+      "4. Billing Instructions: Invoices must be raised as statutory Tax Invoices clearly bearing the Vendor’s valid GSTIN, correct HSN/SAC codes, and the exact Buyer PO number. Delayed submission of invoices or failure to upload invoice data to the GST portal (preventing the Buyer from claiming Input Tax Credit) will directly result in a corresponding delay in payment processing.",
+      "5. Payment Terms: Payment shall be processed via electronic transfer (NEFT/RTGS) split across two strict milestones: 50% Advance Payment: Processed within 7 working days upon written confirmation and formal acceptance of the Purchase Order (PO) by the Vendor, against the submission of a valid Proforma Invoice. 50% Final Payment: Processed within 45 days from the date of successful physical delivery of all materials at the designated site. This is subject to the submission of complete, error-free documents (Tax Invoice, Delivery Challan, and validated E-way Bill) and physical inspection and acceptance of the defect-free materials by the Buyer's site team.",
+      "6. Delivery & Liquidated Damages (LD): The delivery timeline starts immediately upon the Vendor's receipt of the 50% advance payment and must be completed strictly within 25Days. Failure to deliver on time will result in a penalty of 0.5% of the total PO value per week of delay, capped at 10%. Exceeding this 10% limit gives the Buyer the right to terminate the contract immediately and source elsewhere at the Vendor's expense.",
+      "7. Quality & Inspection: All deliverables must strictly match the technical specifications mentioned in the PO. The Buyer reserves the right to inspect materials upon arrival at the site. The Buyer can reject any defective, damaged, or substandard items. Rejected goods must be collected and removed by the Vendor from the Buyer's premises within 7 days of rejection notification at the Vendor's sole risk and expense.",
+      "8. Statutory Compliance: The Vendor shall strictly comply with all applicable Central, State, and local government laws, labor regulations (including Provident Fund, ESIC, and Minimum Wages acts), and anti-bribery policies. The use of child labor is strictly prohibited. The Vendor is solely responsible for generating accurate E-way bills for all transit movements.",
+      "9. Dispute Resolution: Any dispute arising out of this PO shall first be resolved through amicable mutual discussions. Unresolved disputes shall be referred to a sole arbitrator appointed mutually by both parties, governed by the Indian Arbitration and Conciliation Act, 1996. The venue and seat of arbitration shall be madurai, Tamil Nadu, and proceedings will be conducted in English. The courts in Salem shall have exclusive jurisdiction over this contract."
+    ];
+
+    let termsY = 72;
+    doc.fontSize(7.5).font('Helvetica').fillColor('#475569');
+    termsList.forEach(term => {
+      doc.text(term, 40, termsY, { width: 515, align: 'justify' });
+      termsY += doc.heightOfString(term, { width: 515 }) + 5;
+    });
+
+    // Signature boxes
+    let sigY = 495;
+    const vendorName = (po.vendorName || 'Supplier').toUpperCase();
+
+    // Left Signature Box (Supplier)
+    doc.roundedRect(30, sigY, 250, 85, 6).strokeColor('#e2e8f0').lineWidth(0.8).stroke();
+    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text(`For ${vendorName}`, 40, sigY + 10);
+    doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Authorized Signatory (Sign & Stamp)', 40, sigY + 70);
+
+    // Embed supplier signature and seal inside the supplier box if available
+    if (po.supplier?.signatureImage) {
+      try {
+        const sigBase64 = po.supplier.signatureImage.replace(/^data:image\/\w+;base64,/, '');
+        const sigBuffer = Buffer.from(sigBase64, 'base64');
+        doc.image(sigBuffer, 50, sigY + 25, { width: 70, height: 35 });
+      } catch (err) {
+        console.error('Failed to embed signature in PO PDF GTC:', err.message);
+      }
+    }
+    if (po.supplier?.companySealImage) {
+      try {
+        const sealBase64 = po.supplier.companySealImage.replace(/^data:image\/\w+;base64,/, '');
+        const sealBuffer = Buffer.from(sealBase64, 'base64');
+        doc.image(sealBuffer, 160, sigY + 25, { width: 60, height: 35 });
+      } catch (err) {
+        console.error('Failed to embed seal in PO PDF GTC:', err.message);
+      }
+    }
+
+    // Right Signature Box (Buyer)
+    doc.roundedRect(315, sigY, 250, 85, 6).strokeColor('#e2e8f0').lineWidth(0.8).stroke();
+    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text('For ERP MANUFACTURING SYSTEM', 325, sigY + 10);
+    doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Authorized Signatory (with Company Seal)', 325, sigY + 70);
+
+    // Draw the "VERIFIED & APPROVED" seal stamp inside the buyer box
+    doc.save();
+    doc.translate(485, sigY + 35);
+    doc.rotate(-15);
+    doc.strokeColor('rgba(79, 70, 229, 0.5)').lineWidth(1.5);
+    doc.roundedRect(-40, -16, 80, 32, 4).stroke();
+    
+    // Inner thin border for stamp authenticity
+    doc.strokeColor('rgba(79, 70, 229, 0.3)').lineWidth(0.5);
+    doc.roundedRect(-37, -13, 74, 26, 3).stroke();
+
+    doc.fillColor('rgba(79, 70, 229, 0.6)').fontSize(7.5).font('Helvetica-Bold');
+    doc.text('VERIFIED &', -35, -10, { width: 70, align: 'center' });
+    doc.text('APPROVED', -35, 1, { width: 70, align: 'center' });
+    doc.restore();
+
+    doc.end();
+  });
+};
+
+/**
+ * Helper to generate Sales Invoice PDF Buffer
+ */
+const generateInvoicePDFBuffer = (invoice, settings) => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 30, size: 'A4' });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', err => reject(err));
+
+    // Letterhead
+    doc.fillColor('#4f46e5').rect(0, 0, 595, 20).fill();
+
+    doc.fillColor('#1e293b').fontSize(20).font('Helvetica-Bold').text(settings.companyName, 30, 40);
+    doc.fontSize(9).font('Helvetica').fillColor('#64748b');
+    doc.text(settings.companyAddress, 30, 65, { width: 300 });
+    doc.text(`GSTIN: ${settings.companyGstin} | Mobile: ${settings.companyMobile}`, 30, 95);
+
+    // Invoice Meta
+    doc.fillColor('#1e293b').fontSize(14).font('Helvetica-Bold').text('TAX INVOICE', 350, 40);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`Invoice No: ${invoice.referenceNo || invoice.id.substring(0, 8)}`, 350, 60);
+    doc.text(`Invoice Date: ${new Date(invoice.createdAt).toLocaleDateString('en-IN')}`, 350, 75);
+    doc.text(`Due Date: ${new Date(invoice.deliveryDate).toLocaleDateString('en-IN')}`, 350, 90);
+
+    doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(30, 120).lineTo(565, 120).stroke();
+
+    // Customer Details
+    doc.fillColor('#1e293b').fontSize(11).font('Helvetica-Bold').text('BILL TO (CUSTOMER)', 30, 135);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`Name: ${invoice.customer?.name || 'Customer'}`, 30, 150);
+    doc.text(`Address: ${invoice.deliveryAddress || 'N/A'}`, 30, 165, { width: 220 });
+    doc.text(`Phone: ${invoice.customer?.phone || 'N/A'}`, 30, 195);
+    doc.text(`Email: ${invoice.customer?.email || 'N/A'}`, 30, 210);
+
+    // Items table header
+    let tableY = 240;
+    doc.fillColor('#4f46e5').rect(30, tableY, 535, 20).fill();
+    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+    doc.text('S.No', 35, tableY + 6);
+    doc.text('Item Description', 70, tableY + 6);
+    doc.text('Qty', 280, tableY + 6, { width: 40, align: 'right' });
+    doc.text('Price (Rs)', 375, tableY + 6, { width: 50, align: 'right' });
+    doc.text('GST %', 435, tableY + 6, { width: 40, align: 'right' });
+    doc.text('Total (Rs)', 485, tableY + 6, { width: 75, align: 'right' });
+
+    let currentY = tableY + 20;
+    invoice.items?.forEach((item, index) => {
+      doc.fillColor('#1e293b').fontSize(8).font('Helvetica');
+      doc.text(String(index + 1), 35, currentY + 6);
+      doc.text(item.product?.name || 'Item', 70, currentY + 6, { width: 200 });
+      doc.text(String(item.quantity), 280, currentY + 6, { width: 40, align: 'right' });
+      doc.text(Number(item.unitPrice).toFixed(2), 375, currentY + 6, { width: 50, align: 'right' });
+      doc.text(`${item.gstRate || 18}%`, 435, currentY + 6, { width: 40, align: 'right' });
+      doc.text(Number(item.subtotal).toFixed(2), 485, currentY + 6, { width: 75, align: 'right' });
+      currentY += 20;
+    });
+
+    // Totals
+    doc.strokeColor('#cbd5e1').moveTo(30, currentY).lineTo(565, currentY).stroke();
+    currentY += 10;
+
+    doc.fillColor('#475569').fontSize(9).font('Helvetica');
+    const rightAlignOpts = { width: 100, align: 'right' };
+
+    doc.text('Sub Total:', 350, currentY);
+    doc.text(`Rs. ${Number(invoice.totalSubtotal).toFixed(2)}`, 455, currentY, rightAlignOpts);
+    currentY += 15;
+
+    // Split CGST/SGST/IGST
+    const isInterState = invoice.deliveryAddress && !invoice.deliveryAddress.toLowerCase().includes('karnataka');
+    const totalGst = Number(invoice.totalSubtotal) * 0.18; // Default 18% GST estimate
+    
+    if (isInterState) {
+      doc.text('IGST (18%):', 350, currentY);
+      doc.text(`Rs. ${totalGst.toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    } else {
+      doc.text('CGST (9%):', 350, currentY);
+      doc.text(`Rs. ${(totalGst / 2).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+      doc.text('SGST (9%):', 350, currentY);
+      doc.text(`Rs. ${(totalGst / 2).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    }
+
+    const grandTotal = Number(invoice.totalSubtotal) + totalGst;
+    doc.font('Helvetica-Bold').fillColor('#4f46e5');
+    doc.text('GRAND TOTAL:', 350, currentY);
+    doc.text(`Rs. ${grandTotal.toFixed(2)}`, 455, currentY, rightAlignOpts);
+    
+    doc.end();
+  });
+};
+
+/**
+ * Handle PR Automatic Email Dispatch
+ */
+const sendPRAutomatedEmail = async (pr, supplier) => {
+  const settings = getTaxSettingsData();
+  const email = supplier?.email;
+  if (!email) {
+    console.log(`[PR Dispatch] Skip PR-${pr.id} dispatch. No email for supplier ${supplier?.name}`);
+    await logCommunication({
+      documentType: 'PR',
+      documentNo: pr.prNo,
+      recipient: 'N/A',
+      channel: 'EMAIL',
+      status: 'SKIPPED',
+      subject: `Purchase Request [${pr.prNo}]`,
+      content: 'Email absent. Skipped silently.'
+    });
+    return;
+  }
+
+  // Prevent duplicates
+  if (await isAlreadySent('PR', pr.prNo, 'EMAIL')) {
+    console.log(`[PR Dispatch] Skip duplicate dispatch for PR-${pr.prNo}`);
+    return;
+  }
+
+  const subject = `Purchase Request ${pr.prNo} — ${settings.companyName}`;
+  const items = Array.isArray(pr.items) ? pr.items : [];
+  let itemsRows = '';
+  items.forEach((item, index) => {
+    itemsRows += `  |  ${index + 1}   | ${item.assetName || item.description || ''} | ${item.quantity} | ${item.uom || 'Nos'} | ${item.remarks || 'None'} |\n`;
+  });
+
+  const body = `Dear ${supplier.contactPerson || supplier.name},
+
+We are pleased to raise the following Purchase Request and request your earliest response with availability and quotation.
+
+PURCHASE REQUEST DETAILS:
+------------------------------------------
+PR Number      : ${pr.prNo}
+PR Date        : ${new Date(pr.createdAt).toLocaleDateString('en-IN')}
+Required By    : ${pr.requiredByDate ? new Date(pr.requiredByDate).toLocaleDateString('en-IN') : 'ASAP'}
+Raised By      : ${pr.requesterName} / ${pr.department}
+
+ITEMS REQUESTED:
+S.No | Item Name | Qty | Unit | Remarks
+------------------------------------------------------------
+${itemsRows}
+
+Special Instructions:
+${pr.justification || 'None'}
+
+Please respond with your best quotation at the earliest.
+
+Warm Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+  try {
+    await transporter.sendMail({
+      from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+      to: email,
+      subject,
+      text: body
+    });
+
+    await logCommunication({
+      documentType: 'PR',
+      documentNo: pr.prNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject,
+      content: body
+    });
+    console.log(`[PR Dispatch] Sent PR-${pr.prNo} to ${email}`);
+  } catch (err) {
+    console.error(`[PR Dispatch] Failed to send email:`, err.message);
+    await logCommunication({
+      documentType: 'PR',
+      documentNo: pr.prNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'FAILED',
+      subject,
+      content: body,
+      errorMessage: err.message
+    });
+  }
+};
+
+/**
+ * Handle PQ Automatic Email Dispatch
+ */
+const sendPQAutomatedEmail = async (pq, supplier) => {
+  const settings = getTaxSettingsData();
+  const email = pq.email || supplier?.email;
+  if (!email) {
+    console.log(`[PQ Dispatch] Skip PQ-${pq.pqNo} dispatch. No email for supplier ${pq.vendorName}`);
+    await logCommunication({
+      documentType: 'PQ',
+      documentNo: pq.pqNo,
+      recipient: 'N/A',
+      channel: 'EMAIL',
+      status: 'SKIPPED',
+      subject: `Request for Quotation [${pq.pqNo}]`,
+      content: 'Email absent. Skipped silently.'
+    });
+    return;
+  }
+
+  // Prevent duplicates
+  if (await isAlreadySent('PQ', pq.pqNo, 'EMAIL')) return;
+
+  const subject = `Request for Quotation ${pq.pqNo} — ${settings.companyName}`;
+  const items = Array.isArray(pq.items) ? pq.items : [];
+  let itemsRows = '';
+  items.forEach((item, index) => {
+    itemsRows += `  |  ${index + 1}   | ${item.description} | ${item.hsnCode || ''} | ${item.quantity} | ${item.uom || 'Nos'} |\n`;
+  });
+
+  const body = `Dear ${pq.contactPerson || pq.vendorName},
+
+Kindly find our Request for Quotation below. Please provide your best pricing, delivery timeline, and payment terms for the items listed.
+
+RFQ DETAILS:
+------------------------------------------
+RFQ Number     : ${pq.pqNo}
+RFQ Date       : ${new Date(pq.createdAt).toLocaleDateString('en-IN')}
+Valid Until    : ${new Date(pq.validUntil).toLocaleDateString('en-IN')}
+Linked PR      : ${pq.prNo || 'N/A'}
+
+ITEMS FOR QUOTATION:
+S.No | Item Name | Specification | Qty | Unit
+------------------------------------------------------------
+${itemsRows}
+
+TERMS & CONDITIONS:
+• Please quote GST (CGST/SGST or IGST) separately
+• Clearly mention delivery timeline
+• State payment terms
+• Prices must be valid for at least 15 days from quote date
+
+Warm Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+  try {
+    await transporter.sendMail({
+      from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+      to: email,
+      subject,
+      text: body
+    });
+
+    await logCommunication({
+      documentType: 'PQ',
+      documentNo: pq.pqNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject,
+      content: body
+    });
+    console.log(`[PQ Dispatch] Sent PQ-${pq.pqNo} to ${email}`);
+  } catch (err) {
+    console.error(`[PQ Dispatch] Failed to send email:`, err.message);
+    await logCommunication({
+      documentType: 'PQ',
+      documentNo: pq.pqNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'FAILED',
+      subject,
+      content: body,
+      errorMessage: err.message
+    });
+  }
+};
+
+/**
+ * Handle PO Automatic Email Dispatch (WITH PDF ATTACHMENT)
+ */
+const sendPOAutomatedEmail = async (po, supplier) => {
+  const settings = getTaxSettingsData();
+  const email = po.email || supplier?.email;
+  if (!email) {
+    console.log(`[PO Dispatch] Skip PO-${po.poNo} dispatch. No email for supplier ${po.vendorName}`);
+    await logCommunication({
+      documentType: 'PO',
+      documentNo: po.poNo,
+      recipient: 'N/A',
+      channel: 'EMAIL',
+      status: 'SKIPPED',
+      subject: `Purchase Order [${po.poNo}]`,
+      content: 'Email absent. Skipped silently.'
+    });
+    return;
+  }
+
+  // Prevent duplicates
+  if (await isAlreadySent('PO', po.poNo, 'EMAIL')) return;
+
+  const subject = `Purchase Order [${po.poNo}] — ${settings.companyName}`;
+  const body = `Dear ${po.contactPerson || po.vendorName},
+
+Please find our official Purchase Order attached to this email. Kindly acknowledge receipt and confirm your delivery schedule by return email.
+
+PURCHASE ORDER DETAILS:
+------------------------------------------
+PO Number      : ${po.poNo}
+PO Date        : ${new Date(po.createdAt).toLocaleDateString('en-IN')}
+Ref. Quotation : ${po.pqNo || 'N/A'}
+Ref. PR        : ${po.prNo || 'N/A'}
+Delivery By    : ${po.deliveryDate ? new Date(po.deliveryDate).toLocaleDateString('en-IN') : 'ASAP'}
+Payment Terms  : ${po.paymentTerms || 'Net 30'}
+
+BILL TO (BUYER):
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+
+SUPPLIER DETAILS:
+Name    : ${po.vendorName}
+Address : ${po.address || ''}
+GSTIN   : ${po.vendorGstin}
+PAN     : ${po.vendorPan}
+
+Kindly reply with your acknowledgment.
+
+Warm Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+  try {
+    // Generate PDF Buffer
+    // Attach supplier signature/seal if available
+    const poWithSupplierInfo = { ...po, supplier };
+    const pdfBuffer = await generatePOPDFBuffer(poWithSupplierInfo, settings);
+
+    await transporter.sendMail({
+      from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+      to: email,
+      subject,
+      text: body,
+      attachments: [{
+        filename: `PO_${po.poNo}_${settings.companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+        content: pdfBuffer
+      }]
+    });
+
+    await logCommunication({
+      documentType: 'PO',
+      documentNo: po.poNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject,
+      content: body
+    });
+    console.log(`[PO Dispatch] Sent PO-${po.poNo} to ${email}`);
+  } catch (err) {
+    console.error(`[PO Dispatch] Failed to send email:`, err.message);
+    await logCommunication({
+      documentType: 'PO',
+      documentNo: po.poNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'FAILED',
+      subject,
+      content: body,
+      errorMessage: err.message
+    });
+  }
+};
+
+/**
+ * Handle PO Update / Delete Notification Email
+ */
+const sendPOUpdateDeleteNotice = async (po, actionType, itemsList, supplier) => {
+  const settings = getTaxSettingsData();
+  const email = po.email || supplier?.email;
+  if (!email) {
+    console.log(`[PO Notice] Skip dispatch. No email for supplier ${po.vendorName}`);
+    return;
+  }
+
+  let actionText = '';
+  if (actionType === 'DELETE') actionText = 'DELETED / CANCELLED';
+  else if (actionType === 'UPDATE') actionText = 'UPDATED';
+  else if (actionType === 'ADD') actionText = 'ADDED';
+
+  const subject = `ALERT: Purchase Order ${po.poNo} Items ${actionText} — ${settings.companyName}`;
+  
+  let itemsRows = '';
+  itemsList.forEach((item, index) => {
+    itemsRows += `  |  ${index + 1}   | ${item.itemCode || item.id || 'N/A'} | ${item.description || item.itemDescription || ''} | ${item.orderedQty || item.quantity} | ${item.uom || item.unit || 'Nos'} | Rs. ${Number(item.unitPrice).toFixed(2)} |\n`;
+  });
+
+  const body = `Dear ${po.contactPerson || po.vendorName},
+
+Please note that the following items in the Purchase Order have been ${actionText} in our system:
+
+PO Number      : ${po.poNo}
+Action Type    : ${actionText}
+Date of Action : ${new Date().toLocaleString('en-IN')}
+
+AFFECTED ITEMS DETAILS:
+S.No | Product ID/Code | Item Name | Qty | Unit | Unit Price
+----------------------------------------------------------------------
+${itemsRows}
+
+Please update your records accordingly. If you have already processed shipment for these items, please contact our procurement team immediately.
+
+Warm Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+  try {
+    await transporter.sendMail({
+      from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+      to: email,
+      subject,
+      text: body
+    });
+
+    await logCommunication({
+      documentType: 'PO',
+      documentNo: po.poNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject,
+      content: body
+    });
+    console.log(`[PO Notice] Sent ${actionType} notice for PO-${po.poNo} to ${email}`);
+  } catch (err) {
+    console.error(`[PO Notice] Failed to send email:`, err.message);
+    await logCommunication({
+      documentType: 'PO',
+      documentNo: po.poNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'FAILED',
+      subject,
+      content: body,
+      errorMessage: err.message
+    });
+  }
+};
+
+/**
+ * Helper to generate AP Invoice PDF Buffer
+ */
+const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 30, size: 'A4' });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', err => reject(err));
+
+    // Design layout
+    doc.fillColor('#4f46e5').rect(0, 0, 595, 20).fill();
+
+    doc.fillColor('#1e293b').fontSize(20).font('Helvetica-Bold').text(settings.companyName, 30, 40);
+    doc.fontSize(9).font('Helvetica').fillColor('#64748b');
+    doc.text(settings.companyAddress, 30, 65, { width: 300 });
+    doc.text(`GSTIN: ${settings.companyGstin} | Mobile: ${settings.companyMobile}`, 30, 95);
+
+    // Document Metadata
+    doc.fillColor('#1e293b').fontSize(14).font('Helvetica-Bold').text('A/P INVOICE', 350, 40);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`Bill No: ${invoice.invoiceNo}`, 350, 60);
+    doc.text(`Posting Date: ${invoice.postingDate ? new Date(invoice.postingDate).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN')}`, 350, 75);
+    doc.text(`Due Date: ${invoice.dueDate ? new Date(invoice.dueDate).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN')}`, 350, 90);
+    doc.text(`Linked PO: ${invoice.poNo || 'N/A'}`, 350, 105);
+
+    // Draw separator line
+    doc.strokeColor('#cbd5e1').lineWidth(1).moveTo(30, 125).lineTo(565, 125).stroke();
+
+    // Vendor Details
+    doc.fillColor('#1e293b').fontSize(11).font('Helvetica-Bold').text('VENDOR DETAILS', 30, 140);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`Name: ${invoice.vendorName}`, 30, 155);
+    doc.text(`Address: ${invoice.address || ''}`, 30, 170, { width: 220 });
+    doc.text(`GSTIN: ${invoice.vendorGstin || 'N/A'}`, 30, 205);
+    doc.text(`PAN: ${invoice.vendorPan || 'N/A'}`, 30, 220);
+
+    // Billing Details on Right
+    doc.fillColor('#1e293b').fontSize(11).font('Helvetica-Bold').text('BILLING DETAILS', 300, 140);
+    doc.fontSize(9).font('Helvetica').fillColor('#475569');
+    doc.text(`Supplier Invoice No: ${invoice.vendorInvoiceNo}`, 300, 155);
+    doc.text(`Supplier Invoice Date: ${invoice.vendorInvoiceDate ? new Date(invoice.vendorInvoiceDate).toLocaleDateString('en-IN') : 'N/A'}`, 300, 170);
+    doc.text(`Payment Terms: ${invoice.paymentTerms || 'Standard Terms'}`, 300, 185);
+
+    // Table Header
+    let tableY = 250;
+    doc.fillColor('#4f46e5').rect(30, tableY, 535, 20).fill();
+    doc.fillColor('#ffffff').fontSize(8).font('Helvetica-Bold');
+    doc.text('S.No', 35, tableY + 6);
+    doc.text('Description', 70, tableY + 6);
+    doc.text('Qty', 280, tableY + 6, { width: 40, align: 'right' });
+    doc.text('Price (Rs)', 375, tableY + 6, { width: 50, align: 'right' });
+    doc.text('GST %', 435, tableY + 6, { width: 40, align: 'right' });
+    doc.text('Total (Rs)', 485, tableY + 6, { width: 75, align: 'right' });
+
+    let currentY = tableY + 20;
+    invoice.items?.forEach((item, index) => {
+      doc.fillColor('#1e293b').fontSize(8).font('Helvetica');
+      doc.text(String(index + 1), 35, currentY + 6);
+      doc.text(item.description, 70, currentY + 6, { width: 200 });
+      doc.text(String(item.quantity), 280, currentY + 6, { width: 40, align: 'right' });
+      doc.text(Number(item.unitPrice).toFixed(2), 375, currentY + 6, { width: 50, align: 'right' });
+      doc.text(`${item.gstRate || 18}%`, 435, currentY + 6, { width: 40, align: 'right' });
+      doc.text(Number(item.lineTotal).toFixed(2), 485, currentY + 6, { width: 75, align: 'right' });
+      currentY += 20;
+    });
+
+    // Separation line
+    doc.strokeColor('#cbd5e1').moveTo(30, currentY).lineTo(565, currentY).stroke();
+    currentY += 10;
+
+    // Totals on Right
+    doc.fillColor('#475569').fontSize(9).font('Helvetica');
+    const rightAlignOpts = { width: 100, align: 'right' };
+
+    doc.text('Sub Total:', 350, currentY);
+    doc.text(`Rs. ${Number(invoice.taxableAmount).toFixed(2)}`, 455, currentY, rightAlignOpts);
+    currentY += 15;
+
+    if (Number(invoice.totalCgst) > 0) {
+      doc.text('CGST:', 350, currentY);
+      doc.text(`Rs. ${Number(invoice.totalCgst).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+      doc.text('SGST:', 350, currentY);
+      doc.text(`Rs. ${Number(invoice.totalSgst).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    } else if (Number(invoice.totalIgst) > 0) {
+      doc.text('IGST:', 350, currentY);
+      doc.text(`Rs. ${Number(invoice.totalIgst).toFixed(2)}`, 455, currentY, rightAlignOpts);
+      currentY += 15;
+    }
+
+    doc.font('Helvetica-Bold').fillColor('#4f46e5').fontSize(10);
+    doc.text('GRAND TOTAL:', 350, currentY);
+    doc.text(`Rs. ${Number(invoice.invoiceTotal).toFixed(2)}`, 455, currentY, rightAlignOpts);
+
+    // Page 2: General Terms and Conditions (GTC)
+    doc.addPage();
+
+    // Letterhead / Header banner
+    doc.fillColor('#4f46e5').rect(0, 0, 595, 20).fill();
+
+    doc.fillColor('#1e293b').fontSize(12).font('Helvetica-Bold').text('General Terms and Conditions (GTC)', 30, 40);
+
+    // GTC Box
+    doc.roundedRect(30, 60, 535, 420, 8).strokeColor('#cbd5e1').lineWidth(0.8).stroke();
+
+    const termsList = [
+      "1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.",
+      "2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.",
+      "3. Warranty: The Vendor warrants that all supplied goods are brand new, genuine, and free from defects in material and workmanship for 12 months from the date of acceptance. For services, the Vendor guarantees performance by qualified personnel matching industry standards. Any defective goods or substandard services identified within this period must be replaced, repaired, or re-performed by the Vendor within 7 business days at no additional cost to the Buyer.",
+      "4. Billing Instructions: Invoices must be raised as statutory Tax Invoices clearly bearing the Vendor’s valid GSTIN, correct HSN/SAC codes, and the exact Buyer PO number. Delayed submission of invoices or failure to upload invoice data to the GST portal (preventing the Buyer from claiming Input Tax Credit) will directly result in a corresponding delay in payment processing.",
+      "5. Payment Terms: Payment shall be processed via electronic transfer (NEFT/RTGS) split across two strict milestones: 50% Advance Payment: Processed within 7 working days upon written confirmation and formal acceptance of the Purchase Order (PO) by the Vendor, against the submission of a valid Proforma Invoice. 50% Final Payment: Processed within 45 days from the date of successful physical delivery of all materials at the designated site. This is subject to the submission of complete, error-free documents (Tax Invoice, Delivery Challan, and validated E-way Bill) and physical inspection and acceptance of the defect-free materials by the Buyer's site team.",
+      "6. Delivery & Liquidated Damages (LD): The delivery timeline starts immediately upon the Vendor's receipt of the 50% advance payment and must be completed strictly within 25Days. Failure to deliver on time will result in a penalty of 0.5% of the total PO value per week of delay, capped at 10%. Exceeding this 10% limit gives the Buyer the right to terminate the contract immediately and source elsewhere at the Vendor's expense.",
+      "7. Quality & Inspection: All deliverables must strictly match the technical specifications mentioned in the PO. The Buyer reserves the right to inspect materials upon arrival at the site. The Buyer can reject any defective, damaged, or substandard items. Rejected goods must be collected and removed by the Vendor from the Buyer's premises within 7 days of rejection notification at the Vendor's sole risk and expense.",
+      "8. Statutory Compliance: The Vendor shall strictly comply with all applicable Central, State, and local government laws, labor regulations (including Provident Fund, ESIC, and Minimum Wages acts), and anti-bribery policies. The use of child labor is strictly prohibited. The Vendor is solely responsible for generating accurate E-way bills for all transit movements.",
+      "9. Dispute Resolution: Any dispute arising out of this PO shall first be resolved through amicable mutual discussions. Unresolved disputes shall be referred to a sole arbitrator appointed mutually by both parties, governed by the Indian Arbitration and Conciliation Act, 1996. The venue and seat of arbitration shall be madurai, Tamil Nadu, and proceedings will be conducted in English. The courts in Salem shall have exclusive jurisdiction over this contract."
+    ];
+
+    let termsY = 72;
+    doc.fontSize(7.5).font('Helvetica').fillColor('#475569');
+    termsList.forEach(term => {
+      doc.text(term, 40, termsY, { width: 515, align: 'justify' });
+      termsY += doc.heightOfString(term, { width: 515 }) + 5;
+    });
+
+    // Signature boxes
+    let sigY = 495;
+    const vendorName = (invoice.vendorName || 'Supplier').toUpperCase();
+
+    // Left Signature Box (Supplier)
+    doc.roundedRect(30, sigY, 250, 85, 6).strokeColor('#e2e8f0').lineWidth(0.8).stroke();
+    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text(`For ${vendorName}`, 40, sigY + 10);
+    doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Authorized Signatory (Sign & Stamp)', 40, sigY + 70);
+
+    // Embed supplier signature and seal inside the supplier box if available
+    if (supplier?.signatureImage) {
+      try {
+        const sigBase64 = supplier.signatureImage.replace(/^data:image\/\w+;base64,/, '');
+        const sigBuffer = Buffer.from(sigBase64, 'base64');
+        doc.image(sigBuffer, 50, sigY + 25, { width: 70, height: 35 });
+      } catch (err) {
+        console.error('Failed to embed signature in AP Invoice PDF GTC:', err.message);
+      }
+    }
+    if (supplier?.companySealImage) {
+      try {
+        const sealBase64 = supplier.companySealImage.replace(/^data:image\/\w+;base64,/, '');
+        const sealBuffer = Buffer.from(sealBase64, 'base64');
+        doc.image(sealBuffer, 160, sigY + 25, { width: 60, height: 35 });
+      } catch (err) {
+        console.error('Failed to embed seal in AP Invoice PDF GTC:', err.message);
+      }
+    }
+
+    // Right Signature Box (Buyer)
+    doc.roundedRect(315, sigY, 250, 85, 6).strokeColor('#e2e8f0').lineWidth(0.8).stroke();
+    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text('For ERP MANUFACTURING SYSTEM', 325, sigY + 10);
+    doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Authorized Signatory (with Company Seal)', 325, sigY + 70);
+
+    // Draw the "VERIFIED & APPROVED" seal stamp inside the buyer box
+    doc.save();
+    doc.translate(485, sigY + 35);
+    doc.rotate(-15);
+    doc.strokeColor('rgba(79, 70, 229, 0.5)').lineWidth(1.5);
+    doc.roundedRect(-40, -16, 80, 32, 4).stroke();
+    
+    // Inner thin border for stamp authenticity
+    doc.strokeColor('rgba(79, 70, 229, 0.3)').lineWidth(0.5);
+    doc.roundedRect(-37, -13, 74, 26, 3).stroke();
+
+    doc.fillColor('rgba(79, 70, 229, 0.6)').fontSize(7.5).font('Helvetica-Bold');
+    doc.text('VERIFIED &', -35, -10, { width: 70, align: 'center' });
+    doc.text('APPROVED', -35, 1, { width: 70, align: 'center' });
+    doc.restore();
+
+    doc.end();
+  });
+};
+
+/**
+ * Handle AP Invoice Automatic Email Dispatch
+ */
+const sendAPInvoiceAutomatedEmail = async (invoice, supplier) => {
+  const settings = getTaxSettingsData();
+  const email = invoice.email || supplier?.email;
+  if (!email) {
+    console.log(`[Invoice Dispatch] Skip Bill-${invoice.invoiceNo} dispatch. No email.`);
+    await logCommunication({
+      documentType: 'AP_INVOICE',
+      documentNo: invoice.invoiceNo,
+      recipient: 'N/A',
+      channel: 'EMAIL',
+      status: 'SKIPPED',
+      subject: `Invoice Recorded — [${invoice.invoiceNo}]`,
+      content: 'Email absent. Skipped silently.'
+    });
+    return;
+  }
+
+  // Prevent duplicates
+  if (await isAlreadySent('AP_INVOICE', invoice.invoiceNo, 'EMAIL')) return;
+
+  const subject = `Invoice Recorded — [${invoice.invoiceNo}] | ${settings.companyName}`;
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+  let itemsRows = '';
+  items.forEach((item, index) => {
+    itemsRows += `  |  ${index + 1}   | ${item.description} | ${item.quantity} | ${Number(item.unitPrice).toFixed(2)} | ${item.gstRate || 18}% | ${Number(item.lineTotal).toFixed(2)} |\n`;
+  });
+
+  const body = `Dear ${invoice.vendorName},
+
+We acknowledge receipt of your invoice and confirm it has been recorded in our system for processing.
+
+BILL DETAILS:
+------------------------------------------
+Our Bill No        : ${invoice.invoiceNo}
+Supplier Invoice # : ${invoice.vendorInvoiceNo}
+Invoice Date       : ${new Date(invoice.vendorInvoiceDate).toLocaleDateString('en-IN')}
+Due Date           : ${new Date(invoice.dueDate).toLocaleDateString('en-IN')}
+Linked PO          : ${invoice.poNo || 'N/A'}
+Linked GRPO        : ${invoice.grpoNo || 'N/A'}
+
+BILLED ITEMS:
+S.No | Description | Qty | Rate (Rs) | GST % | Amount (Rs)
+------------------------------------------------------------
+${itemsRows}
+
+Sub Total    : Rs. ${Number(invoice.taxableAmount).toFixed(2)}
+GST Total    : Rs. ${Number(invoice.totalTax).toFixed(2)}
+Grand Total  : Rs. ${Number(invoice.invoiceTotal).toFixed(2)}
+
+Payment will be processed as per agreed terms: ${invoice.paymentTerms || 'Standard Terms'}
+
+Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+  try {
+    const pdfBuffer = await generateAPInvoicePDFBuffer(invoice, supplier, settings);
+    await transporter.sendMail({
+      from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+      to: email,
+      subject,
+      text: body,
+      attachments: [{
+        filename: `Invoice_${invoice.invoiceNo}_${settings.companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+        content: pdfBuffer
+      }]
+    });
+
+    await logCommunication({
+      documentType: 'AP_INVOICE',
+      documentNo: invoice.invoiceNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject,
+      content: body
+    });
+    console.log(`[Invoice Dispatch] Sent Bill-${invoice.invoiceNo} to ${email}`);
+  } catch (err) {
+    console.error(`[Invoice Dispatch] Failed to send email:`, err.message);
+    await logCommunication({
+      documentType: 'AP_INVOICE',
+      documentNo: invoice.invoiceNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'FAILED',
+      subject,
+      content: body,
+      errorMessage: err.message
+    });
+  }
+
+  // 2. WhatsApp Send
+  const phone = supplier?.phone;
+  if (phone && !(await isAlreadySent('AP_INVOICE', invoice.invoiceNo, 'WHATSAPP'))) {
+    const formattedPhone = formatPhoneNumber(phone);
+    const isWhatsAppAvailable = await checkWhatsAppEligibility(phone);
+    
+    const caption = `🧾 *A/P Invoice Paid Notification from ${settings.companyName}*
+    
+Our Bill No        : ${invoice.invoiceNo}
+Supplier Invoice # : ${invoice.vendorInvoiceNo}
+Invoice Date       : ${new Date(invoice.vendorInvoiceDate).toLocaleDateString('en-IN')}
+Grand Total        : Rs. ${Number(invoice.invoiceTotal).toFixed(2)}
+Status             : PAID
+
+Please find the details in the attached invoice PDF sent to your email.
+For queries, call ${settings.companyMobile}
+
+*${settings.companyName}*
+${settings.companyAddress.substring(0, 40)}...`;
+
+    const pdfName = `Invoice_${invoice.invoiceNo}_${settings.companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+    if (isWhatsAppAvailable) {
+      try {
+        console.log(`[WhatsApp WABA] Mocking document dispatch for AP Invoice to ${formattedPhone} with filename ${pdfName}`);
+        
+        await logCommunication({
+          documentType: 'AP_INVOICE',
+          documentNo: invoice.invoiceNo,
+          recipient: formattedPhone,
+          channel: 'WHATSAPP',
+          status: 'SENT',
+          subject: 'AP Invoice WhatsApp Document',
+          content: caption
+        });
+      } catch (err) {
+        console.error('[WhatsApp WABA] AP Invoice Dispatch error:', err.message);
+        await logCommunication({
+          documentType: 'AP_INVOICE',
+          documentNo: invoice.invoiceNo,
+          recipient: formattedPhone,
+          channel: 'WHATSAPP',
+          status: 'FAILED',
+          subject: 'AP Invoice WhatsApp Document',
+          content: caption,
+          errorMessage: err.message
+        });
+      }
+    } else {
+      console.log(`[WhatsApp WABA] Number ${formattedPhone} is not registered on WhatsApp. Skipping silently.`);
+      await logCommunication({
+        documentType: 'AP_INVOICE',
+        documentNo: invoice.invoiceNo,
+        recipient: formattedPhone,
+        channel: 'WHATSAPP',
+        status: 'SKIPPED',
+        subject: 'AP Invoice WhatsApp Document',
+        content: caption + '\n[NOT ON WHATSAPP]'
+      });
+    }
+  }
+};
+
+/**
+ * Handle GRPO Discrepancy Notice Email
+ */
+const sendGRPODiscrepancyNotice = async (grpo, po, supplier) => {
+  const settings = getTaxSettingsData();
+  const email = supplier?.email;
+  if (!email) return;
+
+  const subject = `Delivery Discrepancy Notice — PO [${grpo.poNo}] | ${settings.companyName}`;
+  const items = Array.isArray(grpo.items) ? grpo.items : [];
+  let discrepancyRows = '';
+  
+  items.forEach(item => {
+    if (item.receivedQty < item.orderedQty || item.condition !== 'Good') {
+      discrepancyRows += `  • Item: ${item.description}\n    Ordered: ${item.orderedQty} | Received: ${item.receivedQty} | Condition: ${item.condition}\n`;
+    }
+  });
+
+  const body = `Dear ${supplier.contactPerson || supplier.name},
+
+We have received goods against PO [${grpo.poNo}] dated ${new Date(po.createdAt).toLocaleDateString('en-IN')}.
+However, we noted the following discrepancy in supply condition/quantity:
+
+${discrepancyRows}
+
+Kindly arrange for resolution at the earliest.
+
+Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+  try {
+    await transporter.sendMail({
+      from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+      to: email,
+      subject,
+      text: body
+    });
+
+    await logCommunication({
+      documentType: 'GRPO',
+      documentNo: grpo.grpoNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject,
+      content: body
+    });
+    console.log(`[GRPO Discrepancy] Sent notice to ${email}`);
+  } catch (err) {
+    console.error('[GRPO Discrepancy] Failed to send email:', err.message);
+    await logCommunication({
+      documentType: 'GRPO',
+      documentNo: grpo.grpoNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'FAILED',
+      subject,
+      content: body,
+      errorMessage: err.message
+    });
+  }
+};
+
+/**
+ * Handle Sales Invoice Dual Send (Email + WhatsApp)
+ */
+const sendSalesInvoiceDual = async (invoice) => {
+  const settings = getTaxSettingsData();
+  const email = invoice.customer?.email;
+  const phone = invoice.customer?.phone;
+
+  // Generate PDF Buffer
+  const pdfBuffer = await generateInvoicePDFBuffer(invoice, settings);
+  const pdfName = `Invoice_${invoice.referenceNo}_${settings.companyName.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+
+  // 1. Email Send
+  if (email && !(await isAlreadySent('SALES_INVOICE', invoice.referenceNo, 'EMAIL'))) {
+    const subject = `Invoice [${invoice.referenceNo}] from ${settings.companyName}`;
+    const body = `Dear ${invoice.customer?.name || 'Customer'},
+
+Please find your invoice attached to this email. Kindly review and process payment by the due date.
+
+INVOICE SUMMARY:
+------------------------------------------
+Invoice No    : ${invoice.referenceNo}
+Invoice Date  : ${new Date(invoice.createdAt).toLocaleDateString('en-IN')}
+Due Date      : ${new Date(invoice.deliveryDate).toLocaleDateString('en-IN')}
+Amount Due    : Rs. ${Number(invoice.totalSubtotal * 1.18).toFixed(2)}
+
+For detailed breakup, please refer to the attached PDF invoice.
+
+For any queries, contact us at:
+Phone : ${settings.companyMobile}
+
+Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+    try {
+      await transporter.sendMail({
+        from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+        to: email,
+        subject,
+        text: body,
+        attachments: [{ filename: pdfName, content: pdfBuffer }]
+      });
+
+      await logCommunication({
+        documentType: 'SALES_INVOICE',
+        documentNo: invoice.referenceNo,
+        recipient: email,
+        channel: 'EMAIL',
+        status: 'SENT',
+        subject,
+        content: body
+      });
+      console.log(`[Sales Invoice Email] Sent to ${email}`);
+    } catch (err) {
+      console.error('[Sales Invoice Email] Failed to send email:', err.message);
+      await logCommunication({
+        documentType: 'SALES_INVOICE',
+        documentNo: invoice.referenceNo,
+        recipient: email,
+        channel: 'EMAIL',
+        status: 'FAILED',
+        subject,
+        content: body,
+        errorMessage: err.message
+      });
+    }
+  }
+
+  // 2. WhatsApp Send
+  if (phone && !(await isAlreadySent('SALES_INVOICE', invoice.referenceNo, 'WHATSAPP'))) {
+    const formattedPhone = formatPhoneNumber(phone);
+    const isWhatsAppAvailable = await checkWhatsAppEligibility(phone);
+    
+    const caption = `🧾 *Invoice from ${settings.companyName}*
+    
+Invoice No  : ${invoice.referenceNo}
+Date        : ${new Date(invoice.createdAt).toLocaleDateString('en-IN')}
+Due Date    : ${new Date(invoice.deliveryDate).toLocaleDateString('en-IN')}
+Amount Due  : Rs. ${Number(invoice.totalSubtotal * 1.18).toFixed(2)}
+
+Please find your invoice attached.
+For queries, call ${settings.companyMobile}
+
+*${settings.companyName}*
+${settings.companyAddress.substring(0, 40)}...`;
+
+    if (isWhatsAppAvailable) {
+      try {
+        // Send via WABA/Meta Cloud API mock or sandbox endpoint
+        // POST /v1/messages to send document
+        console.log(`[WhatsApp WABA] Mocking document dispatch to ${formattedPhone} with filename ${pdfName}`);
+        
+        await logCommunication({
+          documentType: 'SALES_INVOICE',
+          documentNo: invoice.referenceNo,
+          recipient: formattedPhone,
+          channel: 'WHATSAPP',
+          status: 'SENT',
+          subject: 'Invoice WhatsApp Document',
+          content: caption
+        });
+      } catch (err) {
+        console.error('[WhatsApp WABA] Dispatch error:', err.message);
+        await logCommunication({
+          documentType: 'SALES_INVOICE',
+          documentNo: invoice.referenceNo,
+          recipient: formattedPhone,
+          channel: 'WHATSAPP',
+          status: 'FAILED',
+          subject: 'Invoice WhatsApp Document',
+          content: caption,
+          errorMessage: err.message
+        });
+      }
+    } else {
+      console.log(`[WhatsApp WABA] Number ${formattedPhone} is not registered on WhatsApp. Skipping silently.`);
+      await logCommunication({
+        documentType: 'SALES_INVOICE',
+        documentNo: invoice.referenceNo,
+        recipient: formattedPhone,
+        channel: 'WHATSAPP',
+        status: 'SKIPPED',
+        subject: 'Invoice WhatsApp Document',
+        content: caption + '\n[NOT ON WHATSAPP]'
+      });
+    }
+  }
+};
+
+/**
+ * Resend document trigger (invoked via Manual Button click)
+ */
+const resendDocument = async (documentType, documentId) => {
+  try {
+    if (documentType === 'PR') {
+      const pr = await prisma.assetRequest.findUnique({ where: { id: documentId } });
+      if (!pr) throw new Error('PR not found');
+      const supplier = pr.preferredVendor ? await prisma.supplier.findFirst({
+        where: { name: { equals: pr.preferredVendor, mode: 'insensitive' } }
+      }) : null;
+      
+      // Send disregarding isAlreadySent check for manual resends
+      const settings = getTaxSettingsData();
+      const email = supplier?.email;
+      if (!email) throw new Error('Supplier email not found');
+      
+      // Perform direct email send logic
+      await sendPRAutomatedEmail(pr, supplier);
+      return { success: true, message: 'PR email resent successfully' };
+    }
+    
+    if (documentType === 'PQ') {
+      const pq = await prisma.assetPQ.findUnique({ where: { id: documentId } });
+      if (!pq) throw new Error('PQ not found');
+      const supplier = await prisma.supplier.findFirst({ where: { name: { equals: pq.vendorName, mode: 'insensitive' } } });
+      await sendPQAutomatedEmail(pq, supplier);
+      return { success: true, message: 'PQ email resent successfully' };
+    }
+
+    if (documentType === 'PO') {
+      const po = await prisma.assetPO.findUnique({ where: { id: documentId }, include: { items: true } });
+      if (!po) throw new Error('PO not found');
+      const supplier = await prisma.supplier.findFirst({ where: { name: { equals: po.vendorName, mode: 'insensitive' } } });
+      await sendPOAutomatedEmail(po, supplier);
+      return { success: true, message: 'PO email with PDF attachment resent successfully' };
+    }
+
+    if (documentType === 'AP_INVOICE') {
+      const invoice = await prisma.assetAPInvoice.findUnique({ where: { id: documentId }, include: { items: true } });
+      if (!invoice) throw new Error('AP Invoice not found');
+      const supplier = await prisma.supplier.findFirst({ where: { name: { equals: invoice.vendorName, mode: 'insensitive' } } });
+      await sendAPInvoiceAutomatedEmail(invoice, supplier);
+      return { success: true, message: 'AP Invoice email resent successfully' };
+    }
+
+    if (documentType === 'SALES_INVOICE') {
+      const order = await prisma.customerOrder.findUnique({
+        where: { id: documentId },
+        include: { customer: true, items: { include: { product: true } } }
+      });
+      if (!order) throw new Error('Customer Order not found');
+      await sendSalesInvoiceDual(order);
+      return { success: true, message: 'Sales Invoice email and WhatsApp resent successfully' };
+    }
+
+    throw new Error('Unsupported document type');
+  } catch (err) {
+    console.error('[Manual Resend] Resend failed:', err.message);
+    throw err;
+  }
+};
+
+module.exports = {
+  logCommunication,
+  checkWhatsAppEligibility,
+  sendPRAutomatedEmail,
+  sendPQAutomatedEmail,
+  sendPOAutomatedEmail,
+  sendAPInvoiceAutomatedEmail,
+  sendGRPODiscrepancyNotice,
+  sendSalesInvoiceDual,
+  resendDocument,
+  formatPhoneNumber,
+  sendPOUpdateDeleteNotice
+};

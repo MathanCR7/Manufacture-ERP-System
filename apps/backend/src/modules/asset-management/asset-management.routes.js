@@ -13,6 +13,8 @@ router.put('/budgets', assetController.updateBudget);
 router.get('/requests', assetController.getAllPRs);
 router.get('/requests/:id', assetController.getPRById);
 router.post('/requests', assetController.createPR);
+router.put('/requests/:id', assetController.updatePR);
+router.delete('/requests/:id', assetController.deletePR);
 router.patch('/requests/:id/approve', assetController.approvePR);
 
 // Purchase Quotations (PQ)
@@ -20,25 +22,36 @@ router.get('/quotations', assetController.getAllPQs);
 router.get('/quotations/:id', assetController.getPQById);
 router.post('/quotations', assetController.createPQ);
 router.put('/quotations/:id', assetController.updatePQ);
+router.delete('/quotations/:id', assetController.deletePQ);
 router.get('/quotations/compare/:prNo', assetController.getPQComparison);
 
 // Purchase Orders (PO) — both /orders and /purchase-orders (frontend alias)
 router.get('/orders', assetController.getAllPOs);
 router.get('/orders/:id', assetController.getPOById);
 router.post('/orders', assetController.createPO);
+router.put('/orders/:id', assetController.updatePO);
+router.delete('/orders/:id', assetController.deletePO);
 router.get('/purchase-orders', assetController.getAllPOs);
 router.get('/purchase-orders/:id', assetController.getPOById);
 router.post('/purchase-orders', assetController.createPO);
+router.put('/purchase-orders/:id', assetController.updatePO);
+router.delete('/purchase-orders/:id', assetController.deletePO);
 
 // Goods Receipt PO (GRPO)
 router.get('/grpo', assetController.getAllGRPOs);
 router.post('/grpo', assetController.createGRPO);
+router.put('/grpo/:id', assetController.updateGRPO);
+router.delete('/grpo/:id', assetController.deleteGRPO);
 
 // A/P Invoices — both /invoices and /ap-invoices (frontend alias)
 router.get('/invoices', assetController.getAllInvoices);
 router.post('/invoices', assetController.createInvoice);
+router.put('/invoices/:id', assetController.updateInvoice);
+router.delete('/invoices/:id', assetController.deleteInvoice);
 router.get('/ap-invoices', assetController.getAllInvoices);
 router.post('/ap-invoices', assetController.createInvoice);
+router.put('/ap-invoices/:id', assetController.updateInvoice);
+router.delete('/ap-invoices/:id', assetController.deleteInvoice);
 router.patch('/ap-invoices/:id/mark-paid', assetController.markInvoicePaid);
 router.patch('/invoices/:id/mark-paid', assetController.markInvoicePaid);
 
@@ -64,5 +77,9 @@ router.get('/verify-gstin/:gstin', assetController.verifyGSTIN);
 
 // Reports
 router.get('/reports', assetController.getReports);
+
+// Communication & Logging
+router.get('/communication-logs/:documentType/:documentNo', assetController.getCommunicationLogs);
+router.post('/resend-communication', assetController.resendCommunication);
 
 module.exports = router;

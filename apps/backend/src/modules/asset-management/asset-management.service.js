@@ -2,6 +2,14 @@ const prisma = require('../../database/prisma');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const {
+  sendPRAutomatedEmail,
+  sendPQAutomatedEmail,
+  sendPOAutomatedEmail,
+  sendAPInvoiceAutomatedEmail,
+  sendGRPODiscrepancyNotice,
+  sendPOUpdateDeleteNotice
+} = require('../../utils/communication');
 
 const hsnCodesPath = path.join(__dirname, '../../database/hsn_codes.json');
 let hsnList = [];
@@ -579,6 +587,16 @@ class AssetManagementService {
       actorRole: 'PURCHASE_ACCOUNTANT'
     }).catch(err => console.error('Asset PR notification failed:', err.message));
 
+    if (newPR.preferredVendor) {
+      prisma.supplier.findFirst({
+        where: { name: { equals: newPR.preferredVendor, mode: 'insensitive' } }
+      }).then(supplier => {
+        if (supplier) {
+          sendPRAutomatedEmail(newPR, supplier);
+        }
+      }).catch(err => console.error('Failed to dispatch PR email:', err));
+    }
+
     return { ...newPR, warning, document_type: 'Purchase Request', next_action: 'Create Purchase Quotation' };
   }
 
@@ -726,10 +744,50 @@ class AssetManagementService {
       });
     }
 
-    const shippingCharges = Number(data.shippingCharges || 0);
+    const shippingCharges = Number(data.shippingCharges || data.freight || 0);
+    const loadingCharges = Number(data.loadingCharges || 0);
+    const unloadingCharges = Number(data.unloadingCharges || 0);
+    const packingCharges = Number(data.packingCharges || 0);
+    const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
     const discountVal = Number(data.discount || 0) || totalDiscount;
-    const preRoundTotal = subtotal - discountVal + taxAmount + shippingCharges + otherCharges;
+    const applyGst = data.applyGst !== false;
+    const isInterState = !isIntrastate;
+
+    const chargeGstStates = data.chargeGstStates || {};
+    const calculateChargeGst = (val, key) => {
+      const state = chargeGstStates[key];
+      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
+      if (isApplied) {
+        return Number(val) * 0.18;
+      }
+      return 0;
+    };
+
+    const freightGst = calculateChargeGst(shippingCharges, 'freight');
+    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
+    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
+    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
+    const insuranceGst = calculateChargeGst(insurance, 'insurance');
+    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
+
+    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+
+    let finalCgst = totalCgst;
+    let finalSgst = totalSgst;
+    let finalIgst = totalIgst;
+
+    if (applyGst) {
+      if (isInterState) {
+        finalIgst += totalChargesGst;
+      } else {
+        finalCgst += totalChargesGst / 2;
+        finalSgst += totalChargesGst / 2;
+      }
+    }
+
+    const finalTaxAmount = finalCgst + finalSgst + finalIgst;
+    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -758,12 +816,18 @@ class AssetManagementService {
         amcCost: Number(data.amcCost || 0),
         subtotal,
         discount: discountVal,
-        cgst: totalCgst,
-        sgst: totalSgst,
-        igst: totalIgst,
-        taxAmount,
+        cgst: finalCgst,
+        sgst: finalSgst,
+        igst: finalIgst,
+        taxAmount: finalTaxAmount,
         shippingCharges,
+        loadingCharges,
+        unloadingCharges,
+        packingCharges,
+        insurance,
         otherCharges,
+        chargeGstStates,
+        applyGst,
         roundOff,
         grandTotal,
         status: 'Received',
@@ -788,6 +852,12 @@ class AssetManagementService {
       actorRole: data.actorRole || 'PURCHASE_ACCOUNTANT'
     }).catch(err => console.error('Asset PQ notification failed:', err.message));
 
+    prisma.supplier.findFirst({
+      where: { name: { equals: pq.vendorName, mode: 'insensitive' } }
+    }).then(supplier => {
+      sendPQAutomatedEmail(pq, supplier);
+    }).catch(err => console.error('Failed to dispatch PQ email:', err));
+
     return mapped;
   }
 
@@ -797,6 +867,13 @@ class AssetManagementService {
       include: { items: true }
     });
     if (!existing) throw new Error('Quotation not found');
+
+    const po = await prisma.assetPO.findFirst({
+      where: { prNo: existing.prNo, status: { not: 'Cancelled' } }
+    });
+    if (po) {
+      throw new Error('Cannot edit this Purchase Quotation because a Purchase Order has already been issued for this request.');
+    }
 
     const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
     if (data.vendorGstin && !gstinRegex.test(data.vendorGstin)) {
@@ -874,10 +951,50 @@ class AssetManagementService {
       });
     }
 
-    const shippingCharges = Number(data.shippingCharges || 0);
+    const shippingCharges = Number(data.shippingCharges || data.freight || 0);
+    const loadingCharges = Number(data.loadingCharges || 0);
+    const unloadingCharges = Number(data.unloadingCharges || 0);
+    const packingCharges = Number(data.packingCharges || 0);
+    const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
     const discountVal = Number(data.discount || 0) || totalDiscount;
-    const preRoundTotal = subtotal - discountVal + taxAmount + shippingCharges + otherCharges;
+    const applyGst = data.applyGst !== false;
+    const isInterState = !isIntrastate;
+
+    const chargeGstStates = data.chargeGstStates || {};
+    const calculateChargeGst = (val, key) => {
+      const state = chargeGstStates[key];
+      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
+      if (isApplied) {
+        return Number(val) * 0.18;
+      }
+      return 0;
+    };
+
+    const freightGst = calculateChargeGst(shippingCharges, 'freight');
+    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
+    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
+    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
+    const insuranceGst = calculateChargeGst(insurance, 'insurance');
+    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
+
+    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+
+    let finalCgst = totalCgst;
+    let finalSgst = totalSgst;
+    let finalIgst = totalIgst;
+
+    if (applyGst) {
+      if (isInterState) {
+        finalIgst += totalChargesGst;
+      } else {
+        finalCgst += totalChargesGst / 2;
+        finalSgst += totalChargesGst / 2;
+      }
+    }
+
+    const finalTaxAmount = finalCgst + finalSgst + finalIgst;
+    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -908,12 +1025,18 @@ class AssetManagementService {
         amcCost: Number(data.amcCost || 0),
         subtotal,
         discount: discountVal,
-        cgst: totalCgst,
-        sgst: totalSgst,
-        igst: totalIgst,
-        taxAmount,
+        cgst: finalCgst,
+        sgst: finalSgst,
+        igst: finalIgst,
+        taxAmount: finalTaxAmount,
         shippingCharges,
+        loadingCharges,
+        unloadingCharges,
+        packingCharges,
+        insurance,
         otherCharges,
+        chargeGstStates,
+        applyGst,
         roundOff,
         grandTotal,
         items: {
@@ -1286,6 +1409,12 @@ class AssetManagementService {
       actorRole: 'PURCHASE_ACCOUNTANT'
     }).catch(err => console.error('Asset PO notification failed:', err.message));
 
+    prisma.supplier.findFirst({
+      where: { name: { equals: result.vendorName, mode: 'insensitive' } }
+    }).then(supplier => {
+      sendPOAutomatedEmail(result, supplier);
+    }).catch(err => console.error('Failed to dispatch PO email:', err));
+
     return poResponse;
   }
 
@@ -1303,11 +1432,12 @@ class AssetManagementService {
         include: { items: true }
       });
       const items = grpo.items?.map(item => {
-        const poLine = po?.items?.find(pi => pi.lineNo === item.poLineRef);
+        const poLine = po?.items?.find(pi => pi.lineNo === item.poLineRef || pi.description === item.description);
         return {
           ...item,
           unitPrice: poLine ? Number(poLine.unitPrice) : 0,
-          gstRate: poLine ? Number(poLine.gstRate) : 18
+          gstRate: poLine ? Number(poLine.gstRate) : 18,
+          hsnCode: poLine ? poLine.hsnCode : ''
         };
       }) || [];
       mappedGrpos.push({
@@ -1487,7 +1617,18 @@ class AssetManagementService {
       return grpo;
     });
 
-    const mappedGrpo = mapGRPOToFrontend(result);
+    const mappedGrpo = mapGRPOToFrontend({
+      ...result,
+      items: result.items?.map(item => {
+        const poLine = po?.items?.find(pi => pi.lineNo === item.poLineRef || pi.description === item.description);
+        return {
+          ...item,
+          unitPrice: poLine ? Number(poLine.unitPrice) : 0,
+          gstRate: poLine ? Number(poLine.gstRate) : 18,
+          hsnCode: poLine ? poLine.hsnCode : ''
+        };
+      })
+    });
 
     triggerAssetGRPOCreated({
       grpoNo: result.grpoNo,
@@ -1500,6 +1641,21 @@ class AssetManagementService {
       actorId: data.receivedById || data.actorId || 'system',
       actorRole: 'MATERIALS_RECEIVER'
     }).catch(err => console.error('Asset GRPO notification failed:', err.message));
+
+    const hasDiscrepancy = result.items?.some(item => 
+      item.receivedQty < item.orderedQty || 
+      (item.condition && item.condition.toLowerCase() !== 'good')
+    );
+
+    if (hasDiscrepancy) {
+      prisma.supplier.findFirst({
+        where: { name: { equals: result.vendorName, mode: 'insensitive' } }
+      }).then(supplier => {
+        if (supplier) {
+          sendGRPODiscrepancyNotice(result, po, supplier);
+        }
+      }).catch(err => console.error('Failed to send GRPO discrepancy notice:', err));
+    }
 
     return mappedGrpo;
   }
@@ -1514,30 +1670,48 @@ class AssetManagementService {
   }
 
   async createAPInvoice(data) {
-    let grpoNo = data.grpoNo;
-    let poNo = data.poNo;
+    const isDirect = Boolean(data.isDirect);
+    let grpoNo = isDirect ? 'Direct' : data.grpoNo;
+    let poNo = isDirect ? 'Direct' : data.poNo;
 
-    if (data.grpoId) {
-      const grpoRec = await prisma.assetGRPO.findUnique({
-        where: { id: data.grpoId }
-      });
-      if (grpoRec) {
-        grpoNo = grpoRec.grpoNo;
-        poNo = grpoRec.poNo;
+    let po = null;
+    let grpo = null;
+
+    if (!isDirect) {
+      if (data.grpoId) {
+        const grpoRec = await prisma.assetGRPO.findUnique({
+          where: { id: data.grpoId }
+        });
+        if (grpoRec) {
+          grpoNo = grpoRec.grpoNo;
+          poNo = grpoRec.poNo;
+        }
       }
+
+      if (grpoNo && grpoNo !== 'Direct') {
+        const existingInvoice = await prisma.assetAPInvoice.findFirst({
+          where: {
+            grpoNo,
+            status: { not: 'Cancelled' }
+          }
+        });
+        if (existingInvoice) {
+          throw new Error(`An AP Invoice (${existingInvoice.invoiceNo}) has already been billed for GRPO ${grpoNo}. Duplicate billing is not allowed.`);
+        }
+      }
+
+      po = await prisma.assetPO.findUnique({
+        where: { poNo },
+        include: { items: true }
+      });
+      if (!po) throw new Error('PO reference not found');
+
+      grpo = await prisma.assetGRPO.findUnique({
+        where: { grpoNo },
+        include: { items: true }
+      });
+      if (!grpo) throw new Error('GRPO reference not found');
     }
-
-    const po = await prisma.assetPO.findUnique({
-      where: { poNo },
-      include: { items: true }
-    });
-    if (!po) throw new Error('PO reference not found');
-
-    const grpo = await prisma.assetGRPO.findUnique({
-      where: { grpoNo },
-      include: { items: true }
-    });
-    if (!grpo) throw new Error('GRPO reference not found');
 
     const applyGst = data.applyGst !== false;
     const isInterState = data.isInterState === true;
@@ -1583,39 +1757,40 @@ class AssetManagementService {
       };
     });
 
-    // 3-Way Match Check
-    for (const item of invoiceItems) {
-      const poLine = po.items.find(pi => pi.lineNo === item.lineNo || pi.description === item.description);
-      const grpoLine = grpo.items.find(gi => gi.poLineRef === item.lineNo || gi.description === item.description);
+    // 3-Way Match Check (only if not direct billing)
+    if (!isDirect) {
+      for (const item of invoiceItems) {
+        const poLine = po.items.find(pi => pi.lineNo === item.lineNo || pi.description === item.description);
+        const grpoLine = grpo.items.find(gi => gi.poLineRef === item.lineNo || gi.description === item.description);
 
-      if (!poLine) throw new Error(`Line item "${item.description}" not found in reference PO.`);
-      if (!grpoLine) throw new Error(`Line item "${item.description}" not found in reference GRPO.`);
+        if (!poLine) throw new Error(`Line item "${item.description}" not found in reference PO.`);
+        if (!grpoLine) throw new Error(`Line item "${item.description}" not found in reference GRPO.`);
 
-      if (item.quantity > poLine.orderedQty) {
-        throw new Error(`3-Way Match Exception: Invoiced quantity (${item.quantity}) exceeds PO ordered quantity (${poLine.orderedQty}) on "${item.description}".`);
+        if (item.quantity > poLine.orderedQty) {
+          throw new Error(`3-Way Match Exception: Invoiced quantity (${item.quantity}) exceeds PO ordered quantity (${poLine.orderedQty}) on "${item.description}".`);
+        }
+        if (item.quantity > grpoLine.acceptedQty) {
+          throw new Error(`3-Way Match Exception: Invoiced quantity (${item.quantity}) exceeds GRPO accepted quantity (${grpoLine.acceptedQty}) on "${item.description}".`);
+        }
+
+        const poPrice = Number(poLine.unitPrice);
+        const invPrice = Number(item.unitPrice);
+        const priceVariance = Math.abs(poPrice - invPrice) / poPrice;
+        if (priceVariance > 0.02) {
+          throw new Error(`3-Way Match Exception: Price variance exceeds 2% (PO Price: ₹${poPrice.toLocaleString('en-IN')}, Invoice Price: ₹${invPrice.toLocaleString('en-IN')}) on "${item.description}".`);
+        }
       }
-      if (item.quantity > grpoLine.acceptedQty) {
-        throw new Error(`3-Way Match Exception: Invoiced quantity (${item.quantity}) exceeds GRPO accepted quantity (${grpoLine.acceptedQty}) on "${item.description}".`);
-      }
 
-      const poPrice = Number(poLine.unitPrice);
-      const invPrice = Number(item.unitPrice);
-      const priceVariance = Math.abs(poPrice - invPrice) / poPrice;
-      if (priceVariance > 0.02) {
-        throw new Error(`3-Way Match Exception: Price variance exceeds 2% (PO Price: ₹${poPrice.toLocaleString('en-IN')}, Invoice Price: ₹${invPrice.toLocaleString('en-IN')}) on "${item.description}".`);
+      if (po.vendorGstin && data.vendorGstin && po.vendorGstin.trim() !== data.vendorGstin.trim()) {
+        throw new Error(`3-Way Match Exception: Vendor GSTIN on invoice (${data.vendorGstin}) does not match purchase order (${po.vendorGstin}).`);
       }
-    }
-
-    if (po.vendorGstin && data.vendorGstin && po.vendorGstin.trim() !== data.vendorGstin.trim()) {
-      throw new Error(`3-Way Match Exception: Vendor GSTIN on invoice (${data.vendorGstin}) does not match purchase order (${po.vendorGstin}).`);
     }
 
     const taxableAmount = invoiceItems.reduce((s, i) => s + i.taxableValue, 0);
     const totalCgst = invoiceItems.reduce((s, i) => s + i.cgst, 0);
     const totalSgst = invoiceItems.reduce((s, i) => s + i.sgst, 0);
     const totalIgst = invoiceItems.reduce((s, i) => s + i.igst, 0);
-    const totalTax = totalCgst + totalSgst + totalIgst;
-    
+
     const discount = Number(data.discount || 0);
     const freight = Number(data.freight || 0);
     const loadingCharges = Number(data.loadingCharges || 0);
@@ -1624,6 +1799,37 @@ class AssetManagementService {
     const insurance = Number(data.insurance || 0);
     const otherCharges = Number(data.otherCharges || 0);
 
+    const chargeGstStates = data.chargeGstStates || {};
+    const calculateChargeGst = (val, key) => {
+      const state = chargeGstStates[key];
+      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
+      if (isApplied) return Number(val) * 0.18;
+      return 0;
+    };
+
+    const freightGst = calculateChargeGst(freight, 'freight');
+    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
+    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
+    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
+    const insuranceGst = calculateChargeGst(insurance, 'insurance');
+    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
+
+    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+
+    let finalCgst = totalCgst;
+    let finalSgst = totalSgst;
+    let finalIgst = totalIgst;
+
+    if (applyGst) {
+      if (isInterState) {
+        finalIgst += totalChargesGst;
+      } else {
+        finalCgst += totalChargesGst / 2;
+        finalSgst += totalChargesGst / 2;
+      }
+    }
+
+    const totalTax = finalCgst + finalSgst + finalIgst;
     const preRoundTotal = taxableAmount + totalTax + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
@@ -1649,21 +1855,22 @@ class AssetManagementService {
         dueDate: data.dueDate ? new Date(data.dueDate) : new Date(new Date().setDate(new Date().getDate() + 30)),
         poNo,
         grpoNo,
-        vendorCode: po.vendorCode,
-        vendorName: data.vendorName || po.vendorName,
-        vendorGstin: data.vendorGstin || po.vendorGstin || '',
-        vendorPan: data.vendorPan || po.vendorPan || '',
-        address: data.address || data.vendorAddress || po.address || '',
-        companyGstin: po.companyGstin,
-        companyPan: po.companyPan,
-        placeOfSupply: po.placeOfSupply || '27',
+        vendorCode: data.vendorCode || (po ? po.vendorCode : ('V-' + Math.floor(Math.random()*9000 + 1000))),
+        vendorName: data.vendorName || (po ? po.vendorName : ''),
+        vendorGstin: data.vendorGstin || (po ? po.vendorGstin : ''),
+        vendorPan: data.vendorPan || (po ? po.vendorPan : ''),
+        address: data.address || data.vendorAddress || (po ? po.address : ''),
+        companyGstin: data.companyGstin || (po ? po.companyGstin : '29AAACE1234F1Z3'),
+        companyPan: data.companyPan || (po ? po.companyPan : 'AAACE1234F'),
+        placeOfSupply: data.placeOfSupply || (po ? po.placeOfSupply : '29'),
         irn: data.irn || `IRN-${Math.floor(Math.random()*9000000000)+1000000000}`,
         qrCodeRef: data.qrCodeRef || 'QR-INVOICE-PLACEHOLDER',
         taxableAmount,
-        totalCgst,
-        totalSgst,
-        totalIgst,
+        totalCgst: finalCgst,
+        totalSgst: finalSgst,
+        totalIgst: finalIgst,
         totalTax,
+        chargeGstStates,
         freight,
         discount: discount,
         loadingCharges,
@@ -1676,12 +1883,13 @@ class AssetManagementService {
         roundOff: roundOff,
         paymentMode: data.paymentMode || '',
         paymentTerms: data.paymentTerms || '',
+        termsBlock: data.termsAndConditions || data.termsBlock || '',
         invoiceTotal: grandTotal,
         amountInWords,
         tdsAmount,
         netPayable,
         bankName: data.bankName || 'HDFC Bank',
-        bankAccountHolder: data.bankAccountHolder || po.vendorName,
+        bankAccountHolder: data.bankAccountHolder || (po ? po.vendorName : (data.vendorName || 'Vendor')),
         bankAccountNo: data.bankAccountNo || '50200012345678',
         bankIfsc: data.bankIfsc || 'HDFC0000123',
         bankBranch: data.bankBranch || 'Main Branch, Mumbai',
@@ -1733,6 +1941,12 @@ class AssetManagementService {
       actorId: userId,
       actorRole: actorRole
     }).catch(err => console.error('Asset invoice paid notification failed:', err.message));
+
+    prisma.supplier.findFirst({
+      where: { name: { equals: res.vendorName, mode: 'insensitive' } }
+    }).then(supplier => {
+      sendAPInvoiceAutomatedEmail(res, supplier);
+    }).catch(err => console.error('Failed to send AP Invoice email/whatsapp on mark paid:', err));
 
     return mapped;
   }
@@ -2197,6 +2411,854 @@ class AssetManagementService {
     const assets = await prisma.asset.findMany();
     return assets.map(mapAssetToFrontend);
   }
+
+  async updatePR(id, data) {
+    const existing = await prisma.assetRequest.findUnique({ where: { id } });
+    if (!existing) throw new Error('Purchase Request not found');
+
+    const nextPQ = await prisma.assetPQ.findFirst({
+      where: { prNo: existing.prNo }
+    });
+    if (nextPQ) {
+      throw new Error('Cannot edit this Purchase Request because a Purchase Quotation has already been created for it.');
+    }
+
+    let items = data.items;
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      items = [{
+        assetName: data.assetName,
+        category: data.category,
+        hsnCode: data.hsnCode || '84713010',
+        hsnDescription: data.hsnDescription || '',
+        specifications: data.specifications || '',
+        quantity: parseInt(data.quantity, 10) || 1,
+        estimatedUnitCost: Number(data.estimatedUnitCost) || 0
+      }];
+    }
+
+    let estimatedTotalCost = 0;
+    items.forEach(item => {
+      estimatedTotalCost += (parseInt(item.quantity, 10) || 0) * (Number(item.estimatedUnitCost) || 0);
+    });
+
+    const primaryItem = items[0];
+
+    const result = await prisma.assetRequest.update({
+      where: { id },
+      data: {
+        requesterName: data.requesterName,
+        requesterEmpId: data.requesterEmpId,
+        department: data.department,
+        costCenter: data.costCenter || `CC-${data.department}-001`,
+        category: primaryItem.category,
+        assetName: primaryItem.assetName,
+        hsnCode: primaryItem.hsnCode || '84713010',
+        hsnDescription: primaryItem.hsnDescription || '',
+        specifications: primaryItem.specifications || '',
+        quantity: parseInt(primaryItem.quantity, 10) || 1,
+        estimatedUnitCost: Number(primaryItem.estimatedUnitCost) || 0,
+        estimatedTotalCost,
+        requiredByDate: new Date(data.requiredByDate),
+        priority: data.priority,
+        justification: data.justification,
+        preferredVendor: data.preferredVendor,
+        attachments: data.attachments,
+        items: items
+      }
+    });
+    return result;
+  }
+
+  async deletePR(id) {
+    const existing = await prisma.assetRequest.findUnique({ where: { id } });
+    if (!existing) throw new Error('Purchase Request not found');
+
+    const nextPQ = await prisma.assetPQ.findFirst({
+      where: { prNo: existing.prNo }
+    });
+    if (nextPQ) {
+      throw new Error('Cannot delete this Purchase Request because a Purchase Quotation has already been created for it.');
+    }
+
+    await prisma.assetRequest.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async deletePQ(id) {
+    const existing = await prisma.assetPQ.findUnique({
+      where: { id }
+    });
+    if (!existing) throw new Error('Quotation not found');
+
+    const po = await prisma.assetPO.findFirst({
+      where: { prNo: existing.prNo, status: { not: 'Cancelled' } }
+    });
+    if (po) {
+      throw new Error('Cannot delete this Purchase Quotation because a Purchase Order has already been issued for this request.');
+    }
+
+    await prisma.assetPQ.delete({ where: { id } });
+    return { success: true };
+  }
+
+  async updatePO(id, data) {
+    const existing = await prisma.assetPO.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+    if (!existing) throw new Error('Purchase Order not found');
+
+    const grpo = await prisma.assetGRPO.findFirst({
+      where: { poNo: existing.poNo }
+    });
+    if (grpo) {
+      throw new Error('Cannot edit this Purchase Order because a Goods Receipt PO has already been created for it.');
+    }
+
+    const applyGst = data.applyGst !== false;
+    const isInterState = data.isInterState === true;
+    const deptCode = existing.costCenter.replace('CC-', '').split('-')[0] || 'IT';
+
+    const poItems = (data.items || []).map((item, idx) => {
+      const orderedQty = parseInt(item.quantity || item.orderedQty || 1, 10);
+      const unitPrice = Number(item.unitPrice || 0);
+      const discountPercent = Number(item.discountPercent || 0);
+      const baseAmount = orderedQty * unitPrice * (1 - discountPercent/100);
+      const gstRate = Number(item.gstRate || 18);
+      const gstAmount = applyGst ? (baseAmount * gstRate / 100) : 0;
+      const lineTotal = baseAmount + gstAmount;
+
+      let cgst = 0;
+      let sgst = 0;
+      let igst = 0;
+
+      if (applyGst) {
+        if (isInterState) {
+          igst = gstAmount;
+        } else {
+          cgst = gstAmount / 2;
+          sgst = gstAmount / 2;
+        }
+      }
+
+      return {
+        lineNo: item.lineNo || (idx + 1),
+        itemCode: item.itemCode || `AST-${deptCode}-${idx + 1}`,
+        description: item.itemDescription || item.description || '',
+        hsnCode: item.hsnCode || item.hsnSac || '84713010',
+        uom: item.uom || item.unit || 'Nos',
+        orderedQty,
+        receivedQty: 0,
+        pendingQty: orderedQty,
+        unitPrice,
+        discountPercent,
+        baseAmount,
+        gstRate,
+        cgst,
+        sgst,
+        igst,
+        lineTotal,
+        targetDeliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : null,
+        remarks: item.remarks || ''
+      };
+    });
+
+    const existingItems = existing.items || [];
+    const newItems = poItems || [];
+
+    const existingMap = new Map(existingItems.map(item => [item.itemCode, item]));
+    const newMap = new Map(newItems.map(item => [item.itemCode, item]));
+
+    const deletedItems = [];
+    const addedItems = [];
+    const updatedItems = [];
+
+    for (const extItem of existingItems) {
+      if (!newMap.has(extItem.itemCode)) {
+        deletedItems.push(extItem);
+      } else {
+        const newItem = newMap.get(extItem.itemCode);
+        const qtyChanged = extItem.orderedQty !== newItem.orderedQty;
+        const priceChanged = Number(extItem.unitPrice) !== Number(newItem.unitPrice);
+        if (qtyChanged || priceChanged) {
+          updatedItems.push(newItem);
+        }
+      }
+    }
+
+    for (const newItem of newItems) {
+      if (!existingMap.has(newItem.itemCode)) {
+        addedItems.push(newItem);
+      }
+    }
+
+    const subtotal = poItems.reduce((s, i) => s + i.baseAmount, 0);
+    const cgstTotal = poItems.reduce((s, i) => s + i.cgst, 0);
+    const sgstTotal = poItems.reduce((s, i) => s + i.sgst, 0);
+    const igstTotal = poItems.reduce((s, i) => s + i.igst, 0);
+
+    const freight = Number(data.freight || 0);
+    const loadingCharges = Number(data.loadingCharges || 0);
+    const unloadingCharges = Number(data.unloadingCharges || 0);
+    const packingCharges = Number(data.packingCharges || 0);
+    const insurance = Number(data.insurance || 0);
+    const otherCharges = Number(data.otherCharges || 0);
+    const discountTotal = Number(data.discount || 0);
+
+    const chargeGstStates = data.chargeGstStates || {};
+    const calculateChargeGst = (val, key) => {
+      const state = chargeGstStates[key];
+      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
+      if (isApplied) return Number(val) * 0.18;
+      return 0;
+    };
+
+    const freightGst = calculateChargeGst(freight, 'freight');
+    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
+    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
+    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
+    const insuranceGst = calculateChargeGst(insurance, 'insurance');
+    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
+
+    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+
+    let finalCgst = cgstTotal;
+    let finalSgst = sgstTotal;
+    let finalIgst = igstTotal;
+
+    if (applyGst) {
+      if (isInterState) {
+        finalIgst += totalChargesGst;
+      } else {
+        finalCgst += totalChargesGst / 2;
+        finalSgst += totalChargesGst / 2;
+      }
+    }
+
+    const taxAmount = finalCgst + finalSgst + finalIgst;
+    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discountTotal;
+    const grandTotal = Math.round(preRoundTotal);
+    const roundOff = grandTotal - preRoundTotal;
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Revert old budget
+      const budget = await tx.departmentBudget.findUnique({
+        where: { department: deptCode }
+      });
+      if (budget) {
+        const revertedRemaining = Number(budget.remaining) + Number(existing.grandTotal);
+        const revertedUtilized = Number(budget.utilized) - Number(existing.grandTotal);
+        
+        if (revertedRemaining < grandTotal) {
+          throw new Error(`PO update blocked. Remaining budget (₹${revertedRemaining.toLocaleString('en-IN')}) is insufficient for ₹${grandTotal.toLocaleString('en-IN')}.`);
+        }
+
+        await tx.departmentBudget.update({
+          where: { id: budget.id },
+          data: {
+            utilized: revertedUtilized + grandTotal,
+            remaining: revertedRemaining - grandTotal
+          }
+        });
+      }
+
+      await tx.assetPOItem.deleteMany({
+        where: { poId: id }
+      });
+
+      const po = await tx.assetPO.update({
+        where: { id },
+        data: {
+          poType: data.poType || existing.poType,
+          vendorName: data.vendorName || existing.vendorName,
+          vendorGstin: data.vendorGstin || existing.vendorGstin,
+          vendorPan: data.vendorPan || existing.vendorPan,
+          address: data.vendorAddress || data.address || existing.address,
+          shipTo: data.deliveryAddress || data.shipTo || existing.shipTo,
+          billTo: data.billTo || existing.billTo,
+          deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : existing.deliveryDate,
+          paymentTerms: data.paymentTerms || existing.paymentTerms,
+          paymentMode: data.paymentMode || existing.paymentMode,
+          paymentDueDate: data.paymentDueDate ? new Date(data.paymentDueDate) : existing.paymentDueDate,
+          incoterms: data.incoterms || existing.incoterms,
+          placeOfSupply: data.placeOfSupply || existing.placeOfSupply,
+          subtotal,
+          discount: discountTotal,
+          freight,
+          loadingCharges,
+          unloadingCharges,
+          packingCharges,
+          insurance,
+          isInterState,
+          applyGst,
+          chargeGstStates: chargeGstStates,
+          cgst: finalCgst,
+          sgst: finalSgst,
+          igst: finalIgst,
+          taxAmount,
+          shippingCharges: freight,
+          otherCharges,
+          roundOff,
+          grandTotal,
+          termsBlock: data.termsAndConditions || data.termsBlock || existing.termsBlock,
+          items: {
+            create: poItems
+          }
+        },
+        include: { items: true }
+      });
+
+      return po;
+    });
+
+    // Fetch supplier and send PO item changes notice
+    prisma.supplier.findFirst({
+      where: { name: { equals: result.vendorName, mode: 'insensitive' } }
+    }).then(async (supplier) => {
+      if (deletedItems.length > 0) {
+        await sendPOUpdateDeleteNotice(result, 'DELETE', deletedItems, supplier);
+      }
+      if (updatedItems.length > 0) {
+        await sendPOUpdateDeleteNotice(result, 'UPDATE', updatedItems, supplier);
+      }
+      if (addedItems.length > 0) {
+        await sendPOUpdateDeleteNotice(result, 'ADD', addedItems, supplier);
+      }
+    }).catch(err => console.error('Failed to send PO update/delete notices:', err));
+
+    return mapPOToFrontend(result);
+  }
+
+  async deletePO(id) {
+    const existing = await prisma.assetPO.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+    if (!existing) throw new Error('Purchase Order not found');
+
+    const grpo = await prisma.assetGRPO.findFirst({
+      where: { poNo: existing.poNo }
+    });
+    if (grpo) {
+      throw new Error('Cannot delete this Purchase Order because a Goods Receipt PO has already been created for it.');
+    }
+
+    const deptCode = existing.costCenter.replace('CC-', '').split('-')[0] || 'IT';
+
+    await prisma.$transaction(async (tx) => {
+      const budget = await tx.departmentBudget.findUnique({
+        where: { department: deptCode }
+      });
+      if (budget) {
+        await tx.departmentBudget.update({
+          where: { id: budget.id },
+          data: {
+            utilized: { decrement: Number(existing.grandTotal) },
+            remaining: { increment: Number(existing.grandTotal) }
+          }
+        });
+      }
+
+      if (existing.pqNo) {
+        await tx.assetPQ.updateMany({
+          where: { pqNo: existing.pqNo },
+          data: { status: 'Received' }
+        });
+      }
+
+      if (existing.prNo) {
+        await tx.assetRequest.updateMany({
+          where: { prNo: existing.prNo },
+          data: { status: 'Approved' }
+        });
+      }
+
+      await tx.assetPO.delete({
+        where: { id }
+      });
+    });
+
+    prisma.supplier.findFirst({
+      where: { name: { equals: existing.vendorName, mode: 'insensitive' } }
+    }).then(supplier => {
+      sendPOUpdateDeleteNotice(existing, 'DELETE', existing.items, supplier);
+    }).catch(err => console.error('Failed to send PO deletion notice:', err));
+
+    return { success: true };
+  }
+
+  async updateGRPO(id, data) {
+    const existing = await prisma.assetGRPO.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+    if (!existing) throw new Error('GRPO not found');
+
+    const invoice = await prisma.assetAPInvoice.findFirst({
+      where: { grpoNo: existing.grpoNo }
+    });
+    if (invoice) {
+      throw new Error('Cannot edit this Goods Receipt PO because an A/P Invoice has already been created for it.');
+    }
+
+    const po = await prisma.assetPO.findFirst({
+      where: { poNo: existing.poNo },
+      include: { items: true }
+    });
+    if (!po) throw new Error('Linked Purchase Order not found');
+
+    const itemsToCreate = (data.items || []).map((item, idx) => ({
+      poLineRef: item.poLineRef || (idx + 1),
+      description: item.itemDescription || item.description || '',
+      orderedQty: Number(item.poQuantity || item.orderedQty || 0),
+      receivedQty: Number(item.receivedQuantity || item.receivedQty || 0),
+      acceptedQty: Number(item.acceptedQuantity || item.acceptedQty || 0),
+      rejectedQty: Number(item.rejectedQuantity || item.rejectedQty || 0),
+      rejectionReason: item.rejectionReason || item.remarks || '',
+      condition: item.condition || 'Good',
+      serialNo: item.serialNo || '',
+      assetTag: item.assetTag || item.assetTagNo || '',
+      remarks: item.remarks || ''
+    }));
+
+    const result = await prisma.$transaction(async (tx) => {
+      for (const oldItem of existing.items) {
+        const accepted = Number(oldItem.acceptedQty || 0);
+        if (accepted > 0) {
+          const assetsToDelete = await tx.asset.findMany({
+            where: {
+              poNo: existing.poNo,
+              assetName: oldItem.description
+            },
+            orderBy: { createdAt: 'desc' },
+            take: accepted
+          });
+          for (const asset of assetsToDelete) {
+            await tx.asset.delete({ where: { id: asset.id } });
+          }
+        }
+      }
+
+      for (const oldItem of existing.items) {
+        const poLine = po.items.find(pi => pi.lineNo === oldItem.poLineRef);
+        if (poLine) {
+          await tx.assetPOItem.update({
+            where: { id: poLine.id },
+            data: {
+              receivedQty: { decrement: Number(oldItem.receivedQty) },
+              pendingQty: { increment: Number(oldItem.receivedQty) }
+            }
+          });
+        }
+      }
+
+      await tx.assetGRPOItem.deleteMany({
+        where: { grpoId: id }
+      });
+
+      const grpo = await tx.assetGRPO.update({
+        where: { id },
+        data: {
+          challanNo: data.challanNo || data.deliveryNoteNo || existing.challanNo,
+          transporter: data.transporter || existing.transporter,
+          vehicleNo: data.vehicleNo || existing.vehicleNo,
+          receivedBy: data.receivedBy || existing.receivedBy,
+          location: data.receivingLocation || data.location || existing.location,
+          qcStatus: data.qcStatus || existing.qcStatus,
+          qcInspector: data.qcInspector || data.receivedBy || existing.qcInspector,
+          items: {
+            create: itemsToCreate
+          }
+        },
+        include: { items: true }
+      });
+
+      const freshPOLines = await tx.assetPOItem.findMany({
+        where: { poId: po.id }
+      });
+
+      let allFullyReceived = true;
+      for (const line of itemsToCreate) {
+        const poLine = freshPOLines.find(pi => pi.lineNo === line.poLineRef);
+        if (poLine) {
+          const updatedReceived = Number(poLine.receivedQty) + Number(line.receivedQty);
+          const updatedPending = Math.max(0, Number(poLine.orderedQty) - updatedReceived);
+          
+          if (updatedPending > 0) {
+            allFullyReceived = false;
+          }
+
+          await tx.assetPOItem.update({
+            where: { id: poLine.id },
+            data: {
+              receivedQty: updatedReceived,
+              pendingQty: updatedPending
+            }
+          });
+        }
+      }
+
+      await tx.assetPO.update({
+        where: { id: po.id },
+        data: {
+          status: allFullyReceived ? 'Closed' : 'Partially Received'
+        }
+      });
+
+      const lastDoc = await tx.asset.findFirst({
+        orderBy: { createdAt: 'desc' }
+      });
+      let nextSeq = 1;
+      if (lastDoc?.assetId) {
+        const parts = lastDoc.assetId.split('-');
+        const lastSeqStr = parts[parts.length - 1];
+        const parsed = parseInt(lastSeqStr, 10);
+        if (!isNaN(parsed)) {
+          nextSeq = parsed + 1;
+        }
+      }
+
+      for (const line of itemsToCreate) {
+        const accepted = parseInt(line.acceptedQty, 10);
+        if (accepted > 0) {
+          const poLine = freshPOLines.find(pi => pi.lineNo === line.poLineRef);
+          const itemPrice = poLine ? Number(poLine.unitPrice) : 50000;
+          
+          let category = 'IT Equipment';
+          if (poLine?.description?.toLowerCase().includes('chair') || poLine?.description?.toLowerCase().includes('desk') || poLine?.description?.toLowerCase().includes('furniture')) {
+            category = 'Furniture & Fixtures';
+          } else if (poLine?.description?.toLowerCase().includes('machine') || poLine?.description?.toLowerCase().includes('cnc') || poLine?.description?.toLowerCase().includes('drill')) {
+            category = 'Machinery & Plant';
+          } else if (poLine?.description?.toLowerCase().includes('car') || poLine?.description?.toLowerCase().includes('truck') || poLine?.description?.toLowerCase().includes('forklift')) {
+            category = 'Vehicles';
+          } else if (poLine?.description?.toLowerCase().includes('ac') || poLine?.description?.toLowerCase().includes('air conditioner') || poLine?.description?.toLowerCase().includes('ups') || poLine?.description?.toLowerCase().includes('generator')) {
+            category = 'Office Equipment';
+          } else if (poLine?.description?.toLowerCase().includes('structure') || poLine?.description?.toLowerCase().includes('electrical')) {
+            category = 'Infrastructure';
+          } else if (poLine?.description?.toLowerCase().includes('software') || poLine?.description?.toLowerCase().includes('license')) {
+            category = 'Intangible Assets';
+          }
+
+          const mapDetails = CATEGORY_MAP[category] || { life: 5, rate: 20.00 };
+          const usefulLife = mapDetails.life;
+          const depRate = mapDetails.rate;
+
+          const capitalizedCost = itemPrice; 
+          const salvageValue = capitalizedCost * 0.05;
+          const annualDep = (capitalizedCost - salvageValue) * (depRate / 100);
+          const monthlyDep = annualDep / 12;
+
+          for (let i = 0; i < accepted; i++) {
+            const assetId = `AST-${String(nextSeq).padStart(5, '0')}`;
+            nextSeq++;
+            const serialNo = line.serialNo ? `${line.serialNo}-${i}` : `SN-${Math.floor(Math.random()*900000)+100000}`;
+
+            await tx.asset.create({
+              data: {
+                assetId,
+                assetName: line.description,
+                description: line.remarks || line.description,
+                category,
+                serialNo,
+                barcode: line.assetTag || assetId,
+                purchaseDate: new Date(),
+                capitalizationDate: new Date(),
+                purchaseCost: itemPrice,
+                incidentalCosts: 0,
+                capitalizedCost,
+                usefulLife,
+                depreciationMethod: 'SLM',
+                depreciationRate: depRate,
+                monthlyDepreciation: monthlyDep,
+                accumulatedDepreciation: 0,
+                bookValue: capitalizedCost,
+                salvageValue,
+                location: data.receivingLocation || data.location || 'HQ Office',
+                department: po.costCenter.replace('CC-', '').split('-')[0] || 'IT',
+                costCenter: po.costCenter,
+                vendorName: po.vendorName,
+                vendorCode: po.vendorCode,
+                poNo: po.poNo,
+                warrantyExpiry: new Date(new Date().setMonth(new Date().getMonth() + 12))
+              }
+            });
+          }
+        }
+      }
+
+      return grpo;
+    });
+
+    return mapGRPOToFrontend({
+      ...result,
+      items: result.items?.map(item => {
+        const poLine = po?.items?.find(pi => pi.lineNo === item.poLineRef || pi.description === item.description);
+        return {
+          ...item,
+          unitPrice: poLine ? Number(poLine.unitPrice) : 0,
+          gstRate: poLine ? Number(poLine.gstRate) : 18,
+          hsnCode: poLine ? poLine.hsnCode : ''
+        };
+      })
+    });
+  }
+
+  async deleteGRPO(id) {
+    const existing = await prisma.assetGRPO.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+    if (!existing) throw new Error('GRPO not found');
+
+    const invoice = await prisma.assetAPInvoice.findFirst({
+      where: { grpoNo: existing.grpoNo }
+    });
+    if (invoice) {
+      throw new Error('Cannot delete this Goods Receipt PO because an A/P Invoice has already been created for it.');
+    }
+
+    const po = await prisma.assetPO.findFirst({
+      where: { poNo: existing.poNo },
+      include: { items: true }
+    });
+
+    await prisma.$transaction(async (tx) => {
+      for (const item of existing.items) {
+        const accepted = Number(item.acceptedQty || 0);
+        if (accepted > 0) {
+          const assetsToDelete = await tx.asset.findMany({
+            where: {
+              poNo: existing.poNo,
+              assetName: item.description
+            },
+            orderBy: { createdAt: 'desc' },
+            take: accepted
+          });
+          for (const asset of assetsToDelete) {
+            await tx.asset.delete({ where: { id: asset.id } });
+          }
+        }
+      }
+
+      if (po) {
+        for (const item of existing.items) {
+          const poLine = po.items.find(pi => pi.lineNo === item.poLineRef);
+          if (poLine) {
+            const updatedReceived = Math.max(0, Number(poLine.receivedQty) - Number(item.receivedQty));
+            const updatedPending = Number(poLine.orderedQty) - updatedReceived;
+
+            await tx.assetPOItem.update({
+              where: { id: poLine.id },
+              data: {
+                receivedQty: updatedReceived,
+                pendingQty: updatedPending
+              }
+            });
+          }
+        }
+
+        const freshLines = await tx.assetPOItem.findMany({
+          where: { poId: po.id }
+        });
+        const anyReceived = freshLines.some(l => Number(l.receivedQty) > 0);
+        const allReceived = freshLines.every(l => Number(l.pendingQty) === 0);
+        
+        let newStatus = 'Approved';
+        if (allReceived) newStatus = 'Closed';
+        else if (anyReceived) newStatus = 'Partially Received';
+
+        await tx.assetPO.update({
+          where: { id: po.id },
+          data: { status: newStatus }
+        });
+      }
+
+      await tx.assetGRPO.delete({
+        where: { id }
+      });
+    });
+
+    return { success: true };
+  }
+
+  async updateInvoice(id, data) {
+    const existing = await prisma.assetAPInvoice.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+    if (!existing) throw new Error('AP Invoice not found');
+
+    if (existing.status === 'Paid') {
+      throw new Error('Cannot edit this AP Invoice because it has already been paid.');
+    }
+
+    const applyGst = data.applyGst !== false;
+    const isInterState = data.isInterState === true;
+
+    const invoiceItems = (data.items || []).map((item, idx) => {
+      const quantity = parseInt(item.quantity, 10);
+      const unitPrice = Number(item.unitPrice);
+      const discountPercent = Number(item.discountPercent || 0);
+      const taxableValue = quantity * unitPrice * (1 - discountPercent / 100);
+      const gstRate = Number(item.gstRate || 18);
+      
+      let cgst = 0;
+      let sgst = 0;
+      let igst = 0;
+
+      if (applyGst) {
+        const gstAmount = taxableValue * (gstRate / 100);
+        if (isInterState) {
+          igst = gstAmount;
+        } else {
+          cgst = gstAmount / 2;
+          sgst = gstAmount / 2;
+        }
+      }
+
+      return {
+        lineNo: item.lineNo || (idx + 1),
+        itemCode: item.itemCode || `AST-IT-${String(idx + 1).padStart(3, '0')}`,
+        description: item.description || item.itemDescription || '',
+        hsnCode: item.hsnCode || item.hsnSac || '84713010',
+        uom: item.uom || item.unit || 'Nos',
+        quantity,
+        unitPrice,
+        discountPercent,
+        taxableValue,
+        gstRate,
+        cgst,
+        sgst,
+        igst,
+        lineTotal: taxableValue + cgst + sgst + igst
+      };
+    });
+
+    const taxableAmount = invoiceItems.reduce((s, i) => s + i.taxableValue, 0);
+    const totalCgst = invoiceItems.reduce((s, i) => s + i.cgst, 0);
+    const totalSgst = invoiceItems.reduce((s, i) => s + i.sgst, 0);
+    const totalIgst = invoiceItems.reduce((s, i) => s + i.igst, 0);
+
+    const discount = Number(data.discount || 0);
+    const freight = Number(data.freight || 0);
+    const loadingCharges = Number(data.loadingCharges || 0);
+    const unloadingCharges = Number(data.unloadingCharges || 0);
+    const packingCharges = Number(data.packingCharges || 0);
+    const insurance = Number(data.insurance || 0);
+    const otherCharges = Number(data.otherCharges || 0);
+
+    const chargeGstStates = data.chargeGstStates || {};
+    const calculateChargeGst = (val, key) => {
+      const state = chargeGstStates[key];
+      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
+      if (isApplied) return Number(val) * 0.18;
+      return 0;
+    };
+
+    const freightGst = calculateChargeGst(freight, 'freight');
+    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
+    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
+    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
+    const insuranceGst = calculateChargeGst(insurance, 'insurance');
+    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
+
+    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+
+    let finalCgst = totalCgst;
+    let finalSgst = totalSgst;
+    let finalIgst = totalIgst;
+
+    if (applyGst) {
+      if (isInterState) {
+        finalIgst += totalChargesGst;
+      } else {
+        finalCgst += totalChargesGst / 2;
+        finalSgst += totalChargesGst / 2;
+      }
+    }
+
+    const totalTax = finalCgst + finalSgst + finalIgst;
+    const preRoundTotal = taxableAmount + totalTax + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+    const grandTotal = Math.round(preRoundTotal);
+    const roundOff = grandTotal - preRoundTotal;
+
+    const amountInWords = numberToWordsIndian(grandTotal);
+
+    let tdsAmount = 0;
+    if (grandTotal > 5000000) {
+      tdsAmount = (grandTotal - 5000000) * 0.001; 
+    }
+    const netPayable = grandTotal - tdsAmount;
+
+    await prisma.assetAPInvoiceItem.deleteMany({
+      where: { invoiceId: id }
+    });
+
+    const res = await prisma.assetAPInvoice.update({
+      where: { id },
+      data: {
+        vendorInvoiceNo: data.vendorInvoiceNo || existing.vendorInvoiceNo,
+        vendorInvoiceDate: data.invoiceDate ? new Date(data.invoiceDate) : existing.vendorInvoiceDate,
+        dueDate: data.dueDate ? new Date(data.dueDate) : existing.dueDate,
+        vendorName: data.vendorName || existing.vendorName,
+        vendorGstin: data.vendorGstin || existing.vendorGstin,
+        vendorPan: data.vendorPan || existing.vendorPan,
+        address: data.address || data.vendorAddress || existing.address,
+        taxableAmount,
+        totalCgst: finalCgst,
+        totalSgst: finalSgst,
+        totalIgst: finalIgst,
+        totalTax,
+        freight,
+        discount: discount,
+        loadingCharges,
+        unloadingCharges,
+        packingCharges,
+        insurance,
+        isInterState,
+        applyGst,
+        chargeGstStates,
+        otherCharges: otherCharges,
+        roundOff: roundOff,
+        paymentMode: data.paymentMode || existing.paymentMode,
+        paymentTerms: data.paymentTerms || existing.paymentTerms,
+        termsBlock: data.termsAndConditions || data.termsBlock || existing.termsBlock,
+        invoiceTotal: grandTotal,
+        amountInWords,
+        tdsAmount,
+        netPayable,
+        bankName: data.bankName || existing.bankName,
+        bankAccountHolder: data.bankAccountHolder || existing.bankAccountHolder,
+        bankAccountNo: data.bankAccountNo || existing.bankAccountNo,
+        bankIfsc: data.bankIfsc || existing.bankIfsc,
+        bankBranch: data.bankBranch || existing.bankBranch,
+        bankUpi: data.bankUpi !== undefined ? data.bankUpi : existing.bankUpi,
+        narration: data.narration || existing.narration,
+        items: {
+          create: invoiceItems
+        }
+      },
+      include: { items: true }
+    });
+
+    return mapInvoiceToFrontend(res);
+  }
+
+  async deleteInvoice(id) {
+    const existing = await prisma.assetAPInvoice.findUnique({
+      where: { id }
+    });
+    if (!existing) throw new Error('AP Invoice not found');
+
+    if (existing.status === 'Paid') {
+      throw new Error('Cannot delete this AP Invoice because it has already been paid.');
+    }
+
+    await prisma.assetAPInvoice.delete({
+      where: { id }
+    });
+    return { success: true };
+  }
 }
 
 // Mappers
@@ -2214,6 +3276,9 @@ function mapPOToFrontend(po) {
     insurance: Number(po.insurance || 0),
     isInterState: Boolean(po.isInterState),
     applyGst: po.applyGst !== undefined ? Boolean(po.applyGst) : true,
+    cgst: Number(po.cgst || 0),
+    sgst: Number(po.sgst || 0),
+    igst: Number(po.igst || 0),
     discount: Number(po.discount || 0),
     otherCharges: Number(po.otherCharges || 0),
     roundOff: Number(po.roundOff || 0),
@@ -2228,7 +3293,7 @@ function mapPOToFrontend(po) {
       unit: item.uom,
       quantity: item.orderedQty,
       totalBeforeTax: Number(item.baseAmount),
-      gstAmount: Number(item.cgst + item.sgst + item.igst),
+      gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
       totalWithGst: Number(item.lineTotal)
     }))
   };
@@ -2258,7 +3323,7 @@ function mapPQToFrontend(pq) {
       hsnSac: item.hsnCode,
       unit: item.uom,
       totalBeforeTax: Number(item.baseAmount),
-      gstAmount: Number(item.cgst + item.sgst + item.igst),
+      gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
       totalWithGst: Number(item.lineTotal)
     }))
   };
@@ -2275,6 +3340,7 @@ function mapGRPOToFrontend(grpo) {
     items: grpo.items?.map(item => ({
       ...item,
       itemDescription: item.description,
+      hsnSac: item.hsnCode || '',
       poQuantity: Number(item.orderedQty),
       receivedQuantity: Number(item.receivedQty),
       acceptedQuantity: Number(item.acceptedQty),
@@ -2307,6 +3373,10 @@ function mapInvoiceToFrontend(inv) {
     roundOff: Number(inv.roundOff || 0),
     paymentMode: inv.paymentMode || '',
     paymentTerms: inv.paymentTerms || '',
+    termsAndConditions: inv.termsBlock || '',
+    cgst: Number(inv.totalCgst || 0),
+    sgst: Number(inv.totalSgst || 0),
+    igst: Number(inv.totalIgst || 0),
     items: inv.items?.map(item => ({
       ...item,
       itemDescription: item.description,

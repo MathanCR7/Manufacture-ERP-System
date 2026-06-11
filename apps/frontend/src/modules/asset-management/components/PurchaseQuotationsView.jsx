@@ -111,15 +111,45 @@ function PQDetailModal({ pq, onClose }) {
                       <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{igst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   ) : (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">CGST + SGST:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{(cgst + sgst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
+                    <>
+                      <tr>
+                        <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">CGST:</td>
+                        <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{cgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      <tr>
+                        <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">SGST:</td>
+                        <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{sgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                    </>
                   )}
                   {shippingCharges > 0 && (
                     <tr>
                       <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Freight Charges:</td>
                       <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{shippingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  )}
+                  {Number(pq.loadingCharges || 0) > 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Loading Charges:</td>
+                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.loadingCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  )}
+                  {Number(pq.unloadingCharges || 0) > 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Unloading Charges:</td>
+                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.unloadingCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  )}
+                  {Number(pq.packingCharges || 0) > 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Packing Charges:</td>
+                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.packingCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  )}
+                  {Number(pq.insurance || 0) > 0 && (
+                    <tr>
+                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Insurance:</td>
+                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.insurance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
                   {otherCharges > 0 && (
@@ -130,7 +160,7 @@ function PQDetailModal({ pq, onClose }) {
                   )}
                   {discount > 0 && (
                     <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-rose-505 text-xs">Discount:</td>
+                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Discount:</td>
                       <td colSpan={2} className="px-3 py-2 font-bold text-rose-600">-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )}
@@ -171,195 +201,8 @@ const CATEGORY_MAP = {
   'Intangible Assets': { hsn: '9973', gst: 18 }
 };
 
-// Add Supplier Inline Dialog Component
-function AddSupplierInline({ onAdded, onClose }) {
-  const [name, setName] = useState('');
-  const [contactPerson, setContactPerson] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [gstin, setGstin] = useState('');
-  const [pan, setPan] = useState('');
-  const [openingBalance, setOpeningBalance] = useState('0.00');
-  const [creditLimit, setCreditLimit] = useState('0.00');
-  const [address, setAddress] = useState('');
-  const [note, setNote] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isVerifyingGstin, setIsVerifyingGstin] = useState(false);
-
-  const handleVerifyGSTIN = async () => {
-    if (!gstin || !gstin.trim()) {
-      Swal.fire({ icon: 'warning', title: 'GSTIN Required', text: 'Please enter a GSTIN to verify.', confirmButtonColor: '#4f46e5' });
-      return;
-    }
-    const cleanGstin = gstin.trim().toUpperCase();
-    const regex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    if (!regex.test(cleanGstin)) {
-      Swal.fire({ icon: 'error', title: 'Invalid GSTIN', text: 'Standard format: 2-digit State Code + 10-char PAN + Entity Digit + Z + Check Digit (15 chars).', confirmButtonColor: '#4f46e5' });
-      return;
-    }
-    setIsVerifyingGstin(true);
-    try {
-      const res = await api.get(`/asset-management/verify-gstin/${cleanGstin}`);
-      const data = res.data;
-      const isLive = data.source === 'live';
-      const statusBadge = data.status?.toLowerCase() === 'active'
-        ? `<span style="background:#d1fae5;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px;">✓ ACTIVE</span>`
-        : `<span style="background:#fee2e2;color:#991b1b;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px;">✗ ${data.status?.toUpperCase() || 'UNKNOWN'}</span>`;
-      const row = (label, value) =>
-        value ? `<tr><td style="color:#6b7280;font-size:11px;padding:5px 0;width:45%;">${label}</td><td style="font-size:12px;font-weight:600;color:#111827;text-align:right;">${value}</td></tr>` : '';
-      const tableHtml = `
-        <div style="text-align:left">
-          ${data.warning ? `<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:11px;color:#92400e;margin-bottom:12px;">⚠️ ${data.warning}</div>` : ''}
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <code style="font-size:13px;font-weight:700;color:#4f46e5;letter-spacing:1px;">${data.gstin}</code>
-            ${statusBadge}
-          </div>
-          <table style="width:100%;border-collapse:collapse;">
-            ${row('Legal Name', data.legalName || '<span style="color:#9ca3af;font-style:italic;">Not available (live API required)</span>')}
-            ${row('Trade Name', data.tradeName && data.tradeName !== data.legalName ? data.tradeName : '')}
-            ${row('PAN', data.pan)}
-            ${row('State', `${data.state} (${data.stateCode})`)}
-            ${row('Constitution', data.constitutionOfBusiness)}
-            ${row('Taxpayer Type', data.taxpayerType)}
-            ${row('Registration Date', data.registrationDate)}
-            ${row('Principal Address', data.principalAddress || '<span style="color:#9ca3af;font-style:italic;">Not available</span>')}
-          </table>
-          <div style="margin-top:12px;font-size:10px;color:#9ca3af;text-align:center;">
-            ${isLive ? '🟢 Live data from GST Portal' : '🔵 Parsed from GSTIN format (offline mode)'}
-          </div>
-        </div>
-      `;
-      const result = await Swal.fire({
-        title: '<span style="font-size:15px;">🔍 GST Registry Verification</span>',
-        html: tableHtml,
-        showCancelButton: true,
-        confirmButtonText: 'Apply to Form',
-        cancelButtonText: 'Close',
-        confirmButtonColor: '#4f46e5',
-        cancelButtonColor: '#6b7280',
-        width: '480px'
-      });
-      if (result.isConfirmed) {
-        setGstin(cleanGstin);
-        setPan(data.pan || '');
-        if (data.legalName) setName(data.legalName);
-        if (data.principalAddress) setAddress(data.principalAddress);
-      }
-    } catch (err) {
-      console.error('GSTIN verify error:', err);
-      Swal.fire({ icon: 'error', title: 'Verification Failed', text: err.response?.data?.error || 'Unable to verify GSTIN.', confirmButtonColor: '#ef4444' });
-    } finally {
-      setIsVerifyingGstin(false);
-    }
-  };
-
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!name || !phone) return;
-    setIsSubmitting(true);
-    try {
-      const res = await api.post('/parties/suppliers', {
-        name, contactPerson, phone, email, gstin, pan, openingBalance, creditLimit, address, note
-      });
-      onAdded(res.data);
-    } catch (err) {
-      console.error('Failed to add supplier', err);
-      Swal.fire({
-        icon: 'error',
-        title: 'Oops...',
-        text: 'Failed to add supplier',
-        confirmButtonColor: '#4f46e5',
-        customClass: {
-          popup: 'rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900',
-          title: 'text-slate-900 dark:text-white',
-          htmlContainer: 'text-slate-600 dark:text-slate-300'
-        }
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-300">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 md:p-8 w-full max-w-2xl shadow-2xl border border-slate-200/60 dark:border-slate-800 max-h-[90vh] overflow-y-auto transform animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Quick Add Supplier</h2>
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500">
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Name <span className="text-rose-500">*</span></Label>
-              <Input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Acme Corp" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Contact Person</Label>
-              <Input value={contactPerson} onChange={e => setContactPerson(e.target.value)} placeholder="John Doe" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Phone <span className="text-rose-500">*</span></Label>
-              <Input required value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone number" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Email</Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="md:col-span-2 space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">GSTIN</Label>
-              <div className="flex gap-2">
-                <Input value={gstin} onChange={e => setGstin(e.target.value.toUpperCase())} placeholder="e.g. 29ABCDE1234F1Z5" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50 font-mono uppercase" />
-                <Button type="button" disabled={isVerifyingGstin} onClick={handleVerifyGSTIN} className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 px-4 rounded-xl h-[42px] shadow-sm">
-                  {isVerifyingGstin ? 'Verifying...' : 'Fetch Details'}
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">PAN</Label>
-              <Input value={pan} onChange={e => setPan(e.target.value)} placeholder="PAN" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50 font-mono" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Opening Balance</Label>
-              <Input type="number" step="0.01" value={openingBalance} onChange={e => setOpeningBalance(e.target.value)} className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Credit Limit</Label>
-              <Input type="number" step="0.01" value={creditLimit} onChange={e => setCreditLimit(e.target.value)} className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="md:col-span-2 space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Address</Label>
-              <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St..." className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="md:col-span-2 space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Note</Label>
-              <textarea 
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 p-3 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 hover:border-indigo-400 transition-all text-sm resize-none" 
-                rows={3} 
-                value={note} 
-                onChange={e => setNote(e.target.value)} 
-                placeholder="Additional notes..." 
-              />
-            </div>
-          </div>
-          <div className="flex justify-end space-x-3 pt-6 border-t border-slate-100 dark:border-slate-800">
-            <Button type="button" variant="outline" onClick={onClose} className="rounded-xl px-6 h-11 text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white transition-colors">Cancel</Button>
-            <Button type="submit" disabled={isSubmitting} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all font-medium">
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Adding...
-                </>
-              ) : 'Add Supplier'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
+const AddSupplierInline = QuickAddSupplierModal;
 
 // Searchable Supplier Dropdown Component
 function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
@@ -520,6 +363,42 @@ function PRSelect({ prs = [], value, onChange }) {
   );
 }
 
+function ChargeRow({ label, fieldKey, value, gstChecked, isInterState, onChange, onGstChange }) {
+  const numVal = Number(value || 0);
+  const gstLabel = isInterState ? 'IGST 18%' : 'GST 18% (CGST+SGST)';
+  const gstAmt = gstChecked && numVal > 0 ? numVal * 0.18 : 0;
+  return (
+    <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/60 rounded-xl p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">{label}</Label>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={gstChecked}
+            onChange={e => onGstChange(e.target.checked)}
+            className="w-3.5 h-3.5 rounded accent-indigo-600"
+          />
+          <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400">{gstLabel}</span>
+        </label>
+      </div>
+      <Input
+        type="number"
+        min="0"
+        step="0.01"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder="0.00"
+        className="h-8 rounded-lg text-sm"
+      />
+      {gstChecked && numVal > 0 && (
+        <p className="text-[10px] text-indigo-500 font-medium">
+          + GST: ₹{gstAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CreatePQForm({ onBack, isReadOnly, editPQId }) {
   const [isInterState, setIsInterState] = useState(false);
   const [form, setForm] = useState({
@@ -538,11 +417,26 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     validityDate: null,
     expectedDelivery: null,
     discount: '',
-    shippingCharges: '',
+    shippingCharges: '', // freight
+    loadingCharges: '',
+    unloadingCharges: '',
+    packingCharges: '',
+    insurance: '',
     otherCharges: '',
+    applyGst: true,
     termsAndConditions: '',
     items: [{ category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', gstRate: 18 }],
   });
+
+  const [chargeGstStates, setChargeGstStates] = useState({
+    shippingCharges: false,
+    loadingCharges: false,
+    unloadingCharges: false,
+    packingCharges: false,
+    insurance: false,
+    otherCharges: false,
+  });
+
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
@@ -585,7 +479,12 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         expectedDelivery: editPQ.expectedDelivery ? new Date(editPQ.expectedDelivery) : null,
         discount: editPQ.discount !== undefined ? String(editPQ.discount) : '',
         shippingCharges: editPQ.shippingCharges !== undefined ? String(editPQ.shippingCharges) : '',
+        loadingCharges: editPQ.loadingCharges !== undefined ? String(editPQ.loadingCharges) : '',
+        unloadingCharges: editPQ.unloadingCharges !== undefined ? String(editPQ.unloadingCharges) : '',
+        packingCharges: editPQ.packingCharges !== undefined ? String(editPQ.packingCharges) : '',
+        insurance: editPQ.insurance !== undefined ? String(editPQ.insurance) : '',
         otherCharges: editPQ.otherCharges !== undefined ? String(editPQ.otherCharges) : '',
+        applyGst: editPQ.applyGst !== undefined ? Boolean(editPQ.applyGst) : true,
         termsAndConditions: editPQ.termsAndConditions || '',
         items: editPQ.items?.map(item => ({
           category: item.category,
@@ -597,6 +496,24 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           gstRate: Number(item.gstRate)
         })) || [],
       });
+
+      if (editPQ.chargeGstStates) {
+        try {
+          const parsed = typeof editPQ.chargeGstStates === 'string'
+            ? JSON.parse(editPQ.chargeGstStates)
+            : editPQ.chargeGstStates;
+          setChargeGstStates({
+            shippingCharges: !!parsed.shippingCharges,
+            loadingCharges: !!parsed.loadingCharges,
+            unloadingCharges: !!parsed.unloadingCharges,
+            packingCharges: !!parsed.packingCharges,
+            insurance: !!parsed.insurance,
+            otherCharges: !!parsed.otherCharges,
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
   }, [editPQ, prs, suppliers]);
 
@@ -611,7 +528,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
 
   const calcTotals = (item) => {
     const base = Number(item.quantity) * Number(item.unitPrice || 0);
-    const gst = base * (Number(item.gstRate) / 100);
+    const gst = form.applyGst ? base * (Number(item.gstRate) / 100) : 0;
     return { totalBeforeTax: base, gstAmount: gst, totalWithGst: base + gst };
   };
 
@@ -625,10 +542,24 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
   }, { taxable: 0, gst: 0, total: 0 });
 
   const freight = Number(form.shippingCharges || 0);
+  const loadingCharges = Number(form.loadingCharges || 0);
+  const unloadingCharges = Number(form.unloadingCharges || 0);
+  const packingCharges = Number(form.packingCharges || 0);
+  const insurance = Number(form.insurance || 0);
   const otherCharges = Number(form.otherCharges || 0);
   const discount = Number(form.discount || 0);
 
-  const preRoundTotal = totals.total + freight + otherCharges - discount;
+  const calcChargeGst = (val, key) => chargeGstStates[key] && Number(val) > 0 ? Number(val) * 0.18 : 0;
+  const extraGst = form.applyGst ? (
+    calcChargeGst(freight, 'shippingCharges') +
+    calcChargeGst(loadingCharges, 'loadingCharges') +
+    calcChargeGst(unloadingCharges, 'unloadingCharges') +
+    calcChargeGst(packingCharges, 'packingCharges') +
+    calcChargeGst(insurance, 'insurance') +
+    calcChargeGst(otherCharges, 'otherCharges')
+  ) : 0;
+
+  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
   const grandTotal = Math.round(preRoundTotal);
   const roundOff = grandTotal - preRoundTotal;
 
@@ -655,10 +586,29 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     const payload = {
       ...form,
       stateCode: isInterState ? (form.vendorGstin && form.vendorGstin.length >= 2 ? form.vendorGstin.substring(0, 2) : '29') : '27',
+      isInterState,
       discount: Number(form.discount || 0),
       shippingCharges: Number(form.shippingCharges || 0),
+      loadingCharges: Number(form.loadingCharges || 0),
+      unloadingCharges: Number(form.unloadingCharges || 0),
+      packingCharges: Number(form.packingCharges || 0),
+      insurance: Number(form.insurance || 0),
       otherCharges: Number(form.otherCharges || 0),
-      items: form.items.map(i => ({ ...i, ...calcTotals(i) })),
+      chargeGstStates,
+      items: form.items.map(i => {
+        const c = calcTotals(i);
+        return {
+          ...i,
+          baseAmount: c.totalBeforeTax,
+          gstAmount: c.gstAmount,
+          cgst: isInterState ? 0 : c.gstAmount / 2,
+          sgst: isInterState ? 0 : c.gstAmount / 2,
+          igst: isInterState ? c.gstAmount : 0,
+          discountedPrice: Number(i.unitPrice),
+          lineTotal: c.totalWithGst,
+          specMatch: 'Yes'
+        };
+      }),
     };
     mutation.mutate(payload);
   };
@@ -1006,30 +956,64 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
 
           {/* Totals + Other Charges */}
           <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Discount (₹)</Label>
-                  <Input type="number" min="0" value={form.discount} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-9 rounded-xl" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Freight / Shipping Charges (₹)</Label>
-                  <Input type="number" min="0" value={form.shippingCharges} onChange={e => update('shippingCharges', e.target.value)} placeholder="0.00" className="h-9 rounded-xl" />
-                </div>
-                <div className="space-y-1.5 col-span-2">
-                  <Label className="text-xs">Other Charges (₹)</Label>
-                  <Input type="number" min="0" value={form.otherCharges} onChange={e => update('otherCharges', e.target.value)} placeholder="0.00" className="h-9 rounded-xl" />
+            <div className="space-y-4">
+              {/* GST Toggles */}
+              <div className="bg-slate-50/50 dark:bg-slate-800/10 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">GST Applicability</span>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="applyGst" checked={form.applyGst} onChange={e => update('applyGst', e.target.checked)} className="w-4 h-4 rounded accent-indigo-600 border-slate-300" />
+                    <Label htmlFor="applyGst" className="text-xs font-medium cursor-pointer">
+                      {form.applyGst ? `Apply GST (${isInterState ? 'IGST' : 'CGST + SGST'})` : 'Exempt / No GST'}
+                    </Label>
+                  </label>
                 </div>
               </div>
+
+              {/* Discount */}
+              <div className="bg-white dark:bg-slate-900 border border-rose-200/60 dark:border-rose-900/30 rounded-xl p-3">
+                <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Discount (₹)</Label>
+                <Input type="number" min="0" step="0.01" value={form.discount} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-8 rounded-lg text-sm mt-1.5" />
+              </div>
+
+              {/* Charge rows with GST checkbox */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { label: 'Freight (₹)', key: 'shippingCharges' },
+                  { label: 'Loading Charges (₹)', key: 'loadingCharges' },
+                  { label: 'Unloading Charges (₹)', key: 'unloadingCharges' },
+                  { label: 'Packing Charges (₹)', key: 'packingCharges' },
+                  { label: 'Insurance (₹)', key: 'insurance' },
+                  { label: 'Other Charges (₹)', key: 'otherCharges' },
+                ].map(({ label, key }) => (
+                  <ChargeRow
+                    key={key}
+                    label={label}
+                    fieldKey={key}
+                    value={form[key]}
+                    gstChecked={chargeGstStates[key]}
+                    isInterState={isInterState}
+                    onChange={v => update(key, v)}
+                    onGstChange={checked => setChargeGstStates(prev => ({ ...prev, [key]: checked }))}
+                  />
+                ))}
+              </div>
             </div>
-            <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 rounded-2xl p-4 space-y-2 text-sm">
+
+            <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 rounded-2xl p-4 space-y-2 text-sm h-fit">
               {[
                 { label: 'Taxable Value', value: totals.taxable },
-                ...(isInterState 
-                  ? [{ label: 'IGST', value: totals.gst }]
-                  : [{ label: 'CGST + SGST', value: totals.gst }]
-                ),
-                { label: 'Freight Charges', value: freight },
+                ...(form.applyGst ? (
+                  isInterState ? [{ label: 'IGST', value: totals.gst + extraGst }] : [
+                    { label: 'CGST', value: (totals.gst + extraGst) / 2 },
+                    { label: 'SGST', value: (totals.gst + extraGst) / 2 }
+                  ]
+                ) : [{ label: 'GST (Exempted)', value: 0 }]),
+                { label: 'Freight', value: freight },
+                { label: 'Loading', value: loadingCharges },
+                { label: 'Unloading', value: unloadingCharges },
+                { label: 'Packing', value: packingCharges },
+                { label: 'Insurance', value: insurance },
                 { label: 'Other Charges', value: otherCharges },
                 { label: 'Discount', value: -discount },
                 { label: 'Round Off', value: roundOff },
@@ -1304,6 +1288,44 @@ export default function PurchaseQuotationsView() {
 
   const [editPQId, setEditPQId] = useState(null);
   const navigate = useNavigate();
+  const qc = useQueryClient();
+
+  const deleteMutation = useMutation({
+    mutationFn: id => api.delete(`/asset-management/quotations/${id}`).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['asset-pqs'] });
+      Swal.fire({
+        icon: 'success',
+        title: 'Deleted!',
+        text: 'Purchase Quotation has been deleted.',
+        timer: 1500,
+        showConfirmButton: false,
+        customClass: { popup: 'rounded-3xl border border-slate-200' }
+      });
+    },
+    onError: err => Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: err.response?.data?.error || 'Failed to delete quotation',
+      confirmButtonColor: '#4f46e5'
+    })
+  });
+
+  const handleDeletePQ = (id) => {
+    Swal.fire({
+      title: 'Are you sure?',
+      text: "This will permanently delete this purchase quotation.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(id);
+      }
+    });
+  };
 
   const { data: pqs = [], isLoading } = useQuery({
     queryKey: ['asset-pqs'],
@@ -1438,10 +1460,29 @@ export default function PurchaseQuotationsView() {
                           <Button variant="ghost" size="icon" onClick={() => setSelectedPQ(pq)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="View Details">
                             <Eye className="w-4 h-4" />
                           </Button>
-                          {!isReadOnly && pq.status !== 'PO Issued' && (
-                            <Button variant="ghost" size="icon" onClick={() => { setEditPQId(pq.id); setView('create'); }} className="h-8 w-8 rounded-lg text-slate-400 hover:text-amber-600" title="Edit Quotation">
-                              <Edit className="w-4 h-4" />
-                            </Button>
+                          {!isReadOnly && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => { setEditPQId(pq.id); setView('create'); }}
+                                disabled={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled')}
+                                className="h-8 w-8 rounded-lg text-slate-400 hover:text-amber-600 disabled:opacity-40"
+                                title={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled') ? "Cannot edit: PO already issued" : "Edit Quotation"}
+                              >
+                                <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleDeletePQ(pq.id)}
+                                disabled={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled')}
+                                className="h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 disabled:opacity-40"
+                                title={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled') ? "Cannot delete: PO already issued" : "Delete Quotation"}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </>
                           )}
                           {!isReadOnly && (
                             <Button

@@ -4,6 +4,7 @@ const prisma = require('../../database/prisma');
 const authenticateToken = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
 const notificationService = require('../notifications/notifications.service');
+const { sendSalesInvoiceDual } = require('../../utils/communication');
 
 const router = express.Router();
 
@@ -343,6 +344,17 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       return newOrder;
     });
 
+    if (order && order.type === 'Invoice') {
+      prisma.customerOrder.findUnique({
+        where: { id: order.id },
+        include: { customer: true, items: { include: { product: true } } }
+      }).then(orderWithDetails => {
+        if (orderWithDetails) {
+          sendSalesInvoiceDual(orderWithDetails);
+        }
+      }).catch(err => console.error('Failed to trigger sales invoice dual send:', err));
+    }
+
     res.status(201).json(order);
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
@@ -587,6 +599,17 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
 
       return existing;
     });
+
+    if (updated && data.type === 'Invoice') {
+      prisma.customerOrder.findUnique({
+        where: { id: id },
+        include: { customer: true, items: { include: { product: true } } }
+      }).then(orderWithDetails => {
+        if (orderWithDetails) {
+          sendSalesInvoiceDual(orderWithDetails);
+        }
+      }).catch(err => console.error('Failed to trigger sales invoice dual send on update:', err));
+    }
 
     res.json(updated);
   } catch (error) {

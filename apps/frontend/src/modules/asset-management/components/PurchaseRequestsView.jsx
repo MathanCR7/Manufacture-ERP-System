@@ -14,7 +14,7 @@ import {
   Plus, Search, FileText, CheckCircle2, Clock, XCircle,
   AlertTriangle, ChevronDown, X, Eye, ArrowLeft, Loader2,
   Building2, Tag, Calculator, Calendar, User, Briefcase,
-  TrendingUp, Package, Trash2
+  TrendingUp, Package, Trash2, Edit
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -203,195 +203,8 @@ function PRDetailModal({ pr, onClose }) {
   );
 }
 
-// Add Supplier Inline Dialog Component
-function AddSupplierInline({ onAdded, onClose }) {
-  const [name, setName] = useState('');
-  const [contactPerson, setContactPerson] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [gstin, setGstin] = useState('');
-  const [pan, setPan] = useState('');
-  const [openingBalance, setOpeningBalance] = useState('0.00');
-  const [creditLimit, setCreditLimit] = useState('0.00');
-  const [address, setAddress] = useState('');
-  const [note, setNote] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isVerifyingGstin, setIsVerifyingGstin] = useState(false);
-
-  const handleVerifyGSTIN = async () => {
-    if (!gstin || !gstin.trim()) {
-      Swal.fire({ icon: 'warning', title: 'GSTIN Required', text: 'Please enter a GSTIN to verify.', confirmButtonColor: '#4f46e5' });
-      return;
-    }
-    const cleanGstin = gstin.trim().toUpperCase();
-    const regex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    if (!regex.test(cleanGstin)) {
-      Swal.fire({ icon: 'error', title: 'Invalid GSTIN', text: 'Standard format: 2-digit State Code + 10-char PAN + Entity Digit + Z + Check Digit (15 chars).', confirmButtonColor: '#4f46e5' });
-      return;
-    }
-    setIsVerifyingGstin(true);
-    try {
-      const res = await api.get(`/asset-management/verify-gstin/${cleanGstin}`);
-      const data = res.data;
-      const isLive = data.source === 'live';
-      const statusBadge = data.status?.toLowerCase() === 'active'
-        ? `<span style="background:#d1fae5;color:#065f46;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px;">✓ ACTIVE</span>`
-        : `<span style="background:#fee2e2;color:#991b1b;padding:2px 10px;border-radius:999px;font-weight:700;font-size:11px;">✗ ${data.status?.toUpperCase() || 'UNKNOWN'}</span>`;
-      const row = (label, value) =>
-        value ? `<tr><td style="color:#6b7280;font-size:11px;padding:5px 0;width:45%;">${label}</td><td style="font-size:12px;font-weight:600;color:#111827;text-align:right;">${value}</td></tr>` : '';
-      const tableHtml = `
-        <div style="text-align:left">
-          ${data.warning ? `<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:11px;color:#92400e;margin-bottom:12px;">⚠️ ${data.warning}</div>` : ''}
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <code style="font-size:13px;font-weight:700;color:#4f46e5;letter-spacing:1px;">${data.gstin}</code>
-            ${statusBadge}
-          </div>
-          <table style="width:100%;border-collapse:collapse;">
-            ${row('Legal Name', data.legalName || '<span style="color:#9ca3af;font-style:italic;">Not available (live API required)</span>')}
-            ${row('Trade Name', data.tradeName && data.tradeName !== data.legalName ? data.tradeName : '')}
-            ${row('PAN', data.pan)}
-            ${row('State', `${data.state} (${data.stateCode})`)}
-            ${row('Constitution', data.constitutionOfBusiness)}
-            ${row('Taxpayer Type', data.taxpayerType)}
-            ${row('Registration Date', data.registrationDate)}
-            ${row('Principal Address', data.principalAddress || '<span style="color:#9ca3af;font-style:italic;">Not available</span>')}
-          </table>
-          <div style="margin-top:12px;font-size:10px;color:#9ca3af;text-align:center;">
-            ${isLive ? '🟢 Live data from GST Portal' : '🔵 Parsed from GSTIN format (offline mode)'}
-          </div>
-        </div>
-      `;
-      const result = await Swal.fire({
-        title: '<span style="font-size:15px;">🔍 GST Registry Verification</span>',
-        html: tableHtml,
-        showCancelButton: true,
-        confirmButtonText: 'Apply to Form',
-        cancelButtonText: 'Close',
-        confirmButtonColor: '#4f46e5',
-        cancelButtonColor: '#6b7280',
-        width: '480px'
-      });
-      if (result.isConfirmed) {
-        setGstin(cleanGstin);
-        setPan(data.pan || '');
-        if (data.legalName) setName(data.legalName);
-        if (data.principalAddress) setAddress(data.principalAddress);
-      }
-    } catch (err) {
-      console.error('GSTIN verify error:', err);
-      Swal.fire({ icon: 'error', title: 'Verification Failed', text: err.response?.data?.error || 'Unable to verify GSTIN.', confirmButtonColor: '#ef4444' });
-    } finally {
-      setIsVerifyingGstin(false);
-    }
-  };
-
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!name || !phone) return;
-    setIsSubmitting(true);
-    try {
-      const res = await api.post('/parties/suppliers', {
-        name, contactPerson, phone, email, gstin, pan, openingBalance, creditLimit, address, note
-      });
-      onAdded(res.data);
-    } catch (err) {
-      console.error('Failed to add supplier', err);
-      Swal.fire({
-        icon: 'error',
-        title: 'Oops...',
-        text: 'Failed to add supplier',
-        confirmButtonColor: '#4f46e5',
-        customClass: {
-          popup: 'rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900',
-          title: 'text-slate-900 dark:text-white',
-          htmlContainer: 'text-slate-600 dark:text-slate-300'
-        }
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-300">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 md:p-8 w-full max-w-2xl shadow-2xl border border-slate-200/60 dark:border-slate-800 max-h-[90vh] overflow-y-auto transform animate-in zoom-in-95 duration-200">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Quick Add Supplier</h2>
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500">
-            <X className="w-5 h-5" />
-          </Button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Name <span className="text-rose-500">*</span></Label>
-              <Input required value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Acme Corp" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Contact Person</Label>
-              <Input value={contactPerson} onChange={e => setContactPerson(e.target.value)} placeholder="John Doe" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Phone <span className="text-rose-500">*</span></Label>
-              <Input required value={phone} onChange={e => setPhone(e.target.value)} placeholder="Phone number" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Email</Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="md:col-span-2 space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">GSTIN</Label>
-              <div className="flex gap-2">
-                <Input value={gstin} onChange={e => setGstin(e.target.value.toUpperCase())} placeholder="e.g. 29ABCDE1234F1Z5" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50 font-mono uppercase" />
-                <Button type="button" disabled={isVerifyingGstin} onClick={handleVerifyGSTIN} className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 px-4 rounded-xl h-[42px] shadow-sm">
-                  {isVerifyingGstin ? 'Verifying...' : 'Fetch Details'}
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">PAN</Label>
-              <Input value={pan} onChange={e => setPan(e.target.value)} placeholder="PAN" className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50 font-mono" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Opening Balance</Label>
-              <Input type="number" step="0.01" value={openingBalance} onChange={e => setOpeningBalance(e.target.value)} className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Credit Limit</Label>
-              <Input type="number" step="0.01" value={creditLimit} onChange={e => setCreditLimit(e.target.value)} className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="md:col-span-2 space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Address</Label>
-              <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St..." className="h-[42px] rounded-xl border-slate-300 dark:border-slate-700 focus:ring-indigo-500/20 hover:border-indigo-400 transition-colors bg-slate-50/50 dark:bg-slate-900/50" />
-            </div>
-            <div className="md:col-span-2 space-y-1.5">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Note</Label>
-              <textarea 
-                className="w-full rounded-xl border border-slate-300 dark:border-slate-700 p-3 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 hover:border-indigo-400 transition-all text-sm resize-none" 
-                rows={3} 
-                value={note} 
-                onChange={e => setNote(e.target.value)} 
-                placeholder="Additional notes..." 
-              />
-            </div>
-          </div>
-          <div className="flex justify-end space-x-3 pt-6 border-t border-slate-100 dark:border-slate-800">
-            <Button type="button" variant="outline" onClick={onClose} className="rounded-xl px-6 h-11 text-slate-600 hover:text-slate-900 hover:bg-slate-100 border-slate-200 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white transition-colors">Cancel</Button>
-            <Button type="submit" disabled={isSubmitting} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all font-medium">
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Adding...
-                </>
-              ) : 'Add Supplier'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
+const AddSupplierInline = QuickAddSupplierModal;
 
 // Searchable Supplier Dropdown Component
 function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
@@ -472,7 +285,7 @@ function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
   );
 }
 
-function CreatePRForm({ onBack, isReadOnly }) {
+function CreatePRForm({ onBack, isReadOnly, editPRId }) {
   const user = useAuthStore(s => s.user);
   const qc = useQueryClient();
   const [form, setForm] = useState({
@@ -497,6 +310,46 @@ function CreatePRForm({ onBack, isReadOnly }) {
   });
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
+
+  const { data: existingPR, isLoading: isLoadingPR } = useQuery({
+    queryKey: ['asset-pr', editPRId],
+    queryFn: () => api.get(`/asset-management/requests/${editPRId}`).then(r => r.data),
+    enabled: !!editPRId,
+  });
+
+  useEffect(() => {
+    if (existingPR) {
+      setForm({
+        requesterName: existingPR.requesterName || '',
+        requesterEmpId: existingPR.requesterEmpId || '',
+        department: existingPR.department || 'IT',
+        costCenter: existingPR.costCenter || 'CC-IT-001',
+        requiredByDate: existingPR.requiredByDate ? new Date(existingPR.requiredByDate) : null,
+        priority: existingPR.priority || 'Normal',
+        justification: existingPR.justification || '',
+        preferredVendor: existingPR.preferredVendor || '',
+        items: existingPR.items && existingPR.items.length > 0 ? existingPR.items.map(item => ({
+          category: item.category || 'IT Equipment',
+          assetName: item.assetName || '',
+          hsnCode: item.hsnCode || '',
+          hsnDescription: item.hsnDescription || '',
+          uom: item.uom || 'EA',
+          specifications: item.specifications || '',
+          quantity: item.quantity || 1,
+          estimatedUnitCost: item.estimatedUnitCost !== undefined ? String(item.estimatedUnitCost) : ''
+        })) : [{
+          category: 'IT Equipment',
+          assetName: '',
+          hsnCode: '',
+          hsnDescription: '',
+          uom: 'EA',
+          specifications: '',
+          quantity: 1,
+          estimatedUnitCost: ''
+        }]
+      });
+    }
+  }, [existingPR]);
 
   const [activeRowIdx, setActiveRowIdx] = useState(null);
   const [assetSearch, setAssetSearch] = useState('');
@@ -694,18 +547,26 @@ function CreatePRForm({ onBack, isReadOnly }) {
   };
 
   const mutation = useMutation({
-    mutationFn: data => api.post('/asset-management/requests', data).then(r => r.data),
+    mutationFn: data => {
+      if (editPRId) {
+        return api.put(`/asset-management/requests/${editPRId}`, data).then(r => r.data);
+      }
+      return api.post('/asset-management/requests', data).then(r => r.data);
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['asset-prs'] });
+      if (editPRId) {
+        qc.invalidateQueries({ queryKey: ['asset-pr', editPRId] });
+      }
       Swal.fire({
         icon: 'success',
-        title: 'Purchase Request Created!',
-        html: `<b>${res.prNo}</b> submitted successfully${res.warning ? `<br/><span style="color:#f59e0b;font-size:0.85em">${res.warning}</span>` : ''}`,
+        title: editPRId ? 'Purchase Request Updated!' : 'Purchase Request Created!',
+        html: `<b>${res.prNo}</b> ${editPRId ? 'updated' : 'submitted'} successfully${res.warning ? `<br/><span style="color:#f59e0b;font-size:0.85em">${res.warning}</span>` : ''}`,
         confirmButtonColor: '#4f46e5',
         customClass: { popup: 'rounded-3xl border border-slate-200 dark:border-slate-800' }
       }).then(() => onBack());
     },
-    onError: (err) => setError(err.response?.data?.error || 'Failed to create PR'),
+    onError: (err) => setError(err.response?.data?.error || `Failed to ${editPRId ? 'update' : 'create'} PR`),
   });
 
   const handleSubmit = (e) => {
@@ -719,6 +580,15 @@ function CreatePRForm({ onBack, isReadOnly }) {
     }
     mutation.mutate(form);
   };
+
+  if (editPRId && isLoadingPR) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
+        <p className="text-sm text-slate-500">Loading purchase request details...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 w-full">
@@ -739,8 +609,9 @@ function CreatePRForm({ onBack, isReadOnly }) {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">New Purchase Request</h2>
-          <p className="text-sm text-slate-500">SAP B1 Asset Procurement — Step 1 of 8</p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+            {editPRId ? 'Edit Purchase Request' : 'New Purchase Request'}
+          </h2>
         </div>
       </div>
 
@@ -1020,6 +891,7 @@ export default function PurchaseRequestsView() {
   const user = useAuthStore(s => s.user);
   const isReadOnly = user?.role === 'SUPERVISOR';
   const [view, setView] = useState('list');
+  const [editPRId, setEditPRId] = useState(null);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedPR, setSelectedPR] = useState(null);
@@ -1030,11 +902,53 @@ export default function PurchaseRequestsView() {
     queryFn: () => api.get('/asset-management/requests').then(r => r.data),
   });
 
+  const { data: pqs = [] } = useQuery({
+    queryKey: ['asset-pqs'],
+    queryFn: () => api.get('/asset-management/quotations').then(r => r.data),
+  });
+
   const approveMutation = useMutation({
     mutationFn: id => api.patch(`/asset-management/requests/${id}/approve`).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['asset-prs'] }),
     onError: err => Swal.fire({ icon: 'error', title: 'Error', text: err.response?.data?.error || 'Failed to approve', confirmButtonColor: '#4f46e5' })
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: id => api.delete(`/asset-management/requests/${id}`).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['asset-prs'] });
+      Swal.fire({
+        icon: 'success',
+        title: 'Deleted!',
+        text: 'Purchase Request has been deleted.',
+        timer: 1500,
+        showConfirmButton: false,
+        customClass: { popup: 'rounded-3xl border border-slate-200' }
+      });
+    },
+    onError: err => Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: err.response?.data?.error || 'Failed to delete request',
+      confirmButtonColor: '#4f46e5'
+    })
+  });
+
+  const handleDeletePR = (id) => {
+    Swal.fire({
+      title: 'Are you sure?',
+      text: "This will permanently delete this purchase request.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(id);
+      }
+    });
+  };
 
   const filtered = prs.filter(pr => {
     const matchSearch = pr.assetName?.toLowerCase().includes(search.toLowerCase()) ||
@@ -1044,7 +958,18 @@ export default function PurchaseRequestsView() {
     return matchSearch && matchStatus;
   });
 
-  if (view === 'create') return <CreatePRForm onBack={() => setView('list')} isReadOnly={isReadOnly} />;
+  if (view === 'create') {
+    return (
+      <CreatePRForm
+        onBack={() => {
+          setView('list');
+          setEditPRId(null);
+        }}
+        isReadOnly={isReadOnly}
+        editPRId={editPRId}
+      />
+    );
+  }
 
   const totalValue = prs.reduce((s, p) => s + Number(p.estimatedTotalCost), 0);
   const approvedCount = prs.filter(p => p.status === 'Approved').length;
@@ -1130,9 +1055,36 @@ export default function PurchaseRequestsView() {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedPR(pr)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600">
+                    <Button variant="ghost" size="icon" onClick={() => setSelectedPR(pr)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="View Details">
                       <Eye className="w-4 h-4" />
                     </Button>
+                    {!isReadOnly && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setEditPRId(pr.id);
+                            setView('create');
+                          }}
+                          disabled={pqs.some(pq => pq.prNo === pr.prNo)}
+                          className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 disabled:opacity-40 disabled:hover:text-slate-400"
+                          title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot edit: Quotation already raised" : "Edit Request"}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeletePR(pr.id)}
+                          disabled={pqs.some(pq => pq.prNo === pr.prNo)}
+                          className="h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 disabled:opacity-40 disabled:hover:text-slate-400"
+                          title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot delete: Quotation already raised" : "Delete Request"}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </>
+                    )}
                     {!isReadOnly && pr.status === 'Submitted' && (
                       <Button variant="ghost" size="sm" onClick={() => approveMutation.mutate(pr.id)}
                         disabled={approveMutation.isPending}

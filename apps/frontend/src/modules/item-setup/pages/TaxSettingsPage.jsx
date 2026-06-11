@@ -3,12 +3,14 @@ import { Settings, Plus, Trash2, CheckCircle2, Building } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { api } from '@/lib/axios';
 
 export default function TaxSettingsPage() {
   // Company state fields requested by the user
   const [companyName, setCompanyName] = useState('Kulfi ERP System Ltd.');
   const [companyAddress, setCompanyAddress] = useState('12, Ice Cream Industrial Zone, Mumbai, Maharashtra');
   const [companyGstin, setCompanyGstin] = useState('27AABC1234F1Z5');
+  const [companyMobile, setCompanyMobile] = useState('+91 9360163523');
 
   // Tax configuration fields
   const [collectTax, setCollectTax] = useState('Yes');
@@ -21,26 +23,47 @@ export default function TaxSettingsPage() {
   ]);
   const [success, setSuccess] = useState(false);
 
-  // Load settings from local storage on mount
+  // Load settings from backend API on mount
   useEffect(() => {
-    const saved = localStorage.getItem('kulfi_erp_tax_settings');
-    if (saved) {
+    const fetchSettings = async () => {
       try {
-        const parsed = JSON.parse(saved);
-        setCompanyName(parsed.companyName || 'Kulfi ERP System Ltd.');
-        setCompanyAddress(parsed.companyAddress || '12, Ice Cream Industrial Zone, Mumbai, Maharashtra');
-        setCompanyGstin(parsed.companyGstin || '27AABC1234F1Z5');
-        
-        setCollectTax(parsed.collectTax || 'Yes');
-        setTaxRegNo(parsed.taxRegNo || '27AABC1234F1Z5');
-        setTaxType(parsed.taxType || 'Exclusive Tax');
-        if (parsed.taxes && Array.isArray(parsed.taxes)) {
-          setTaxes(parsed.taxes);
+        const response = await api.get('/setup/tax');
+        const data = response.data;
+        if (data) {
+          setCompanyName(data.companyName || '');
+          setCompanyAddress(data.companyAddress || '');
+          setCompanyGstin(data.companyGstin || '');
+          setCompanyMobile(data.companyMobile || '+91 9360163523');
+          setCollectTax(data.collectTax || 'Yes');
+          setTaxRegNo(data.taxRegNo || '');
+          setTaxType(data.taxType || 'Exclusive Tax');
+          if (data.taxes && Array.isArray(data.taxes)) {
+            setTaxes(data.taxes.map(t => ({ name: t.name, rate: String(t.rate) })));
+          }
         }
-      } catch (e) {
-        console.error('Error loading tax settings', e);
+      } catch (err) {
+        console.error('Failed to load tax settings from backend, trying localStorage fallback:', err);
+        const saved = localStorage.getItem('kulfi_erp_tax_settings');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            setCompanyName(parsed.companyName || 'Kulfi ERP System Ltd.');
+            setCompanyAddress(parsed.companyAddress || '12, Ice Cream Industrial Zone, Mumbai, Maharashtra');
+            setCompanyGstin(parsed.companyGstin || '27AABC1234F1Z5');
+            setCompanyMobile(parsed.companyMobile || '+91 9360163523');
+            setCollectTax(parsed.collectTax || 'Yes');
+            setTaxRegNo(parsed.taxRegNo || '27AABC1234F1Z5');
+            setTaxType(parsed.taxType || 'Exclusive Tax');
+            if (parsed.taxes && Array.isArray(parsed.taxes)) {
+              setTaxes(parsed.taxes.map(t => ({ name: t.name, rate: String(t.rate) })));
+            }
+          } catch (e) {
+            console.error('Error loading fallback tax settings', e);
+          }
+        }
       }
-    }
+    };
+    fetchSettings();
   }, []);
 
   const handleAddRow = () => {
@@ -57,7 +80,7 @@ export default function TaxSettingsPage() {
     setTaxes(updated);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!companyName.trim()) {
       alert('Company Name is required.');
@@ -76,6 +99,7 @@ export default function TaxSettingsPage() {
       companyName: companyName.trim(),
       companyAddress: companyAddress.trim(),
       companyGstin: companyGstin.trim(),
+      companyMobile: companyMobile.trim(),
       collectTax,
       taxRegNo: companyGstin.trim(),
       taxType,
@@ -85,9 +109,18 @@ export default function TaxSettingsPage() {
       }))
     };
 
-    localStorage.setItem('kulfi_erp_tax_settings', JSON.stringify(settings));
-    setSuccess(true);
-    setTimeout(() => setSuccess(false), 3000);
+    try {
+      await api.post('/setup/tax', settings);
+      localStorage.setItem('kulfi_erp_tax_settings', JSON.stringify(settings));
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch (err) {
+      console.error('Failed to save settings to backend:', err);
+      alert('Failed to save settings to backend. Saving locally instead.');
+      localStorage.setItem('kulfi_erp_tax_settings', JSON.stringify(settings));
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    }
   };
 
   return (
@@ -136,7 +169,7 @@ export default function TaxSettingsPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     Company Address <span className="text-red-500">*</span>
@@ -158,11 +191,24 @@ export default function TaxSettingsPage() {
                     required
                     value={companyGstin}
                     onChange={(e) => {
-                      setCompanyGstin(e.target.value);
-                      setTaxRegNo(e.target.value); // Keep in sync for compatibility
+                       setCompanyGstin(e.target.value);
+                       setTaxRegNo(e.target.value); // Keep in sync for compatibility
                     }}
                     placeholder="e.g. 27AABC1234F1Z5"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-xl font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Company Mobile <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    required
+                    value={companyMobile}
+                    onChange={(e) => setCompanyMobile(e.target.value)}
+                    placeholder="e.g. +91 9360163523"
+                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-xl"
                   />
                 </div>
               </div>

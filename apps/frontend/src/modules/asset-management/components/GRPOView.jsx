@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Plus, Search, Truck, CheckCircle2, X, Eye, ArrowLeft,
   Loader2, AlertTriangle, ChevronDown, Package, Camera,
-  Hash, ClipboardCheck, FileText, AlertOctagon, BarChart2
+  Hash, ClipboardCheck, FileText, AlertOctagon, BarChart2, Edit, Trash2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -69,7 +69,7 @@ function GRPODetailModal({ grpo, onClose }) {
               <table className="w-full text-xs">
                 <thead className="bg-slate-50 dark:bg-slate-800">
                   <tr>
-                    {['Item', 'PO Qty', 'Received Qty', 'Accepted Qty', 'Rejected Qty', 'Condition', 'Serial No.', 'Remarks'].map(h => (
+                    {['Item', 'HSN/SAC', 'PO Qty', 'Received Qty', 'Accepted Qty', 'Rejected Qty', 'Condition', 'Serial No.', 'Remarks'].map(h => (
                       <th key={h} className="px-3 py-2.5 text-left font-bold text-slate-500 uppercase tracking-wider">{h}</th>
                     ))}
                   </tr>
@@ -78,6 +78,7 @@ function GRPODetailModal({ grpo, onClose }) {
                   {grpo.items.map((item, i) => (
                     <tr key={i} className="hover:bg-slate-50/60">
                       <td className="px-3 py-2.5 font-medium text-slate-800 dark:text-slate-200">{item.itemDescription}</td>
+                      <td className="px-3 py-2.5 font-mono text-slate-500">{item.hsnSac || '—'}</td>
                       <td className="px-3 py-2.5">{item.poQuantity}</td>
                       <td className="px-3 py-2.5 font-bold">{item.receivedQuantity}</td>
                       <td className="px-3 py-2.5 text-emerald-600 font-bold">{item.acceptedQuantity}</td>
@@ -106,7 +107,7 @@ function GRPODetailModal({ grpo, onClose }) {
   );
 }
 
-function POSelect({ pos = [], value, onChange }) {
+function POSelect({ pos = [], value, onChange, disabled }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = React.useRef(null);
@@ -138,8 +139,10 @@ function POSelect({ pos = [], value, onChange }) {
     <div ref={containerRef} className="relative w-full">
       <button
         type="button"
+        disabled={disabled}
         onClick={() => setOpen(!open)}
         className={`w-full px-4 h-10 border rounded-xl text-left flex items-center justify-between transition-all duration-200 shadow-sm ${
+          disabled ? 'opacity-65 cursor-not-allowed bg-slate-100/50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-800' :
           open ? 'bg-indigo-50/50 border-indigo-400 ring-4 ring-indigo-500/10 dark:bg-indigo-900/10 dark:border-indigo-500' : 'bg-slate-50/50 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 hover:border-indigo-400 hover:bg-white dark:hover:bg-slate-800'
         }`}
       >
@@ -148,7 +151,7 @@ function POSelect({ pos = [], value, onChange }) {
         </span>
         <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180 text-indigo-500' : ''}`} />
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="absolute z-50 mt-2 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="p-2 border-b border-slate-100 dark:border-slate-700 relative bg-slate-50/50 dark:bg-slate-900/50">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -192,7 +195,7 @@ function POSelect({ pos = [], value, onChange }) {
   );
 }
 
-function CreateGRPOForm({ onBack, isReadOnly }) {
+function CreateGRPOForm({ onBack, isReadOnly, editGRPOId }) {
   const [form, setForm] = useState({
     poId: '',
     vendorName: '',
@@ -214,18 +217,69 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
     queryFn: () => api.get('/asset-management/purchase-orders').then(r => r.data.filter(p => ['Approved', 'Sent'].includes(p.status))),
   });
 
+  const { data: allPOs = [] } = useQuery({
+    queryKey: ['asset-pos'],
+    queryFn: () => api.get('/asset-management/purchase-orders').then(r => r.data),
+  });
+
+  const { data: grpos = [] } = useQuery({
+    queryKey: ['asset-grpos'],
+    enabled: false,
+  });
+
+  React.useEffect(() => {
+    if (editGRPOId && grpos.length > 0 && allPOs.length > 0) {
+      const found = grpos.find(g => g.id === editGRPOId);
+      if (found) {
+        const linkedPO = allPOs.find(p => p.poNo === found.poNo);
+        setForm({
+          poId: linkedPO?.id || '',
+          vendorName: found.vendorName || '',
+          receivedDate: found.receivedDate ? new Date(found.receivedDate) : null,
+          receivedBy: found.receivedBy || '',
+          receivingLocation: found.receivingLocation || '',
+          deliveryNoteNo: found.deliveryNoteNo || '',
+          challanNo: found.challanNo || '',
+          vehicleNo: found.vehicleNo || '',
+          qualityCheckNotes: found.qualityCheckNotes || '',
+          items: found.items?.map(i => ({
+            id: i.id,
+            itemDescription: i.itemDescription || i.description || '',
+            hsnSac: i.hsnSac || '',
+            poQuantity: Number(i.poQuantity || i.poQty || 0),
+            receivedQuantity: Number(i.receivedQuantity || i.receivedQty || 0),
+            acceptedQuantity: Number(i.acceptedQuantity || i.acceptedQty || 0),
+            rejectedQuantity: Number(i.rejectedQuantity || i.rejectedQty || 0),
+            condition: i.condition || 'Good',
+            serialNo: i.serialNo || '',
+            assetTagNo: i.assetTag || i.assetTagNo || '',
+            inspectionRemarks: i.inspectionRemarks || i.remarks || '',
+          })) || [],
+        });
+      }
+    }
+  }, [editGRPOId, grpos, allPOs]);
+
   const mutation = useMutation({
-    mutationFn: data => api.post('/asset-management/grpo', data).then(r => r.data),
+    mutationFn: data => {
+      if (editGRPOId) {
+        return api.put(`/asset-management/grpo/${editGRPOId}`, data).then(r => r.data);
+      } else {
+        return api.post('/asset-management/grpo', data).then(r => r.data);
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['asset-grpos'] });
+      qc.invalidateQueries({ queryKey: ['asset-pos-open'] });
+      qc.invalidateQueries({ queryKey: ['asset-pos'] });
       Swal.fire({
         icon: 'success',
-        title: 'GRPO Created!',
-        text: 'Goods/Assets received and logged successfully.',
+        title: editGRPOId ? 'GRPO Updated!' : 'GRPO Created!',
+        text: editGRPOId ? 'Goods receipt PO updated successfully.' : 'Goods/Assets received and logged successfully.',
         confirmButtonColor: '#4f46e5'
       }).then(() => onBack());
     },
-    onError: err => setError(err.response?.data?.error || 'Failed to create GRPO'),
+    onError: err => setError(err.response?.data?.error || `Failed to ${editGRPOId ? 'update' : 'create'} GRPO`),
   });
 
   const handleSubmit = e => {
@@ -284,7 +338,9 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Goods Receipt (GRPO)</h2>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+            {editGRPOId ? 'Edit Goods Receipt (GRPO)' : 'Goods Receipt (GRPO)'}
+          </h2>
           <p className="text-sm text-slate-500">SAP B1 Asset Procurement — Step 4 of 8</p>
         </div>
       </div>
@@ -303,8 +359,9 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
           </h3>
           <div className="relative max-w-md">
             <POSelect
+              disabled={!!editGRPOId}
               pos={pos}
-              value={pos.find(p => p.id === form.poId) || null}
+              value={pos.find(p => p.id === form.poId) || allPOs.find(p => p.id === form.poId) || null}
               onChange={po => fillFromPO(po.id)}
             />
           </div>
@@ -318,7 +375,7 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <Label>Vendor Name <span className="text-rose-500">*</span></Label>
-              <Input required disabled={isPoLinked} value={form.vendorName} onChange={e => update('vendorName', e.target.value)} className="h-10 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
+              <Input required disabled={isPoLinked || !!editGRPOId} value={form.vendorName} onChange={e => update('vendorName', e.target.value)} className="h-10 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
             </div>
             <DatePicker label="Received Date *" value={form.receivedDate} onChange={d => update('receivedDate', d)} placeholder="Select date" />
             <div className="space-y-1.5">
@@ -350,7 +407,7 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
               <ClipboardCheck className="w-4 h-4 text-indigo-500" /> Item-wise Inspection
             </h3>
-            {!isPoLinked && (
+            {!isPoLinked && !editGRPOId && (
               <Button type="button" variant="outline" size="sm" onClick={addItem} className="h-8 rounded-lg text-xs gap-1 border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:bg-indigo-50">
                 <Plus className="w-3.5 h-3.5" /> Add Item
               </Button>
@@ -363,7 +420,7 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
                   <div className="md:col-span-2 space-y-1">
                     <Label className="text-xs">Item Description <span className="text-rose-500">*</span></Label>
                     <Input
-                      disabled={isPoLinked}
+                      disabled={isPoLinked || !!editGRPOId}
                       value={item.itemDescription}
                       onChange={e => updateItem(idx, 'itemDescription', e.target.value)}
                       className="h-9 rounded-lg text-sm disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50"
@@ -372,7 +429,7 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
                   <div className="space-y-1">
                     <Label className="text-xs">HSN/SAC</Label>
                     <Input
-                      disabled={isPoLinked}
+                      disabled={isPoLinked || !!editGRPOId}
                       value={item.hsnSac}
                       onChange={e => updateItem(idx, 'hsnSac', e.target.value)}
                       className="h-9 rounded-lg text-sm font-mono disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50"
@@ -381,7 +438,7 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
                   <div className="space-y-1">
                     <Label className="text-xs">PO Quantity</Label>
                     <Input
-                      disabled={isPoLinked}
+                      disabled={isPoLinked || !!editGRPOId}
                       type="number"
                       min="0"
                       value={item.poQuantity}
@@ -427,7 +484,7 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
                     <Input value={item.inspectionRemarks} onChange={e => updateItem(idx, 'inspectionRemarks', e.target.value)} placeholder="Notes from quality inspection..." className="h-9 rounded-lg text-sm" />
                   </div>
                 </div>
-                {!isPoLinked && form.items.length > 1 && (
+                {!isPoLinked && !editGRPOId && form.items.length > 1 && (
                   <div className="flex justify-end mt-2">
                     <button type="button" onClick={() => removeItem(idx)} className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                       <AlertOctagon className="w-4 h-4" />
@@ -452,7 +509,7 @@ function CreateGRPOForm({ onBack, isReadOnly }) {
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={onBack} className="rounded-xl px-6 h-11">Cancel</Button>
           <Button type="submit" disabled={mutation.isPending || isReadOnly} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2">
-            {mutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : <><ClipboardCheck className="w-4 h-4" /> Confirm Receipt</>}
+            {mutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Processing...</> : <><ClipboardCheck className="w-4 h-4" /> {editGRPOId ? 'Save Changes' : 'Confirm Receipt'}</>}
           </Button>
         </div>
       </form>
@@ -466,11 +523,56 @@ export default function GRPOView() {
   const [view, setView] = useState('list');
   const [search, setSearch] = useState('');
   const [selectedGRPO, setSelectedGRPO] = useState(null);
+  const [editGRPOId, setEditGRPOId] = useState(null);
 
   const { data: grpos = [], isLoading } = useQuery({
     queryKey: ['asset-grpos'],
     queryFn: () => api.get('/asset-management/grpo').then(r => r.data),
   });
+
+  const { data: invoices = [] } = useQuery({
+    queryKey: ['asset-ap-invoices'],
+    queryFn: () => api.get('/asset-management/ap-invoices').then(r => r.data),
+  });
+
+  const qc = useQueryClient();
+
+  const deleteMutation = useMutation({
+    mutationFn: id => api.delete(`/asset-management/grpo/${id}`).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['asset-grpos'] });
+      qc.invalidateQueries({ queryKey: ['asset-pos-open'] });
+      qc.invalidateQueries({ queryKey: ['asset-pos'] });
+      Swal.fire({
+        icon: 'success',
+        title: 'GRPO Deleted!',
+        text: 'Goods Receipt PO deleted and PO quantities reverted.',
+        confirmButtonColor: '#4f46e5'
+      });
+    },
+    onError: err => Swal.fire({
+      icon: 'error',
+      title: 'Delete Failed',
+      text: err.response?.data?.error || 'Failed to delete GRPO',
+      confirmButtonColor: '#4f46e5'
+    })
+  });
+
+  const handleDeleteGRPO = (grpo) => {
+    Swal.fire({
+      title: 'Are you sure?',
+      text: `Do you want to delete GRPO ${grpo.grpoNo}? This will delete all generated assets and revert PO quantities!`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(grpo.id);
+      }
+    });
+  };
 
   const [sortBy, setSortBy] = useState('recent');
 
@@ -503,7 +605,7 @@ export default function GRPOView() {
     return 0;
   });
 
-  if (view === 'create') return <CreateGRPOForm onBack={() => setView('list')} isReadOnly={isReadOnly} />;
+  if (view === 'create') return <CreateGRPOForm onBack={() => { setView('list'); setEditGRPOId(null); }} isReadOnly={isReadOnly} editGRPOId={editGRPOId} />;
 
   const acceptedItems = grpos.reduce((s, g) => s + (g.items?.reduce((a, i) => a + Number(i.acceptedQuantity || 0), 0) || 0), 0);
   const rejectedItems = grpos.reduce((s, g) => s + (g.items?.reduce((a, i) => a + Number(i.rejectedQuantity || 0), 0) || 0), 0);
@@ -518,7 +620,7 @@ export default function GRPOView() {
           <p className="text-sm text-slate-500 mt-0.5">Record asset delivery with quality inspection (Step 4/8)</p>
         </div>
         {!isReadOnly && (
-          <Button onClick={() => setView('create')} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
+          <Button onClick={() => { setEditGRPOId(null); setView('create'); }} className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md shadow-indigo-600/10 h-10 px-5">
             <Plus className="w-4 h-4" /> Record Receipt
           </Button>
         )}
@@ -589,6 +691,7 @@ export default function GRPOView() {
             ) : sortedAndFiltered.map(grpo => {
               const accepted = grpo.items?.reduce((s, i) => s + Number(i.acceptedQuantity || 0), 0) || 0;
               const rejected = grpo.items?.reduce((s, i) => s + Number(i.rejectedQuantity || 0), 0) || 0;
+              const hasInvoice = invoices.some(inv => inv.grpoNo === grpo.grpoNo);
               return (
                 <tr key={grpo.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-4 py-3">
@@ -605,9 +708,35 @@ export default function GRPOView() {
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[grpo.status] || STATUS_STYLES.Draft}`}>{grpo.status}</span>
                   </td>
                   <td className="px-4 py-3">
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedGRPO(grpo)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600">
-                      <Eye className="w-4 h-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => setSelectedGRPO(grpo)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-650" title="View GRPO">
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                      {!isReadOnly && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={hasInvoice}
+                            onClick={() => { setEditGRPOId(grpo.id); setView('create'); }}
+                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-650 disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={hasInvoice ? "Cannot edit - AP Invoice exists" : "Edit GRPO"}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={hasInvoice}
+                            onClick={() => handleDeleteGRPO(grpo)}
+                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                            title={hasInvoice ? "Cannot delete - AP Invoice exists" : "Delete GRPO"}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

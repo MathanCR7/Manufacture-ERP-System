@@ -1,4 +1,5 @@
 const PartiesRepository = require('./parties.repository');
+const { checkWhatsAppEligibility } = require('../../utils/communication');
 
 class PartiesController {
   async createCustomer(req, res, next) {
@@ -89,16 +90,55 @@ class PartiesController {
 
   async createSupplier(req, res, next) {
     try {
-      const { name, contactPerson, phone, email, gstin, pan, openingBalance, balanceType, creditLimit, address, note } = req.body;
+      const { 
+        name, 
+        contactPerson, 
+        phone, 
+        email, 
+        gstin, 
+        pan, 
+        openingBalance, 
+        balanceType, 
+        creditLimit, 
+        address, 
+        note,
+        signatureImage,
+        companySealImage
+      } = req.body;
 
-      if (!name || !phone) {
-        return res.status(400).json({ message: 'Name and Phone are required' });
+      if (!name || !email || !phone) {
+        return res.status(400).json({ message: 'Name, Email, and Phone are required' });
       }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+      }
+
+      let cleanPhone = phone.replace(/\s+/g, '');
+      if (cleanPhone.startsWith('+91')) {
+        cleanPhone = cleanPhone.substring(3);
+      } else if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
+        cleanPhone = cleanPhone.substring(2);
+      }
+
+      if (!/^\d{10}$/.test(cleanPhone)) {
+        return res.status(400).json({ message: 'Phone must be a valid 10-digit number' });
+      }
+
+      if (gstin) {
+        const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+        if (!gstinRegex.test(gstin)) {
+          return res.status(400).json({ message: 'Invalid GSTIN format' });
+        }
+      }
+
+      const whatsappAvailable = await checkWhatsAppEligibility(cleanPhone);
 
       const supplier = await PartiesRepository.createSupplier({
         name,
         contactPerson,
-        phone,
+        phone: cleanPhone,
         email,
         gstin,
         pan,
@@ -107,6 +147,9 @@ class PartiesController {
         creditLimit: creditLimit ? parseFloat(creditLimit) : 0,
         address,
         note,
+        signatureImage,
+        companySealImage,
+        whatsappAvailable,
         addedBy: req.user.id
       });
 
@@ -137,12 +180,55 @@ class PartiesController {
 
   async updateSupplier(req, res, next) {
     try {
-      const { name, contactPerson, phone, email, gstin, pan, openingBalance, balanceType, creditLimit, address, note } = req.body;
+      const { 
+        name, 
+        contactPerson, 
+        phone, 
+        email, 
+        gstin, 
+        pan, 
+        openingBalance, 
+        balanceType, 
+        creditLimit, 
+        address, 
+        note,
+        signatureImage,
+        companySealImage
+      } = req.body;
+
+      if (!name || !email || !phone) {
+        return res.status(400).json({ message: 'Name, Email, and Phone are required' });
+      }
+
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: 'Invalid email format' });
+      }
+
+      let cleanPhone = phone.replace(/\s+/g, '');
+      if (cleanPhone.startsWith('+91')) {
+        cleanPhone = cleanPhone.substring(3);
+      } else if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
+        cleanPhone = cleanPhone.substring(2);
+      }
+
+      if (!/^\d{10}$/.test(cleanPhone)) {
+        return res.status(400).json({ message: 'Phone must be a valid 10-digit number' });
+      }
+
+      if (gstin) {
+        const gstinRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+        if (!gstinRegex.test(gstin)) {
+          return res.status(400).json({ message: 'Invalid GSTIN format' });
+        }
+      }
+
+      const whatsappAvailable = await checkWhatsAppEligibility(cleanPhone);
 
       const updatedData = {
         name,
         contactPerson,
-        phone,
+        phone: cleanPhone,
         email,
         gstin,
         pan,
@@ -150,7 +236,10 @@ class PartiesController {
         balanceType: balanceType || 'CREDIT',
         creditLimit: creditLimit ? parseFloat(creditLimit) : 0,
         address,
-        note
+        note,
+        signatureImage,
+        companySealImage,
+        whatsappAvailable
       };
 
       const supplier = await PartiesRepository.updateSupplier(req.params.id, updatedData);

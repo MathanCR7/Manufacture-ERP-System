@@ -366,22 +366,25 @@ model Note {
 }
 
 model Supplier {
-  id             String   @id @default(uuid())
-  name           String
-  contactPerson  String?
-  email          String?
-  phone          String?
-  address        String?  @db.Text
-  gstin          String?
-  pan            String?
-  openingBalance Decimal  @default(0)
-  balanceType    String   @default("CREDIT") // DEBIT or CREDIT
-  creditLimit    Decimal  @default(0)
-  note           String?  @db.Text
-  status         String   @default("ACTIVE")
-  addedBy        String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                String   @id @default(uuid())
+  name              String
+  contactPerson     String?
+  email             String?
+  phone             String?
+  address           String?  @db.Text
+  gstin             String?
+  pan               String?
+  openingBalance    Decimal  @default(0)
+  balanceType       String   @default("CREDIT") // DEBIT or CREDIT
+  creditLimit       Decimal  @default(0)
+  note              String?  @db.Text
+  status            String   @default("ACTIVE")
+  addedBy           String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  signatureImage    String?  @db.Text
+  companySealImage  String?  @db.Text
+  whatsappAvailable Boolean  @default(false)
 
   user User? @relation(fields: [addedBy], references: [id])
   purchaseOrders RawMaterialPO[] // <--- ADDED
@@ -1198,7 +1201,13 @@ model AssetPQ {
   cess                 Decimal       @default(0.00)
   taxAmount            Decimal       @map("tax_amount")
   shippingCharges      Decimal       @default(0.00) @map("shipping_charges")
+  loadingCharges       Decimal       @default(0.00) @map("loading_charges")
+  unloadingCharges     Decimal       @default(0.00) @map("unloading_charges")
+  packingCharges       Decimal       @default(0.00) @map("packing_charges")
+  insurance            Decimal       @default(0.00)
   otherCharges         Decimal       @default(0.00) @map("other_charges")
+  chargeGstStates      Json?         @map("charge_gst_states")
+  applyGst             Boolean       @default(true) @map("apply_gst")
   roundOff             Decimal       @default(0.00) @map("round_off")
   grandTotal           Decimal       @map("grand_total")
   status               String        @default("Draft")
@@ -1405,6 +1414,7 @@ model AssetAPInvoice {
   chargeGstStates     Json?                @map("charge_gst_states")
   paymentMode         String?              @map("payment_mode")
   paymentTerms        String?              @map("payment_terms")
+  termsBlock          String?              @map("terms_block")
   roundOff            Decimal              @default(0.00) @map("round_off")
   invoiceTotal        Decimal              @map("invoice_total")
   amountInWords       String               @map("amount_in_words")
@@ -1525,4 +1535,20 @@ model AssetMaster {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("asset_masters")
+}
+
+model CommunicationLog {
+  id           String   @id @default(uuid())
+  documentType String   // PR, PQ, PO, GRPO, AP_INVOICE, SALES_INVOICE
+  documentNo   String
+  recipient    String
+  channel      String   // EMAIL, WHATSAPP
+  status       String   // SENT, FAILED, SKIPPED
+  subject      String?
+  content      String?  @db.Text
+  errorMessage String?  @db.Text
+  createdAt    DateTime @default(now())
+
+  @@index([documentNo, documentType])
+  @@map("communication_logs")
 }

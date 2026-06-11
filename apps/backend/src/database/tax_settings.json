@@ -1,0 +1,23 @@
+{
+  "companyName": "Leonex pvt limited",
+  "companyAddress": "O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053",
+  "companyGstin": "BCLNU556863412",
+  "companyMobile": "+91 9360163523",
+  "collectTax": "Yes",
+  "taxRegNo": "BCLNU556863412",
+  "taxType": "Exclusive Tax",
+  "taxes": [
+    {
+      "name": "CGST",
+      "rate": 9
+    },
+    {
+      "name": "SGST",
+      "rate": 9
+    },
+    {
+      "name": "IGST",
+      "rate": 18
+    }
+  ]
+}

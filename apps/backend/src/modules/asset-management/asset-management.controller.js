@@ -1,4 +1,6 @@
 const assetService = require('./asset-management.service');
+const prisma = require('../../database/prisma');
+const { resendDocument } = require('../../utils/communication');
 
 class AssetManagementController {
   async getAllBudgets(req, res, next) {
@@ -277,6 +279,118 @@ class AssetManagementController {
   async verifyGSTIN(req, res, next) {
     try {
       const result = await assetService.verifyGSTIN(req.params.gstin);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async updatePR(req, res, next) {
+    try {
+      const result = await assetService.updatePR(req.params.id, req.body);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async deletePR(req, res, next) {
+    try {
+      const result = await assetService.deletePR(req.params.id);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async deletePQ(req, res, next) {
+    try {
+      const result = await assetService.deletePQ(req.params.id);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async updatePO(req, res, next) {
+    try {
+      const result = await assetService.updatePO(req.params.id, req.body);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async deletePO(req, res, next) {
+    try {
+      const result = await assetService.deletePO(req.params.id);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async updateGRPO(req, res, next) {
+    try {
+      const result = await assetService.updateGRPO(req.params.id, req.body);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async deleteGRPO(req, res, next) {
+    try {
+      const result = await assetService.deleteGRPO(req.params.id);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async updateInvoice(req, res, next) {
+    try {
+      const result = await assetService.updateInvoice(req.params.id, req.body);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async deleteInvoice(req, res, next) {
+    try {
+      const result = await assetService.deleteInvoice(req.params.id);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getCommunicationLogs(req, res, next) {
+    try {
+      const { documentType, documentNo } = req.params;
+      const logs = await prisma.communicationLog.findMany({
+        where: {
+          documentType,
+          documentNo
+        },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+      res.json(logs);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async resendCommunication(req, res, next) {
+    try {
+      const { documentType, documentId } = req.body;
+      if (!documentType || !documentId) {
+        return res.status(400).json({ error: 'documentType and documentId are required' });
+      }
+      const result = await resendDocument(documentType, documentId);
       res.json(result);
     } catch (error) {
       res.status(400).json({ error: error.message });

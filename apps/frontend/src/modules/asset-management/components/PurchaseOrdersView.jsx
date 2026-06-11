@@ -13,10 +13,12 @@ import {
   Plus, Search, ShoppingCart, CheckCircle2, X, Eye,
   ArrowLeft, Loader2, AlertTriangle, ChevronDown, Building2,
   FileText, Calendar, Package, Shield, Truck, Trash2, Printer, Download,
-  ClipboardList, Info, Tag
+  ClipboardList, Info, Tag, Edit
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
+import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
+
 
 const GST_RATES = [0, 5, 12, 18, 28];
 const PAYMENT_MODES = ['Bank Transfer (NEFT)', 'Bank Transfer (RTGS)', 'Cheque', 'DD', 'Online Portal', 'Letter of Credit', 'Cash/Direct'];
@@ -60,9 +62,9 @@ const handleDownloadPOPDF = (po, shouldPrint = false) => {
   const totalGst = po.items?.reduce((s, i) => s + Number(i.gstAmount || 0), 0) || 0;
   const isInterState = Boolean(po.isInterState);
   const applyGst = po.applyGst !== undefined ? Boolean(po.applyGst) : true;
-  const cgst = isInterState ? 0 : totalGst / 2;
-  const sgst = isInterState ? 0 : totalGst / 2;
-  const igst = isInterState ? totalGst : 0;
+  const cgst = applyGst ? Number(po.cgst !== undefined ? po.cgst : (isInterState ? 0 : totalGst / 2)) : 0;
+  const sgst = applyGst ? Number(po.sgst !== undefined ? po.sgst : (isInterState ? 0 : totalGst / 2)) : 0;
+  const igst = applyGst ? Number(po.igst !== undefined ? po.igst : (isInterState ? totalGst : 0)) : 0;
   const freight = Number(po.freight || po.freightCharges || 0);
   const loadingCharges = Number(po.loadingCharges || 0);
   const unloadingCharges = Number(po.unloadingCharges || 0);
@@ -235,9 +237,9 @@ function PODetailModal({ po, onClose }) {
   const totalGst = po.items?.reduce((s, i) => s + Number(i.gstAmount || 0), 0) || 0;
   const isInterState = Boolean(po.isInterState);
   const applyGst = po.applyGst !== undefined ? Boolean(po.applyGst) : true;
-  const cgst = isInterState ? 0 : totalGst / 2;
-  const sgst = isInterState ? 0 : totalGst / 2;
-  const igst = isInterState ? totalGst : 0;
+  const cgst = applyGst ? Number(po.cgst !== undefined ? po.cgst : (isInterState ? 0 : totalGst / 2)) : 0;
+  const sgst = applyGst ? Number(po.sgst !== undefined ? po.sgst : (isInterState ? 0 : totalGst / 2)) : 0;
+  const igst = applyGst ? Number(po.igst !== undefined ? po.igst : (isInterState ? totalGst : 0)) : 0;
   const freight = Number(po.freight || po.freightCharges || 0);
   const loadingCharges = Number(po.loadingCharges || 0);
   const unloadingCharges = Number(po.unloadingCharges || 0);
@@ -329,60 +331,33 @@ function PODetailModal({ po, onClose }) {
                   })}
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
-                  <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Taxable Value:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+                  <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Taxable Value:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
                   {applyGst ? isInterState ? (
-                    <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">IGST:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+                    <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">IGST:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
                   ) : (
                     <>
-                      <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">CGST:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{(totalGst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
-                      <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">SGST:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{(totalGst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+                      <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">CGST:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{(totalGst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
+                      <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">SGST:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{(totalGst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
                     </>
                   ) : (
-                    <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td></tr>
+                    <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td><td className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td></tr>
                   )}
-                  {freight > 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Freight:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{freight.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {loadingCharges > 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading Charges:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {unloadingCharges > 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Unloading Charges:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {packingCharges > 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Packing Charges:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {insurance > 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Insurance:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {otherCharges > 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Other Charges:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {discount > 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Discount:</td><td colSpan={2} className="px-3 py-2 font-bold text-rose-600">-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {roundOff !== 0 && <tr><td colSpan={7} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Round Off:</td><td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">{(roundOff >= 0 ? '+' : '')}₹{Math.abs(roundOff).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {freight > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Freight:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{freight.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {loadingCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {unloadingCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Unloading Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {packingCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Packing Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {insurance > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Insurance:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {otherCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Other Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {discount > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Discount:</td><td className="px-3 py-2 font-bold text-rose-600">-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {roundOff !== 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Round Off:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{(roundOff >= 0 ? '+' : '')}₹{Math.abs(roundOff).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-indigo-50/50 dark:bg-indigo-950/20">
-                    <td colSpan={7} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Grand Total:</td>
-                    <td colSpan={2} className="px-3 py-3.5 font-black text-xl text-indigo-600 dark:text-indigo-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td colSpan={9} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Grand Total:</td>
+                    <td className="px-3 py-3.5 font-black text-xl text-indigo-600 dark:text-indigo-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
           )}
-          <div className="border border-slate-200/60 dark:border-slate-800 rounded-2xl p-5 bg-slate-50/50 dark:bg-slate-900/50">
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Purchase Order Terms & Conditions</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-slate-500 dark:text-slate-400 text-[10px] leading-relaxed">
-              <ul className="list-decimal pl-4 space-y-2">
-                <li><strong>Reference Requirement:</strong> Supplier must reference the PO number on all invoices and correspondence.</li>
-                <li><strong>Invoice Submission:</strong> Tax-compliant invoice with supplier details, GST breakup, and PO reference required.</li>
-                <li><strong>Three-Way Match:</strong> Payment subject to matching Approved PO, GRN, and Supplier Invoice.</li>
-                <li><strong>Payment Terms:</strong> Net 30 days from receipt of valid invoice or acceptance of goods.</li>
-                <li><strong>Acceptance:</strong> Buyer reserves the right to inspect and reject non-conforming goods.</li>
-                <li><strong>Pricing:</strong> Fixed. No changes without written approval.</li>
-              </ul>
-              <ul className="list-decimal pl-4 space-y-2">
-                <li value="7"><strong>Taxes:</strong> Supplier responsible for all applicable tax compliance.</li>
-                <li value="8"><strong>Supporting Documents:</strong> Provide delivery notes, timesheets, certificates as applicable.</li>
-                <li value="9"><strong>Discrepancies:</strong> Mismatch between PO, GRN, and invoice may delay payment.</li>
-                <li value="10"><strong>Compliance:</strong> Comply with all applicable laws and regulations.</li>
-                <li value="11"><strong>Currency:</strong> Invoice in currency specified on PO unless agreed otherwise.</li>
-                <li value="12"><strong>Invoice Approval:</strong> Payment subject to internal approval and verification.</li>
-              </ul>
-            </div>
-            {po.termsAndConditions && (
-              <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-3">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Specific PO Terms</p>
-                <p className="text-xs text-slate-700 dark:text-slate-350 italic bg-amber-50/40 dark:bg-amber-950/20 p-3 rounded-xl border border-dashed border-amber-200/50">"{po.termsAndConditions}"</p>
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>
@@ -390,97 +365,7 @@ function PODetailModal({ po, onClose }) {
 }
 
 // ─── Add Supplier Inline ──────────────────────────────────────────────────────
-function AddSupplierInline({ onAdded, onClose }) {
-  const [name, setName] = useState('');
-  const [contactPerson, setContactPerson] = useState('');
-  const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
-  const [gstin, setGstin] = useState('');
-  const [pan, setPan] = useState('');
-  const [address, setAddress] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isVerifyingGstin, setIsVerifyingGstin] = useState(false);
-
-  const handleVerifyGSTIN = async () => {
-    if (!gstin?.trim()) { Swal.fire({ icon: 'warning', title: 'GSTIN Required', confirmButtonColor: '#4f46e5' }); return; }
-    const cleanGstin = gstin.trim().toUpperCase();
-    const regex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    if (!regex.test(cleanGstin)) { Swal.fire({ icon: 'error', title: 'Invalid GSTIN', confirmButtonColor: '#4f46e5' }); return; }
-    setIsVerifyingGstin(true);
-    try {
-      const res = await api.get(`/asset-management/verify-gstin/${cleanGstin}`);
-      const data = res.data;
-      const result = await Swal.fire({
-        title: '🔍 GST Registry Verification',
-        html: `<div style="text-align:left"><strong>${data.gstin}</strong> — ${data.status}<br/>${data.legalName || ''}<br/>${data.principalAddress || ''}</div>`,
-        showCancelButton: true,
-        confirmButtonText: 'Apply to Form',
-        confirmButtonColor: '#4f46e5',
-        cancelButtonColor: '#6b7280',
-      });
-      if (result.isConfirmed) {
-        setGstin(cleanGstin);
-        setPan(data.pan || '');
-        if (data.legalName) setName(data.legalName);
-        if (data.principalAddress) setAddress(data.principalAddress);
-      }
-    } catch (err) {
-      Swal.fire({ icon: 'error', title: 'Verification Failed', text: err.response?.data?.error || 'Unable to verify GSTIN.', confirmButtonColor: '#ef4444' });
-    } finally {
-      setIsVerifyingGstin(false);
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!name || !phone) return;
-    setIsSubmitting(true);
-    try {
-      const res = await api.post('/parties/suppliers', { name, contactPerson, phone, email, gstin, pan, address });
-      onAdded(res.data);
-    } catch (err) {
-      Swal.fire({ icon: 'error', title: 'Failed to add supplier', confirmButtonColor: '#4f46e5' });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 w-full max-w-lg shadow-2xl border border-slate-200/60 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Quick Add Supplier</h2>
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full"><X className="w-5 h-5" /></Button>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label>GSTIN</Label>
-            <div className="flex gap-2">
-              <Input value={gstin} onChange={e => setGstin(e.target.value)} placeholder="e.g. 29ABCDE1234F1Z5" className="h-10 rounded-xl font-mono uppercase" />
-              <Button type="button" disabled={isVerifyingGstin} onClick={handleVerifyGSTIN} className="bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 px-4 rounded-xl h-10">
-                {isVerifyingGstin ? 'Verifying...' : 'Verify'}
-              </Button>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2 space-y-1.5"><Label>Name <span className="text-rose-500">*</span></Label><Input required value={name} onChange={e => setName(e.target.value)} className="h-10 rounded-xl" /></div>
-            <div className="space-y-1.5"><Label>Contact Person</Label><Input value={contactPerson} onChange={e => setContactPerson(e.target.value)} className="h-10 rounded-xl" /></div>
-            <div className="space-y-1.5"><Label>Phone <span className="text-rose-500">*</span></Label><Input required value={phone} onChange={e => setPhone(e.target.value)} className="h-10 rounded-xl" /></div>
-            <div className="space-y-1.5"><Label>Email</Label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} className="h-10 rounded-xl" /></div>
-            <div className="space-y-1.5"><Label>PAN</Label><Input value={pan} onChange={e => setPan(e.target.value)} className="h-10 rounded-xl font-mono uppercase" /></div>
-            <div className="col-span-2 space-y-1.5"><Label>Address</Label><Input value={address} onChange={e => setAddress(e.target.value)} className="h-10 rounded-xl" /></div>
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <Button type="button" variant="outline" onClick={onClose} className="rounded-xl">Cancel</Button>
-            <Button type="submit" disabled={isSubmitting} className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white">
-              {isSubmitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Adding...</> : 'Add Supplier'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+const AddSupplierInline = QuickAddSupplierModal;
 
 // ─── Supplier Select ──────────────────────────────────────────────────────────
 function SupplierSelect({ suppliers, value, onChange, onAddNew, disabled }) {
@@ -635,7 +520,7 @@ function ChargeRow({ label, fieldKey, value, gstChecked, isInterState, onChange,
 }
 
 // ─── Create PO Form ───────────────────────────────────────────────────────────
-function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
+function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   const [form, setForm] = useState({
     prId: '',
     prNo: '',
@@ -672,6 +557,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
     otherCharges: false,
   });
 
+  const [originalIsInterState, setOriginalIsInterState] = useState(null);
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
@@ -680,6 +566,104 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
     queryKey: ['asset-prs'],
     queryFn: () => api.get('/asset-management/requests').then(r => r.data),
   });
+
+  const { data: pqs = [] } = useQuery({
+    queryKey: ['asset-pqs'],
+    queryFn: () => api.get('/asset-management/quotations').then(r => r.data),
+  });
+
+  const { data: editPO, isLoading: isLoadingPO } = useQuery({
+    queryKey: ['asset-po', editPOId],
+    queryFn: () => api.get(`/asset-management/orders/${editPOId}`).then(r => r.data),
+    enabled: !!editPOId,
+  });
+
+  const handleIsInterStateChange = (newVal) => {
+    update('isInterState', newVal);
+    if (originalIsInterState !== null && originalIsInterState !== newVal) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'GST Supply Type Changed',
+        text: `You have changed the supply type to ${newVal ? 'Inter-state (IGST)' : 'Intra-state (CGST+SGST)'}, which deviates from the linked Purchase Quotation (${originalIsInterState ? 'Inter-state/IGST' : 'Intra-state/CGST+SGST'}).`,
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 4500,
+        timerProgressBar: true,
+        customClass: {
+          popup: 'rounded-2xl border border-amber-200 bg-amber-50 dark:bg-amber-950/90 text-slate-800 dark:text-slate-100',
+          title: 'text-sm font-bold text-amber-800 dark:text-amber-300',
+          htmlContainer: 'text-xs text-amber-700 dark:text-amber-400'
+        }
+      });
+    }
+  };
+
+  useEffect(() => {
+    if (editPO) {
+      setForm({
+        prId: prs.find(p => p.prNo === editPO.prNo)?.id || '',
+        prNo: editPO.prNo || '',
+        vendorName: editPO.vendorName || '',
+        vendorGstin: editPO.vendorGstin || '',
+        vendorPan: editPO.vendorPan || '',
+        vendorAddress: editPO.address || '',
+        currency: editPO.currency || 'INR',
+        poDate: editPO.poDate ? new Date(editPO.poDate) : null,
+        deliveryDate: editPO.deliveryDate ? new Date(editPO.deliveryDate) : null,
+        deliveryAddress: editPO.shipTo || 'Factory / Registered Office Address',
+        paymentTerms: editPO.paymentTerms || 'Net 30',
+        paymentMode: editPO.paymentMode || 'Bank Transfer (NEFT)',
+        freight: editPO.freight !== undefined ? String(editPO.freight) : '',
+        loadingCharges: editPO.loadingCharges !== undefined ? String(editPO.loadingCharges) : '',
+        unloadingCharges: editPO.unloadingCharges !== undefined ? String(editPO.unloadingCharges) : '',
+        packingCharges: editPO.packingCharges !== undefined ? String(editPO.packingCharges) : '',
+        insurance: editPO.insurance !== undefined ? String(editPO.insurance) : '',
+        discount: editPO.discount !== undefined ? String(editPO.discount) : '',
+        otherCharges: editPO.otherCharges !== undefined ? String(editPO.otherCharges) : '',
+        isInterState: editPO.isInterState,
+        applyGst: editPO.applyGst !== undefined ? Boolean(editPO.applyGst) : true,
+        termsAndConditions: editPO.termsBlock || '',
+        items: editPO.items?.map(i => ({
+          category: i.category || 'IT Equipment',
+          itemDescription: i.itemDescription || i.description || '',
+          hsnSac: i.hsnSac || i.hsnCode || '8471',
+          quantity: Number(i.quantity) || 1,
+          unit: i.unit || i.uom || 'Nos',
+          unitPrice: String(i.unitPrice),
+          gstRate: Number(i.gstRate || 18),
+        })) || [],
+      });
+
+      if (pqs.length > 0) {
+        const linkedPQ = editPO.pqNo
+          ? pqs.find(q => q.pqNo === editPO.pqNo)
+          : pqs.find(q => q.prNo === editPO.prNo && q.vendorName === editPO.vendorName);
+        if (linkedPQ) {
+          const isInter = linkedPQ.stateCode ? linkedPQ.stateCode !== '27' : (linkedPQ.vendorGstin ? linkedPQ.vendorGstin.trim().substring(0, 2) !== '27' : false);
+          setOriginalIsInterState(isInter);
+        }
+      }
+
+      if (editPO.chargeGstStates) {
+        try {
+          const parsed = typeof editPO.chargeGstStates === 'string'
+            ? JSON.parse(editPO.chargeGstStates)
+            : editPO.chargeGstStates;
+          setChargeGstStates({
+            freight: !!parsed.freight,
+            loadingCharges: !!parsed.loadingCharges,
+            unloadingCharges: !!parsed.unloadingCharges,
+            packingCharges: !!parsed.packingCharges,
+            insurance: !!parsed.insurance,
+            otherCharges: !!parsed.otherCharges,
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    }
+  }, [editPO, prs, pqs]);
 
   // fetch existing POs to know which PRs are already linked
   const { data: pos = [] } = useQuery({
@@ -693,7 +677,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
       const pq = prefillFromPQ;
       const linkedPR = prs.find(p => p.prNo === pq.prNo);
       
-      const isInterState = pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== '27' : false;
+      const isInterState = pq.stateCode ? pq.stateCode !== '27' : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== '27' : false);
+      setOriginalIsInterState(isInterState);
       
       const items = (pq.items || []).map(i => ({
         category: i.category || 'IT Equipment',
@@ -717,12 +702,34 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
         paymentTerms: pq.paymentTerms || 'Net 30',
         paymentMode: pq.paymentMode || 'Bank Transfer (NEFT)',
         freight: pq.shippingCharges ? String(pq.shippingCharges) : '',
+        loadingCharges: pq.loadingCharges ? String(pq.loadingCharges) : '',
+        unloadingCharges: pq.unloadingCharges ? String(pq.unloadingCharges) : '',
+        packingCharges: pq.packingCharges ? String(pq.packingCharges) : '',
+        insurance: pq.insurance ? String(pq.insurance) : '',
         otherCharges: pq.otherCharges ? String(pq.otherCharges) : '',
         discount: pq.discount ? String(pq.discount) : '',
         termsAndConditions: pq.termsAndConditions || '',
         isInterState,
         items,
       }));
+
+      if (pq.chargeGstStates) {
+        try {
+          const parsed = typeof pq.chargeGstStates === 'string'
+            ? JSON.parse(pq.chargeGstStates)
+            : pq.chargeGstStates;
+          setChargeGstStates({
+            freight: !!(parsed.shippingCharges || parsed.freight),
+            loadingCharges: !!parsed.loadingCharges,
+            unloadingCharges: !!parsed.unloadingCharges,
+            packingCharges: !!parsed.packingCharges,
+            insurance: !!parsed.insurance,
+            otherCharges: !!parsed.otherCharges,
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
     }
   }, [prefillFromPQ, prs]);
 
@@ -768,13 +775,26 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
   const roundOff = grandTotal - preRoundTotal;
 
   const mutation = useMutation({
-    mutationFn: data => api.post('/asset-management/purchase-orders', data).then(r => r.data),
+    mutationFn: data => {
+      if (editPOId) {
+        return api.put(`/asset-management/orders/${editPOId}`, data).then(r => r.data);
+      }
+      return api.post('/asset-management/orders', data).then(r => r.data);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['asset-pos'] });
       qc.invalidateQueries({ queryKey: ['asset-prs'] });
-      Swal.fire({ icon: 'success', title: 'Purchase Order Created!', text: 'PO has been issued successfully.', confirmButtonColor: '#4f46e5' }).then(() => onBack());
+      if (editPOId) {
+        qc.invalidateQueries({ queryKey: ['asset-po', editPOId] });
+      }
+      Swal.fire({
+        icon: 'success',
+        title: editPOId ? 'Purchase Order Updated!' : 'Purchase Order Created!',
+        text: editPOId ? 'PO has been updated successfully.' : 'PO has been issued successfully.',
+        confirmButtonColor: '#4f46e5'
+      }).then(() => onBack());
     },
-    onError: err => setError(err.response?.data?.error || 'Failed to create PO'),
+    onError: err => setError(err.response?.data?.error || `Failed to save PO`),
   });
 
   const handleSubmit = e => {
@@ -786,7 +806,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
     if (form.items.length === 0) { setError('No items found. Add at least one line item.'); return; }
     if (form.items.some(i => !i.itemDescription || !i.unitPrice)) { setError('All item fields are required'); return; }
     // Check if PR already has a PO
-    if (existingPOPrNos.includes(form.prNo)) {
+    if (!editPOId && existingPOPrNos.includes(form.prNo)) {
       setError(`A Purchase Order has already been raised for PR ${form.prNo}. Each PR allows only one PO.`);
       return;
     }
@@ -820,38 +840,119 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
   };
 
   const fillFromPR = (pr) => {
-    const isInterState = pr.vendorGstin ? pr.vendorGstin.trim().substring(0, 2) !== '27' : false;
-    // Get items from PR (stored as JSON array in items field)
-    let items = [];
-    if (pr.items && Array.isArray(pr.items)) {
-      items = pr.items.map(i => ({
+    // Find associated quotation in pqs (excluding Cancelled quotations)
+    const pq = pqs.find(q => q.prNo === pr.prNo && q.status !== 'Cancelled');
+    
+    if (pq) {
+      const isInterState = pq.stateCode ? pq.stateCode !== '27' : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== '27' : false);
+      setOriginalIsInterState(isInterState);
+      
+      const items = (pq.items || []).map(i => ({
         category: i.category || 'IT Equipment',
-        itemDescription: i.assetName || i.itemDescription || i.description || '',
-        hsnSac: i.hsnCode || i.hsnSac || CATEGORY_MAP[i.category]?.hsn || '8471',
+        itemDescription: i.itemDescription || i.description || '',
+        hsnSac: i.hsnSac || i.hsnCode || CATEGORY_MAP[i.category]?.hsn || '8471',
         quantity: Number(i.quantity) || 1,
-        unit: i.uom || i.unit || 'Nos',
-        unitPrice: Number(i.estimatedUnitCost || i.unitPrice || 0),
-        gstRate: CATEGORY_MAP[i.category]?.gst || 18,
+        unit: i.unit || i.uom || 'Nos',
+        unitPrice: Number(i.unitPrice || 0),
+        gstRate: Number(i.gstRate || 18),
       }));
+
+      setForm(prev => ({
+        ...prev,
+        prId: pr.id,
+        prNo: pr.prNo,
+        vendorName: pq.vendorName || '',
+        vendorGstin: pq.vendorGstin || '',
+        vendorPan: pq.vendorPan || '',
+        vendorAddress: pq.address || '',
+        currency: pq.currency || 'INR',
+        paymentTerms: pq.paymentTerms || 'Net 30',
+        paymentMode: pq.paymentMode || 'Bank Transfer (NEFT)',
+        freight: pq.shippingCharges ? String(pq.shippingCharges) : '',
+        loadingCharges: pq.loadingCharges ? String(pq.loadingCharges) : '',
+        unloadingCharges: pq.unloadingCharges ? String(pq.unloadingCharges) : '',
+        packingCharges: pq.packingCharges ? String(pq.packingCharges) : '',
+        insurance: pq.insurance ? String(pq.insurance) : '',
+        otherCharges: pq.otherCharges ? String(pq.otherCharges) : '',
+        discount: pq.discount ? String(pq.discount) : '',
+        termsAndConditions: pq.termsAndConditions || '',
+        isInterState,
+        items,
+      }));
+
+      if (pq.chargeGstStates) {
+        try {
+          const parsed = typeof pq.chargeGstStates === 'string'
+            ? JSON.parse(pq.chargeGstStates)
+            : pq.chargeGstStates;
+          setChargeGstStates({
+            freight: !!(parsed.shippingCharges || parsed.freight || parsed.shippingChargesGst || parsed.freightGst),
+            loadingCharges: !!parsed.loadingCharges,
+            unloadingCharges: !!parsed.unloadingCharges,
+            packingCharges: !!parsed.packingCharges,
+            insurance: !!parsed.insurance,
+            otherCharges: !!parsed.otherCharges,
+          });
+        } catch (e) {
+          console.error(e);
+        }
+      }
     } else {
-      // Fallback to top-level fields (legacy single-item PR)
-      items = [{
-        category: pr.category || 'IT Equipment',
-        itemDescription: pr.assetName || '',
-        hsnSac: pr.hsnCode || CATEGORY_MAP[pr.category]?.hsn || '8471',
-        quantity: Number(pr.quantity) || 1,
-        unit: pr.uom || 'Nos',
-        unitPrice: Number(pr.estimatedUnitCost || 0),
-        gstRate: CATEGORY_MAP[pr.category]?.gst || 18,
-      }];
+      const isInterState = pr.vendorGstin ? pr.vendorGstin.trim().substring(0, 2) !== '27' : false;
+      let items = [];
+      if (pr.items && Array.isArray(pr.items)) {
+        items = pr.items.map(i => ({
+          category: i.category || 'IT Equipment',
+          itemDescription: i.assetName || i.itemDescription || i.description || '',
+          hsnSac: i.hsnCode || i.hsnSac || CATEGORY_MAP[i.category]?.hsn || '8471',
+          quantity: Number(i.quantity) || 1,
+          unit: i.uom || i.unit || 'Nos',
+          unitPrice: Number(i.estimatedUnitCost || i.unitPrice || 0),
+          gstRate: CATEGORY_MAP[i.category]?.gst || 18,
+        }));
+      } else {
+        items = [{
+          category: pr.category || 'IT Equipment',
+          itemDescription: pr.assetName || '',
+          hsnSac: pr.hsnCode || CATEGORY_MAP[pr.category]?.hsn || '8471',
+          quantity: Number(pr.quantity) || 1,
+          unit: pr.uom || 'Nos',
+          unitPrice: Number(pr.estimatedUnitCost || 0),
+          gstRate: CATEGORY_MAP[pr.category]?.gst || 18,
+        }];
+      }
+      setForm(prev => ({
+        ...prev,
+        prId: pr.id,
+        prNo: pr.prNo,
+        vendorName: '',
+        vendorGstin: '',
+        vendorPan: '',
+        vendorAddress: '',
+        currency: 'INR',
+        paymentTerms: 'Net 30',
+        paymentMode: 'Bank Transfer (NEFT)',
+        freight: '',
+        loadingCharges: '',
+        unloadingCharges: '',
+        packingCharges: '',
+        insurance: '',
+        otherCharges: '',
+        discount: '',
+        termsAndConditions: '',
+        isInterState,
+        items,
+      }));
+      setChargeGstStates({
+        freight: false,
+        loadingCharges: false,
+        unloadingCharges: false,
+        packingCharges: false,
+        insurance: false,
+        otherCharges: false,
+      });
+      setOriginalIsInterState(null);
     }
-    setForm(prev => ({
-      ...prev,
-      prId: pr.id,
-      prNo: pr.prNo,
-      isInterState,
-      items,
-    }));
   };
 
   const chargeFields = [
@@ -862,6 +963,15 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
     { label: 'Insurance (₹)', key: 'insurance' },
     { label: 'Other Charges (₹)', key: 'otherCharges' },
   ];
+
+  if (editPOId && isLoadingPO) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <Loader2 className="w-10 h-10 animate-spin text-indigo-600" />
+        <p className="text-sm text-slate-500">Loading purchase order details...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 w-full">
@@ -885,8 +995,12 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Issue Purchase Order</h2>
-          <p className="text-sm text-slate-500">SAP B1 Asset Procurement — Step 3 of 8 | Direct PR → PO</p>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+            {editPOId ? 'Edit Purchase Order' : 'Issue Purchase Order'}
+          </h2>
+          <p className="text-sm text-slate-500">
+            {editPOId ? 'Modify PO details' : 'SAP B1 Asset Procurement — Step 3 of 8 | Direct PR → PO'}
+          </p>
         </div>
       </div>
 
@@ -1095,16 +1209,24 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
                     </Label>
                   </label>
                 </div>
-                <div className="flex items-center justify-between border-t border-slate-200/60 dark:border-slate-800/60 pt-2.5">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Supply Type</span>
-                  <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
-                    <button type="button" onClick={() => update('isInterState', false)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${!form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
-                      Intra-state (CGST+SGST)
-                    </button>
-                    <button type="button" onClick={() => update('isInterState', true)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
-                      Inter-state (IGST)
-                    </button>
+                <div className="flex flex-col gap-1.5 border-t border-slate-200/60 dark:border-slate-800/60 pt-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Supply Type</span>
+                    <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
+                      <button type="button" onClick={() => handleIsInterStateChange(false)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${!form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
+                        Intra-state (CGST+SGST)
+                      </button>
+                      <button type="button" onClick={() => handleIsInterStateChange(true)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
+                        Inter-state (IGST)
+                      </button>
+                    </div>
                   </div>
+                  {originalIsInterState !== null && originalIsInterState !== form.isInterState && (
+                    <div className="flex items-start gap-2 p-2 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl text-[10px] text-amber-700 dark:text-amber-400 mt-1">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                      <span>Supply type deviates from original Quotation ({originalIsInterState ? 'Inter-state / IGST' : 'Intra-state / CGST+SGST'})</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1170,16 +1292,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ }) {
           </div>
         </div>
 
-        {/* T&C */}
-        <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <Shield className="w-4 h-4 text-indigo-500" /> Terms & Conditions
-          </h3>
-          <textarea value={form.termsAndConditions} onChange={e => update('termsAndConditions', e.target.value)} rows={3}
-            placeholder="Standard warranty, delivery, and liability terms..."
-            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none" />
-        </div>
-
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={onBack} className="rounded-xl px-6 h-11">Cancel</Button>
           <Button type="submit" disabled={mutation.isPending || isReadOnly} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2">
@@ -1198,9 +1310,11 @@ export default function PurchaseOrdersView() {
   const location = useLocation();
   const navigate = useNavigate();
   const [view, setView] = useState('list');
+  const [editPOId, setEditPOId] = useState(null);
   const [search, setSearch] = useState('');
   const [selectedPO, setSelectedPO] = useState(null);
   const [sortBy, setSortBy] = useState('recent');
+  const qc = useQueryClient();
 
   useEffect(() => {
     if (location.state?.openCreate) {
@@ -1212,6 +1326,49 @@ export default function PurchaseOrdersView() {
     queryKey: ['asset-pos'],
     queryFn: () => api.get('/asset-management/purchase-orders').then(r => r.data),
   });
+
+  const { data: grpos = [] } = useQuery({
+    queryKey: ['asset-grpos'],
+    queryFn: () => api.get('/asset-management/grpo').then(r => r.data),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: id => api.delete(`/asset-management/orders/${id}`).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['asset-pos'] });
+      qc.invalidateQueries({ queryKey: ['asset-prs'] });
+      Swal.fire({
+        icon: 'success',
+        title: 'Deleted!',
+        text: 'Purchase Order has been deleted.',
+        timer: 1500,
+        showConfirmButton: false,
+        customClass: { popup: 'rounded-3xl border border-slate-200' }
+      });
+    },
+    onError: err => Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: err.response?.data?.error || 'Failed to delete Purchase Order',
+      confirmButtonColor: '#4f46e5'
+    })
+  });
+
+  const handleDeletePO = (id) => {
+    Swal.fire({
+      title: 'Are you sure?',
+      text: "This will permanently delete this purchase order and revert associated budget allocations.",
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(id);
+      }
+    });
+  };
 
   const filtered = pos.filter(po =>
     po.poNo?.toLowerCase().includes(search.toLowerCase()) ||
@@ -1233,9 +1390,11 @@ export default function PurchaseOrdersView() {
       onBack={() => {
         navigate(location.pathname, { replace: true, state: {} });
         setView('list');
+        setEditPOId(null);
       }}
       isReadOnly={isReadOnly}
       prefillFromPQ={location.state?.prefillFromPQ}
+      editPOId={editPOId}
     />
   );
 
@@ -1336,6 +1495,30 @@ export default function PurchaseOrdersView() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1">
                       <Button variant="ghost" size="icon" onClick={() => setSelectedPO(po)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="View PO"><Eye className="w-4 h-4" /></Button>
+                      {!isReadOnly && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => { setEditPOId(po.id); setView('create'); }}
+                            disabled={grpos.some(g => g.poNo === po.poNo)}
+                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-amber-600 disabled:opacity-40"
+                            title={grpos.some(g => g.poNo === po.poNo) ? "Cannot edit: GRPO already created" : "Edit PO"}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeletePO(po.id)}
+                            disabled={grpos.some(g => g.poNo === po.poNo)}
+                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 disabled:opacity-40"
+                            title={grpos.some(g => g.poNo === po.poNo) ? "Cannot delete: GRPO already created" : "Delete PO"}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </>
+                      )}
                       <Button variant="ghost" size="icon" onClick={() => handleDownloadPOPDF(po, true)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Print PO"><Printer className="w-4 h-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => handleDownloadPOPDF(po, false)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Download PDF"><Download className="w-4 h-4" /></Button>
                     </div>

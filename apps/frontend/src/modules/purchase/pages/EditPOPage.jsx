@@ -25,59 +25,8 @@ import DatePicker from '@/components/ui/DatePicker';
 import { Skeleton } from '@/components/ui/skeleton';
 
 /* ─────────────────────── Inline Add Supplier ─────────────────────── */
-function AddSupplierInline({ onAdded, onClose }) {
-  const [fields, setFields] = useState({
-    name: '', contactPerson: '', phone: '', email: '', gstin: '', pan: '',
-    openingBalance: '0.00', creditLimit: '0.00', address: '', note: ''
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const set = (key) => (e) => setFields(prev => ({ ...prev, [key]: e.target.value }));
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!fields.name || !fields.phone) return;
-    setIsSubmitting(true);
-    try {
-      const res = await api.post('/parties/suppliers', fields);
-      onAdded(res.data);
-    } catch {
-      alert('Failed to add supplier');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-xl p-6 w-full max-w-2xl shadow-2xl border border-slate-200 dark:border-slate-800 max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold mb-6 text-slate-900 dark:text-white">Quick Add Supplier</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div><Label>Name *</Label><Input required value={fields.name} onChange={set('name')} placeholder="e.g. Acme Corp" /></div>
-            <div><Label>Contact Person</Label><Input value={fields.contactPerson} onChange={set('contactPerson')} placeholder="John Doe" /></div>
-            <div><Label>Phone *</Label><Input required value={fields.phone} onChange={set('phone')} placeholder="Phone number" /></div>
-            <div><Label>Email</Label><Input type="email" value={fields.email} onChange={set('email')} placeholder="email@example.com" /></div>
-            <div><Label>GSTIN</Label><Input value={fields.gstin} onChange={set('gstin')} placeholder="GSTIN" className="font-mono" /></div>
-            <div><Label>PAN</Label><Input value={fields.pan} onChange={set('pan')} placeholder="PAN" className="font-mono" /></div>
-            <div><Label>Opening Balance</Label><Input type="number" step="0.01" value={fields.openingBalance} onChange={set('openingBalance')} /></div>
-            <div><Label>Credit Limit</Label><Input type="number" step="0.01" value={fields.creditLimit} onChange={set('creditLimit')} /></div>
-            <div className="md:col-span-2"><Label>Address</Label><Input value={fields.address} onChange={set('address')} placeholder="123 Main St..." /></div>
-            <div className="md:col-span-2">
-              <Label>Note</Label>
-              <textarea className="w-full border rounded-md p-2 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm" rows={3} value={fields.note} onChange={set('note')} placeholder="Additional notes..." />
-            </div>
-          </div>
-          <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100 dark:border-slate-800">
-            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button type="submit" disabled={isSubmitting} className="bg-indigo-600 hover:bg-indigo-700">
-              {isSubmitting ? 'Adding...' : 'Add Supplier'}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
+const AddSupplierInline = QuickAddSupplierModal;
 
 /* ─────────────────────── Supplier Select ─────────────────────── */
 function SupplierSelect({ suppliers, value, onChange, onAddNew }) {

@@ -18,6 +18,8 @@ export default function AddSupplierPage() {
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm({
     defaultValues: { balanceType: 'CREDIT' }
   });
+  const [signatureImage, setSignatureImage] = React.useState(null);
+  const [companySealImage, setCompanySealImage] = React.useState(null);
 
   const { data: existingSupplier, isLoading: isFetching } = useQuery({
     queryKey: ['supplier', id],
@@ -31,6 +33,8 @@ export default function AddSupplierPage() {
   useEffect(() => {
     if (existingSupplier) {
       reset(existingSupplier);
+      setSignatureImage(existingSupplier.signatureImage || null);
+      setCompanySealImage(existingSupplier.companySealImage || null);
     }
   }, [existingSupplier, reset]);
 
@@ -188,8 +192,31 @@ export default function AddSupplierPage() {
     }
   });
 
+  const handleFileChange = (e, setter) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        Swal.fire({
+          icon: 'error',
+          title: 'File Too Large',
+          text: 'File size must be less than 2MB.'
+        });
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setter(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const onSubmit = (data) => {
-    mutation.mutate(data);
+    mutation.mutate({
+      ...data,
+      signatureImage,
+      companySealImage
+    });
   };
 
   if (isEditMode && isFetching) {
@@ -211,7 +238,12 @@ export default function AddSupplierPage() {
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">GSTIN</label>
               <div className="flex gap-2">
                 <input 
-                  {...register('gstin')} 
+                  {...register('gstin', {
+                    pattern: {
+                      value: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/,
+                      message: 'Invalid GSTIN format. Standard pattern: 27AAAAA0000A1Z5'
+                    }
+                  })} 
                   className="flex-1 px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono uppercase text-sm" 
                   placeholder="22AAAAA0000A1Z5" 
                 />
@@ -226,6 +258,7 @@ export default function AddSupplierPage() {
                   </button>
                 )}
               </div>
+              {errors.gstin && <span className="text-xs text-red-500">{errors.gstin.message}</span>}
             </div>
 
             <div className="space-y-2">
@@ -251,21 +284,35 @@ export default function AddSupplierPage() {
             <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Phone <span className="text-red-500">*</span></label>
               <input 
-                {...register('phone', { required: true })} 
+                {...register('phone', { 
+                  required: 'Phone is required',
+                  validate: (val) => {
+                    if (!val) return 'Phone is required';
+                    const clean = val.replace(/[^0-9]/g, '');
+                    if (clean.length === 10 || (clean.length === 12 && clean.startsWith('91'))) {
+                      return true;
+                    }
+                    return 'Phone must be a valid 10-digit number';
+                  }
+                })} 
                 className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                 placeholder="Phone" 
               />
-              {errors.phone && <span className="text-xs text-red-500">Phone is required</span>}
+              {errors.phone && <span className="text-xs text-red-500">{errors.phone.message}</span>}
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Email</label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Email <span className="text-red-500">*</span></label>
               <input 
-                {...register('email')} 
+                {...register('email', { 
+                  required: 'Email is required',
+                  pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Invalid email format' }
+                })} 
                 type="email"
                 className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                 placeholder="Email" 
               />
+              {errors.email && <span className="text-xs text-red-500">{errors.email.message}</span>}
             </div>
 
             <div className="space-y-2">
@@ -330,6 +377,52 @@ export default function AddSupplierPage() {
                 className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
                 placeholder="Note"
               ></textarea>
+            </div>
+
+            {/* Signature Upload */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Signature Image (.png/.jpg)</label>
+              <input 
+                type="file"
+                accept="image/png, image/jpeg"
+                onChange={(e) => handleFileChange(e, setSignatureImage)}
+                className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-slate-800 dark:file:text-indigo-400"
+              />
+              {signatureImage && (
+                <div className="mt-2 p-2 border rounded-md dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                  <img src={signatureImage} alt="Signature Preview" className="max-h-20 max-w-full object-contain mx-auto" />
+                  <button 
+                    type="button" 
+                    onClick={() => setSignatureImage(null)} 
+                    className="mt-1 text-xs text-rose-500 hover:underline block text-center w-full"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Company Seal Upload */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Company Seal Image (.png/.jpg)</label>
+              <input 
+                type="file"
+                accept="image/png, image/jpeg"
+                onChange={(e) => handleFileChange(e, setCompanySealImage)}
+                className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-slate-800 dark:file:text-indigo-400"
+              />
+              {companySealImage && (
+                <div className="mt-2 p-2 border rounded-md dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                  <img src={companySealImage} alt="Seal Preview" className="max-h-20 max-w-full object-contain mx-auto" />
+                  <button 
+                    type="button" 
+                    onClick={() => setCompanySealImage(null)} 
+                    className="mt-1 text-xs text-rose-500 hover:underline block text-center w-full"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
             </div>
 
           </CardContent>

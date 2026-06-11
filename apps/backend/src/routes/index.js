@@ -17,6 +17,7 @@ router.use('/users', userRoutes);
 router.use('/dashboard', authMiddleware, dashboardRoutes);
 router.use('/parties', authMiddleware, partiesRoutes);
 router.use('/item-setup', authMiddleware, itemSetupRoutes);
+router.use('/setup/tax', require('../modules/setup/tax.routes'));
 router.use('/audit-logs', authMiddleware, auditRoutes);
 router.use('/notifications', notificationsRoutes);
 router.use('/backups', require('../modules/backup/backup.routes'));
