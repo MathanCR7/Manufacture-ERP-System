@@ -231,7 +231,8 @@ class AssetManagementController {
 
   async markInvoicePaid(req, res, next) {
     try {
-      const invoice = await assetService.markInvoicePaid(req.params.id, req.user.id, req.user.role);
+      const { pdfBase64 } = req.body;
+      const invoice = await assetService.markInvoicePaid(req.params.id, req.user.id, req.user.role, pdfBase64);
       res.json(invoice);
     } catch (error) {
       res.status(400).json({ error: error.message });
@@ -386,11 +387,11 @@ class AssetManagementController {
 
   async resendCommunication(req, res, next) {
     try {
-      const { documentType, documentId } = req.body;
+      const { documentType, documentId, pdfBase64 } = req.body;
       if (!documentType || !documentId) {
         return res.status(400).json({ error: 'documentType and documentId are required' });
       }
-      const result = await resendDocument(documentType, documentId);
+      const result = await resendDocument(documentType, documentId, pdfBase64);
       res.json(result);
     } catch (error) {
       res.status(400).json({ error: error.message });

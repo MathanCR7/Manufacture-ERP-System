@@ -1925,7 +1925,7 @@ class AssetManagementService {
     return mappedInv;
   }
 
-  async markInvoicePaid(id, userId = 'system', actorRole = 'PURCHASE_ACCOUNTANT') {
+  async markInvoicePaid(id, userId = 'system', actorRole = 'PURCHASE_ACCOUNTANT', pdfBase64 = null) {
     const res = await prisma.assetAPInvoice.update({
       where: { id },
       data: { status: 'Paid' },
@@ -1945,7 +1945,7 @@ class AssetManagementService {
     prisma.supplier.findFirst({
       where: { name: { equals: res.vendorName, mode: 'insensitive' } }
     }).then(supplier => {
-      sendAPInvoiceAutomatedEmail(res, supplier);
+      sendAPInvoiceAutomatedEmail(res, supplier, pdfBase64);
     }).catch(err => console.error('Failed to send AP Invoice email/whatsapp on mark paid:', err));
 
     return mapped;

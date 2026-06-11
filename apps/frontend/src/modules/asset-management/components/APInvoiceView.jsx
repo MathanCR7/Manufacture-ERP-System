@@ -12,7 +12,7 @@ import {
   Plus, Search, Receipt, CheckCircle2, X, Eye, ArrowLeft,
   Loader2, AlertTriangle, ChevronDown, Building2, FileText,
   Banknote, Percent, Package, Trash2, Printer, Download, Edit,
-  Info, Mail
+  Info, Mail, MessageSquare
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
@@ -102,7 +102,9 @@ const STATUS_STYLES = {
   Cancelled: 'bg-slate-50 text-slate-500 dark:bg-slate-800/30 dark:text-slate-500 border-slate-200 dark:border-slate-700',
 };
 
-const handleDownloadPDF = (invoice, shouldPrint = false) => {
+const handleDownloadPDF = (invoice, mode = 'download') => {
+  const shouldPrint = mode === true || mode === 'print';
+  const returnBase64 = mode === 'base64';
   const doc = new jsPDF();
   
   // Calculate totals
@@ -731,6 +733,9 @@ const handleDownloadPDF = (invoice, shouldPrint = false) => {
     const pdfBlob = doc.output('blob');
     const pdfUrl = URL.createObjectURL(pdfBlob);
     window.open(pdfUrl, '_blank');
+  } else if (returnBase64) {
+    const dataUri = doc.output('datauristring');
+    return dataUri.split(',')[1];
   } else {
     doc.save(filename);
   }
@@ -748,9 +753,11 @@ function APInvoiceDetailModal({ invoice, onClose }) {
   const handleResend = async () => {
     setIsResending(true);
     try {
+      const pdfBase64 = handleDownloadPDF(invoice, 'base64');
       const res = await api.post('/asset-management/resend-communication', {
         documentType: 'AP_INVOICE',
-        documentId: invoice.id
+        documentId: invoice.id,
+        pdfBase64
       });
       Swal.fire({
         icon: 'success',
@@ -792,6 +799,44 @@ function APInvoiceDetailModal({ invoice, onClose }) {
   const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const isOverdue = dueDate && dueDate < new Date() && invoice.status !== 'Paid';
 
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ['parties-suppliers'],
+    queryFn: () => api.get('/parties/suppliers').then(r => r.data),
+  });
+
+  const matchingSupplier = suppliers.find(s => s.name?.toLowerCase() === invoice.vendorName?.toLowerCase());
+  const supplierPhone = matchingSupplier?.phone || '';
+
+  const handleSendWhatsAppWeb = () => {
+    if (!supplierPhone) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Phone Number Missing',
+        text: 'This supplier does not have a registered phone number.',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
+    }
+    const cleanPhone = supplierPhone.replace(/[^0-9]/g, '');
+    const recipient = cleanPhone.startsWith('91') && cleanPhone.length === 12 ? cleanPhone : (cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone);
+    
+    const text = `🧾 *A/P Invoice Paid Notification*
+    
+Our Bill No: ${invoice.apInvoiceNo}
+Supplier Invoice #: ${invoice.vendorInvoiceNo}
+Invoice Date: ${format(new Date(invoice.invoiceDate), 'dd/MM/yyyy')}
+Grand Total: Rs. ${Number(invoice.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+Status: PAID
+
+Please check the invoice PDF sent to your email.
+Regards,
+Accounts Department`;
+    
+    const encodedText = encodeURIComponent(text);
+    const url = `https://api.whatsapp.com/send?phone=${recipient}&text=${encodedText}`;
+    window.open(url, '_blank');
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white dark:bg-slate-900 w-full max-w-4xl rounded-3xl shadow-2xl border border-slate-200/60 dark:border-slate-800 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -812,6 +857,16 @@ function APInvoiceDetailModal({ invoice, onClose }) {
             <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 dark:bg-indigo-950/20" onClick={() => handleDownloadPDF(invoice, false)}>
               <Download className="w-3.5 h-3.5" /> Download PDF
             </Button>
+            {invoice.status === 'Paid' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSendWhatsAppWeb}
+                className="gap-1.5 h-8 rounded-lg text-xs border-emerald-200 dark:border-emerald-900 text-emerald-600 hover:text-emerald-700 bg-emerald-50/50 hover:bg-emerald-50 dark:bg-emerald-950/20"
+              >
+                <MessageSquare className="w-3.5 h-3.5" /> Send WhatsApp
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -3120,7 +3175,7 @@ export default function APInvoiceView() {
   const qc = useQueryClient();
 
   const markPaidMutation = useMutation({
-    mutationFn: id => api.patch(`/asset-management/ap-invoices/${id}/mark-paid`).then(r => r.data),
+    mutationFn: ({ id, pdfBase64 }) => api.patch(`/asset-management/ap-invoices/${id}/mark-paid`, { pdfBase64 }).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['asset-ap-invoices'] }),
     onError: err => Swal.fire({ icon: 'error', title: 'Error', text: err.response?.data?.error || 'Failed', confirmButtonColor: '#4f46e5' })
   });
@@ -3311,7 +3366,10 @@ export default function APInvoiceView() {
                         <Download className="w-4 h-4" />
                       </Button>
                       {!isReadOnly && ['Posted', 'Pending Approval'].includes(inv.status) && (
-                        <Button variant="ghost" size="sm" onClick={() => markPaidMutation.mutate(inv.id)} disabled={markPaidMutation.isPending}
+                        <Button variant="ghost" size="sm" onClick={() => {
+                          const pdfBase64 = handleDownloadPDF(inv, 'base64');
+                          markPaidMutation.mutate({ id: inv.id, pdfBase64 });
+                        }} disabled={markPaidMutation.isPending}
                           className="h-8 px-3 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg gap-1">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Mark Paid
                         </Button>
