@@ -22,7 +22,7 @@ const extendedPrisma = prisma.$extends({
           if (operation === 'update' || operation === 'delete') {
             try {
               const camelModel = model.charAt(0).toLowerCase() + model.slice(1);
-              oldValue = await prisma[camelModel].findUnique({ where: args.where });
+              oldValue = await this[camelModel].findUnique({ where: args.where });
             } catch (err) {
               console.error(`Error fetching old value for ${model}:`, err);
             }
@@ -31,7 +31,7 @@ const extendedPrisma = prisma.$extends({
           const result = await query(args);
 
           try {
-            await prisma.auditLog.create({
+            await this.auditLog.create({
               data: {
                 userId: userId,
                 action: operation.toUpperCase(),
