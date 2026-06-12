@@ -1440,6 +1440,9 @@ class AssetManagementService {
       }
 
       return po;
+    }, {
+      maxWait: 15000,
+      timeout: 60000
     });
 
     const supplier = await prisma.supplier.findFirst({
@@ -1681,6 +1684,9 @@ class AssetManagementService {
       }
 
       return grpo;
+    }, {
+      maxWait: 15000,
+      timeout: 60000
     });
 
     const mappedGrpo = mapGRPOToFrontend({
@@ -2827,6 +2833,9 @@ class AssetManagementService {
       });
 
       return po;
+    }, {
+      maxWait: 15000,
+      timeout: 60000
     });
 
     // Fetch supplier and send PO item changes notice
@@ -2894,6 +2903,9 @@ class AssetManagementService {
       await tx.assetPO.delete({
         where: { id }
       });
+    }, {
+      maxWait: 15000,
+      timeout: 60000
     });
 
     prisma.supplier.findFirst({
@@ -3105,6 +3117,9 @@ class AssetManagementService {
       }
 
       return grpo;
+    }, {
+      maxWait: 15000,
+      timeout: 60000
     });
 
     return mapGRPOToFrontend({
@@ -3194,6 +3209,9 @@ class AssetManagementService {
       await tx.assetGRPO.delete({
         where: { id }
       });
+    }, {
+      maxWait: 15000,
+      timeout: 60000
     });
 
     return { success: true };
