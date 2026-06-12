@@ -55,24 +55,134 @@ const CATEGORY_MAP = {
   'Intangible Assets': { hsn: '9973', gst: 18 }
 };
 
-// ─── PDF Generator ────────────────────────────────────────────────────────────
-const handleDownloadPOPDF = (po, shouldPrint = false) => {
-  const doc = new jsPDF();
-  const totalTaxable = po.items?.reduce((s, i) => s + Number(i.totalBeforeTax || 0), 0) || 0;
-  const totalGst = po.items?.reduce((s, i) => s + Number(i.gstAmount || 0), 0) || 0;
-  const isInterState = Boolean(po.isInterState);
+// ─── Build per-rate tax breakdown (used by both modal and PDF) ────────────────
+// Uses the stored per-item cgst/sgst/igst values (computed at save time from actual item gstRate)
+// grouped by gstRate — this exactly matches the quotation page breakdown.
+const buildTaxBreakdown = (po, companyGstin = null) => {
+  const finalCompanyGstin = companyGstin || '33AABCL0702C1ZG';
+  const companyStateCode = finalCompanyGstin.trim().substring(0, 2) || '33';
+  const vendorGstin = po.vendorGstin || '';
+  const vendorState = vendorGstin.trim().substring(0, 2);
+  const isInterState = vendorState && companyStateCode ? (vendorState !== companyStateCode) : (po.isInterState !== undefined ? Boolean(po.isInterState) : false);
   const applyGst = po.applyGst !== undefined ? Boolean(po.applyGst) : true;
-  const cgst = applyGst ? Number(po.cgst !== undefined ? po.cgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const sgst = applyGst ? Number(po.sgst !== undefined ? po.sgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const igst = applyGst ? Number(po.igst !== undefined ? po.igst : (isInterState ? totalGst : 0)) : 0;
-  const freight = Number(po.freight || po.freightCharges || 0);
+  
+  let chargeGstStates = po.chargeGstStates || {};
+  if (typeof chargeGstStates === 'string') {
+    try {
+      chargeGstStates = JSON.parse(chargeGstStates);
+    } catch (e) {
+      chargeGstStates = {};
+    }
+  }
+
+  const getChargeGstApplied = (key) => {
+    const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : null);
+    if (!state) return false;
+    return (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+  };
+  const getChargeRate = (key) => {
+    const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : null);
+    if (!state || typeof state !== 'object') return 18;
+    return isInterState ? 18 : Number(state.rate !== undefined ? state.rate : 18);
+  };
+
+  const breakdown = {}; // { rate: { rate, gst, taxable, items: [], charges: [] } }
+
+  if (applyGst) {
+    // Use stored per-item gstRate + stored gstAmount (cgst+sgst or igst) for accuracy
+    (po.items || []).forEach(item => {
+      const rate = Number(item.gstRate || 18);
+      const base = Number(item.totalBeforeTax || (Number(item.quantity) * Number(item.unitPrice || 0)));
+      if (base <= 0) return;
+
+      // Use the stored tax amount if available, else calculate
+      const storedGst = Number(item.gstAmount || 0);
+      const gst = storedGst > 0 ? storedGst : (base * (rate / 100));
+
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0, items: [], charges: [] };
+      breakdown[rate].taxable += base;
+      breakdown[rate].gst += gst;
+      breakdown[rate].items.push({
+        description: item.itemDescription || 'Asset Item',
+        taxable: base,
+        gstRate: rate,
+        gstAmount: gst,
+        total: base + gst
+      });
+    });
+
+    // Charges with GST
+    const addChargeGst = (val, key, label) => {
+      const numVal = Number(val || 0);
+      if (numVal <= 0 || !getChargeGstApplied(key)) return;
+      const rate = getChargeRate(key);
+      const gst = numVal * (rate / 100);
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0, items: [], charges: [] };
+      breakdown[rate].taxable += numVal;
+      breakdown[rate].gst += gst;
+      breakdown[rate].charges.push({
+        label,
+        taxable: numVal,
+        gstRate: rate,
+        gstAmount: gst,
+        total: numVal + gst
+      });
+    };
+    const freight = Number(po.freight || po.shippingCharges || 0);
+    const loadingCharges = Number(po.loadingCharges || 0);
+    const packingCharges = Number(po.packingCharges || 0);
+    const insurance = Number(po.insurance || 0);
+    const otherCharges = Number(po.otherCharges || 0);
+    addChargeGst(freight, 'freight', 'Freight');
+    addChargeGst(loadingCharges, 'loadingCharges', 'Loading & Unloading');
+    addChargeGst(packingCharges, 'packingCharges', 'Packing Charges');
+    addChargeGst(insurance, 'insurance', 'Insurance');
+    addChargeGst(otherCharges, 'otherCharges', 'Other Charges');
+  }
+
+  // Generate rows sorted by rate
+  const taxRows = [];
+  Object.values(breakdown).sort((a, b) => a.rate - b.rate).forEach(tb => {
+    if (isInterState) {
+      taxRows.push({ label: `IGST @ ${tb.rate}%`, value: tb.gst, breakdown: tb });
+    } else {
+      const half = Number((tb.rate / 2).toFixed(2));
+      taxRows.push({ label: `CGST @ ${half}%`, value: tb.gst / 2, breakdown: tb });
+      taxRows.push({ label: `SGST @ ${half}%`, value: tb.gst / 2, breakdown: tb });
+    }
+  });
+
+  const totalTaxable = (po.items || []).reduce((s, i) => s + Number(i.totalBeforeTax || (Number(i.quantity) * Number(i.unitPrice || 0))), 0);
+  const totalGstFromRows = taxRows.reduce((s, r) => s + r.value, 0);
+  return { taxRows, totalTaxable, totalGst: totalGstFromRows, isInterState, applyGst };
+};
+
+
+// ─── PDF Generator ────────────────────────────────────────────────────────────
+const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
+  const companyName = taxSettings?.companyName || 'Leonex pvt limited';
+  const companyAddress = taxSettings?.companyAddress || 'Factory / Registered Office Address';
+  const companyGstin = taxSettings?.companyGstin || '33AABCL0702C1ZG';
+  const companyPan = taxSettings?.companyPan || 'AABCL0702C';
+
+  const doc = new jsPDF();
+  const { taxRows, totalTaxable, isInterState, applyGst } = buildTaxBreakdown(po, companyGstin);
+  const freight = Number(po.freight || po.shippingCharges || po.freightCharges || 0);
   const loadingCharges = Number(po.loadingCharges || 0);
   const unloadingCharges = Number(po.unloadingCharges || 0);
   const packingCharges = Number(po.packingCharges || 0);
   const insurance = Number(po.insurance || 0);
   const otherCharges = Number(po.otherCharges || 0);
   const discount = Number(po.discount || 0);
-  const preRoundTotal = totalTaxable + (applyGst ? totalGst : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+  const tds = Number(po.tds || 0);
+  const totalTaxAmt = taxRows.reduce((s, r) => s + r.value, 0);
+
+  // For PDF we still keep legacy variables for use below
+  let finalCgst = isInterState ? 0 : totalTaxAmt / 2;
+  let finalSgst = isInterState ? 0 : totalTaxAmt / 2;
+  let finalIgst = isInterState ? totalTaxAmt : 0;
+
+  const preRoundTotal = totalTaxable + totalTaxAmt + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount - tds;
   const grandTotal = po.grandTotal ? Number(po.grandTotal) : Math.round(preRoundTotal);
   const roundOff = po.roundOff !== undefined ? Number(po.roundOff) : (grandTotal - preRoundTotal);
 
@@ -85,10 +195,11 @@ const handleDownloadPOPDF = (po, shouldPrint = false) => {
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(100, 116, 139);
-  doc.text('ERP MANUFACTURING SYSTEM', 14, 32);
-  doc.text('123 Manufacturing Way, Tech Park', 14, 37);
-  doc.text('Bangalore, KA 560001, India', 14, 42);
-  doc.text('GSTIN: 29AAACE1234F1Z3', 14, 47);
+  doc.text(companyName.toUpperCase(), 14, 32);
+  const companyAddressLines = doc.splitTextToSize(companyAddress, 80);
+  doc.text(companyAddressLines, 14, 37);
+  const addressBlockHeight = companyAddressLines.length * 4.5;
+  doc.text(`GSTIN: ${companyGstin}`, 14, 38 + addressBlockHeight);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(30, 41, 59);
@@ -100,31 +211,32 @@ const handleDownloadPOPDF = (po, shouldPrint = false) => {
   doc.text(`Date: ${po.poDate ? format(new Date(po.poDate), 'dd/MM/yyyy') : 'N/A'}`, 140, 37);
   doc.text(`Delivery Date: ${po.deliveryDate ? format(new Date(po.deliveryDate), 'dd/MM/yyyy') : '—'}`, 140, 42);
   doc.text(`Payment Mode: ${po.paymentMode || 'N/A'}`, 140, 47);
+  doc.text(`Supplier Quote Ref: ${po.supplierQuoteRef || '—'}`, 140, 52);
   doc.setDrawColor(226, 232, 240);
-  doc.line(14, 52, 196, 52);
+  doc.line(14, 56, 196, 56);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 41, 59);
-  doc.text('VENDOR', 14, 60);
+  doc.text('VENDOR', 14, 63);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text(po.vendorName || 'N/A', 14, 66);
+  doc.text(po.vendorName || 'N/A', 14, 69);
   const addressLines = doc.splitTextToSize(po.vendorAddress || po.address || 'N/A', 80);
-  doc.text(addressLines, 14, 71);
+  doc.text(addressLines, 14, 74);
   const addressHeight = addressLines.length * 4.5;
-  doc.text(`GSTIN: ${po.vendorGstin || 'N/A'}`, 14, 72 + addressHeight);
-  doc.text(`PAN: ${po.vendorPan || 'N/A'}`, 14, 77 + addressHeight);
+  doc.text(`GSTIN: ${po.vendorGstin || 'N/A'}`, 14, 75 + addressHeight);
+  doc.text(`PAN: ${po.vendorPan || 'N/A'}`, 14, 80 + addressHeight);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 41, 59);
-  doc.text('BUYER (BILL & SHIP TO)', 110, 60);
+  doc.text('BUYER (BILL & SHIP TO)', 110, 63);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(71, 85, 105);
-  doc.text('ERP MANUFACTURING SYSTEM', 110, 66);
-  const shipAddressLines = doc.splitTextToSize(po.deliveryAddress || '123 Manufacturing Way, Bangalore KA', 80);
-  doc.text(shipAddressLines, 110, 71);
+  doc.text(companyName.toUpperCase(), 110, 69);
+  const shipAddressLines = doc.splitTextToSize(po.deliveryAddress || companyAddress, 80);
+  doc.text(shipAddressLines, 110, 74);
   const shipHeight = shipAddressLines.length * 4.5;
-  doc.text('GSTIN: 29AAACE1234F1Z3', 110, 72 + shipHeight);
-  doc.text('PAN: AAACE1234F', 110, 77 + shipHeight);
-  const startY = Math.max(82 + addressHeight, 82 + shipHeight);
+  doc.text(`GSTIN: ${companyGstin}`, 110, 75 + shipHeight);
+  doc.text(`PAN: ${companyPan}`, 110, 80 + shipHeight);
+  const startY = Math.max(85 + addressHeight, 85 + shipHeight);
   doc.line(14, startY, 196, startY);
   let currentY = startY + 8;
   doc.setFillColor(79, 70, 229);
@@ -181,36 +293,56 @@ const handleDownloadPOPDF = (po, shouldPrint = false) => {
   doc.setDrawColor(203, 213, 225);
   doc.line(14, currentY - 2, 196, currentY - 2);
   currentY += 6;
-  if (currentY + 50 > 265) { doc.addPage(); currentY = 20; doc.setFillColor(79, 70, 229); doc.rect(0, 0, 210, 8, 'F'); }
+  if (currentY + 60 > 265) { doc.addPage(); currentY = 20; doc.setFillColor(79, 70, 229); doc.rect(0, 0, 210, 8, 'F'); }
   const calcX = 130;
   const valX = 196;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  doc.text('TAXABLE:', calcX, currentY);
+  doc.text('TAXABLE VALUE:', calcX, currentY);
   doc.text(totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY, { align: 'right' });
   let offset = 6;
-  if (applyGst) {
+
+  // Grouped GST rows for PDF (displaying summed CGST, SGST, or IGST without per-rate suffix)
+  if (applyGst && taxRows.length > 0) {
     if (isInterState) {
-      doc.text('IGST:', calcX, currentY + offset);
-      doc.text(igst.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
-      offset += 6;
+      const igstVal = taxRows.filter(r => r.label.toUpperCase().startsWith('IGST')).reduce((sum, r) => sum + r.value, 0);
+      if (igstVal > 0) {
+        if (currentY + offset > 265) { doc.addPage(); currentY = 20; offset = 0; doc.setFillColor(79, 70, 229); doc.rect(0, 0, 210, 8, 'F'); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(71, 85, 105); }
+        doc.text('IGST:', calcX, currentY + offset);
+        doc.text(igstVal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
+        offset += 6;
+      }
     } else {
-      doc.text('CGST:', calcX, currentY + offset);
-      doc.text(cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
-      offset += 6;
-      doc.text('SGST:', calcX, currentY + offset);
-      doc.text(sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
-      offset += 6;
+      const cgstVal = taxRows.filter(r => r.label.toUpperCase().startsWith('CGST')).reduce((sum, r) => sum + r.value, 0);
+      const sgstVal = taxRows.filter(r => r.label.toUpperCase().startsWith('SGST')).reduce((sum, r) => sum + r.value, 0);
+      if (cgstVal > 0) {
+        if (currentY + offset > 265) { doc.addPage(); currentY = 20; offset = 0; doc.setFillColor(79, 70, 229); doc.rect(0, 0, 210, 8, 'F'); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(71, 85, 105); }
+        doc.text('CGST:', calcX, currentY + offset);
+        doc.text(cgstVal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
+        offset += 6;
+      }
+      if (sgstVal > 0) {
+        if (currentY + offset > 265) { doc.addPage(); currentY = 20; offset = 0; doc.setFillColor(79, 70, 229); doc.rect(0, 0, 210, 8, 'F'); doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(71, 85, 105); }
+        doc.text('SGST:', calcX, currentY + offset);
+        doc.text(sgstVal.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
+        offset += 6;
+      }
     }
+  } else if (!applyGst) {
+    doc.text('GST (EXEMPTED):', calcX, currentY + offset);
+    doc.text('0.00', valX, currentY + offset, { align: 'right' });
+    offset += 6;
   }
+
   if (freight > 0) { doc.text('FREIGHT:', calcX, currentY + offset); doc.text(freight.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
-  if (loadingCharges > 0) { doc.text('LOADING:', calcX, currentY + offset); doc.text(loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
-  if (unloadingCharges > 0) { doc.text('UNLOADING:', calcX, currentY + offset); doc.text(unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
+  const combinedLoading = loadingCharges + unloadingCharges;
+  if (combinedLoading > 0) { doc.text('LOADING & UNLOADING:', calcX, currentY + offset); doc.text(combinedLoading.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
   if (packingCharges > 0) { doc.text('PACKING:', calcX, currentY + offset); doc.text(packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
   if (insurance > 0) { doc.text('INSURANCE:', calcX, currentY + offset); doc.text(insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
   if (otherCharges > 0) { doc.text('OTHER CHARGES:', calcX, currentY + offset); doc.text(otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' }); offset += 6; }
   if (discount > 0) { doc.text('DISCOUNT:', calcX, currentY + offset); doc.text(`-${discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' }); offset += 6; }
+  if (tds > 0) { doc.text('TDS DEDUCTION:', calcX, currentY + offset); doc.text(`-${tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' }); offset += 6; }
   doc.text('ROUND OFF:', calcX, currentY + offset);
   doc.text((roundOff >= 0 ? '+' : '') + roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }), valX, currentY + offset, { align: 'right' });
   offset += 4;
@@ -222,105 +354,106 @@ const handleDownloadPOPDF = (po, shouldPrint = false) => {
   doc.text(`Rs. ${grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, valX, currentY + offset, { align: 'right' });
 
   // Page 2: General Terms and Conditions (GTC)
-  doc.addPage();
+  const gtcText = po.termsAndConditions || po.termsBlock || '';
+  if (gtcText) {
+    doc.addPage();
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, 210, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 41, 59);
+    doc.text('General Terms and Conditions (GTC)', 14, 20);
 
-  // Letterhead / Header banner
-  doc.setFillColor(79, 70, 229);
-  doc.rect(0, 0, 210, 8, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(71, 85, 105);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.setTextColor(30, 41, 59);
-  doc.text('General Terms and Conditions (GTC)', 14, 20);
+    const gtcLines = doc.splitTextToSize(gtcText, 174);
+    let gtcY = 28;
+    gtcLines.forEach(line => {
+      if (gtcY > 265) {
+        doc.addPage();
+        doc.setFillColor(79, 70, 229);
+        doc.rect(0, 0, 210, 8, 'F');
+        gtcY = 20;
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.5);
+        doc.setTextColor(71, 85, 105);
+      }
+      doc.text(line, 18, gtcY);
+      gtcY += 3.5;
+    });
 
-  // GTC Box
-  doc.setDrawColor(203, 213, 225);
-  doc.roundedRect(14, 25, 182, 175, 3, 3, 'D');
-
-  const termsList = [
-    "1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.",
-    "2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.",
-    "3. Warranty: The Vendor warrants that all supplied goods are brand new, genuine, and free from defects in material and workmanship for 12 months from the date of acceptance. For services, the Vendor guarantees performance by qualified personnel matching industry standards. Any defective goods or substandard services identified within this period must be replaced, repaired, or re-performed by the Vendor within 7 business days at no additional cost to the Buyer.",
-    "4. Billing Instructions: Invoices must be raised as statutory Tax Invoices clearly bearing the Vendor’s valid GSTIN, correct HSN/SAC codes, and the exact Buyer PO number. Delayed submission of invoices or failure to upload invoice data to the GST portal (preventing the Buyer from claiming Input Tax Credit) will directly result in a corresponding delay in payment processing.",
-    "5. Payment Terms: Payment shall be processed via electronic transfer (NEFT/RTGS) split across two strict milestones: 50% Advance Payment: Processed within 7 working days upon written confirmation and formal acceptance of the Purchase Order (PO) by the Vendor, against the submission of a valid Proforma Invoice. 50% Final Payment: Processed within 45 days from the date of successful physical delivery of all materials at the designated site. This is subject to the submission of complete, error-free documents (Tax Invoice, Delivery Challan, and validated E-way Bill) and physical inspection and acceptance of the defect-free materials by the Buyer's site team.",
-    "6. Delivery & Liquidated Damages (LD): The delivery timeline starts immediately upon the Vendor's receipt of the 50% advance payment and must be completed strictly within 25Days. Failure to deliver on time will result in a penalty of 0.5% of the total PO value per week of delay, capped at 10%. Exceeding this 10% limit gives the Buyer the right to terminate the contract immediately and source elsewhere at the Vendor's expense.",
-    "7. Quality & Inspection: All deliverables must strictly match the technical specifications mentioned in the PO. The Buyer reserves the right to inspect materials upon arrival at the site. The Buyer can reject any defective, damaged, or substandard items. Rejected goods must be collected and removed by the Vendor from the Buyer's premises within 7 days of rejection notification at the Vendor's sole risk and expense.",
-    "8. Statutory Compliance: The Vendor shall strictly comply with all applicable Central, State, and local government laws, labor regulations (including Provident Fund, ESIC, and Minimum Wages acts), and anti-bribery policies. The use of child labor is strictly prohibited. The Vendor is solely responsible for generating accurate E-way bills for all transit movements.",
-    "9. Dispute Resolution: Any dispute arising out of this PO shall first be resolved through amicable mutual discussions. Unresolved disputes shall be referred to a sole arbitrator appointed mutually by both parties, governed by the Indian Arbitration and Conciliation Act, 1996. The venue and seat of arbitration shall be madurai, Tamil Nadu, and proceedings will be conducted in English. The courts in Salem shall have exclusive jurisdiction over this contract."
-  ];
-
-  let termsY = 30;
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(71, 85, 105);
-  termsList.forEach(term => {
-    const splitLines = doc.splitTextToSize(term, 174);
-    doc.text(splitLines, 18, termsY);
-    termsY += (splitLines.length * 3.5) + 2;
-  });
-
-  // Signature boxes
-  let sigY = 210;
-  const vendorName = (po.vendorName || 'Supplier').toUpperCase();
-
-  // Left Signature Box (Supplier)
-  doc.setDrawColor(226, 232, 240);
-  doc.setFillColor(250, 250, 250);
-  doc.roundedRect(14, sigY, 86, 30, 2, 2, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(15, 23, 42);
-  doc.text(`For ${vendorName}`, 18, sigY + 5);
-
-  // Embed supplier signature and seal inside the supplier box if available
-  if (po.supplier?.signatureImage) {
-    try {
-      doc.addImage(po.supplier.signatureImage, 'PNG', 18, sigY + 7, 30, 12);
-    } catch (err) {
-      console.error('Failed to embed supplier signature in PO PDF:', err);
+    // Signature boxes placing logic
+    let sigY = gtcY + 10;
+    if (sigY + 35 > 280) {
+      doc.addPage();
+      doc.setFillColor(79, 70, 229);
+      doc.rect(0, 0, 210, 8, 'F');
+      sigY = 20;
     }
-  }
-  if (po.supplier?.companySealImage) {
-    try {
-      doc.addImage(po.supplier.companySealImage, 'PNG', 56, sigY + 7, 30, 12);
-    } catch (err) {
-      console.error('Failed to embed supplier company seal in PO PDF:', err);
+
+    const vendorName = (po.vendorName || 'Supplier').toUpperCase();
+
+    // Left Signature Box (Supplier)
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(250, 250, 250);
+    doc.roundedRect(14, sigY, 86, 30, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`For ${vendorName}`, 18, sigY + 5);
+
+    // Embed supplier signature and seal inside the supplier box if available
+    if (po.supplier?.signatureImage) {
+      try {
+        doc.addImage(po.supplier.signatureImage, 'PNG', 18, sigY + 7, 30, 12);
+      } catch (err) {
+        console.error('Failed to embed supplier signature in PO PDF:', err);
+      }
     }
+    if (po.supplier?.companySealImage) {
+      try {
+        doc.addImage(po.supplier.companySealImage, 'PNG', 56, sigY + 7, 30, 12);
+      } catch (err) {
+        console.error('Failed to embed supplier company seal in PO PDF:', err);
+      }
+    }
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(18, sigY + 22, 14 + 82, sigY + 22);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Authorized Signatory (Sign & Stamp)', 18, sigY + 26);
+
+    // Right Signature Box (Buyer)
+    const sig2X = 110;
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(250, 250, 250);
+    doc.roundedRect(sig2X, sigY, 86, 30, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(15, 23, 42);
+    doc.text(`For ${companyName.toUpperCase()}`, sig2X + 4, sigY + 5);
+
+    doc.setDrawColor(203, 213, 225);
+    doc.line(sig2X + 4, sigY + 22, sig2X + 82, sigY + 22);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Authorized Signatory (with Company Seal)', sig2X + 4, sigY + 26);
+
+    // Draw the "VERIFIED & APPROVED" seal stamp inside the buyer box
+    doc.setDrawColor(79, 70, 229, 0.4);
+    doc.setFillColor(245, 243, 255);
+    doc.ellipse(sig2X + 86 - 16, sigY + 13, 12, 7, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(5.5);
+    doc.setTextColor(79, 70, 229);
+    doc.text('VERIFIED &', sig2X + 86 - 16, sigY + 12, { align: 'center' });
+    doc.text('APPROVED', sig2X + 86 - 16, sigY + 15, { align: 'center' });
   }
-
-  doc.setDrawColor(203, 213, 225);
-  doc.line(18, sigY + 22, 14 + 82, sigY + 22);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Authorized Signatory (Sign & Stamp)', 18, sigY + 26);
-
-  // Right Signature Box (Buyer)
-  const sig2X = 110;
-  doc.setDrawColor(226, 232, 240);
-  doc.setFillColor(250, 250, 250);
-  doc.roundedRect(sig2X, sigY, 86, 30, 2, 2, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.setTextColor(15, 23, 42);
-  doc.text('For ERP MANUFACTURING SYSTEM', sig2X + 4, sigY + 5);
-
-  doc.setDrawColor(203, 213, 225);
-  doc.line(sig2X + 4, sigY + 22, sig2X + 82, sigY + 22);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(6.5);
-  doc.setTextColor(148, 163, 184);
-  doc.text('Authorized Signatory (with Company Seal)', sig2X + 4, sigY + 26);
-
-  // Draw the "VERIFIED & APPROVED" seal stamp inside the buyer box
-  doc.setDrawColor(79, 70, 229, 0.4);
-  doc.setFillColor(245, 243, 255);
-  doc.ellipse(sig2X + 86 - 16, sigY + 13, 12, 7, 'FD');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.5);
-  doc.setTextColor(79, 70, 229);
-  doc.text('VERIFIED &', sig2X + 86 - 16, sigY + 12, { align: 'center' });
-  doc.text('APPROVED', sig2X + 86 - 16, sigY + 15, { align: 'center' });
 
   const dateStr = po.poDate ? format(new Date(po.poDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd');
   const cleanVendorName = (po.vendorName || 'Vendor').replace(/[^a-zA-Z0-9]/g, '_');
@@ -335,23 +468,25 @@ const handleDownloadPOPDF = (po, shouldPrint = false) => {
 
 // ─── PO Detail Modal ──────────────────────────────────────────────────────────
 function PODetailModal({ po, onClose }) {
-  const totalTaxable = po.items?.reduce((s, i) => s + Number(i.totalBeforeTax || 0), 0) || 0;
-  const totalGst = po.items?.reduce((s, i) => s + Number(i.gstAmount || 0), 0) || 0;
-  const isInterState = Boolean(po.isInterState);
-  const applyGst = po.applyGst !== undefined ? Boolean(po.applyGst) : true;
-  const cgst = applyGst ? Number(po.cgst !== undefined ? po.cgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const sgst = applyGst ? Number(po.sgst !== undefined ? po.sgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const igst = applyGst ? Number(po.igst !== undefined ? po.igst : (isInterState ? totalGst : 0)) : 0;
-  const freight = Number(po.freight || po.freightCharges || 0);
+  const { data: taxSettings } = useQuery({
+    queryKey: ['tax-settings'],
+    queryFn: () => api.get('/setup/tax').then(r => r.data),
+  });
+
+  const { taxRows, totalTaxable, applyGst, isInterState } = buildTaxBreakdown(po, taxSettings?.companyGstin);
+  const totalTaxAmt = taxRows.reduce((s, r) => s + r.value, 0);
+  const freight = Number(po.freight || po.shippingCharges || po.freightCharges || 0);
   const loadingCharges = Number(po.loadingCharges || 0);
   const unloadingCharges = Number(po.unloadingCharges || 0);
   const packingCharges = Number(po.packingCharges || 0);
   const insurance = Number(po.insurance || 0);
   const otherCharges = Number(po.otherCharges || 0);
   const discount = Number(po.discount || 0);
-  const preRoundTotal = totalTaxable + (applyGst ? totalGst : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+  const tds = Number(po.tds || 0);
+  const preRoundTotal = totalTaxable + totalTaxAmt + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount - tds;
   const grandTotal = po.grandTotal ? Number(po.grandTotal) : Math.round(preRoundTotal);
   const roundOff = po.roundOff !== undefined ? Number(po.roundOff) : (grandTotal - preRoundTotal);
+  const combinedLoading = loadingCharges + unloadingCharges;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
@@ -365,10 +500,10 @@ function PODetailModal({ po, onClose }) {
             <p className="text-xs text-slate-500 mt-0.5">{po.vendorName} • {format(new Date(po.poDate), 'dd MMM yyyy')}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50" onClick={() => handleDownloadPOPDF(po, true)}>
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50" onClick={() => handleDownloadPOPDF(po, true, taxSettings)}>
               <Printer className="w-3.5 h-3.5" /> Print
             </Button>
-            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50" onClick={() => handleDownloadPOPDF(po, false)}>
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50" onClick={() => handleDownloadPOPDF(po, false, taxSettings)}>
               <Download className="w-3.5 h-3.5" /> PDF
             </Button>
             <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
@@ -381,6 +516,7 @@ function PODetailModal({ po, onClose }) {
             {[
               { label: 'Vendor', value: po.vendorName },
               { label: 'PR Reference', value: po.prNo || '—' },
+              { label: 'Supplier Quote Ref', value: po.supplierQuoteRef || '—' },
               { label: 'GSTIN', value: po.vendorGstin || '—' },
               { label: 'PAN', value: po.vendorPan || '—' },
               { label: 'Payment Terms', value: po.paymentTerms },
@@ -434,30 +570,95 @@ function PODetailModal({ po, onClose }) {
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
                   <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Taxable Value:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
-                  {applyGst ? isInterState ? (
-                    <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">IGST:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalGst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
-                  ) : (
-                    <>
-                      <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">CGST:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{(totalGst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
-                      <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">SGST:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{(totalGst / 2).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>
-                    </>
-                  ) : (
+                  {applyGst && taxRows.length > 0 ? taxRows.map((row, ri) => {
+                    const hasBreakdown = row.breakdown && (row.breakdown.items.length > 0 || row.breakdown.charges.length > 0);
+                    return (
+                      <tr key={ri}>
+                        <td colSpan={9} className="px-3 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400 text-xs relative z-10 hover:z-30">
+                          <span className="inline-flex items-center gap-1 justify-end w-full relative group hover:z-50">
+                            <span>{row.label}</span>
+                            {hasBreakdown && (
+                              <span className="inline-block relative">
+                                <Info className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600 cursor-pointer transition-colors" />
+                                <span className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-100 absolute z-50 bottom-full mb-2 right-0 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-4 text-xs text-slate-700 dark:text-slate-300 pointer-events-none text-left font-normal">
+                                  <span className="font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-2 flex justify-between items-center flex-row">
+                                    <span>GST Calculation Details</span>
+                                    <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded text-[10px] font-black">{row.breakdown.rate}% Rate Block</span>
+                                  </span>
+                                  <span className="space-y-2 block max-h-48 overflow-y-auto">
+                                    {row.breakdown.items.length > 0 && (
+                                      <span className="block">
+                                        <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Line Items</span>
+                                        <span className="space-y-1 block">
+                                          {row.breakdown.items.map((it, idx) => (
+                                            <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                              <span className="max-w-[180px] truncate font-medium block" title={it.description}>{it.description}</span>
+                                              <span className="text-right block">
+                                                <span className="font-mono text-slate-800 dark:text-slate-200">₹{it.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                <span className="text-[10px] text-slate-400 block font-normal">+ {isInterState ? 'IGST' : 'CGST+SGST'}: ₹{it.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                              </span>
+                                            </span>
+                                          ))}
+                                        </span>
+                                      </span>
+                                    )}
+                                    {row.breakdown.charges.length > 0 && (
+                                      <span className="pt-1 block">
+                                        <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Taxable Charges</span>
+                                        <span className="space-y-1 block">
+                                          {row.breakdown.charges.map((ch, idx) => (
+                                            <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                              <span className="font-medium block">{ch.label}</span>
+                                              <span className="text-right block">
+                                                <span className="font-mono text-slate-800 dark:text-slate-200">₹{ch.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                <span className="text-[10px] text-slate-400 block font-normal">+ GST: ₹{ch.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                              </span>
+                                            </span>
+                                          ))}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white block flex-row">
+                                    <span>Total Taxable ({row.breakdown.rate}%)</span>
+                                    <span className="font-mono">₹{row.breakdown.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                  </span>
+                                  <span className="mt-1 flex justify-between font-bold text-indigo-600 dark:text-indigo-400 block flex-row">
+                                    <span>Total GST ({row.breakdown.rate}%)</span>
+                                    <span className="font-mono">₹{row.breakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                  </span>
+                                </span>
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{row.value.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    );
+                  }) : !applyGst && (
                     <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td><td className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td></tr>
                   )}
                   {freight > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Freight:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{freight.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {loadingCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
-                  {unloadingCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Unloading Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {combinedLoading > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Loading & Unloading:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{combinedLoading.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   {packingCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Packing Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   {insurance > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Insurance:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   {otherCharges > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Other Charges:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   {discount > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Discount:</td><td className="px-3 py-2 font-bold text-rose-600">-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
+                  {tds > 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-amber-500 text-xs">TDS Deduction:</td><td className="px-3 py-2 font-bold text-amber-600">-₹{tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   {roundOff !== 0 && <tr><td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">Round Off:</td><td className="px-3 py-2 font-bold text-slate-900 dark:text-white">{(roundOff >= 0 ? '+' : '')}₹{Math.abs(roundOff).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td></tr>}
                   <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-indigo-50/50 dark:bg-indigo-950/20">
                     <td colSpan={9} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Grand Total:</td>
                     <td className="px-3 py-3.5 font-black text-xl text-indigo-600 dark:text-indigo-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
+
               </table>
+            </div>
+          )}
+          {(po.termsAndConditions || po.termsBlock) && (
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-4">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">General Terms & Conditions (GTC)</p>
+              <p className="text-xs text-slate-650 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl whitespace-pre-wrap font-mono max-h-48 overflow-y-auto">{po.termsAndConditions || po.termsBlock}</p>
             </div>
           )}
         </div>
@@ -585,32 +786,56 @@ function PRSelect({ prs = [], existingPOPrNos = [], value, onChange }) {
 }
 
 // ─── Charge Row with GST Checkbox ─────────────────────────────────────────────
-function ChargeRow({ label, fieldKey, value, gstChecked, isInterState, onChange, onGstChange }) {
+function ChargeRow({ label, fieldKey, value, gstState, isInterState, disabled, onChange, onGstChange, onConfigureGst }) {
   const numVal = Number(value || 0);
-  const gstLabel = isInterState ? 'IGST 18%' : 'GST 18% (CGST+SGST)';
-  const gstAmt = gstChecked && numVal > 0 ? numVal * 0.18 : 0;
+  const gstChecked = gstState && typeof gstState === 'object' ? !!gstState.applied : !!gstState;
+  const gstRate = isInterState ? 18 : (gstState && typeof gstState === 'object' && gstState.rate !== undefined ? Number(gstState.rate) : 18);
+  const gstLabel = isInterState ? 'IGST 18%' : `GST ${gstRate}% (CGST+SGST)`;
+  const gstAmt = gstChecked && numVal > 0 ? numVal * (gstRate / 100) : 0;
+  // GST checkbox is only active when there is a non-zero amount entered
+  const gstCheckboxDisabled = disabled || numVal <= 0;
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/60 rounded-xl p-3 space-y-2">
       <div className="flex items-center justify-between">
         <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">{label}</Label>
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={gstChecked}
-            onChange={e => onGstChange(e.target.checked)}
-            className="w-3.5 h-3.5 rounded accent-indigo-600"
-          />
-          <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400">{gstLabel}</span>
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label className={`flex items-center gap-1.5 select-none ${gstCheckboxDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+            <input
+              type="checkbox"
+              checked={gstChecked && numVal > 0}
+              disabled={gstCheckboxDisabled}
+              onChange={e => onGstChange(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400">{gstLabel}</span>
+          </label>
+          {gstChecked && !isInterState && !disabled && (
+            <button
+              type="button"
+              onClick={onConfigureGst}
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+              title="Configure GST Rate"
+            >
+              <Edit className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
       <Input
         type="number"
         min="0"
         step="0.01"
         value={value}
-        onChange={e => onChange(e.target.value)}
+        disabled={disabled}
+        onChange={e => {
+          onChange(e.target.value);
+          // Auto-uncheck GST if the value is cleared to 0
+          if ((!e.target.value || Number(e.target.value) <= 0) && gstChecked) {
+            onGstChange(false);
+          }
+        }}
         placeholder="0.00"
-        className="h-8 rounded-lg text-sm"
+        className="h-8 rounded-lg text-sm disabled:opacity-60"
       />
       {gstChecked && numVal > 0 && (
         <p className="text-[10px] text-indigo-500 font-medium">
@@ -626,6 +851,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   const [form, setForm] = useState({
     prId: '',
     prNo: '',
+    pqId: '',
+    pqNo: '',
     vendorName: '',
     vendorGstin: '',
     vendorPan: '',
@@ -638,31 +865,40 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     paymentMode: 'Bank Transfer (NEFT)',
     freight: '',
     loadingCharges: '',
-    unloadingCharges: '',
+    unloadingCharges: '0',
     packingCharges: '',
     insurance: '',
     discount: '',
     otherCharges: '',
+    tds: '',
+    supplierQuoteRef: '',
     isInterState: false,
     applyGst: true,
     termsAndConditions: '',
     items: [],
   });
 
-  // GST checkbox state per charge: { freight: false, loadingCharges: false, ... }
   const [chargeGstStates, setChargeGstStates] = useState({
-    freight: false,
-    loadingCharges: false,
-    unloadingCharges: false,
-    packingCharges: false,
-    insurance: false,
-    otherCharges: false,
+    freight: { applied: false, rate: 18 },
+    loadingCharges: { applied: false, rate: 18 },
+    unloadingCharges: { applied: false, rate: 18 },
+    packingCharges: { applied: false, rate: 18 },
+    insurance: { applied: false, rate: 18 },
+    otherCharges: { applied: false, rate: 18 },
   });
 
   const [originalIsInterState, setOriginalIsInterState] = useState(null);
+  const [activeChargeGstEdit, setActiveChargeGstEdit] = useState(null);
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
+
+  const isFinanceLocked = !!form.pqId || !!form.pqNo || !!prefillFromPQ || !!editPOId;
+
+  const { data: taxSettings } = useQuery({
+    queryKey: ['tax-settings'],
+    queryFn: () => api.get('/setup/tax').then(r => r.data),
+  });
 
   const { data: prs = [] } = useQuery({
     queryKey: ['asset-prs'],
@@ -681,6 +917,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   });
 
   const handleIsInterStateChange = (newVal) => {
+    if (isFinanceLocked) return;
     update('isInterState', newVal);
     if (originalIsInterState !== null && originalIsInterState !== newVal) {
       Swal.fire({
@@ -706,6 +943,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       setForm({
         prId: prs.find(p => p.prNo === editPO.prNo)?.id || '',
         prNo: editPO.prNo || '',
+        pqId: editPO.pqId || '',
+        pqNo: editPO.pqNo || '',
         vendorName: editPO.vendorName || '',
         vendorGstin: editPO.vendorGstin || '',
         vendorPan: editPO.vendorPan || '',
@@ -718,11 +957,13 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         paymentMode: editPO.paymentMode || 'Bank Transfer (NEFT)',
         freight: editPO.freight !== undefined ? String(editPO.freight) : '',
         loadingCharges: editPO.loadingCharges !== undefined ? String(editPO.loadingCharges) : '',
-        unloadingCharges: editPO.unloadingCharges !== undefined ? String(editPO.unloadingCharges) : '',
+        unloadingCharges: '0',
         packingCharges: editPO.packingCharges !== undefined ? String(editPO.packingCharges) : '',
         insurance: editPO.insurance !== undefined ? String(editPO.insurance) : '',
         discount: editPO.discount !== undefined ? String(editPO.discount) : '',
         otherCharges: editPO.otherCharges !== undefined ? String(editPO.otherCharges) : '',
+        tds: editPO.tds !== undefined ? String(editPO.tds) : '',
+        supplierQuoteRef: editPO.supplierQuoteRef || '',
         isInterState: editPO.isInterState,
         applyGst: editPO.applyGst !== undefined ? Boolean(editPO.applyGst) : true,
         termsAndConditions: editPO.termsBlock || '',
@@ -742,7 +983,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           ? pqs.find(q => q.pqNo === editPO.pqNo)
           : pqs.find(q => q.prNo === editPO.prNo && q.vendorName === editPO.vendorName);
         if (linkedPQ) {
-          const isInter = linkedPQ.stateCode ? linkedPQ.stateCode !== '27' : (linkedPQ.vendorGstin ? linkedPQ.vendorGstin.trim().substring(0, 2) !== '27' : false);
+          const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
+          const isInter = linkedPQ.stateCode ? linkedPQ.stateCode !== companyStateCode : (linkedPQ.vendorGstin ? linkedPQ.vendorGstin.trim().substring(0, 2) !== companyStateCode : false);
           setOriginalIsInterState(isInter);
         }
       }
@@ -752,13 +994,21 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           const parsed = typeof editPO.chargeGstStates === 'string'
             ? JSON.parse(editPO.chargeGstStates)
             : editPO.chargeGstStates;
+          
+          const parseLegacy = (val) => {
+            if (!val) return { applied: false, rate: 18 };
+            if (val === true || val === 'true') return { applied: true, rate: 18 };
+            if (typeof val === 'object') return { applied: !!val.applied, rate: val.rate !== undefined ? Number(val.rate) : 18 };
+            return { applied: false, rate: 18 };
+          };
+
           setChargeGstStates({
-            freight: !!parsed.freight,
-            loadingCharges: !!parsed.loadingCharges,
-            unloadingCharges: !!parsed.unloadingCharges,
-            packingCharges: !!parsed.packingCharges,
-            insurance: !!parsed.insurance,
-            otherCharges: !!parsed.otherCharges,
+            freight: parseLegacy(parsed.freight || parsed.shippingCharges),
+            loadingCharges: parseLegacy(parsed.loadingCharges),
+            unloadingCharges: { applied: false, rate: 18 },
+            packingCharges: parseLegacy(parsed.packingCharges),
+            insurance: parseLegacy(parsed.insurance),
+            otherCharges: parseLegacy(parsed.otherCharges),
           });
         } catch (e) {
           console.error(e);
@@ -767,19 +1017,18 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     }
   }, [editPO, prs, pqs]);
 
-  // fetch existing POs to know which PRs are already linked
   const { data: pos = [] } = useQuery({
     queryKey: ['asset-pos'],
     queryFn: () => api.get('/asset-management/purchase-orders').then(r => r.data),
   });
 
-  // Pre-fill from PQ if redirected
   useEffect(() => {
     if (prefillFromPQ && prs.length > 0) {
       const pq = prefillFromPQ;
       const linkedPR = prs.find(p => p.prNo === pq.prNo);
       
-      const isInterState = pq.stateCode ? pq.stateCode !== '27' : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== '27' : false);
+      const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
+      const isInterState = pq.stateCode ? pq.stateCode !== companyStateCode : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== companyStateCode : false);
       setOriginalIsInterState(isInterState);
       
       const items = (pq.items || []).map(i => ({
@@ -796,6 +1045,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         ...prev,
         prId: linkedPR ? linkedPR.id : '',
         prNo: pq.prNo,
+        pqId: pq.id,
+        pqNo: pq.pqNo,
         vendorName: pq.vendorName || '',
         vendorGstin: pq.vendorGstin || '',
         vendorPan: pq.vendorPan || '',
@@ -803,13 +1054,15 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         currency: pq.currency || 'INR',
         paymentTerms: pq.paymentTerms || 'Net 30',
         paymentMode: pq.paymentMode || 'Bank Transfer (NEFT)',
-        freight: pq.shippingCharges ? String(pq.shippingCharges) : '',
-        loadingCharges: pq.loadingCharges ? String(pq.loadingCharges) : '',
-        unloadingCharges: pq.unloadingCharges ? String(pq.unloadingCharges) : '',
-        packingCharges: pq.packingCharges ? String(pq.packingCharges) : '',
-        insurance: pq.insurance ? String(pq.insurance) : '',
-        otherCharges: pq.otherCharges ? String(pq.otherCharges) : '',
-        discount: pq.discount ? String(pq.discount) : '',
+        freight: pq.shippingCharges !== undefined ? String(pq.shippingCharges) : '',
+        loadingCharges: pq.loadingCharges !== undefined ? String(pq.loadingCharges) : '',
+        unloadingCharges: '0',
+        packingCharges: pq.packingCharges !== undefined ? String(pq.packingCharges) : '',
+        insurance: pq.insurance !== undefined ? String(pq.insurance) : '',
+        otherCharges: pq.otherCharges !== undefined ? String(pq.otherCharges) : '',
+        discount: pq.discount !== undefined ? String(pq.discount) : '',
+        tds: pq.tds !== undefined ? String(pq.tds) : '',
+        supplierQuoteRef: pq.supplierQuoteRef || '',
         termsAndConditions: pq.termsAndConditions || '',
         isInterState,
         items,
@@ -820,13 +1073,21 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           const parsed = typeof pq.chargeGstStates === 'string'
             ? JSON.parse(pq.chargeGstStates)
             : pq.chargeGstStates;
+          
+          const parseLegacy = (val) => {
+            if (!val) return { applied: false, rate: 18 };
+            if (val === true || val === 'true') return { applied: true, rate: 18 };
+            if (typeof val === 'object') return { applied: !!val.applied, rate: val.rate !== undefined ? Number(val.rate) : 18 };
+            return { applied: false, rate: 18 };
+          };
+
           setChargeGstStates({
-            freight: !!(parsed.shippingCharges || parsed.freight),
-            loadingCharges: !!parsed.loadingCharges,
-            unloadingCharges: !!parsed.unloadingCharges,
-            packingCharges: !!parsed.packingCharges,
-            insurance: !!parsed.insurance,
-            otherCharges: !!parsed.otherCharges,
+            freight: parseLegacy(parsed.shippingCharges || parsed.freight),
+            loadingCharges: parseLegacy(parsed.loadingCharges),
+            unloadingCharges: { applied: false, rate: 18 },
+            packingCharges: parseLegacy(parsed.packingCharges),
+            insurance: parseLegacy(parsed.insurance),
+            otherCharges: parseLegacy(parsed.otherCharges),
           });
         } catch (e) {
           console.error(e);
@@ -860,19 +1121,28 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   const insurance = Number(form.insurance || 0);
   const otherCharges = Number(form.otherCharges || 0);
   const discount = Number(form.discount || 0);
+  const tds = Number(form.tds || 0);
 
-  // Calculate extra GST from charges
-  const calcChargeGst = (val, key) => chargeGstStates[key] && Number(val) > 0 ? Number(val) * 0.18 : 0;
+  const calcChargeGst = (val, key) => {
+    const state = chargeGstStates[key];
+    if (!state) return 0;
+    const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+    if (isApplied && Number(val) > 0) {
+      const rate = form.isInterState ? 18 : (state.rate !== undefined ? Number(state.rate) : 18);
+      return Number(val) * (rate / 100);
+    }
+    return 0;
+  };
+
   const extraGst = form.applyGst ? (
     calcChargeGst(freight, 'freight') +
     calcChargeGst(loadingCharges, 'loadingCharges') +
-    calcChargeGst(unloadingCharges, 'unloadingCharges') +
     calcChargeGst(packingCharges, 'packingCharges') +
     calcChargeGst(insurance, 'insurance') +
     calcChargeGst(otherCharges, 'otherCharges')
   ) : 0;
 
-  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount - tds;
   const grandTotal = Math.round(preRoundTotal);
   const roundOff = grandTotal - preRoundTotal;
 
@@ -907,8 +1177,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     if (!form.vendorName) { setError('Vendor name is required'); return; }
     if (form.items.length === 0) { setError('No items found. Add at least one line item.'); return; }
     if (form.items.some(i => !i.itemDescription || !i.unitPrice)) { setError('All item fields are required'); return; }
-    // Check if PR already has a PO
-    if (!editPOId && existingPOPrNos.includes(form.prNo)) {
+    if (!editPOId && existingPOPrNos.includes(form.prNo) && form.prNo !== 'Direct') {
       setError(`A Purchase Order has already been raised for PR ${form.prNo}. Each PR allows only one PO.`);
       return;
     }
@@ -917,10 +1186,12 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       discount: Number(form.discount || 0),
       freight: Number(form.freight || 0),
       loadingCharges: Number(form.loadingCharges || 0),
-      unloadingCharges: Number(form.unloadingCharges || 0),
+      unloadingCharges: 0,
       packingCharges: Number(form.packingCharges || 0),
       insurance: Number(form.insurance || 0),
       otherCharges: Number(form.otherCharges || 0),
+      tds: Number(form.tds || 0),
+      supplierQuoteRef: form.supplierQuoteRef || '',
       isInterState: Boolean(form.isInterState),
       applyGst: Boolean(form.applyGst),
       chargeGstStates,
@@ -933,6 +1204,17 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   const addItem = () => setForm(p => ({ ...p, items: [...p.items, { category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', gstRate: 18 }] }));
   const removeItem = idx => setForm(p => ({ ...p, items: p.items.filter((_, i) => i !== idx) }));
 
+  useEffect(() => {
+    if (!taxSettings?.companyGstin) return;
+    const vendorGstin = form.vendorGstin || '';
+    const companyGstin = taxSettings.companyGstin;
+    const vState = vendorGstin.trim().substring(0, 2);
+    const cState = companyGstin.trim().substring(0, 2);
+    if (vState.length === 2 && cState.length === 2) {
+      setForm(prev => ({ ...prev, isInterState: vState !== cState }));
+    }
+  }, [form.vendorGstin, taxSettings?.companyGstin]);
+
   const handleCategoryChange = (idx, category) => {
     const mapDetails = CATEGORY_MAP[category] || { hsn: '8471', gst: 18 };
     setForm(p => ({
@@ -942,11 +1224,50 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   };
 
   const fillFromPR = (pr) => {
-    // Find associated quotation in pqs (excluding Cancelled quotations)
+    if (!pr) {
+      setForm(prev => ({
+        ...prev,
+        prId: '',
+        prNo: '',
+        pqId: '',
+        pqNo: '',
+        vendorName: '',
+        vendorGstin: '',
+        vendorPan: '',
+        vendorAddress: '',
+        currency: 'INR',
+        paymentTerms: 'Net 30',
+        paymentMode: 'Bank Transfer (NEFT)',
+        freight: '',
+        loadingCharges: '',
+        unloadingCharges: '0',
+        packingCharges: '',
+        insurance: '',
+        otherCharges: '',
+        discount: '',
+        tds: '',
+        supplierQuoteRef: '',
+        termsAndConditions: '',
+        isInterState: false,
+        items: [],
+      }));
+      setChargeGstStates({
+        freight: false,
+        loadingCharges: false,
+        unloadingCharges: false,
+        packingCharges: false,
+        insurance: false,
+        otherCharges: false,
+      });
+      setOriginalIsInterState(null);
+      return;
+    }
+
     const pq = pqs.find(q => q.prNo === pr.prNo && q.status !== 'Cancelled');
     
     if (pq) {
-      const isInterState = pq.stateCode ? pq.stateCode !== '27' : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== '27' : false);
+      const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
+      const isInterState = pq.stateCode ? pq.stateCode !== companyStateCode : (pq.vendorGstin ? pq.vendorGstin.trim().substring(0, 2) !== companyStateCode : false);
       setOriginalIsInterState(isInterState);
       
       const items = (pq.items || []).map(i => ({
@@ -963,6 +1284,8 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         ...prev,
         prId: pr.id,
         prNo: pr.prNo,
+        pqId: pq.id,
+        pqNo: pq.pqNo,
         vendorName: pq.vendorName || '',
         vendorGstin: pq.vendorGstin || '',
         vendorPan: pq.vendorPan || '',
@@ -970,13 +1293,15 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         currency: pq.currency || 'INR',
         paymentTerms: pq.paymentTerms || 'Net 30',
         paymentMode: pq.paymentMode || 'Bank Transfer (NEFT)',
-        freight: pq.shippingCharges ? String(pq.shippingCharges) : '',
-        loadingCharges: pq.loadingCharges ? String(pq.loadingCharges) : '',
-        unloadingCharges: pq.unloadingCharges ? String(pq.unloadingCharges) : '',
-        packingCharges: pq.packingCharges ? String(pq.packingCharges) : '',
-        insurance: pq.insurance ? String(pq.insurance) : '',
-        otherCharges: pq.otherCharges ? String(pq.otherCharges) : '',
-        discount: pq.discount ? String(pq.discount) : '',
+        freight: pq.shippingCharges !== undefined ? String(pq.shippingCharges) : '',
+        loadingCharges: pq.loadingCharges !== undefined ? String(pq.loadingCharges) : '',
+        unloadingCharges: '0',
+        packingCharges: pq.packingCharges !== undefined ? String(pq.packingCharges) : '',
+        insurance: pq.insurance !== undefined ? String(pq.insurance) : '',
+        otherCharges: pq.otherCharges !== undefined ? String(pq.otherCharges) : '',
+        discount: pq.discount !== undefined ? String(pq.discount) : '',
+        tds: pq.tds !== undefined ? String(pq.tds) : '',
+        supplierQuoteRef: pq.supplierQuoteRef || '',
         termsAndConditions: pq.termsAndConditions || '',
         isInterState,
         items,
@@ -987,80 +1312,39 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           const parsed = typeof pq.chargeGstStates === 'string'
             ? JSON.parse(pq.chargeGstStates)
             : pq.chargeGstStates;
+          
+          const parseLegacy = (val) => {
+            if (!val) return { applied: false, rate: 18 };
+            if (val === true || val === 'true') return { applied: true, rate: 18 };
+            if (typeof val === 'object') return { applied: !!val.applied, rate: val.rate !== undefined ? Number(val.rate) : 18 };
+            return { applied: false, rate: 18 };
+          };
+
           setChargeGstStates({
-            freight: !!(parsed.shippingCharges || parsed.freight || parsed.shippingChargesGst || parsed.freightGst),
-            loadingCharges: !!parsed.loadingCharges,
-            unloadingCharges: !!parsed.unloadingCharges,
-            packingCharges: !!parsed.packingCharges,
-            insurance: !!parsed.insurance,
-            otherCharges: !!parsed.otherCharges,
+            freight: parseLegacy(parsed.shippingCharges || parsed.freight),
+            loadingCharges: parseLegacy(parsed.loadingCharges),
+            unloadingCharges: { applied: false, rate: 18 },
+            packingCharges: parseLegacy(parsed.packingCharges),
+            insurance: parseLegacy(parsed.insurance),
+            otherCharges: parseLegacy(parsed.otherCharges),
           });
         } catch (e) {
           console.error(e);
         }
       }
     } else {
-      const isInterState = pr.vendorGstin ? pr.vendorGstin.trim().substring(0, 2) !== '27' : false;
-      let items = [];
-      if (pr.items && Array.isArray(pr.items)) {
-        items = pr.items.map(i => ({
-          category: i.category || 'IT Equipment',
-          itemDescription: i.assetName || i.itemDescription || i.description || '',
-          hsnSac: i.hsnCode || i.hsnSac || CATEGORY_MAP[i.category]?.hsn || '8471',
-          quantity: Number(i.quantity) || 1,
-          unit: i.uom || i.unit || 'Nos',
-          unitPrice: Number(i.estimatedUnitCost || i.unitPrice || 0),
-          gstRate: CATEGORY_MAP[i.category]?.gst || 18,
-        }));
-      } else {
-        items = [{
-          category: pr.category || 'IT Equipment',
-          itemDescription: pr.assetName || '',
-          hsnSac: pr.hsnCode || CATEGORY_MAP[pr.category]?.hsn || '8471',
-          quantity: Number(pr.quantity) || 1,
-          unit: pr.uom || 'Nos',
-          unitPrice: Number(pr.estimatedUnitCost || 0),
-          gstRate: CATEGORY_MAP[pr.category]?.gst || 18,
-        }];
-      }
-      setForm(prev => ({
-        ...prev,
-        prId: pr.id,
-        prNo: pr.prNo,
-        vendorName: '',
-        vendorGstin: '',
-        vendorPan: '',
-        vendorAddress: '',
-        currency: 'INR',
-        paymentTerms: 'Net 30',
-        paymentMode: 'Bank Transfer (NEFT)',
-        freight: '',
-        loadingCharges: '',
-        unloadingCharges: '',
-        packingCharges: '',
-        insurance: '',
-        otherCharges: '',
-        discount: '',
-        termsAndConditions: '',
-        isInterState,
-        items,
-      }));
-      setChargeGstStates({
-        freight: false,
-        loadingCharges: false,
-        unloadingCharges: false,
-        packingCharges: false,
-        insurance: false,
-        otherCharges: false,
+      Swal.fire({
+        icon: 'error',
+        title: 'Purchase Quotation Required',
+        text: `No Purchase Quotation was found for Purchase Request ${pr.prNo}. Under the new procurement workflow, you must record a Purchase Quotation (Step 2) and complete the evaluation before raising a Purchase Order.`,
+        confirmButtonColor: '#4f46e5'
       });
-      setOriginalIsInterState(null);
     }
   };
 
   const chargeFields = [
     { label: 'Freight Charges (₹)', key: 'freight' },
-    { label: 'Loading Charges (₹)', key: 'loadingCharges' },
-    { label: 'Unloading Charges (₹)', key: 'unloadingCharges' },
+    { label: 'Loading & Unloading Charges (₹)', key: 'loadingCharges' },
     { label: 'Packing Charges (₹)', key: 'packingCharges' },
     { label: 'Insurance (₹)', key: 'insurance' },
     { label: 'Other Charges (₹)', key: 'otherCharges' },
@@ -1075,8 +1359,133 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
     );
   }
 
+  // Group item taxes by GST rate for tooltip & dynamic display
+  const taxRows = [];
+  const taxBreakdown = {};
+  
+  if (form.applyGst) {
+    form.items.forEach(item => {
+      const rate = Number(item.gstRate || 0);
+      const base = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+      if (base <= 0) return;
+      const gst = base * (rate / 100);
+      if (!taxBreakdown[rate]) {
+        taxBreakdown[rate] = { rate, taxable: 0, gst: 0, items: [], charges: [] };
+      }
+      taxBreakdown[rate].taxable += base;
+      taxBreakdown[rate].gst += gst;
+      taxBreakdown[rate].items.push({
+        description: item.itemDescription || 'Asset Item',
+        taxable: base,
+        gstRate: rate,
+        gstAmount: gst,
+        total: base + gst
+      });
+    });
+
+    const addChargeTax = (val, key, label) => {
+      const numVal = Number(val || 0);
+      if (numVal <= 0) return;
+      const state = chargeGstStates[key];
+      const gstChecked = state === true || state === 'true' || (state && state.applied === true);
+      if (gstChecked) {
+        const rate = form.isInterState ? 18 : Number(state.rate || 18);
+        const gst = numVal * (rate / 100);
+        if (!taxBreakdown[rate]) {
+          taxBreakdown[rate] = { rate, taxable: 0, gst: 0, items: [], charges: [] };
+        }
+        taxBreakdown[rate].taxable += numVal;
+        taxBreakdown[rate].gst += gst;
+        taxBreakdown[rate].charges.push({
+          label,
+          taxable: numVal,
+          gstRate: rate,
+          gstAmount: gst,
+          total: numVal + gst
+        });
+      }
+    };
+    
+    addChargeTax(freight, 'freight', 'Freight');
+    addChargeTax(loadingCharges, 'loadingCharges', 'Loading & Unloading');
+    addChargeTax(packingCharges, 'packingCharges', 'Packing Charges');
+    addChargeTax(insurance, 'insurance', 'Insurance');
+    addChargeTax(otherCharges, 'otherCharges', 'Other Charges');
+
+    // Generate CGST / SGST or IGST rows sorted by rate
+    Object.values(taxBreakdown).sort((a, b) => a.rate - b.rate).forEach(tb => {
+      if (form.isInterState) {
+        taxRows.push({
+          label: `IGST @ ${tb.rate}%`,
+          value: tb.gst,
+          breakdown: tb
+        });
+      } else {
+        const halfRate = Number((tb.rate / 2).toFixed(2));
+        taxRows.push({
+          label: `CGST @ ${halfRate}%`,
+          value: tb.gst / 2,
+          breakdown: tb
+        });
+        taxRows.push({
+          label: `SGST @ ${halfRate}%`,
+          value: tb.gst / 2,
+          breakdown: tb
+        });
+      }
+    });
+  } else {
+    taxRows.push({
+      label: 'GST (Exempted)',
+      value: 0,
+      breakdown: null
+    });
+  }
+
+  const summaryItems = [
+    { label: 'Taxable Value', value: totals.taxable },
+    ...taxRows,
+    { label: 'Freight', value: freight },
+    { label: 'Loading & Unloading', value: loadingCharges },
+    { label: 'Packing Charges', value: packingCharges },
+    { label: 'Insurance', value: insurance },
+    { label: 'Other Charges', value: otherCharges },
+    { label: 'Discount', value: -discount },
+    { label: 'TDS Deduction', value: -tds },
+    { label: 'Round Off', value: roundOff },
+  ];
+
   return (
     <div className="space-y-6 w-full">
+      {activeChargeGstEdit && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-xs border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+              Configure GST Rate for {activeChargeGstEdit === 'freight' ? 'Freight' : activeChargeGstEdit === 'loadingCharges' ? 'Loading & Unloading' : activeChargeGstEdit === 'packingCharges' ? 'Packing' : activeChargeGstEdit === 'insurance' ? 'Insurance' : 'Other Charges'}
+            </h4>
+            <div className="space-y-1.5">
+              <Label className="text-xs">GST Rate (%)</Label>
+              <select
+                value={chargeGstStates[activeChargeGstEdit]?.rate || 18}
+                onChange={e => {
+                  const val = Number(e.target.value);
+                  setChargeGstStates(prev => ({
+                    ...prev,
+                    [activeChargeGstEdit]: { ...prev[activeChargeGstEdit], rate: val }
+                  }));
+                }}
+                className="w-full h-10 px-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                {[0, 5, 12, 18, 28].map(r => <option key={r} value={r}>{r}%</option>)}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button size="sm" onClick={() => setActiveChargeGstEdit(null)} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-5 h-9">Done</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddSupplier && (
         <AddSupplierInline
           onClose={() => setShowAddSupplier(false)}
@@ -1113,7 +1522,6 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Link PR */}
         <div className="border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 rounded-2xl p-5">
           <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
             <ClipboardList className="w-4 h-4" /> Link to Purchase Request (PR)
@@ -1128,17 +1536,16 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
             {form.prId && (
               <div className="flex items-center gap-2 p-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs text-emerald-700 dark:text-emerald-400">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                PR <strong>{form.prNo}</strong> linked — Items pre-filled. Add vendor details below.
+                PR <strong>{form.prNo}</strong> linked — Items and Quotation pricing loaded.
               </div>
             )}
             <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-xl text-[10px] text-amber-700 dark:text-amber-400">
               <Info className="w-3 h-3 mt-0.5 shrink-0" />
-              Each PR can have only one Purchase Order. PRs marked "PO Raised" are disabled.
+              Each PR can have only one Purchase Order. PRs marked "PO Raised" are disabled. A quotation must have been created for the selected PR.
             </div>
           </div>
         </div>
 
-        {/* Vendor & PO Date */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-indigo-500" /> Vendor & PO Details
@@ -1148,16 +1555,15 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
               <Label>Vendor Name <span className="text-rose-500">*</span></Label>
               <SupplierSelect
                 suppliers={suppliers}
-                disabled={false}
+                disabled={isFinanceLocked}
                 value={suppliers.find(s => s.name === form.vendorName) || null}
                 onChange={s => {
                   update('vendorName', s.name);
                   update('vendorAddress', s.address || '');
                   update('vendorGstin', s.gstin || '');
                   update('vendorPan', s.pan || '');
-                  // Auto detect inter/intra state from GSTIN
                   if (s.gstin && s.gstin.length >= 2) {
-                    update('isInterState', s.gstin.substring(0, 2) !== '27');
+                    update('isInterState', s.gstin.substring(0, 2) !== '33');
                   }
                 }}
                 onAddNew={() => setShowAddSupplier(true)}
@@ -1165,21 +1571,30 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
             </div>
             <div className="space-y-1.5">
               <Label>Vendor GSTIN</Label>
-              <Input value={form.vendorGstin} onChange={e => update('vendorGstin', e.target.value)} placeholder="22AAAAA0000A1Z5" className="h-10 rounded-xl font-mono" />
+              <Input value={form.vendorGstin} readOnly placeholder="33AAAAA0000A1Z5" className="h-10 rounded-xl font-mono bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="space-y-1.5">
               <Label>Vendor PAN</Label>
-              <Input value={form.vendorPan} onChange={e => update('vendorPan', e.target.value)} className="h-10 rounded-xl font-mono" />
+              <Input value={form.vendorPan} readOnly placeholder="AAAAA0000A" className="h-10 rounded-xl font-mono bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="md:col-span-2 space-y-1.5">
               <Label>Vendor Address</Label>
-              <Input value={form.vendorAddress} onChange={e => update('vendorAddress', e.target.value)} className="h-10 rounded-xl" />
+              <Input value={form.vendorAddress} readOnly placeholder="Full registered address" className="h-10 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Supplier Quotation Ref No</Label>
+              <Input
+                value={form.supplierQuoteRef}
+                disabled={isFinanceLocked}
+                onChange={e => update('supplierQuoteRef', e.target.value)}
+                placeholder="Quote ref no"
+                className="h-10 rounded-xl text-sm"
+              />
             </div>
             <DatePicker label="PO Date *" value={form.poDate} onChange={d => update('poDate', d)} placeholder="Select Date" />
           </div>
         </div>
 
-        {/* Delivery & Payment */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <Truck className="w-4 h-4 text-indigo-500" /> Delivery & Payment
@@ -1189,7 +1604,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
             <div className="space-y-1.5">
               <Label>Payment Terms</Label>
               <div className="relative">
-                <select value={form.paymentTerms} onChange={e => update('paymentTerms', e.target.value)} className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                <select value={form.paymentTerms} disabled={isFinanceLocked} onChange={e => update('paymentTerms', e.target.value)} className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
                   {['Net 30', 'Net 45', 'Net 60', '100% Advance', '50% Advance', 'LC/Bank'].map(t => <option key={t}>{t}</option>)}
                 </select>
                 <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
@@ -1198,7 +1613,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
             <div className="space-y-1.5">
               <Label>Payment Mode</Label>
               <div className="relative">
-                <select value={form.paymentMode} onChange={e => update('paymentMode', e.target.value)} className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                <select value={form.paymentMode} disabled={isFinanceLocked} onChange={e => update('paymentMode', e.target.value)} className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
                   {PAYMENT_MODES.map(m => <option key={m}>{m}</option>)}
                 </select>
                 <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
@@ -1211,21 +1626,22 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           </div>
         </div>
 
-        {/* Line Items */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
               <Package className="w-4 h-4 text-indigo-500" /> Order Line Items
             </h3>
-            <Button type="button" variant="outline" size="sm" onClick={addItem} className="h-8 rounded-lg text-xs gap-1 border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:bg-indigo-50">
-              <Plus className="w-3.5 h-3.5" /> Add Line
-            </Button>
+            {!isFinanceLocked && (
+              <Button type="button" variant="outline" size="sm" onClick={addItem} className="h-8 rounded-lg text-xs gap-1 border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:bg-indigo-50">
+                <Plus className="w-3.5 h-3.5" /> Add Line
+              </Button>
+            )}
           </div>
 
           {form.items.length === 0 ? (
             <div className="text-center py-10 text-slate-400 text-sm border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
               <Package className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-              Select a PR above to auto-fill items, or click "Add Line" to add manually.
+              Select a PR linked to a Purchase Quotation to auto-fill items.
             </div>
           ) : (
             <div className="space-y-3">
@@ -1236,12 +1652,12 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
                       <div className="space-y-1 col-span-2">
                         <Label className="text-xs">Description <span className="text-rose-500">*</span></Label>
-                        <Input value={item.itemDescription} onChange={e => updateItem(idx, 'itemDescription', e.target.value)} className="h-9 rounded-lg text-sm" />
+                        <Input value={item.itemDescription} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'itemDescription', e.target.value)} className="h-9 rounded-lg text-sm" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Category</Label>
                         <div className="relative">
-                          <select value={item.category || 'IT Equipment'} onChange={e => handleCategoryChange(idx, e.target.value)} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                          <select value={item.category || 'IT Equipment'} disabled={isFinanceLocked} onChange={e => handleCategoryChange(idx, e.target.value)} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
                             {Object.keys(CATEGORY_MAP).map(c => <option key={c}>{c}</option>)}
                           </select>
                           <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />
@@ -1249,12 +1665,12 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">HSN/SAC</Label>
-                        <Input value={item.hsnSac} onChange={e => updateItem(idx, 'hsnSac', e.target.value)} className="h-9 rounded-lg text-sm font-mono" />
+                        <Input value={item.hsnSac} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'hsnSac', e.target.value)} className="h-9 rounded-lg text-sm font-mono" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">UOM</Label>
                         <div className="relative">
-                          <select value={item.unit || 'Nos'} onChange={e => updateItem(idx, 'unit', e.target.value)} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                          <select value={item.unit || 'Nos'} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'unit', e.target.value)} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
                             {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
                           </select>
                           <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />
@@ -1262,16 +1678,16 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Qty</Label>
-                        <Input type="number" min="1" value={item.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} className="h-9 rounded-lg text-sm" />
+                        <Input type="number" min="1" value={item.quantity} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'quantity', e.target.value)} className="h-9 rounded-lg text-sm" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Unit Price (₹) <span className="text-rose-500">*</span></Label>
-                        <Input type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', e.target.value)} className="h-9 rounded-lg text-sm" />
+                        <Input type="number" min="0" step="0.01" value={item.unitPrice} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'unitPrice', e.target.value)} className="h-9 rounded-lg text-sm" />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">GST Rate</Label>
                         <div className="relative">
-                          <select value={item.gstRate} onChange={e => updateItem(idx, 'gstRate', Number(e.target.value))} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                          <select value={item.gstRate} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'gstRate', Number(e.target.value))} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
                             {GST_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
                           </select>
                           <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />
@@ -1284,7 +1700,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                         </div>
                       </div>
                     </div>
-                    {form.items.length > 1 && (
+                    {!isFinanceLocked && form.items.length > 1 && (
                       <div className="flex justify-end mt-2">
                         <button type="button" onClick={() => removeItem(idx)} className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
                           <Trash2 className="w-4 h-4" />
@@ -1297,15 +1713,13 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
             </div>
           )}
 
-          {/* Totals + Charges */}
           <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-4">
-              {/* GST Toggles */}
               <div className="bg-slate-50/50 dark:bg-slate-800/10 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">GST Applicability</span>
                   <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" id="applyGst" checked={form.applyGst} onChange={e => update('applyGst', e.target.checked)} className="w-4 h-4 rounded accent-indigo-600 border-slate-300" />
+                    <input type="checkbox" id="applyGst" disabled={isFinanceLocked} checked={form.applyGst} onChange={e => update('applyGst', e.target.checked)} className="w-4 h-4 rounded accent-indigo-600 border-slate-300 disabled:opacity-60" />
                     <Label htmlFor="applyGst" className="text-xs font-medium cursor-pointer">
                       {form.applyGst ? `Apply GST (${form.isInterState ? 'IGST' : 'CGST + SGST'})` : 'Exempt / No GST'}
                     </Label>
@@ -1315,10 +1729,10 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Supply Type</span>
                     <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
-                      <button type="button" onClick={() => handleIsInterStateChange(false)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${!form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
+                      <button type="button" disabled={isFinanceLocked} onClick={() => handleIsInterStateChange(false)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all disabled:opacity-60 ${!form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
                         Intra-state (CGST+SGST)
                       </button>
-                      <button type="button" onClick={() => handleIsInterStateChange(true)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
+                      <button type="button" disabled={isFinanceLocked} onClick={() => handleIsInterStateChange(true)} className={`px-3 py-1 text-xs font-semibold rounded-md transition-all disabled:opacity-60 ${form.isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}>
                         Inter-state (IGST)
                       </button>
                     </div>
@@ -1332,13 +1746,17 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                 </div>
               </div>
 
-              {/* Discount */}
-              <div className="bg-white dark:bg-slate-900 border border-rose-200/60 dark:border-rose-900/30 rounded-xl p-3">
-                <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Discount (₹)</Label>
-                <Input type="number" min="0" step="0.01" value={form.discount} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-8 rounded-lg text-sm mt-1.5" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-white dark:bg-slate-900 border border-rose-200/60 dark:border-rose-900/30 rounded-xl p-3">
+                  <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Discount (₹)</Label>
+                  <Input type="number" min="0" step="0.01" value={form.discount} disabled={isFinanceLocked} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-8 rounded-lg text-sm mt-1.5" />
+                </div>
+                <div className="bg-white dark:bg-slate-900 border border-amber-200/60 dark:border-amber-900/30 rounded-xl p-3">
+                  <Label className="text-xs font-semibold text-amber-600 dark:text-amber-400">TDS Deduction (₹)</Label>
+                  <Input type="number" min="0" step="0.01" value={form.tds} disabled={isFinanceLocked} onChange={e => update('tds', e.target.value)} placeholder="0.00" className="h-8 rounded-lg text-sm mt-1.5" />
+                </div>
               </div>
 
-              {/* Charge rows with GST checkbox */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {chargeFields.map(({ label, key }) => (
                   <ChargeRow
@@ -1346,42 +1764,87 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                     label={label}
                     fieldKey={key}
                     value={form[key]}
-                    gstChecked={chargeGstStates[key]}
+                    gstState={chargeGstStates[key]}
                     isInterState={form.isInterState}
+                    disabled={isFinanceLocked}
                     onChange={v => update(key, v)}
-                    onGstChange={checked => setChargeGstStates(prev => ({ ...prev, [key]: checked }))}
+                    onGstChange={checked => setChargeGstStates(prev => {
+                      const current = prev[key] && typeof prev[key] === 'object' ? prev[key] : { applied: false, rate: 18 };
+                      return { ...prev, [key]: { ...current, applied: checked } };
+                    })}
+                    onConfigureGst={() => setActiveChargeGstEdit(key)}
                   />
                 ))}
               </div>
             </div>
 
-            {/* Summary */}
             <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 rounded-2xl p-4 space-y-2 text-sm h-fit">
-              {[
-                { label: 'Taxable Value', value: totals.taxable },
-                ...(form.applyGst ? (
-                  form.isInterState ? [{ label: 'IGST', value: totals.gst + extraGst }] : [
-                    { label: 'CGST', value: (totals.gst + extraGst) / 2 },
-                    { label: 'SGST', value: (totals.gst + extraGst) / 2 }
-                  ]
-                ) : [{ label: 'GST (Exempted)', value: 0 }]),
-                { label: 'Freight', value: freight },
-                { label: 'Loading', value: loadingCharges },
-                { label: 'Unloading', value: unloadingCharges },
-                { label: 'Packing', value: packingCharges },
-                { label: 'Insurance', value: insurance },
-                { label: 'Other Charges', value: otherCharges },
-                { label: 'Discount', value: -discount },
-                { label: 'Round Off', value: roundOff },
-              ].map(({ label, value }) => {
+              {summaryItems.map(({ label, value, breakdown }) => {
                 const formatted = Math.abs(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 let textClass = 'text-slate-800 dark:text-slate-200';
                 let prefix = '₹';
                 if (label === 'Discount' && value < 0) { textClass = 'text-rose-500 font-bold'; prefix = '-₹'; }
+                else if (label === 'TDS Deduction' && value < 0) { textClass = 'text-amber-500 font-bold'; prefix = '-₹'; }
                 else if (label === 'Round Off') { if (value > 0) prefix = '+₹'; else if (value < 0) prefix = '-₹'; }
+                const hasBreakdown = breakdown && (breakdown.items.length > 0 || breakdown.charges.length > 0);
                 return (
-                  <div key={label} className="flex justify-between text-slate-600 dark:text-slate-400">
-                    <span>{label}</span>
+                  <div key={label} className="flex justify-between text-slate-600 dark:text-slate-400 items-center relative group">
+                    <span className="flex items-center gap-1">
+                      {label}
+                      {hasBreakdown && (
+                        <span className="inline-block relative">
+                          <Info className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600 cursor-pointer transition-colors" />
+                          <span className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-100 absolute z-50 bottom-full mb-2 left-0 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-4 text-xs text-slate-700 dark:text-slate-355 pointer-events-none">
+                            <span className="font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-2 flex justify-between items-center">
+                              <span>GST Calculation Details</span>
+                              <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded text-[10px] font-black">{breakdown.rate}% Rate Block</span>
+                            </span>
+                            <span className="space-y-2 block max-h-48 overflow-y-auto">
+                              {breakdown.items.length > 0 && (
+                                <span className="block">
+                                  <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Line Items</span>
+                                  <span className="space-y-1 block">
+                                    {breakdown.items.map((it, idx) => (
+                                      <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                        <span className="max-w-[180px] truncate font-medium block" title={it.description}>{it.description}</span>
+                                        <span className="text-right block">
+                                          <span className="font-mono">₹{it.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                          <span className="text-[10px] text-slate-450 block font-normal">+ {form.isInterState ? 'IGST' : 'CGST+SGST'}: ₹{it.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </span>
+                                </span>
+                              )}
+                              {breakdown.charges.length > 0 && (
+                                <span className="pt-1 block">
+                                  <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Taxable Charges</span>
+                                  <span className="space-y-1 block">
+                                    {breakdown.charges.map((ch, idx) => (
+                                      <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                        <span className="font-medium block">{ch.label}</span>
+                                        <span className="text-right block">
+                                          <span className="font-mono">₹{ch.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                          <span className="text-[10px] text-slate-455 block font-normal">+ GST: ₹{ch.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </span>
+                                </span>
+                              )}
+                            </span>
+                            <span className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white block">
+                              <span>Total Taxable ({breakdown.rate}%)</span>
+                              <span className="font-mono">₹{breakdown.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            </span>
+                            <span className="mt-1 flex justify-between font-bold text-indigo-600 dark:text-indigo-400 block">
+                              <span>Total GST ({breakdown.rate}%)</span>
+                              <span className="font-mono">₹{breakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            </span>
+                          </span>
+                        </span>
+                      )}
+                    </span>
                     <span className={`font-semibold ${textClass}`}>{prefix}{formatted}</span>
                   </div>
                 );
@@ -1392,6 +1855,19 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Shield className="w-4 h-4 text-indigo-500" /> General Terms & Conditions (GTC)
+          </h3>
+          <textarea
+            value={form.termsAndConditions}
+            disabled={isFinanceLocked}
+            onChange={e => update('termsAndConditions', e.target.value)}
+            rows={12}
+            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-y font-mono disabled:opacity-80 disabled:cursor-not-allowed"
+          />
         </div>
 
         <div className="flex justify-end gap-3">
@@ -1427,6 +1903,11 @@ export default function PurchaseOrdersView() {
   const { data: pos = [], isLoading } = useQuery({
     queryKey: ['asset-pos'],
     queryFn: () => api.get('/asset-management/purchase-orders').then(r => r.data),
+  });
+
+  const { data: taxSettings } = useQuery({
+    queryKey: ['tax-settings'],
+    queryFn: () => api.get('/setup/tax').then(r => r.data),
   });
 
   const { data: grpos = [] } = useQuery({
@@ -1621,8 +2102,8 @@ export default function PurchaseOrdersView() {
                           </Button>
                         </>
                       )}
-                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPOPDF(po, true)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Print PO"><Printer className="w-4 h-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPOPDF(po, false)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Download PDF"><Download className="w-4 h-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPOPDF(po, true, taxSettings)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Print PO"><Printer className="w-4 h-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPOPDF(po, false, taxSettings)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Download PDF"><Download className="w-4 h-4" /></Button>
                     </div>
                   </td>
                 </tr>

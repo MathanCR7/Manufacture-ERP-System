@@ -132,7 +132,7 @@ const generatePOPDFBuffer = (po, settings) => {
     const metaX = 320;
     const metaY = 30;
     const metaW = 245;
-    const metaH = 80;
+    const metaH = 104;
 
     // Draw metadata box background
     doc.roundedRect(metaX, metaY, metaW, metaH, 6).fillAndStroke(lightGrey, borderGrey).lineWidth(0.8);
@@ -146,6 +146,8 @@ const generatePOPDFBuffer = (po, settings) => {
 
     doc.text('PR REF', metaX + 10, metaY + 56);
     doc.text('PQ REF', metaX + 125, metaY + 56);
+
+    doc.text('SUPPLIER QUOTE REF', metaX + 10, metaY + 80);
 
     // Metadata values
     doc.fillColor(darkColor).fontSize(8).font('Helvetica-Bold');
@@ -162,11 +164,13 @@ const generatePOPDFBuffer = (po, settings) => {
     doc.text(po.prNo || 'None', metaX + 10, metaY + 64);
     doc.text(po.pqNo || 'None', metaX + 125, metaY + 64);
 
+    doc.text(po.supplierQuoteRef || '—', metaX + 10, metaY + 88);
+
     // Separator line
-    doc.strokeColor('#cbd5e1').lineWidth(0.5).moveTo(30, 125).lineTo(565, 125).stroke();
+    doc.strokeColor('#cbd5e1').lineWidth(0.5).moveTo(30, 145).lineTo(565, 145).stroke();
 
     // Bill From and Bill To details (2 columns)
-    const colY = 135;
+    const colY = 155;
     const colW = 250;
 
     // Bill From (Supplier)
@@ -184,7 +188,7 @@ const generatePOPDFBuffer = (po, settings) => {
     doc.fillColor(darkColor).fontSize(8).font('Helvetica-Bold').text(`GSTIN: ${settings.companyGstin}`, 313, colY + 46);
 
     // Table Header
-    let tableY = 200;
+    let tableY = 220;
     doc.fillColor('#1e1b4b').rect(30, tableY, 535, 20).fill();
     doc.fillColor('#ffffff').fontSize(7.5).font('Helvetica-Bold');
     doc.text('Description', 35, tableY + 6);
@@ -250,12 +254,17 @@ const generatePOPDFBuffer = (po, settings) => {
 
     drawTotalRow('SUBTOTAL (TAXABLE):', Number(po.subtotal).toFixed(2));
 
-    const gstRate = po.items?.[0]?.gstRate || 18;
     if (po.isInterState) {
-      drawTotalRow(`IGST (${gstRate}%):`, Number(po.igst).toFixed(2));
+      if (Number(po.igst) > 0) {
+        drawTotalRow('IGST:', Number(po.igst).toFixed(2));
+      }
     } else {
-      drawTotalRow(`CGST (${gstRate / 2}%):`, Number(po.cgst).toFixed(2));
-      drawTotalRow(`SGST (${gstRate / 2}%):`, Number(po.sgst).toFixed(2));
+      if (Number(po.cgst) > 0) {
+        drawTotalRow('CGST:', Number(po.cgst).toFixed(2));
+      }
+      if (Number(po.sgst) > 0) {
+        drawTotalRow('SGST:', Number(po.sgst).toFixed(2));
+      }
     }
 
     if (Number(po.freight || po.shippingCharges) > 0) {
@@ -300,27 +309,25 @@ const generatePOPDFBuffer = (po, settings) => {
     // GTC Box
     doc.roundedRect(30, 60, 535, 420, 8).strokeColor('#cbd5e1').lineWidth(0.8).stroke();
 
-    const termsList = [
-      "1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.",
-      "2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.",
-      "3. Warranty: The Vendor warrants that all supplied goods are brand new, genuine, and free from defects in material and workmanship for 12 months from the date of acceptance. For services, the Vendor guarantees performance by qualified personnel matching industry standards. Any defective goods or substandard services identified within this period must be replaced, repaired, or re-performed by the Vendor within 7 business days at no additional cost to the Buyer.",
-      "4. Billing Instructions: Invoices must be raised as statutory Tax Invoices clearly bearing the Vendor’s valid GSTIN, correct HSN/SAC codes, and the exact Buyer PO number. Delayed submission of invoices or failure to upload invoice data to the GST portal (preventing the Buyer from claiming Input Tax Credit) will directly result in a corresponding delay in payment processing.",
-      "5. Payment Terms: Payment shall be processed via electronic transfer (NEFT/RTGS) split across two strict milestones: 50% Advance Payment: Processed within 7 working days upon written confirmation and formal acceptance of the Purchase Order (PO) by the Vendor, against the submission of a valid Proforma Invoice. 50% Final Payment: Processed within 45 days from the date of successful physical delivery of all materials at the designated site. This is subject to the submission of complete, error-free documents (Tax Invoice, Delivery Challan, and validated E-way Bill) and physical inspection and acceptance of the defect-free materials by the Buyer's site team.",
-      "6. Delivery & Liquidated Damages (LD): The delivery timeline starts immediately upon the Vendor's receipt of the 50% advance payment and must be completed strictly within 25Days. Failure to deliver on time will result in a penalty of 0.5% of the total PO value per week of delay, capped at 10%. Exceeding this 10% limit gives the Buyer the right to terminate the contract immediately and source elsewhere at the Vendor's expense.",
-      "7. Quality & Inspection: All deliverables must strictly match the technical specifications mentioned in the PO. The Buyer reserves the right to inspect materials upon arrival at the site. The Buyer can reject any defective, damaged, or substandard items. Rejected goods must be collected and removed by the Vendor from the Buyer's premises within 7 days of rejection notification at the Vendor's sole risk and expense.",
-      "8. Statutory Compliance: The Vendor shall strictly comply with all applicable Central, State, and local government laws, labor regulations (including Provident Fund, ESIC, and Minimum Wages acts), and anti-bribery policies. The use of child labor is strictly prohibited. The Vendor is solely responsible for generating accurate E-way bills for all transit movements.",
-      "9. Dispute Resolution: Any dispute arising out of this PO shall first be resolved through amicable mutual discussions. Unresolved disputes shall be referred to a sole arbitrator appointed mutually by both parties, governed by the Indian Arbitration and Conciliation Act, 1996. The venue and seat of arbitration shall be madurai, Tamil Nadu, and proceedings will be conducted in English. The courts in Salem shall have exclusive jurisdiction over this contract."
-    ];
+    const rawGtc = po.termsBlock || po.termsAndConditions || '';
+    const termsList = rawGtc.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.toLowerCase().startsWith('general terms and conditions'));
 
     let termsY = 72;
-    doc.fontSize(7.5).font('Helvetica').fillColor('#475569');
+    doc.fontSize(7.2).font('Helvetica').fillColor('#475569');
     termsList.forEach(term => {
       doc.text(term, 40, termsY, { width: 515, align: 'justify' });
       termsY += doc.heightOfString(term, { width: 515 }) + 5;
     });
 
-    // Signature boxes
+    // Signature boxes placing logic: if terms run long, move signature box to a new page
     let sigY = 495;
+    if (termsY > 470) {
+      doc.addPage();
+      doc.fillColor('#4f46e5').rect(0, 0, 595, 20).fill();
+      sigY = 40;
+    }
     const vendorName = (po.vendorName || 'Supplier').toUpperCase();
 
     // Left Signature Box (Supplier)
@@ -350,7 +357,7 @@ const generatePOPDFBuffer = (po, settings) => {
 
     // Right Signature Box (Buyer)
     doc.roundedRect(315, sigY, 250, 85, 6).strokeColor('#e2e8f0').lineWidth(0.8).stroke();
-    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text('For ERP MANUFACTURING SYSTEM', 325, sigY + 10);
+    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text(`For ${settings.companyName.toUpperCase()}`, 325, sigY + 10);
     doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Authorized Signatory (with Company Seal)', 325, sigY + 70);
 
     // Draw the "VERIFIED & APPROVED" seal stamp inside the buyer box
@@ -444,7 +451,20 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     currentY += 15;
 
     // Split CGST/SGST/IGST
-    const isInterState = invoice.deliveryAddress && !invoice.deliveryAddress.toLowerCase().includes('karnataka');
+    const companyGstin = settings?.companyGstin || '';
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const customerGstin = invoice.customer?.gstin || '';
+    const customerStateCode = customerGstin.trim().substring(0, 2);
+    let isInterState = false;
+    if (customerStateCode && customerStateCode.length === 2 && companyStateCode.length === 2) {
+      isInterState = customerStateCode !== companyStateCode;
+    } else if (invoice.deliveryAddress) {
+      const stateNames = {
+        '33': 'tamil nadu', '27': 'maharashtra', '29': 'karnataka', '07': 'delhi', '09': 'uttar pradesh', '19': 'west bengal'
+      };
+      const companyStateName = stateNames[companyStateCode] || 'tamil nadu';
+      isInterState = !invoice.deliveryAddress.toLowerCase().includes(companyStateName);
+    }
     const totalGst = Number(invoice.totalSubtotal) * 0.18; // Default 18% GST estimate
     
     if (isInterState) {
@@ -473,7 +493,7 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
  * Handle PR Automatic Email Dispatch
  */
 const sendPRAutomatedEmail = async (pr, supplier) => {
-  const settings = getTaxSettingsData();
+  const settings = await getTaxSettingsData();
   const email = supplier?.email;
   if (!email) {
     console.log(`[PR Dispatch] Skip PR-${pr.id} dispatch. No email for supplier ${supplier?.name}`);
@@ -566,7 +586,7 @@ Phone : ${settings.companyMobile}`;
  * Handle PQ Automatic Email Dispatch
  */
 const sendPQAutomatedEmail = async (pq, supplier, bypassDuplicateCheck = false) => {
-  const settings = getTaxSettingsData();
+  const settings = await getTaxSettingsData();
   const email = pq.email || supplier?.email;
   if (!email) {
     console.log(`[PQ Dispatch] Skip PQ-${pq.pqNo} dispatch. No email for supplier ${pq.vendorName}`);
@@ -657,7 +677,7 @@ Phone : ${settings.companyMobile}`;
  * Handle PO Automatic Email Dispatch (WITH PDF ATTACHMENT)
  */
 const sendPOAutomatedEmail = async (po, supplier, bypassDuplicateCheck = false) => {
-  const settings = getTaxSettingsData();
+  const settings = await getTaxSettingsData();
   const email = po.email || supplier?.email;
   if (!email) {
     console.log(`[PO Dispatch] Skip PO-${po.poNo} dispatch. No email for supplier ${po.vendorName}`);
@@ -755,7 +775,7 @@ Phone : ${settings.companyMobile}`;
  * Handle PO Update / Delete Notification Email
  */
 const sendPOUpdateDeleteNotice = async (po, actionType, itemsList, supplier) => {
-  const settings = getTaxSettingsData();
+  const settings = await getTaxSettingsData();
   const email = po.email || supplier?.email;
   if (!email) {
     console.log(`[PO Notice] Skip dispatch. No email for supplier ${po.vendorName}`);
@@ -830,7 +850,21 @@ Phone : ${settings.companyMobile}`;
 
 // Helper to generate AP Invoice PDF Buffer
 const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
+    let supplierQuoteRef = invoice.supplierQuoteRef || '';
+    if (!supplierQuoteRef && invoice.poNo && invoice.poNo !== 'Direct') {
+      try {
+        const po = await prisma.assetPO.findFirst({
+          where: { poNo: invoice.poNo }
+        });
+        if (po) {
+          supplierQuoteRef = po.supplierQuoteRef || '';
+        }
+      } catch (err) {
+        console.error('[PDF Generation] Failed to fetch PO for supplierQuoteRef fallback:', err);
+      }
+    }
+
     const doc = new PDFDocument({ margin: 30, size: 'A4' });
     const chunks = [];
     doc.on('data', chunk => chunks.push(chunk));
@@ -860,7 +894,7 @@ const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
     const metaX = 320;
     const metaY = 30;
     const metaW = 245;
-    const metaH = 80;
+    const metaH = 104;
 
     // Draw metadata box background
     doc.roundedRect(metaX, metaY, metaW, metaH, 6).fillAndStroke(lightGrey, borderGrey).lineWidth(0.8);
@@ -874,6 +908,9 @@ const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
 
     doc.text('PAYMENT MODE', metaX + 10, metaY + 56);
     doc.text('PO REF', metaX + 125, metaY + 56);
+
+    doc.text('SUPPLIER QUOTE REF', metaX + 10, metaY + 80);
+    doc.text('GRPO REF', metaX + 125, metaY + 80);
 
     // Metadata values
     doc.fillColor(darkColor).fontSize(8).font('Helvetica-Bold');
@@ -889,11 +926,14 @@ const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
     doc.text(invoice.paymentMode || 'NEFT', metaX + 10, metaY + 64);
     doc.text(invoice.poNo || 'Direct', metaX + 125, metaY + 64);
 
+    doc.text(supplierQuoteRef || '—', metaX + 10, metaY + 88);
+    doc.text(invoice.grpoNo || '—', metaX + 125, metaY + 88);
+
     // Separator line
-    doc.strokeColor('#cbd5e1').lineWidth(0.5).moveTo(30, 125).lineTo(565, 125).stroke();
+    doc.strokeColor('#cbd5e1').lineWidth(0.5).moveTo(30, 145).lineTo(565, 145).stroke();
 
     // Bill From and Bill To details (2 columns)
-    const colY = 135;
+    const colY = 155;
 
     // Bill From
     doc.fillColor(primaryAccent).rect(30, colY + 2, 2.5, 45).fill();
@@ -910,7 +950,7 @@ const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
     doc.fillColor(darkColor).fontSize(8).font('Helvetica-Bold').text(`GSTIN: ${settings.companyGstin}`, 313, colY + 46);
 
     // Table Header
-    let tableY = 200;
+    let tableY = 220;
     doc.fillColor('#1e1b4b').rect(30, tableY, 535, 20).fill();
     doc.fillColor('#ffffff').fontSize(7.5).font('Helvetica-Bold');
     doc.text('Description', 35, tableY + 6);
@@ -1095,7 +1135,7 @@ const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
 
     // Right Signature Box (Buyer)
     doc.roundedRect(315, sigY, 250, 85, 6).strokeColor('#e2e8f0').lineWidth(0.8).stroke();
-    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text('For ERP MANUFACTURING SYSTEM', 325, sigY + 10);
+    doc.fillColor('#1e293b').fontSize(8.5).font('Helvetica-Bold').text(`For ${settings.companyName.toUpperCase()}`, 325, sigY + 10);
     doc.fillColor('#64748b').fontSize(7).font('Helvetica').text('Authorized Signatory (with Company Seal)', 325, sigY + 70);
 
     // Draw the "VERIFIED & APPROVED" seal stamp inside the buyer box
@@ -1122,7 +1162,7 @@ const generateAPInvoicePDFBuffer = (invoice, supplier, settings) => {
  * Handle AP Invoice Automatic Email Dispatch
  */
 const sendAPInvoiceAutomatedEmail = async (invoice, supplier, pdfBase64 = null, bypassDuplicateCheck = false) => {
-  const settings = getTaxSettingsData();
+  const settings = await getTaxSettingsData();
   const email = invoice.email || supplier?.email;
   if (!email) {
     console.log(`[Invoice Dispatch] Skip Bill-${invoice.invoiceNo} dispatch. No email.`);
@@ -1477,7 +1517,7 @@ ${settings.companyAddress.substring(0, 40)}...`;
  * Handle GRPO Discrepancy Notice Email
  */
 const sendGRPODiscrepancyNotice = async (grpo, po, supplier) => {
-  const settings = getTaxSettingsData();
+  const settings = await getTaxSettingsData();
   const email = supplier?.email;
   if (!email) return;
 
@@ -1543,7 +1583,7 @@ Phone : ${settings.companyMobile}`;
  * Handle Sales Invoice Dual Send (Email + WhatsApp)
  */
 const sendSalesInvoiceDual = async (invoice) => {
-  const settings = getTaxSettingsData();
+  const settings = await getTaxSettingsData();
   const email = invoice.customer?.email;
   const phone = invoice.customer?.phone;
 
@@ -1684,7 +1724,7 @@ const resendDocument = async (documentType, documentId, pdfBase64 = null) => {
       }) : null;
       
       // Send disregarding isAlreadySent check for manual resends
-      const settings = getTaxSettingsData();
+      const settings = await getTaxSettingsData();
       const email = supplier?.email;
       if (!email) throw new Error('Supplier email not found');
       

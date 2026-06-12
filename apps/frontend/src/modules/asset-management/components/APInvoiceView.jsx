@@ -102,19 +102,108 @@ const STATUS_STYLES = {
   Cancelled: 'bg-slate-50 text-slate-500 dark:bg-slate-800/30 dark:text-slate-500 border-slate-200 dark:border-slate-700',
 };
 
-const handleDownloadPDF = (invoice, mode = 'download') => {
+const buildInvoiceTaxBreakdown = (invoice) => {
+  let isInterState = Boolean(invoice.isInterState);
+  const vendorGstin = invoice.vendorGstin || '';
+  const companyGstin = invoice.companyGstin || '';
+  if (vendorGstin && companyGstin) {
+    const vState = vendorGstin.trim().substring(0, 2);
+    const cState = companyGstin.trim().substring(0, 2);
+    if (vState && cState && vState.length === 2 && cState.length === 2) {
+      isInterState = vState !== cState;
+    }
+  }
+  const applyGst = invoice.applyGst !== undefined ? Boolean(invoice.applyGst) : true;
+  
+  let chargeGstStates = invoice.chargeGstStates || {};
+  if (typeof chargeGstStates === 'string') {
+    try {
+      chargeGstStates = JSON.parse(chargeGstStates);
+    } catch (e) {
+      chargeGstStates = {};
+    }
+  }
+
+  const getChargeGstApplied = (key) => {
+    const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : null);
+    if (!state) return false;
+    return (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+  };
+  const getChargeRate = (key) => {
+    const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : null);
+    if (!state || typeof state !== 'object') return 18;
+    return isInterState ? 18 : Number(state.rate !== undefined ? state.rate : 18);
+  };
+
+  const breakdown = {}; // { rate: { rate, gst, taxable } }
+
+  if (applyGst) {
+    (invoice.items || []).forEach(item => {
+      const rate = Number(item.gstRate || 18);
+      const base = Number(item.totalBeforeTax || (Number(item.quantity) * Number(item.unitPrice || 0)));
+      if (base <= 0) return;
+
+      const storedGst = Number(item.gstAmount || (Number(item.cgstAmount || 0) + Number(item.sgstAmount || 0) + Number(item.igstAmount || 0)) || 0);
+      const gst = storedGst > 0 ? storedGst : (base * (rate / 100));
+
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+      breakdown[rate].taxable += base;
+      breakdown[rate].gst += gst;
+    });
+
+    const addChargeGst = (val, key) => {
+      const numVal = Number(val || 0);
+      if (numVal <= 0 || !getChargeGstApplied(key)) return;
+      const rate = getChargeRate(key);
+      const gst = numVal * (rate / 100);
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+      breakdown[rate].taxable += numVal;
+      breakdown[rate].gst += gst;
+    };
+
+    addChargeGst(invoice.freight, 'freight');
+    addChargeGst(invoice.loadingCharges, 'loadingCharges');
+    addChargeGst(invoice.unloadingCharges, 'unloadingCharges');
+    addChargeGst(invoice.packingCharges, 'packingCharges');
+    addChargeGst(invoice.insurance, 'insurance');
+    addChargeGst(invoice.otherCharges, 'otherCharges');
+  }
+
+  const taxRows = [];
+  Object.values(breakdown).sort((a, b) => a.rate - b.rate).forEach(tb => {
+    if (isInterState) {
+      taxRows.push({ label: `IGST @ ${tb.rate}%`, value: tb.gst, rate: tb.rate });
+    } else {
+      const half = Number((tb.rate / 2).toFixed(2));
+      taxRows.push({ label: `CGST @ ${half}%`, value: tb.gst / 2, rate: half });
+      taxRows.push({ label: `SGST @ ${half}%`, value: tb.gst / 2, rate: half });
+    }
+  });
+
+  const totalTaxable = (invoice.items || []).reduce((s, i) => s + Number(i.totalBeforeTax || (Number(i.quantity) * Number(i.unitPrice || 0))), 0);
+  const totalGstFromRows = taxRows.reduce((s, r) => s + r.value, 0);
+  return { taxRows, totalTaxable, totalGst: totalGstFromRows, isInterState, applyGst };
+};
+
+const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = null) => {
   const shouldPrint = mode === true || mode === 'print';
   const returnBase64 = mode === 'base64';
   const doc = new jsPDF();
   
+  const companyName = taxSettings?.companyName || 'Leonex pvt limited';
+  const companyAddress = taxSettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053';
+  const companyGstin = taxSettings?.companyGstin || 'BCLNU556863412';
+  const companyPan = taxSettings?.companyPan || (companyGstin.length >= 12 ? companyGstin.substring(2, 12) : 'BCLNU55686');
+
   // Calculate totals
-  const taxable = invoice.items?.reduce((s, i) => s + Number(i.totalBeforeTax || 0), 0) || 0;
-  const isInterState = Boolean(invoice.isInterState);
-  const applyGst = invoice.applyGst !== undefined ? Boolean(invoice.applyGst) : true;
-  const totalGst = invoice.items?.reduce((s, i) => s + Number(i.gstAmount || i.cgstAmount + i.sgstAmount + i.igstAmount || 0), 0) || 0;
-  const cgst = applyGst ? Number(invoice.cgst !== undefined ? invoice.cgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const sgst = applyGst ? Number(invoice.sgst !== undefined ? invoice.sgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const igst = applyGst ? Number(invoice.igst !== undefined ? invoice.igst : (isInterState ? totalGst : 0)) : 0;
+  const { taxRows, totalTaxable: taxable, isInterState, applyGst } = buildInvoiceTaxBreakdown({
+    ...invoice,
+    companyGstin: invoice.companyGstin || companyGstin
+  });
+  const cgst = applyGst ? taxRows.filter(r => r.label.startsWith('CGST')).reduce((sum, r) => sum + r.value, 0) : 0;
+  const sgst = applyGst ? taxRows.filter(r => r.label.startsWith('SGST')).reduce((sum, r) => sum + r.value, 0) : 0;
+  const igst = applyGst ? taxRows.filter(r => r.label.startsWith('IGST')).reduce((sum, r) => sum + r.value, 0) : 0;
+  const totalGst = cgst + sgst + igst;
   const freight = Number(invoice.freight || invoice.freightGst || 0);
   const loadingCharges = Number(invoice.loadingCharges || 0);
   const unloadingCharges = Number(invoice.unloadingCharges || 0);
@@ -148,20 +237,22 @@ const handleDownloadPDF = (invoice, mode = 'download') => {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(9);
   doc.setTextColor(71, 85, 105); // Slate 600
-  doc.text('ERP MANUFACTURING SYSTEM', startX, currentY);
+  doc.text(companyName.toUpperCase(), startX, currentY);
   currentY += 4.5;
-  doc.text('123 Manufacturing Way, Tech Park', startX, currentY);
-  currentY += 4.5;
-  doc.text('Bangalore, KA 560001, India', startX, currentY);
-  currentY += 4.5;
+  
+  const companyAddressLines = doc.splitTextToSize(companyAddress, 80);
+  doc.text(companyAddressLines, startX, currentY);
+  const companyAddressHeight = companyAddressLines.length * 4.5;
+  currentY += companyAddressHeight;
+  
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 27, 75);
-  doc.text('GSTIN: 29AAACE1234F1Z3', startX, currentY);
+  doc.text(`GSTIN: ${companyGstin}`, startX, currentY);
 
   // Right: Metadata Box
   const metaBoxX = 110;
   const metaBoxWidth = 86;
-  const metaBoxHeight = 36;
+  const metaBoxHeight = 46;
   const metaBoxY = 15;
 
   // Draw a subtle border panel for metadata
@@ -235,6 +326,20 @@ const handleDownloadPDF = (invoice, mode = 'download') => {
   const poRefVal = invoice.poNo || '—';
   drawTextWithAutoFontSize(poRefVal, metaBoxX + 44, mY + 4, 38, 7.5, false);
 
+  mY += 10;
+  doc.setTextColor(100, 116, 139);
+  doc.text('SUPPLIER QUOTE REF', metaBoxX + 4, mY);
+  doc.setTextColor(15, 23, 42);
+  const linkedPO = pos.find(p => p.poNo === invoice.poNo);
+  const supplierQuoteRefVal = invoice.supplierQuoteRef || linkedPO?.supplierQuoteRef || '—';
+  drawTextWithAutoFontSize(supplierQuoteRefVal, metaBoxX + 4, mY + 4, 36, 7.5, false);
+
+  doc.setTextColor(100, 116, 139);
+  doc.text('GRPO REF', metaBoxX + 44, mY);
+  doc.setTextColor(15, 23, 42);
+  const grpoRefVal = invoice.grpoNo || '—';
+  drawTextWithAutoFontSize(grpoRefVal, metaBoxX + 44, mY + 4, 38, 7.5, false);
+
   currentY = Math.max(currentY + 6, metaBoxY + metaBoxHeight + 4);
   
   // Divider
@@ -289,21 +394,22 @@ const handleDownloadPDF = (invoice, mode = 'download') => {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(15, 23, 42);
-  doc.text('ERP MANUFACTURING SYSTEM', buyerX + 3, currentY + 6);
+  doc.text(companyName.toUpperCase(), buyerX + 3, currentY + 6);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(71, 85, 105);
-  doc.text('Asset Procurement Department', buyerX + 3, currentY + 10.5);
-  doc.text('123 Manufacturing Way, Tech Park', buyerX + 3, currentY + 14.5);
-  doc.text('Bangalore, KA 560001, India', buyerX + 3, currentY + 18.5);
+  
+  const buyerAddressLines = doc.splitTextToSize(companyAddress, 80);
+  doc.text(buyerAddressLines, buyerX + 3, currentY + 10.5);
+  const buyerAddressHeight = buyerAddressLines.length * 4;
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 27, 75);
-  doc.text('GSTIN: 29AAACE1234F1Z3', buyerX + 3, currentY + 23);
-  doc.text(`Place of Supply: ${invoice.placeOfSupply || '29 (Karnataka)'}`, buyerX + 3, currentY + 27);
+  doc.text(`GSTIN: ${companyGstin}`, buyerX + 3, currentY + 11 + buyerAddressHeight);
+  doc.text(`Place of Supply: ${invoice.placeOfSupply || '29 (Karnataka)'}`, buyerX + 3, currentY + 15 + buyerAddressHeight);
 
-  currentY = Math.max(gstinPanY + 9, currentY + 32);
+  currentY = Math.max(gstinPanY + 9, currentY + 20 + buyerAddressHeight);
 
   // Divider
   doc.setDrawColor(226, 232, 240);
@@ -501,10 +607,10 @@ const handleDownloadPDF = (invoice, mode = 'download') => {
 
   if (applyGst) {
     if (isInterState) {
-      addSummaryRow('IGST (18%):', igst.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      if (igst > 0) addSummaryRow('IGST:', igst.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
     } else {
-      addSummaryRow('CGST (9%):', cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
-      addSummaryRow('SGST (9%):', sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      if (cgst > 0) addSummaryRow('CGST:', cgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
+      if (sgst > 0) addSummaryRow('SGST:', sgst.toLocaleString('en-IN', { minimumFractionDigits: 2 }));
     }
   } else {
     addSummaryRow('GST (EXEMPTED):', '0.00');
@@ -702,7 +808,7 @@ const handleDownloadPDF = (invoice, mode = 'download') => {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(15, 23, 42);
-  doc.text('For ERP MANUFACTURING SYSTEM', sig2X + 4, sigStartY + 5);
+  doc.text(`For ${companyName.toUpperCase()}`, sig2X + 4, sigStartY + 5);
 
   doc.setDrawColor(203, 213, 225);
   doc.line(sig2X + 4, sigStartY + 16, sig2X + sigBoxWidth - 4, sigStartY + 16);
@@ -758,6 +864,19 @@ const handleDownloadPDF = (invoice, mode = 'download') => {
 };
 
 function APInvoiceDetailModal({ invoice, onClose }) {
+  const { data: pos = [] } = useQuery({
+    queryKey: ['asset-pos'],
+    queryFn: () => api.get('/asset-management/purchase-orders').then(r => r.data),
+  });
+
+  const { data: taxSettings } = useQuery({
+    queryKey: ['tax-settings'],
+    queryFn: () => api.get('/setup/tax').then(r => r.data),
+  });
+
+  const linkedPO = pos.find(p => p.poNo === invoice.poNo);
+  const resolvedSupplierQuoteRef = invoice.supplierQuoteRef || linkedPO?.supplierQuoteRef || '—';
+
   const { data: commLogs = [], refetch: refetchLogs, isLoading: isLoadingLogs } = useQuery({
     queryKey: ['communication-logs', 'AP_INVOICE', invoice.invoiceNo],
     queryFn: () => api.get(`/asset-management/communication-logs/AP_INVOICE/${invoice.invoiceNo}`).then(r => r.data),
@@ -769,7 +888,7 @@ function APInvoiceDetailModal({ invoice, onClose }) {
   const handleResend = async () => {
     setIsResending(true);
     try {
-      const pdfBase64 = handleDownloadPDF(invoice, 'base64');
+      const pdfBase64 = handleDownloadPDF(invoice, 'base64', pos, taxSettings);
       const res = await api.post('/asset-management/resend-communication', {
         documentType: 'AP_INVOICE',
         documentId: invoice.id,
@@ -795,13 +914,11 @@ function APInvoiceDetailModal({ invoice, onClose }) {
     }
   };
 
-  const taxable = invoice.items?.reduce((s, i) => s + Number(i.totalBeforeTax || 0), 0) || 0;
-  const isInterState = Boolean(invoice.isInterState);
-  const applyGst = invoice.applyGst !== undefined ? Boolean(invoice.applyGst) : true;
-  const totalGst = invoice.items?.reduce((s, i) => s + Number(i.gstAmount || i.cgstAmount + i.sgstAmount + i.igstAmount || 0), 0) || 0;
-  const cgst = applyGst ? Number(invoice.cgst !== undefined ? invoice.cgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const sgst = applyGst ? Number(invoice.sgst !== undefined ? invoice.sgst : (isInterState ? 0 : totalGst / 2)) : 0;
-  const igst = applyGst ? Number(invoice.igst !== undefined ? invoice.igst : (isInterState ? totalGst : 0)) : 0;
+  const { taxRows, totalTaxable: taxable, isInterState, applyGst } = buildInvoiceTaxBreakdown(invoice);
+  const cgst = applyGst ? taxRows.filter(r => r.label.startsWith('CGST')).reduce((sum, r) => sum + r.value, 0) : 0;
+  const sgst = applyGst ? taxRows.filter(r => r.label.startsWith('SGST')).reduce((sum, r) => sum + r.value, 0) : 0;
+  const igst = applyGst ? taxRows.filter(r => r.label.startsWith('IGST')).reduce((sum, r) => sum + r.value, 0) : 0;
+  const totalGst = cgst + sgst + igst;
   const freight = Number(invoice.freight || invoice.freightGst || 0);
   const loadingCharges = Number(invoice.loadingCharges || 0);
   const unloadingCharges = Number(invoice.unloadingCharges || 0);
@@ -814,6 +931,12 @@ function APInvoiceDetailModal({ invoice, onClose }) {
   const roundOff = invoice.roundOff !== undefined ? Number(invoice.roundOff) : (grandTotal - preRoundTotal);
   const dueDate = invoice.dueDate ? new Date(invoice.dueDate) : null;
   const isOverdue = dueDate && dueDate < new Date() && invoice.status !== 'Paid';
+
+  let tdsAmount = invoice.tdsAmount ? Number(invoice.tdsAmount) : 0;
+  if (grandTotal > 5000000 && tdsAmount === 0) {
+    tdsAmount = (grandTotal - 5000000) * 0.001;
+  }
+  const netPayable = grandTotal - tdsAmount;
 
   const { data: suppliers = [] } = useQuery({
     queryKey: ['parties-suppliers'],
@@ -905,10 +1028,10 @@ Accounts Department`;
             <p className="text-xs text-slate-500 mt-0.5">{invoice.vendorName} • {invoice.vendorInvoiceNo}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 dark:bg-indigo-950/20" onClick={() => handleDownloadPDF(invoice, true)}>
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 dark:bg-indigo-950/20" onClick={() => handleDownloadPDF(invoice, true, pos, taxSettings)}>
               <Printer className="w-3.5 h-3.5" /> Print Bill
             </Button>
-            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 dark:bg-indigo-950/20" onClick={() => handleDownloadPDF(invoice, false)}>
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 rounded-lg text-xs border-indigo-200 dark:border-indigo-900 text-indigo-600 hover:text-indigo-700 bg-indigo-50/50 hover:bg-indigo-50 dark:bg-indigo-950/20" onClick={() => handleDownloadPDF(invoice, false, pos, taxSettings)}>
               <Download className="w-3.5 h-3.5" /> Download PDF
             </Button>
             {invoice.status === 'Paid' && (
@@ -954,6 +1077,9 @@ Accounts Department`;
               { label: 'Payment Terms', value: invoice.paymentTerms },
               { label: 'Payment Mode', value: invoice.paymentMode },
               { label: 'GL Account', value: invoice.glAccount || '—' },
+              { label: 'PO Ref', value: invoice.poNo || '—' },
+              { label: 'GRPO Ref', value: invoice.grpoNo || '—' },
+              { label: 'Supplier Quote Ref No', value: resolvedSupplierQuoteRef },
               { label: 'Supply Type', value: isInterState ? 'Inter-state (IGST)' : 'Intra-state (CGST + SGST)' },
               { label: 'GST Applied', value: applyGst ? 'Yes' : 'No' }
             ].map(({ label, value }) => (
@@ -997,23 +1123,12 @@ Accounts Department`;
                     <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{taxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                   {applyGst ? (
-                    isInterState ? (
-                      <tr>
-                        <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">IGST:</td>
-                        <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{igst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    taxRows.map((row, rIdx) => (
+                      <tr key={rIdx}>
+                        <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">{row.label}:</td>
+                        <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{row.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
-                    ) : (
-                      <>
-                        <tr>
-                          <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">CGST:</td>
-                          <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{cgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                        <tr>
-                          <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">SGST:</td>
-                          <td className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{sgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        </tr>
-                      </>
-                    )
+                    ))
                   ) : (
                     <tr>
                       <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">GST (Exempted):</td>
@@ -1072,6 +1187,18 @@ Accounts Department`;
                     <td colSpan={9} className="px-3 py-3.5 text-right text-xs font-black text-slate-600 dark:text-slate-300 uppercase tracking-wider">Invoice Grand Total:</td>
                     <td className="px-3 py-3.5 font-black text-xl text-indigo-600 dark:text-indigo-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
+                  {tdsAmount > 0 && (
+                    <>
+                      <tr>
+                        <td colSpan={9} className="px-3 py-2 text-right font-bold text-slate-500 text-xs">TDS Deducted (Sec 194Q - 0.1%):</td>
+                        <td className="px-3 py-2 font-bold text-rose-600">-₹{tdsAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                      <tr className="border-t border-slate-200 dark:border-slate-700 bg-emerald-50/30 dark:bg-emerald-950/10">
+                        <td colSpan={9} className="px-3 py-3 text-right text-xs font-black text-emerald-800 dark:text-emerald-350 uppercase tracking-wider">Net Payable:</td>
+                        <td className="px-3 py-3 font-black text-lg text-emerald-600 dark:text-emerald-400">₹{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                    </>
+                  )}
                 </tfoot>
               </table>
             </div>
@@ -1273,7 +1400,7 @@ Accounts Department`;
               </div>
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Receiver Signature</p>
-                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">For ERP MANUFACTURING SYSTEM</p>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">For {taxSettings?.companyName || 'Leonex pvt limited'}</p>
               </div>
               <div className="border-t border-slate-200 dark:border-slate-800 border-dashed pt-2">
                 <p className="text-[10px] text-slate-400 text-center">Authorized Signatory (with Company Seal)</p>
@@ -1562,42 +1689,67 @@ function GRPOSelect({ grpos = [], value, onChange, billedGrpoNos = [] }) {
   );
 }
 
-function ChargeRow({ label, value, gstChecked, onChange, onGstChange }) {
+function ChargeRow({ label, fieldKey, value, gstState, isInterState, disabled, onChange, onGstChange, onConfigureGst }) {
+  const numVal = Number(value || 0);
+  const gstChecked = gstState && typeof gstState === 'object' ? !!gstState.applied : !!gstState;
+  const gstRate = isInterState ? 18 : (gstState && typeof gstState === 'object' && gstState.rate !== undefined ? Number(gstState.rate) : 18);
+  const gstLabel = isInterState ? 'IGST 18%' : `GST ${gstRate}% (CGST+SGST)`;
+  const gstAmt = gstChecked && numVal > 0 ? numVal * (gstRate / 100) : 0;
+  // GST checkbox is only active when there is a non-zero amount entered
+  const gstCheckboxDisabled = disabled || numVal <= 0;
   return (
-    <div className="space-y-1.5">
-      <div className="flex justify-between items-center">
-        <Label className="text-xs">{label}</Label>
+    <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/60 rounded-xl p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">{label}</Label>
         <div className="flex items-center gap-1.5">
-          <input
-            type="checkbox"
-            checked={gstChecked}
-            onChange={(e) => onGstChange(e.target.checked)}
-            className="w-3.5 h-3.5 rounded text-indigo-600 border-slate-300"
-          />
-          <span className="text-[10px] text-slate-500 font-medium">18% GST</span>
+          <label className={`flex items-center gap-1.5 select-none ${gstCheckboxDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+            <input
+              type="checkbox"
+              checked={gstChecked && numVal > 0}
+              disabled={gstCheckboxDisabled}
+              onChange={e => onGstChange(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400">{gstLabel}</span>
+          </label>
+          {gstChecked && !isInterState && !disabled && (
+            <button
+              type="button"
+              onClick={onConfigureGst}
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+              title="Configure GST Rate"
+            >
+              <Edit className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
       <Input
         type="number"
         min="0"
+        step="0.01"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        onChange={e => {
+          onChange(e.target.value);
+          // Auto-uncheck GST if the value is cleared to 0
+          if ((!e.target.value || Number(e.target.value) <= 0) && gstChecked) {
+            onGstChange(false);
+          }
+        }}
         placeholder="0.00"
-        className="h-9 rounded-xl bg-white dark:bg-slate-950 text-sm"
+        className="h-8 rounded-lg text-sm disabled:opacity-60"
       />
+      {gstChecked && numVal > 0 && (
+        <p className="text-[10px] text-indigo-500 font-medium">
+          + GST: ₹{gstAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+        </p>
+      )}
     </div>
   );
 }
 
-function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoiceId }) {
-  const [isInterState, setIsInterState] = useState(false);
-  const [isInvoiceNoDirty, setIsInvoiceNoDirty] = useState(false);
-  
-  // GSTIN Live Verification States
-  const [gstinVerifyResult, setGstinVerifyResult] = useState(null);
-  const [isVerifyingGstin, setIsVerifyingGstin] = useState(false);
-  const [gstinWarning, setGstinWarning] = useState('');
-
+function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoiceId, taxSettings }) {
   const [form, setForm] = useState({
     isDirect: false,
     grpoId: '',
@@ -1631,7 +1783,28 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     bankIfsc: 'HDFC0000123',
     bankBranch: 'Main Branch, Mumbai',
     bankUpi: '',
+    supplierQuoteRef: '',
+    tds: '',
   });
+
+  const [isInterState, setIsInterState] = useState(false);
+  const [isInvoiceNoDirty, setIsInvoiceNoDirty] = useState(false);
+
+  React.useEffect(() => {
+    if (!taxSettings?.companyGstin) return;
+    const vendorGstin = form.vendorGstin || '';
+    const companyGstin = taxSettings.companyGstin;
+    const vState = vendorGstin.trim().substring(0, 2);
+    const cState = companyGstin.trim().substring(0, 2);
+    if (vState.length === 2 && cState.length === 2) {
+      setIsInterState(vState !== cState);
+    }
+  }, [form.vendorGstin, taxSettings?.companyGstin]);
+  
+  // GSTIN Live Verification States
+  const [gstinVerifyResult, setGstinVerifyResult] = useState(null);
+  const [isVerifyingGstin, setIsVerifyingGstin] = useState(false);
+  const [gstinWarning, setGstinWarning] = useState('');
 
   const [activeRowIdx, setActiveRowIdx] = useState(null);
   const [assetSearch, setAssetSearch] = useState('');
@@ -1641,19 +1814,22 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
   const selectedAssetsRef = React.useRef({});
 
   const [chargeGstStates, setChargeGstStates] = useState({
-    freight: false,
-    loadingCharges: false,
-    unloadingCharges: false,
-    packingCharges: false,
-    insurance: false,
-    otherCharges: false,
+    freight: { applied: false, rate: 18 },
+    loadingCharges: { applied: false, rate: 18 },
+    unloadingCharges: { applied: false, rate: 18 },
+    packingCharges: { applied: false, rate: 18 },
+    insurance: { applied: false, rate: 18 },
+    otherCharges: { applied: false, rate: 18 },
   });
 
+  const [activeChargeGstEdit, setActiveChargeGstEdit] = useState(null);
   const [originalIsInterState, setOriginalIsInterState] = useState(null);
   const [error, setError] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
   const isGrpoLinked = !!form.grpoId;
+  const isFinanceLocked = !form.isDirect && (isGrpoLinked || !!editInvoiceId);
+  const isFormFieldsDisabled = !form.isDirect && !isGrpoLinked;
 
   const handleIsInterStateChange = (newVal) => {
     setIsInterState(newVal);
@@ -1764,6 +1940,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           bankIfsc: found.bankIfsc || 'HDFC0000123',
           bankBranch: found.bankBranch || 'Main Branch, Mumbai',
           bankUpi: found.bankUpi || '',
+          supplierQuoteRef: found.supplierQuoteRef || '',
+          tds: found.tdsAmount !== undefined ? String(found.tdsAmount) : '',
         });
         setIsInterState(Boolean(found.isInterState));
         if (pos.length > 0) {
@@ -1781,17 +1959,29 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           }
         }
         if (found.chargeGstStates) {
-          const parsed = typeof found.chargeGstStates === 'string'
-            ? JSON.parse(found.chargeGstStates)
-            : found.chargeGstStates;
-          setChargeGstStates({
-            freight: parsed.freight || parsed.shippingCharges || false,
-            loadingCharges: parsed.loadingCharges || false,
-            unloadingCharges: parsed.unloadingCharges || false,
-            packingCharges: parsed.packingCharges || false,
-            insurance: parsed.insurance || false,
-            otherCharges: parsed.otherCharges || false,
-          });
+          try {
+            const parsed = typeof found.chargeGstStates === 'string'
+              ? JSON.parse(found.chargeGstStates)
+              : found.chargeGstStates;
+            
+            const parseLegacy = (val) => {
+              if (!val) return { applied: false, rate: 18 };
+              if (val === true || val === 'true') return { applied: true, rate: 18 };
+              if (typeof val === 'object') return { applied: !!val.applied, rate: val.rate !== undefined ? Number(val.rate) : 18 };
+              return { applied: false, rate: 18 };
+            };
+
+            setChargeGstStates({
+              freight: parseLegacy(parsed.freight || parsed.shippingCharges),
+              loadingCharges: parseLegacy(parsed.loadingCharges),
+              unloadingCharges: parseLegacy(parsed.unloadingCharges),
+              packingCharges: parseLegacy(parsed.packingCharges),
+              insurance: parseLegacy(parsed.insurance),
+              otherCharges: parseLegacy(parsed.otherCharges),
+            });
+          } catch (e) {
+            console.error(e);
+          }
         }
       }
     }
@@ -2013,7 +2203,66 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     };
   };
 
-  const calcChargeGst = (val, key) => chargeGstStates[key] && Number(val) > 0 ? Number(val) * 0.18 : 0;
+  const getChargeGstApplied = (key) => {
+    const state = chargeGstStates[key];
+    if (!state) return false;
+    return (state === true) || (state === 'true') || (state.applied === true || state.applied === 'true');
+  };
+  const getChargeRate = (key) => {
+    const state = chargeGstStates[key];
+    if (!state || typeof state !== 'object') return 18;
+    return isInterState ? 18 : Number(state.rate !== undefined ? state.rate : 18);
+  };
+  const calcChargeGst = (val, key) => {
+    return getChargeGstApplied(key) && Number(val) > 0 ? Number(val) * (getChargeRate(key) / 100) : 0;
+  };
+
+  const currentTaxBreakdown = React.useMemo(() => {
+    const breakdown = {};
+    if (form.applyGst) {
+      // Items
+      form.items.forEach(item => {
+        const rate = Number(item.gstRate || 18);
+        const base = Number(item.quantity) * Number(item.unitPrice || 0);
+        if (base <= 0) return;
+        const gst = base * (rate / 100);
+        if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+        breakdown[rate].taxable += base;
+        breakdown[rate].gst += gst;
+      });
+
+      // Charges
+      const addChargeGst = (val, key) => {
+        const numVal = Number(val || 0);
+        if (numVal <= 0 || !getChargeGstApplied(key)) return;
+        const rate = getChargeRate(key);
+        const gst = numVal * (rate / 100);
+        if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+        breakdown[rate].taxable += numVal;
+        breakdown[rate].gst += gst;
+      };
+
+      addChargeGst(form.freight, 'freight');
+      addChargeGst(form.loadingCharges, 'loadingCharges');
+      addChargeGst(form.unloadingCharges, 'unloadingCharges');
+      addChargeGst(form.packingCharges, 'packingCharges');
+      addChargeGst(form.insurance, 'insurance');
+      addChargeGst(form.otherCharges, 'otherCharges');
+    }
+
+    const rows = [];
+    Object.values(breakdown).sort((a, b) => a.rate - b.rate).forEach(tb => {
+      if (isInterState) {
+        rows.push({ label: `IGST @ ${tb.rate}%`, value: tb.gst });
+      } else {
+        const half = Number((tb.rate / 2).toFixed(2));
+        rows.push({ label: `CGST @ ${half}%`, value: tb.gst / 2 });
+        rows.push({ label: `SGST @ ${half}%`, value: tb.gst / 2 });
+      }
+    });
+
+    return rows;
+  }, [form.items, form.applyGst, chargeGstStates, isInterState, form.freight, form.loadingCharges, form.unloadingCharges, form.packingCharges, form.insurance, form.otherCharges]);
 
   const freight = Number(form.freight || 0);
   const loadingCharges = Number(form.loadingCharges || 0);
@@ -2059,6 +2308,12 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
   const preRoundTotal = totals.taxable + (form.applyGst ? (finalCgst + finalSgst + finalIgst) : 0) + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
   const grandTotal = Math.round(preRoundTotal);
   const roundOff = grandTotal - preRoundTotal;
+
+  let tdsAmount = Number(form.tds || 0);
+  if (tdsAmount === 0 && grandTotal > 5000000) {
+    tdsAmount = (grandTotal - 5000000) * 0.001;
+  }
+  const netPayable = grandTotal - tdsAmount;
 
   const mutation = useMutation({
     mutationFn: data => {
@@ -2136,6 +2391,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
       ...bankDetails,
       paymentMode,
       isInterState,
+      tds: Number(form.tds || 0),
       discount: Number(form.discount || 0),
       freight: Number(form.freight || 0),
       loadingCharges: Number(form.loadingCharges || 0),
@@ -2290,6 +2546,8 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
     setForm(prev => ({
       ...prev, grpoId,
       vendorName: g.vendorName,
+      supplierQuoteRef: linkedPO?.supplierQuoteRef || '',
+      tds: linkedPO ? String(linkedPO.tds || 0) : prev.tds,
       vendorGstin: s?.gstin || g.vendorGstin || prev.vendorGstin || '',
       vendorPan: s?.pan || prev.vendorPan || '',
       vendorAddress: s?.address || prev.vendorAddress || '',
@@ -2325,13 +2583,20 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
       setIsInterState(isInter);
       setOriginalIsInterState(isInter);
       if (poGstStates) {
+        const parseLegacy = (val) => {
+          if (!val) return { applied: false, rate: 18 };
+          if (val === true || val === 'true') return { applied: true, rate: 18 };
+          if (typeof val === 'object') return { applied: !!val.applied, rate: val.rate !== undefined ? Number(val.rate) : 18 };
+          return { applied: false, rate: 18 };
+        };
+
         setChargeGstStates({
-          freight: poGstStates.shippingCharges || poGstStates.freight || false,
-          loadingCharges: poGstStates.loadingCharges || false,
-          unloadingCharges: poGstStates.unloadingCharges || false,
-          packingCharges: poGstStates.packingCharges || false,
-          insurance: poGstStates.insurance || false,
-          otherCharges: poGstStates.otherCharges || false,
+          freight: parseLegacy(poGstStates.freight || poGstStates.shippingCharges),
+          loadingCharges: parseLegacy(poGstStates.loadingCharges),
+          unloadingCharges: parseLegacy(poGstStates.unloadingCharges),
+          packingCharges: parseLegacy(poGstStates.packingCharges),
+          insurance: parseLegacy(poGstStates.insurance),
+          otherCharges: parseLegacy(poGstStates.otherCharges),
         });
       }
     }
@@ -2339,6 +2604,35 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
 
   return (
     <div className="space-y-6 w-full">
+      {activeChargeGstEdit && (
+        <div className="fixed inset-0 z-[100] bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-xs border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+              Configure GST Rate for {activeChargeGstEdit === 'freight' ? 'Freight' : activeChargeGstEdit === 'loadingCharges' ? 'Loading & Unloading' : activeChargeGstEdit === 'unloadingCharges' ? 'Unloading' : activeChargeGstEdit === 'packingCharges' ? 'Packing' : activeChargeGstEdit === 'insurance' ? 'Insurance' : 'Other Charges'}
+            </h4>
+            <div className="space-y-1.5">
+              <Label className="text-xs">GST Rate (%)</Label>
+              <select
+                value={chargeGstStates[activeChargeGstEdit]?.rate || 18}
+                onChange={e => {
+                  const val = Number(e.target.value);
+                  setChargeGstStates(prev => ({
+                    ...prev,
+                    [activeChargeGstEdit]: { ...prev[activeChargeGstEdit], rate: val }
+                  }));
+                }}
+                className="w-full h-10 px-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                {[0, 5, 12, 18, 28].map(r => <option key={r} value={r}>{r}%</option>)}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button size="sm" onClick={() => setActiveChargeGstEdit(null)} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-5 h-9">Done</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddSupplier && (
         <AddSupplierInline
           onClose={() => setShowAddSupplier(false)}
@@ -2507,6 +2801,11 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                 onChange={grpo => fillFromGRPO(grpo.id)}
               />
             </div>
+            {isFormFieldsDisabled && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 font-semibold mt-2.5 animate-pulse">
+                ⚠️ Please select an accepted GRPO above to enable and auto-populate the invoice booking form.
+              </p>
+            )}
           </div>
         )}
 
@@ -2520,7 +2819,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               <Label>Vendor Name <span className="text-rose-500">*</span></Label>
               <SupplierSelect
                 suppliers={suppliers}
-                disabled={isGrpoLinked || !!editInvoiceId}
+                disabled={isGrpoLinked || !!editInvoiceId || isFormFieldsDisabled}
                 value={suppliers.find(s => s.name === form.vendorName) || null}
                 onChange={s => {
                   setForm(prev => ({
@@ -2538,13 +2837,13 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1">Vendor GSTIN <span className="text-rose-500">*</span></Label>
               <div className="flex gap-2">
-                <Input required disabled={isGrpoLinked || !!editInvoiceId} value={form.vendorGstin} onChange={e => update('vendorGstin', e.target.value)} placeholder="22AAAAA0000A1Z5" className="h-10 rounded-xl font-mono flex-1 text-sm bg-white dark:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
+                <Input required disabled={isGrpoLinked || !!editInvoiceId || !!form.vendorName || isFormFieldsDisabled} value={form.vendorGstin} onChange={e => update('vendorGstin', e.target.value)} placeholder="22AAAAA0000A1Z5" className="h-10 rounded-xl font-mono flex-1 text-sm bg-white dark:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={isVerifyingGstin || !form.vendorGstin || isGrpoLinked || !!editInvoiceId}
+                  disabled={isVerifyingGstin || !form.vendorGstin || isFormFieldsDisabled}
                   onClick={() => handleVerifyGSTIN(form.vendorGstin)}
-                  className="h-10 w-10 shrink-0 rounded-xl border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="h-10 w-10 shrink-0 rounded-xl border-slate-200 dark:border-slate-700 text-indigo-650 dark:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                   title="Verify GSTIN with registry"
                 >
                   {isVerifyingGstin ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="font-bold text-xs">ℹ️</span>}
@@ -2553,13 +2852,14 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
             </div>
             <div className="space-y-1.5">
               <Label>Vendor PAN</Label>
-              <Input disabled={isGrpoLinked || !!editInvoiceId} value={form.vendorPan} onChange={e => update('vendorPan', e.target.value)} placeholder="AAAAA0000A" className="h-10 rounded-xl font-mono disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
+              <Input disabled={isGrpoLinked || !!editInvoiceId || !!form.vendorName || isFormFieldsDisabled} value={form.vendorPan} onChange={e => update('vendorPan', e.target.value)} placeholder="AAAAA0000A" className="h-10 rounded-xl font-mono disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
             </div>
             <div className="space-y-1.5">
               <Label>Vendor Invoice No. <span className="text-rose-500">*</span></Label>
               <div className="flex gap-2">
                 <Input
                   required
+                  disabled={isFormFieldsDisabled}
                   value={form.vendorInvoiceNo}
                   onChange={e => {
                     setIsInvoiceNoDirty(true);
@@ -2571,6 +2871,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                 <Button
                   type="button"
                   variant="outline"
+                  disabled={isFormFieldsDisabled}
                   onClick={() => {
                     const regenerated = generateVendorInvoiceNo(form.invoiceDate || new Date(), invoicesCount);
                     setIsInvoiceNoDirty(false);
@@ -2583,25 +2884,35 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                 </Button>
               </div>
             </div>
-            <DatePicker label="Invoice Date *" value={form.invoiceDate} onChange={d => update('invoiceDate', d)} placeholder="Invoice date" />
-            <DatePicker label="Due Date" value={form.dueDate} onChange={d => update('dueDate', d)} placeholder="Payment due date" />
+            <DatePicker label="Invoice Date *" value={form.invoiceDate} onChange={d => update('invoiceDate', d)} placeholder="Invoice date" disabled={isFormFieldsDisabled} />
+            <DatePicker label="Due Date" value={form.dueDate} onChange={d => update('dueDate', d)} placeholder="Payment due date" disabled={isFormFieldsDisabled} />
             <div className="md:col-span-2 space-y-1.5">
               <Label>Vendor Address</Label>
-              <Input disabled={isGrpoLinked || !!editInvoiceId} value={form.vendorAddress} onChange={e => update('vendorAddress', e.target.value)} placeholder="Full registered address" className="h-10 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
+              <Input disabled={isGrpoLinked || !!editInvoiceId || !!form.vendorName || isFormFieldsDisabled} value={form.vendorAddress} onChange={e => update('vendorAddress', e.target.value)} placeholder="Full registered address" className="h-10 rounded-xl disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50" />
             </div>
             <div className="space-y-1.5">
               <Label>GL Account</Label>
-              <Input value={form.glAccount} onChange={e => update('glAccount', e.target.value)} className="h-10 rounded-xl font-mono" />
+              <Input disabled={isFormFieldsDisabled} value={form.glAccount} onChange={e => update('glAccount', e.target.value)} className="h-10 rounded-xl font-mono" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Supplier Quote Ref No</Label>
+              <Input
+                disabled={isGrpoLinked || !!editInvoiceId || isFormFieldsDisabled}
+                value={form.supplierQuoteRef}
+                onChange={e => update('supplierQuoteRef', e.target.value)}
+                placeholder="e.g. QUOTE-2026-001"
+                className="h-10 rounded-xl font-mono disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50"
+              />
             </div>
           </div>
           {/* Inter-state toggle */}
           <div className="mt-4 flex items-center gap-3">
-            <button type="button" onClick={() => setIsInterState(p => !p)}
-              className={`relative w-10 h-5 rounded-full transition-colors ${isInterState ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}>
+            <button type="button" disabled
+              className={`relative w-10 h-5 rounded-full transition-colors opacity-60 cursor-not-allowed ${isInterState ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}>
               <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isInterState ? 'translate-x-5' : ''}`} />
             </button>
             <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Inter-state Supply (IGST applicable)</p>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-350">Inter-state Supply (IGST applicable)</p>
               <p className="text-xs text-slate-500">{isInterState ? 'IGST will be applied (no CGST/SGST)' : 'CGST + SGST will be applied (intra-state)'}</p>
             </div>
           </div>
@@ -2617,13 +2928,14 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               <Label>Payment Method <span className="text-rose-500">*</span></Label>
               <div className="relative">
                 <select 
+                  disabled={isFormFieldsDisabled}
                   value={form.paymentMethod} 
                   onChange={e => handlePaymentMethodChange(e.target.value)}
-                  className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
                 >
                   {Object.keys(PAYMENT_METHODS_MAP).map(m => <option key={m}>{m}</option>)}
                 </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
+                {!isFormFieldsDisabled && <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />}
               </div>
             </div>
 
@@ -2631,13 +2943,14 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               <Label>Payment Type <span className="text-rose-500">*</span></Label>
               <div className="relative">
                 <select 
+                  disabled={isFormFieldsDisabled}
                   value={form.paymentType} 
                   onChange={e => handlePaymentTypeChange(e.target.value)}
-                  className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
                 >
                   {PAYMENT_METHODS_MAP[form.paymentMethod]?.map(t => <option key={t}>{t}</option>)}
                 </select>
-                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
+                {!isFormFieldsDisabled && <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />}
               </div>
             </div>
 
@@ -2648,23 +2961,23 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               <>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Bank Name <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankName} onChange={e => update('bankName', e.target.value)} placeholder="e.g. HDFC Bank" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankName} onChange={e => update('bankName', e.target.value)} placeholder="e.g. HDFC Bank" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Account Holder Name <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankAccountHolder} onChange={e => update('bankAccountHolder', e.target.value)} placeholder="e.g. Vendor Name" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankAccountHolder} onChange={e => update('bankAccountHolder', e.target.value)} placeholder="e.g. Vendor Name" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Account Number <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankAccountNo} onChange={e => update('bankAccountNo', e.target.value)} placeholder="e.g. 50200012345678" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankAccountNo} onChange={e => update('bankAccountNo', e.target.value)} placeholder="e.g. 50200012345678" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>IFSC Code <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankIfsc} onChange={e => update('bankIfsc', e.target.value)} placeholder="e.g. HDFC0000123" className="h-10 rounded-xl text-sm font-mono uppercase bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankIfsc} onChange={e => update('bankIfsc', e.target.value)} placeholder="e.g. HDFC0000123" className="h-10 rounded-xl text-sm font-mono uppercase bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Branch Name <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankBranch} onChange={e => update('bankBranch', e.target.value)} placeholder="e.g. Main Branch, Mumbai" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankBranch} onChange={e => update('bankBranch', e.target.value)} placeholder="e.g. Main Branch, Mumbai" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
               </>
             )}
@@ -2674,19 +2987,19 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               <>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Bank Name <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankName} onChange={e => update('bankName', e.target.value)} placeholder="e.g. HDFC Bank" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankName} onChange={e => update('bankName', e.target.value)} placeholder="e.g. HDFC Bank" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Account Holder (Payable to) <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankAccountHolder} onChange={e => update('bankAccountHolder', e.target.value)} placeholder="e.g. Vendor Name" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankAccountHolder} onChange={e => update('bankAccountHolder', e.target.value)} placeholder="e.g. Vendor Name" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Cheque Number <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankAccountNo} onChange={e => update('bankAccountNo', e.target.value)} placeholder="e.g. 123456" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankAccountNo} onChange={e => update('bankAccountNo', e.target.value)} placeholder="e.g. 123456" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Cheque Date <span className="text-rose-500">*</span></Label>
-                  <Input required type="date" value={form.bankBranch} onChange={e => update('bankBranch', e.target.value)} className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} type="date" value={form.bankBranch} onChange={e => update('bankBranch', e.target.value)} className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
               </>
             )}
@@ -2696,19 +3009,19 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               <>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Bank Name (Issuing Bank) <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankName} onChange={e => update('bankName', e.target.value)} placeholder="e.g. HDFC Bank" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankName} onChange={e => update('bankName', e.target.value)} placeholder="e.g. HDFC Bank" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>Account Holder (Payable to) <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankAccountHolder} onChange={e => update('bankAccountHolder', e.target.value)} placeholder="e.g. Vendor Name" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankAccountHolder} onChange={e => update('bankAccountHolder', e.target.value)} placeholder="e.g. Vendor Name" className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>DD Number <span className="text-rose-500">*</span></Label>
-                  <Input required value={form.bankAccountNo} onChange={e => update('bankAccountNo', e.target.value)} placeholder="e.g. 123456" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} value={form.bankAccountNo} onChange={e => update('bankAccountNo', e.target.value)} placeholder="e.g. 123456" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
                 </div>
                 <div className="space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <Label>DD Date <span className="text-rose-500">*</span></Label>
-                  <Input required type="date" value={form.bankBranch} onChange={e => update('bankBranch', e.target.value)} className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
+                  <Input required disabled={isFormFieldsDisabled} type="date" value={form.bankBranch} onChange={e => update('bankBranch', e.target.value)} className="h-10 rounded-xl text-sm bg-white dark:bg-slate-950" />
                 </div>
               </>
             )}
@@ -2717,7 +3030,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
             {form.paymentMethod === 'Online Portal' && form.paymentType === 'UPI' && (
               <div className="space-y-1.5 md:col-span-2 animate-in fade-in slide-in-from-top-1 duration-200">
                 <Label>UPI ID <span className="text-rose-500">*</span></Label>
-                <Input required value={form.bankUpi} onChange={e => update('bankUpi', e.target.value)} placeholder="e.g. vendor@upi" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
+                <Input required disabled={isFormFieldsDisabled} value={form.bankUpi} onChange={e => update('bankUpi', e.target.value)} placeholder="e.g. vendor@upi" className="h-10 rounded-xl text-sm font-mono bg-white dark:bg-slate-950" />
               </div>
             )}
           </div>
@@ -2935,7 +3248,14 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                       <div className="flex gap-4">
                         <div>
                           <span className="text-slate-400">GST Rate: </span>
-                          <span className="font-bold text-slate-700 dark:text-slate-300">{item.gstRate}%</span>
+                          <select
+                            disabled={isInterState && (isGrpoLinked || !!editInvoiceId)}
+                            value={item.gstRate}
+                            onChange={e => updateItem(idx, 'gstRate', Number(e.target.value))}
+                            className="inline-block ml-1 h-6 px-1 border border-slate-200 dark:border-slate-700 rounded bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none disabled:opacity-75 disabled:cursor-not-allowed"
+                          >
+                            {GST_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
+                          </select>
                         </div>
                         <div>
                           <span className="text-slate-400">{isInterState ? 'IGST' : 'CGST+SGST'}: </span>
@@ -3012,14 +3332,14 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                       <Label className="text-xs">GST%</Label>
                       <div className="relative">
                         <select
-                          disabled={isGrpoLinked || !!editInvoiceId}
+                          disabled={isInterState && (isGrpoLinked || !!editInvoiceId)}
                           value={item.gstRate}
                           onChange={e => updateItem(idx, 'gstRate', Number(e.target.value))}
                           className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50"
                         >
                           {GST_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
                         </select>
-                        {!isGrpoLinked && !editInvoiceId && <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />}
+                        {!(isInterState && (isGrpoLinked || !!editInvoiceId)) && <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />}
                       </div>
                     </div>
                     <div className="space-y-1">
@@ -3055,8 +3375,9 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                     type="checkbox" 
                     id="invoiceApplyGst" 
                     checked={form.applyGst} 
+                    disabled={isFinanceLocked || isFormFieldsDisabled}
                     onChange={e => update('applyGst', e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-650 border-slate-300 focus:ring-indigo-500"
+                    className="w-4 h-4 rounded text-indigo-650 border-slate-300 focus:ring-indigo-500 disabled:opacity-50"
                   />
                   <Label htmlFor="invoiceApplyGst" className="text-xs font-medium cursor-pointer">
                     {form.applyGst ? `Apply GST (${isInterState ? 'IGST' : 'CGST + SGST'})` : 'Exempt / No GST'}
@@ -3064,41 +3385,48 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                 </div>
               </div>
 
-              <div className="flex flex-col gap-1.5 border-t border-slate-200/60 dark:border-slate-800/60 pt-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-350">Supply Type</span>
-                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-850 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
-                    <button
-                      type="button"
-                      onClick={() => handleIsInterStateChange(false)}
-                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${!isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                      Intra-state (CGST+SGST)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleIsInterStateChange(true)}
-                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-all ${isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500 hover:text-slate-700'}`}
-                    >
-                      Inter-state (IGST)
-                    </button>
+              {!isGrpoLinked ? (
+                <div className="flex flex-col gap-1.5 border-t border-slate-200/60 dark:border-slate-800/60 pt-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-350">Supply Type</span>
+                    <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-850 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
+                      <button
+                        type="button"
+                        disabled
+                        className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-not-allowed opacity-60 ${!isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}
+                      >
+                        Intra-state (CGST+SGST)
+                      </button>
+                      <button
+                        type="button"
+                        disabled
+                        className={`px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-not-allowed opacity-60 ${isInterState ? 'bg-white dark:bg-slate-900 shadow-sm text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}
+                      >
+                        Inter-state (IGST)
+                      </button>
+                    </div>
                   </div>
                 </div>
-                {originalIsInterState !== null && originalIsInterState !== isInterState && (
-                  <div className="flex items-start gap-2 p-2 bg-amber-50/50 dark:bg-amber-955 border border-amber-200 dark:border-amber-900/50 rounded-xl text-[10px] text-amber-700 dark:text-amber-400 mt-1">
-                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>Supply type deviates from original Order ({originalIsInterState ? 'Inter-state / IGST' : 'Intra-state / CGST+SGST'})</span>
-                  </div>
-                )}
-              </div>
+              ) : (
+                <div className="flex items-center justify-between border-t border-slate-200/60 dark:border-slate-800/60 pt-2.5">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-350">Supply Type</span>
+                  <span className="text-xs font-bold text-indigo-650 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100/80 dark:border-indigo-900/50 px-3 py-1 rounded-lg">
+                    {isInterState ? 'Inter-state (IGST)' : 'Intra-state (CGST+SGST)'}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Charges inputs */}
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label className="text-xs">Discount (₹)</Label>
-                  <Input type="number" min="0" value={form.discount} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-9 rounded-xl bg-white dark:bg-slate-950" />
+                  <Input type="number" min="0" disabled={isFinanceLocked || isFormFieldsDisabled} value={form.discount} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-9 rounded-xl bg-white dark:bg-slate-950 disabled:opacity-60" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-amber-600 dark:text-amber-400">TDS Deduction (₹)</Label>
+                  <Input type="number" min="0" step="0.01" disabled={isFinanceLocked || isFormFieldsDisabled} value={form.tds} onChange={e => update('tds', e.target.value)} placeholder="0.00" className="h-9 rounded-xl bg-white dark:bg-slate-950 disabled:opacity-60" />
                 </div>
               </div>
 
@@ -3114,10 +3442,17 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                   <ChargeRow
                     key={key}
                     label={label}
+                    fieldKey={key}
                     value={form[key]}
-                    gstChecked={chargeGstStates[key]}
+                    gstState={chargeGstStates[key]}
+                    isInterState={isInterState}
+                    disabled={isFinanceLocked || isFormFieldsDisabled}
                     onChange={v => update(key, v)}
-                    onGstChange={checked => setChargeGstStates(prev => ({ ...prev, [key]: checked }))}
+                    onGstChange={checked => setChargeGstStates(prev => {
+                      const current = prev[key] && typeof prev[key] === 'object' ? prev[key] : { applied: false, rate: 18 };
+                      return { ...prev, [key]: { ...current, applied: checked } };
+                    })}
+                    onConfigureGst={() => setActiveChargeGstEdit(key)}
                   />
                 ))}
               </div>
@@ -3127,16 +3462,7 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 rounded-2xl p-4 space-y-2 text-sm h-fit">
             {[
               { label: 'Taxable Value', value: totals.taxable },
-              ...(form.applyGst ? (
-                isInterState ? [
-                  { label: 'IGST', value: finalIgst }
-                ] : [
-                  { label: 'CGST', value: finalCgst },
-                  { label: 'SGST', value: finalSgst }
-                ]
-              ) : [
-                { label: 'GST (Exempted)', value: 0 }
-              ]),
+              ...(form.applyGst ? currentTaxBreakdown : [{ label: 'GST (Exempted)', value: 0 }]),
               { label: 'Freight Charges', value: freight },
               { label: 'Loading Charges', value: loadingCharges },
               { label: 'Unloading Charges', value: unloadingCharges },
@@ -3172,6 +3498,20 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
               <span>Invoice Total</span>
               <span>₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
+            {tdsAmount > 0 && (
+              <>
+                <div className="flex justify-between text-slate-650 dark:text-slate-400">
+                  <span>TDS Deducted</span>
+                  <span className="font-semibold text-rose-500 font-bold">
+                    -₹{tdsAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="pt-2 border-t border-indigo-200 dark:border-indigo-900/50 flex justify-between font-black text-lg text-emerald-700 dark:text-emerald-400">
+                  <span>Net Payable</span>
+                  <span>₹{netPayable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              </>
+            )}
             {form.applyGst && (
               <p className="text-[10px] text-slate-400">
                 ITC: ₹{(finalCgst + finalSgst + finalIgst).toLocaleString('en-IN', { maximumFractionDigits: 2 })} (eligible after payment)
@@ -3185,25 +3525,26 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
           <Label className="text-xs font-bold text-indigo-650 dark:text-indigo-400 uppercase tracking-wider mb-2 block">General Terms & Conditions (GTC)</Label>
           <p className="text-[11px] text-slate-405 mb-3">These terms will be displayed on the final invoice details and printed on the PDF invoice. You can edit the default template below:</p>
           <textarea
+            disabled={isFormFieldsDisabled}
             value={form.termsAndConditions}
             onChange={e => update('termsAndConditions', e.target.value)}
             rows={8}
             placeholder="Enter invoice terms and conditions..."
-            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-mono bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs font-mono bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60"
           />
         </div>
 
         {/* Narration */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <Label className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 block">Narration / Remarks</Label>
-          <textarea value={form.narration} onChange={e => update('narration', e.target.value)} rows={2}
+          <textarea disabled={isFormFieldsDisabled} value={form.narration} onChange={e => update('narration', e.target.value)} rows={2}
             placeholder="e.g. Being asset capitalization invoice for purchase of IT equipment..."
-            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none" />
+            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none disabled:opacity-60" />
         </div>
 
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={onBack} className="rounded-xl px-6 h-11">Cancel</Button>
-          <Button type="submit" disabled={mutation.isPending || isReadOnly} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2 flex items-center justify-center">
+          <Button type="submit" disabled={mutation.isPending || isReadOnly || isFormFieldsDisabled} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2 flex items-center justify-center">
             {mutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Booking...</> : <><Receipt className="w-4 h-4" /> {editInvoiceId ? 'Save Changes' : 'Book Invoice'}</>}
           </Button>
         </div>
@@ -3224,6 +3565,16 @@ export default function APInvoiceView() {
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ['asset-ap-invoices'],
     queryFn: () => api.get('/asset-management/ap-invoices').then(r => r.data),
+  });
+
+  const { data: pos = [] } = useQuery({
+    queryKey: ['asset-pos'],
+    queryFn: () => api.get('/asset-management/purchase-orders').then(r => r.data),
+  });
+
+  const { data: taxSettings } = useQuery({
+    queryKey: ['tax-settings'],
+    queryFn: () => api.get('/setup/tax').then(r => r.data),
   });
 
   const qc = useQueryClient();
@@ -3298,7 +3649,7 @@ export default function APInvoiceView() {
     return 0;
   });
 
-  if (view === 'create') return <CreateAPInvoiceForm onBack={() => { setView('list'); setEditInvoiceId(null); }} isReadOnly={isReadOnly} invoicesCount={invoices.length} editInvoiceId={editInvoiceId} />;
+  if (view === 'create') return <CreateAPInvoiceForm onBack={() => { setView('list'); setEditInvoiceId(null); }} isReadOnly={isReadOnly} invoicesCount={invoices.length} editInvoiceId={editInvoiceId} taxSettings={taxSettings} />;
 
   const totalInvoiced = invoices.reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
   const totalPaid = invoices.filter(i => i.status === 'Paid').reduce((s, i) => s + (Number(i.grandTotal) || 0), 0);
@@ -3413,15 +3764,15 @@ export default function APInvoiceView() {
                       <Button variant="ghost" size="icon" onClick={() => setSelectedInvoice(inv)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="View Bill">
                         <Eye className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(inv, true)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Print Bill">
+                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(inv, true, pos, taxSettings)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Print Bill">
                         <Printer className="w-4 h-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(inv, false)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Download PDF">
+                      <Button variant="ghost" size="icon" onClick={() => handleDownloadPDF(inv, false, pos, taxSettings)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="Download PDF">
                         <Download className="w-4 h-4" />
                       </Button>
                       {!isReadOnly && ['Posted', 'Pending Approval'].includes(inv.status) && (
                         <Button variant="ghost" size="sm" onClick={() => {
-                          const pdfBase64 = handleDownloadPDF(inv, 'base64');
+                          const pdfBase64 = handleDownloadPDF(inv, 'base64', pos, taxSettings);
                           markPaidMutation.mutate({ id: inv.id, pdfBase64 });
                         }} disabled={markPaidMutation.isPending}
                           className="h-8 px-3 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg gap-1">

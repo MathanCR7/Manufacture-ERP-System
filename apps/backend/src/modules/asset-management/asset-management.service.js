@@ -10,6 +10,7 @@ const {
   sendGRPODiscrepancyNotice,
   sendPOUpdateDeleteNotice
 } = require('../../utils/communication');
+const { getTaxSettingsData } = require('../setup/tax.controller');
 
 const hsnCodesPath = path.join(__dirname, '../../database/hsn_codes.json');
 let hsnList = [];
@@ -686,8 +687,10 @@ class AssetManagementService {
     let totalIgst = 0;
     let totalDiscount = 0;
 
-    const companyStateCode = '27';
-    const stateCode = data.stateCode || (data.vendorGstin ? data.vendorGstin.substring(0, 2) : '27');
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || 'BCLNU556863412';
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const stateCode = data.stateCode || (data.vendorGstin && data.vendorGstin.trim().length >= 2 ? data.vendorGstin.trim().substring(0, 2) : companyStateCode);
     const isIntrastate = stateCode === companyStateCode;
 
     const lineItemsData = [];
@@ -756,12 +759,15 @@ class AssetManagementService {
 
     const chargeGstStates = data.chargeGstStates || {};
     const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key];
-      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
-      if (isApplied) {
-        return Number(val) * 0.18;
+      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
+      if (!state) return 0;
+      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+      if (!isApplied) return 0;
+      if (!isIntrastate) {
+        return Number(val) * 0.18; // Force 18% for IGST
       }
-      return 0;
+      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
+      return Number(val) * (customRate / 100);
     };
 
     const freightGst = calculateChargeGst(shippingCharges, 'freight');
@@ -787,7 +793,9 @@ class AssetManagementService {
     }
 
     const finalTaxAmount = finalCgst + finalSgst + finalIgst;
-    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges;
+    const tds = Number(data.tds || 0);
+    const supplierQuoteRef = data.supplierQuoteRef || data.supplierQuotationRef || '';
+    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -830,6 +838,9 @@ class AssetManagementService {
         applyGst,
         roundOff,
         grandTotal,
+        tds,
+        supplierQuoteRef,
+        termsBlock: data.termsAndConditions || data.termsBlock || '',
         status: 'Received',
         items: {
           create: lineItemsData
@@ -893,8 +904,10 @@ class AssetManagementService {
     let totalIgst = 0;
     let totalDiscount = 0;
 
-    const companyStateCode = '27';
-    const stateCode = data.stateCode || (data.vendorGstin ? data.vendorGstin.substring(0, 2) : '27');
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || 'BCLNU556863412';
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const stateCode = data.stateCode || (data.vendorGstin && data.vendorGstin.trim().length >= 2 ? data.vendorGstin.trim().substring(0, 2) : companyStateCode);
     const isIntrastate = stateCode === companyStateCode;
 
     const lineItemsData = [];
@@ -963,12 +976,15 @@ class AssetManagementService {
 
     const chargeGstStates = data.chargeGstStates || {};
     const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key];
-      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
-      if (isApplied) {
-        return Number(val) * 0.18;
+      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
+      if (!state) return 0;
+      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+      if (!isApplied) return 0;
+      if (!isIntrastate) {
+        return Number(val) * 0.18; // Force 18% for IGST
       }
-      return 0;
+      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
+      return Number(val) * (customRate / 100);
     };
 
     const freightGst = calculateChargeGst(shippingCharges, 'freight');
@@ -994,7 +1010,9 @@ class AssetManagementService {
     }
 
     const finalTaxAmount = finalCgst + finalSgst + finalIgst;
-    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges;
+    const tds = Number(data.tds || 0);
+    const supplierQuoteRef = data.supplierQuoteRef || data.supplierQuotationRef || '';
+    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -1039,6 +1057,9 @@ class AssetManagementService {
         applyGst,
         roundOff,
         grandTotal,
+        tds,
+        supplierQuoteRef,
+        termsBlock: data.termsAndConditions || data.termsBlock || '',
         items: {
           create: lineItemsData
         }
@@ -1150,6 +1171,11 @@ class AssetManagementService {
       }
     }
 
+    let tds = Number(data.tds || 0);
+    let supplierQuoteRef = data.supplierQuoteRef || data.supplierQuotationRef || '';
+
+    let termsBlock = data.termsAndConditions || data.termsBlock || null;
+
     // If pqId is provided (legacy PQ → PO flow), look up from PQ
     if (data.pqId) {
       const pq = await prisma.assetPQ.findUnique({ where: { id: data.pqId } });
@@ -1161,6 +1187,9 @@ class AssetManagementService {
         resolvedVendorGstin = resolvedVendorGstin || pq.vendorGstin;
         resolvedVendorPan = resolvedVendorPan || pq.vendorPan;
         resolvedVendorAddress = resolvedVendorAddress || pq.address;
+        tds = Number(pq.tds || 0);
+        supplierQuoteRef = pq.supplierQuoteRef || '';
+        termsBlock = termsBlock || pq.termsBlock;
       }
     }
 
@@ -1185,7 +1214,13 @@ class AssetManagementService {
     });
 
     const applyGst = data.applyGst !== false;
-    const isInterState = data.isInterState === true;
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || '33AABCL0702C1ZG';
+    const companyPan = taxSettings?.companyPan || (companyGstin.length >= 12 ? companyGstin.substring(2, 12) : 'BCLNU55686');
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const vendorGstin = resolvedVendorGstin || data.vendorGstin || '';
+    const vendorStateCode = vendorGstin.trim().substring(0, 2);
+    const isInterState = vendorStateCode && companyStateCode ? (vendorStateCode !== companyStateCode) : (data.isInterState === true);
 
     const poItems = (data.items || []).map((item, idx) => {
       const orderedQty = parseInt(item.quantity || item.orderedQty || 1, 10);
@@ -1247,11 +1282,15 @@ class AssetManagementService {
     // Dynamic tax calculation on charges based on chargeGstStates
     const chargeGstStates = data.chargeGstStates || {};
     const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key];
-      if (state && state.applied && state.gst) {
-        return Number(val) * 0.18;
+      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
+      if (!state) return 0;
+      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+      if (!isApplied) return 0;
+      if (isInterState) {
+        return Number(val) * 0.18; // Force 18% for IGST
       }
-      return 0;
+      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
+      return Number(val) * (customRate / 100);
     };
 
     const freightGst = calculateChargeGst(freight, 'freight');
@@ -1277,7 +1316,7 @@ class AssetManagementService {
     }
 
     const taxAmount = finalCgst + finalSgst + finalIgst;
-    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discountTotal;
+    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discountTotal - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -1329,8 +1368,8 @@ class AssetManagementService {
           address: resolvedVendorAddress || '',
           shipTo: data.deliveryAddress || data.shipTo || 'Central Warehouse, Mumbai',
           billTo: data.billTo || 'Corporate HQ, Mumbai',
-          companyGstin: data.companyGstin || '27AAACK1234A1Z5',
-          companyPan: data.companyPan || 'AAACK1234A',
+          companyGstin: companyGstin,
+          companyPan: companyPan,
           deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : new Date(new Date().setDate(new Date().getDate() + 7)),
           paymentTerms: data.paymentTerms || 'Net 30',
           paymentMode: data.paymentMode || '',
@@ -1344,7 +1383,7 @@ class AssetManagementService {
           status: 'Approved',
           approverName,
           approvalLevel,
-          termsBlock: data.termsAndConditions || data.termsBlock || 'Standard Terms & Conditions Apply.',
+          termsBlock: termsBlock || 'Standard Terms & Conditions Apply.',
           subtotal,
           discount: discountTotal,
           freight,
@@ -1363,6 +1402,8 @@ class AssetManagementService {
           otherCharges,
           roundOff,
           grandTotal,
+          tds,
+          supplierQuoteRef,
           createdById: userId,
           items: {
             create: poItems
@@ -1749,7 +1790,12 @@ class AssetManagementService {
     }
 
     const applyGst = data.applyGst !== false;
-    const isInterState = data.isInterState === true;
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || 'BCLNU556863412';
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const vendorGstin = data.vendorGstin || '';
+    const vendorStateCode = vendorGstin.trim().substring(0, 2);
+    const isInterState = vendorStateCode && companyStateCode ? (vendorStateCode !== companyStateCode) : (data.isInterState === true);
 
     const invoiceItems = (data.items || []).map((item, idx) => {
       const quantity = parseInt(item.quantity, 10);
@@ -1836,10 +1882,12 @@ class AssetManagementService {
 
     const chargeGstStates = data.chargeGstStates || {};
     const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key];
-      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
-      if (isApplied) return Number(val) * 0.18;
-      return 0;
+      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
+      if (!state) return 0;
+      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+      if (!isApplied) return 0;
+      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
+      return Number(val) * (customRate / 100);
     };
 
     const freightGst = calculateChargeGst(freight, 'freight');
@@ -1872,14 +1920,17 @@ class AssetManagementService {
     const amountInWords = numberToWordsIndian(grandTotal);
 
     // TDS Deduction: 194Q requires 0.1% TDS on goods value exceeding 50 Lakhs
-    let tdsAmount = 0;
-    if (grandTotal > 5000000) {
+    let tdsAmount = Number(data.tds || 0);
+    if (tdsAmount === 0 && grandTotal > 5000000) {
       tdsAmount = (grandTotal - 5000000) * 0.001; 
     }
 
     const netPayable = grandTotal - tdsAmount;
 
     const invoiceNo = await this.getNextDocNumber('INV');
+
+    const fallbackGstin = taxSettings?.companyGstin || 'BCLNU556863412';
+    const fallbackPan = taxSettings?.companyPan || (fallbackGstin.length >= 12 ? fallbackGstin.substring(2, 12) : 'BCLNU55686');
 
     const res = await prisma.assetAPInvoice.create({
       data: {
@@ -1890,13 +1941,14 @@ class AssetManagementService {
         dueDate: data.dueDate ? new Date(data.dueDate) : new Date(new Date().setDate(new Date().getDate() + 30)),
         poNo,
         grpoNo,
+        supplierQuoteRef: data.supplierQuoteRef || (po ? po.supplierQuoteRef : '') || '',
         vendorCode: data.vendorCode || (po ? po.vendorCode : ('V-' + Math.floor(Math.random()*9000 + 1000))),
         vendorName: data.vendorName || (po ? po.vendorName : ''),
         vendorGstin: data.vendorGstin || (po ? po.vendorGstin : ''),
         vendorPan: data.vendorPan || (po ? po.vendorPan : ''),
         address: data.address || data.vendorAddress || (po ? po.address : ''),
-        companyGstin: data.companyGstin || (po ? po.companyGstin : '29AAACE1234F1Z3'),
-        companyPan: data.companyPan || (po ? po.companyPan : 'AAACE1234F'),
+        companyGstin: data.companyGstin || (po ? po.companyGstin : fallbackGstin),
+        companyPan: data.companyPan || (po ? po.companyPan : fallbackPan),
         placeOfSupply: data.placeOfSupply || (po ? po.placeOfSupply : '29'),
         irn: data.irn || `IRN-${Math.floor(Math.random()*9000000000)+1000000000}`,
         qrCodeRef: data.qrCodeRef || 'QR-INVOICE-PLACEHOLDER',
@@ -2568,7 +2620,12 @@ class AssetManagementService {
     }
 
     const applyGst = data.applyGst !== false;
-    const isInterState = data.isInterState === true;
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || '33AABCL0702C1ZG';
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const vendorGstin = data.vendorGstin || existing.vendorGstin || '';
+    const vendorStateCode = vendorGstin.trim().substring(0, 2);
+    const isInterState = vendorStateCode && companyStateCode ? (vendorStateCode !== companyStateCode) : (data.isInterState === true);
     const deptCode = existing.costCenter.replace('CC-', '').split('-')[0] || 'IT';
 
     const poItems = (data.items || []).map((item, idx) => {
@@ -2659,10 +2716,15 @@ class AssetManagementService {
 
     const chargeGstStates = data.chargeGstStates || {};
     const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key];
-      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
-      if (isApplied) return Number(val) * 0.18;
-      return 0;
+      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
+      if (!state) return 0;
+      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+      if (!isApplied) return 0;
+      if (isInterState) {
+        return Number(val) * 0.18; // Force 18% for IGST
+      }
+      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
+      return Number(val) * (customRate / 100);
     };
 
     const freightGst = calculateChargeGst(freight, 'freight');
@@ -2688,7 +2750,9 @@ class AssetManagementService {
     }
 
     const taxAmount = finalCgst + finalSgst + finalIgst;
-    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discountTotal;
+    const tds = Number(data.tds || 0);
+    const supplierQuoteRef = data.supplierQuoteRef || data.supplierQuotationRef || '';
+    const preRoundTotal = subtotal + taxAmount + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discountTotal - tds;
     const grandTotal = Math.round(preRoundTotal);
     const roundOff = grandTotal - preRoundTotal;
 
@@ -2752,6 +2816,8 @@ class AssetManagementService {
           otherCharges,
           roundOff,
           grandTotal,
+          tds,
+          supplierQuoteRef,
           termsBlock: data.termsAndConditions || data.termsBlock || existing.termsBlock,
           items: {
             create: poItems
@@ -3145,7 +3211,12 @@ class AssetManagementService {
     }
 
     const applyGst = data.applyGst !== false;
-    const isInterState = data.isInterState === true;
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || '33AABCL0702C1ZG';
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const vendorGstin = data.vendorGstin || existing.vendorGstin || '';
+    const vendorStateCode = vendorGstin.trim().substring(0, 2);
+    const isInterState = vendorStateCode && companyStateCode ? (vendorStateCode !== companyStateCode) : (data.isInterState === true);
 
     const invoiceItems = (data.items || []).map((item, idx) => {
       const quantity = parseInt(item.quantity, 10);
@@ -3201,10 +3272,12 @@ class AssetManagementService {
 
     const chargeGstStates = data.chargeGstStates || {};
     const calculateChargeGst = (val, key) => {
-      const state = chargeGstStates[key];
-      const isApplied = (state === true) || (state === 'true') || (state && state.applied && state.gst);
-      if (isApplied) return Number(val) * 0.18;
-      return 0;
+      const state = chargeGstStates[key] || (key === 'freight' ? chargeGstStates['shippingCharges'] : (key === 'shippingCharges' ? chargeGstStates['freight'] : null));
+      if (!state) return 0;
+      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+      if (!isApplied) return 0;
+      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
+      return Number(val) * (customRate / 100);
     };
 
     const freightGst = calculateChargeGst(freight, 'freight');
@@ -3236,8 +3309,8 @@ class AssetManagementService {
 
     const amountInWords = numberToWordsIndian(grandTotal);
 
-    let tdsAmount = 0;
-    if (grandTotal > 5000000) {
+    let tdsAmount = Number(data.tds || 0);
+    if (tdsAmount === 0 && grandTotal > 5000000) {
       tdsAmount = (grandTotal - 5000000) * 0.001; 
     }
     const netPayable = grandTotal - tdsAmount;
@@ -3252,6 +3325,7 @@ class AssetManagementService {
         vendorInvoiceNo: data.vendorInvoiceNo || existing.vendorInvoiceNo,
         vendorInvoiceDate: data.invoiceDate ? new Date(data.invoiceDate) : existing.vendorInvoiceDate,
         dueDate: data.dueDate ? new Date(data.dueDate) : existing.dueDate,
+        supplierQuoteRef: data.supplierQuoteRef !== undefined ? data.supplierQuoteRef : existing.supplierQuoteRef,
         vendorName: data.vendorName || existing.vendorName,
         vendorGstin: data.vendorGstin || existing.vendorGstin,
         vendorPan: data.vendorPan || existing.vendorPan,
@@ -3318,7 +3392,7 @@ function mapPOToFrontend(po) {
   if (!po) return null;
   return {
     ...po,
-    poDate: po.createdAt,
+    poDate: po.poDate || po.createdAt,
     deliveryAddress: po.shipTo,
     freight: Number(po.freight || 0),
     freightCharges: Number(po.freight || po.shippingCharges || 0),
@@ -3335,6 +3409,8 @@ function mapPOToFrontend(po) {
     otherCharges: Number(po.otherCharges || 0),
     roundOff: Number(po.roundOff || 0),
     grandTotal: Number(po.grandTotal || 0),
+    tds: Number(po.tds || 0),
+    supplierQuoteRef: po.supplierQuoteRef || '',
     paymentMode: po.paymentMode || '',
     paymentTerms: po.paymentTerms || '',
     termsAndConditions: po.termsBlock,
@@ -3343,13 +3419,20 @@ function mapPOToFrontend(po) {
       itemDescription: item.description,
       hsnSac: item.hsnCode,
       unit: item.uom,
-      quantity: item.orderedQty,
+      quantity: Number(item.orderedQty),
+      unitPrice: Number(item.unitPrice),
+      gstRate: Number(item.gstRate || 18),        // explicit number — avoids Prisma Decimal serialization issues
       totalBeforeTax: Number(item.baseAmount),
       gstAmount: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
-      totalWithGst: Number(item.lineTotal)
+      totalWithGst: Number(item.lineTotal),
+      // individual tax components for per-rate breakdown
+      cgst: Number(item.cgst || 0),
+      sgst: Number(item.sgst || 0),
+      igst: Number(item.igst || 0),
     }))
   };
 }
+
 
 function mapPQToFrontend(pq) {
   if (!pq) return null;
@@ -3367,8 +3450,11 @@ function mapPQToFrontend(pq) {
     otherCharges: Number(pq.otherCharges || 0),
     roundOff: Number(pq.roundOff || 0),
     grandTotal: Number(pq.grandTotal || 0),
+    tds: Number(pq.tds || 0),
+    supplierQuoteRef: pq.supplierQuoteRef || '',
     paymentMode: pq.paymentMode || '',
     paymentTerms: pq.paymentTerms || '',
+    termsAndConditions: pq.termsBlock || '',
     items: pq.items?.map(item => ({
       ...item,
       itemDescription: item.description,
@@ -3409,6 +3495,7 @@ function mapInvoiceToFrontend(inv) {
   return {
     ...inv,
     apInvoiceNo: inv.invoiceNo,
+    supplierQuoteRef: inv.supplierQuoteRef || '',
     invoiceDate: inv.vendorInvoiceDate,
     totalGst: Number(inv.totalTax),
     grandTotal: Number(inv.invoiceTotal),
@@ -3429,6 +3516,8 @@ function mapInvoiceToFrontend(inv) {
     cgst: Number(inv.totalCgst || 0),
     sgst: Number(inv.totalSgst || 0),
     igst: Number(inv.totalIgst || 0),
+    tdsAmount: Number(inv.tdsAmount || 0),
+    netPayable: Number(inv.netPayable || 0),
     items: inv.items?.map(item => ({
       ...item,
       itemDescription: item.description,

@@ -13,7 +13,7 @@ import {
   Plus, Search, FileSearch, CheckCircle2, Clock, X, Eye,
   ArrowLeft, Loader2, AlertTriangle, ChevronDown, Building2,
   Percent, Hash, Calendar, Package, BarChart3, Shield, Trash2, Edit,
-  ShoppingCart
+  ShoppingCart, Info
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -30,12 +30,108 @@ const STATUS_STYLES = {
   Expired: 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 border-rose-200 dark:border-rose-900/50',
 };
 
+const DEFAULT_GTC = `General Terms and Conditions (GTC)
+1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue, If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.
+2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.
+3. Warranty: The Vendor warrants that all supplied goods are brand new, genuine, and free from defects in material and workmanship for 12 months from the date of acceptance. For services, the Vendor guarantees performance by qualified personnel matching industry standards. Any defective goods or substandard services identified within this period must be replaced, repaired, or re-performed by the Vendor within 7 business days at no additional cost to the Buyer.
+4. Billing Instructions: Invoices must be raised as statutory Tax Invoices clearly bearing the Vendor’s valid GSTIN, correct HSN/SAC codes, and the exact Buyer PO number. Delayed submission of invoices or failure to upload invoice data to the GST portal (preventing the Buyer from claiming Input Tax Credit) will directly result in a corresponding delay in payment processing.
+5. Payment Terms: Payment shall be processed via electronic transfer (NEFT/RTGS) split across two strict milestones: 50% Advance Payment: Processed within 7 working days upon written confirmation and formal acceptance of the Purchase Order (PO) by the Vendor, against the submission of a valid Proforma Invoice. 50% Final Payment: Processed within 45 days from the date of successful physical delivery of all materials at the designated site. This is subject to the submission of complete, error-free documents (Tax Invoice, Delivery Challan, and validated E-way Bill) and physical inspection and acceptance of the defect-free materials by the Buyer's site team.
+6. Delivery & Liquidated Damages (LD): The delivery timeline starts immediately upon the Vendor's receipt of the 50% advance payment and must be completed strictly within 25Days. Failure to deliver on time will result in a penalty of 0.5% of the total PO value per week of delay, capped at 10%. Exceeding this 10% limit gives the Buyer the right to terminate the contract immediately and source elsewhere at the Vendor's expense.
+7. Quality & Inspection: All deliverables must strictly match the technical specifications mentioned in the PO. The Buyer reserves the right to inspect materials upon arrival at the site. The Buyer can reject any defective, damaged, or substandard items. Rejected goods must be collected and removed by the Vendor from the Buyer's premises within 7 days of rejection notification at the Vendor's sole risk and expense.
+8. Statutory Compliance: The Vendor shall strictly comply with all applicable Central, State, and local government laws, labor regulations (including Provident Fund, ESIC, and Minimum Wages acts), and anti-bribery policies. The use of child labor is strictly prohibited. The Vendor is solely responsible for generating accurate E-way bills for all transit movements.
+9. Dispute Resolution: Any dispute arising out of this PO shall first be resolved through amicable mutual discussions. Unresolved disputes shall be referred to a sole arbitrator appointed mutually by both parties, governed by the Indian Arbitration and Conciliation Act, 1996. The venue and seat of arbitration shall be ________, Tamil Nadu, and proceedings will be conducted in English. The courts in Salem shall have exclusive jurisdiction over this contract.`;
+
+// Build per-rate tax breakdown for PQ Detail Modal
+const buildPQTaxBreakdown = (pq, companyGstin = null) => {
+  const finalCompanyGstin = companyGstin || '33AABCL0702C1ZG';
+  const companyStateCode = finalCompanyGstin.trim().substring(0, 2) || '33';
+  const vendorGstin = pq.vendorGstin || '';
+  const vendorState = vendorGstin.trim().substring(0, 2);
+  const isInterState = vendorState && companyStateCode ? (vendorState !== companyStateCode) : (pq.stateCode ? pq.stateCode !== companyStateCode : false);
+  const applyGst = pq.applyGst !== undefined ? Boolean(pq.applyGst) : true;
+  
+  let chargeGstStates = pq.chargeGstStates || {};
+  if (typeof chargeGstStates === 'string') {
+    try {
+      chargeGstStates = JSON.parse(chargeGstStates);
+    } catch (e) {
+      chargeGstStates = {};
+    }
+  }
+
+  const getChargeGstApplied = (key) => {
+    const state = chargeGstStates[key];
+    if (!state) return false;
+    return (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+  };
+  const getChargeRate = (key) => {
+    const state = chargeGstStates[key];
+    if (!state || typeof state !== 'object') return 18;
+    return isInterState ? 18 : Number(state.rate !== undefined ? state.rate : 18);
+  };
+
+  const breakdown = {}; // { rate: { gst, taxable } }
+
+  if (applyGst) {
+    (pq.items || []).forEach(item => {
+      const rate = Number(item.gstRate || 18);
+      const base = Number(item.totalBeforeTax || (Number(item.quantity) * Number(item.unitPrice || 0)));
+      if (base <= 0) return;
+
+      const storedGst = Number(item.gstAmount || 0);
+      const gst = storedGst > 0 ? storedGst : (base * (rate / 100));
+
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+      breakdown[rate].taxable += base;
+      breakdown[rate].gst += gst;
+    });
+
+    // Charges with GST
+    const addChargeGst = (val, key) => {
+      const numVal = Number(val || 0);
+      if (numVal <= 0 || !getChargeGstApplied(key)) return;
+      const rate = getChargeRate(key);
+      const gst = numVal * (rate / 100);
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+      breakdown[rate].taxable += numVal;
+      breakdown[rate].gst += gst;
+    };
+    const freight = Number(pq.shippingCharges || 0);
+    const loadingCharges = Number(pq.loadingCharges || 0);
+    const packingCharges = Number(pq.packingCharges || 0);
+    const insurance = Number(pq.insurance || 0);
+    const otherCharges = Number(pq.otherCharges || 0);
+    addChargeGst(freight, 'shippingCharges');
+    addChargeGst(loadingCharges, 'loadingCharges');
+    addChargeGst(packingCharges, 'packingCharges');
+    addChargeGst(insurance, 'insurance');
+    addChargeGst(otherCharges, 'otherCharges');
+  }
+
+  // Generate rows sorted by rate
+  const taxRows = [];
+  Object.values(breakdown).sort((a, b) => a.rate - b.rate).forEach(tb => {
+    if (isInterState) {
+      taxRows.push({ label: `IGST @ ${tb.rate}%`, value: tb.gst });
+    } else {
+      const half = Number((tb.rate / 2).toFixed(2));
+      taxRows.push({ label: `CGST @ ${half}%`, value: tb.gst / 2 });
+      taxRows.push({ label: `SGST @ ${half}%`, value: tb.gst / 2 });
+    }
+  });
+
+  const totalTaxable = (pq.items || []).reduce((s, i) => s + Number(i.totalBeforeTax || (Number(i.quantity) * Number(i.unitPrice || 0))), 0);
+  const totalGstFromRows = taxRows.reduce((s, r) => s + r.value, 0);
+  return { taxRows, totalTaxable, totalGst: totalGstFromRows, isInterState, applyGst };
+};
+
 function PQDetailModal({ pq, onClose }) {
-  const totalBeforeTax = Number(pq.subtotal || 0);
-  const gstAmount = Number(pq.taxAmount || 0);
-  const cgst = Number(pq.cgst || 0);
-  const sgst = Number(pq.sgst || 0);
-  const igst = Number(pq.igst || 0);
+  const { data: taxSettings } = useQuery({
+    queryKey: ['tax-settings'],
+    queryFn: () => api.get('/setup/tax').then(r => r.data),
+  });
+
+  const { taxRows, totalTaxable, applyGst } = buildPQTaxBreakdown(pq, taxSettings?.companyGstin);
   const discount = Number(pq.discount || 0);
   const shippingCharges = Number(pq.shippingCharges || 0);
   const otherCharges = Number(pq.otherCharges || 0);
@@ -103,24 +199,78 @@ function PQDetailModal({ pq, onClose }) {
                 <tfoot className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
                   <tr>
                     <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Taxable Value:</td>
-                    <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalBeforeTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
-                  {igst > 0 ? (
+                  {applyGst && taxRows.length > 0 ? taxRows.map((row, ri) => {
+                    const hasBreakdown = row.breakdown && (row.breakdown.items.length > 0 || row.breakdown.charges.length > 0);
+                    return (
+                      <tr key={ri}>
+                        <td colSpan={6} className="px-3 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400 text-xs relative z-10 hover:z-30">
+                          <span className="inline-flex items-center gap-1 justify-end w-full relative group hover:z-50">
+                            <span>{row.label}</span>
+                            {hasBreakdown && (
+                              <span className="inline-block relative">
+                                <Info className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600 cursor-pointer transition-colors" />
+                                <span className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-100 absolute z-50 bottom-full mb-2 right-0 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-4 text-xs text-slate-700 dark:text-slate-300 pointer-events-none text-left font-normal">
+                                  <span className="font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-2 flex justify-between items-center flex-row">
+                                    <span>GST Calculation Details</span>
+                                    <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded text-[10px] font-black">{row.breakdown.rate}% Rate Block</span>
+                                  </span>
+                                  <span className="space-y-2 block max-h-48 overflow-y-auto">
+                                    {row.breakdown.items.length > 0 && (
+                                      <span className="block">
+                                        <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Line Items</span>
+                                        <span className="space-y-1 block">
+                                          {row.breakdown.items.map((it, idx) => (
+                                            <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                              <span className="max-w-[180px] truncate font-medium block" title={it.description}>{it.description}</span>
+                                              <span className="text-right block">
+                                                <span className="font-mono text-slate-800 dark:text-slate-200">₹{it.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                <span className="text-[10px] text-slate-400 block font-normal">+ {isInterState ? 'IGST' : 'CGST+SGST'}: ₹{it.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                              </span>
+                                            </span>
+                                          ))}
+                                        </span>
+                                      </span>
+                                    )}
+                                    {row.breakdown.charges.length > 0 && (
+                                      <span className="pt-1 block">
+                                        <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Taxable Charges</span>
+                                        <span className="space-y-1 block">
+                                          {row.breakdown.charges.map((ch, idx) => (
+                                            <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                              <span className="font-medium block">{ch.label}</span>
+                                              <span className="text-right block">
+                                                <span className="font-mono text-slate-800 dark:text-slate-200">₹{ch.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                                <span className="text-[10px] text-slate-400 block font-normal">+ GST: ₹{ch.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                              </span>
+                                            </span>
+                                          ))}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white block flex-row">
+                                    <span>Total Taxable ({row.breakdown.rate}%)</span>
+                                    <span className="font-mono">₹{row.breakdown.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                  </span>
+                                  <span className="mt-1 flex justify-between font-bold text-indigo-600 dark:text-indigo-400 block flex-row">
+                                    <span>Total GST ({row.breakdown.rate}%)</span>
+                                    <span className="font-mono">₹{row.breakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                  </span>
+                                </span>
+                              </span>
+                            )}
+                          </span>
+                        </td>
+                        <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{row.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                    );
+                  }) : !applyGst && (
                     <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">IGST:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{igst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">GST (Exempted):</td>
+                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td>
                     </tr>
-                  ) : (
-                    <>
-                      <tr>
-                        <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">CGST:</td>
-                        <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{cgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      </tr>
-                      <tr>
-                        <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">SGST:</td>
-                        <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{sgst.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      </tr>
-                    </>
                   )}
                   {shippingCharges > 0 && (
                     <tr>
@@ -363,23 +513,37 @@ function PRSelect({ prs = [], value, onChange }) {
   );
 }
 
-function ChargeRow({ label, fieldKey, value, gstChecked, isInterState, onChange, onGstChange }) {
+function ChargeRow({ label, fieldKey, value, gstState, isInterState, onChange, onGstChange, onConfigureGst }) {
   const numVal = Number(value || 0);
-  const gstLabel = isInterState ? 'IGST 18%' : 'GST 18% (CGST+SGST)';
-  const gstAmt = gstChecked && numVal > 0 ? numVal * 0.18 : 0;
+  const gstChecked = !!gstState?.applied;
+  const gstRate = isInterState ? 18 : (gstState?.rate !== undefined ? Number(gstState.rate) : 18);
+  const gstLabel = isInterState ? 'IGST 18%' : `GST ${gstRate}% (CGST+SGST)`;
+  const gstAmt = gstChecked && numVal > 0 ? numVal * (gstRate / 100) : 0;
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/60 rounded-xl p-3 space-y-2">
       <div className="flex items-center justify-between">
         <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">{label}</Label>
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={gstChecked}
-            onChange={e => onGstChange(e.target.checked)}
-            className="w-3.5 h-3.5 rounded accent-indigo-600"
-          />
-          <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400">{gstLabel}</span>
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={gstChecked}
+              onChange={e => onGstChange(e.target.checked)}
+              className="w-3.5 h-3.5 rounded accent-indigo-600"
+            />
+            <span className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400">{gstLabel}</span>
+          </label>
+          {gstChecked && !isInterState && (
+            <button
+              type="button"
+              onClick={onConfigureGst}
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-indigo-600 transition-colors"
+              title="Configure GST Rate"
+            >
+              <Edit className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
       <Input
         type="number"
@@ -398,9 +562,14 @@ function ChargeRow({ label, fieldKey, value, gstChecked, isInterState, onChange,
     </div>
   );
 }
-
 function CreatePQForm({ onBack, isReadOnly, editPQId }) {
-  const [isInterState, setIsInterState] = useState(false);
+  const { data: taxSettings } = useQuery({
+    queryKey: ['tax-settings'],
+    queryFn: () => api.get('/setup/tax').then(r => r.data),
+  });
+  const [isInterState, setIsInterState] = useState(true);
+  const [activeChargeGstEdit, setActiveChargeGstEdit] = useState(null);
+  
   const [form, setForm] = useState({
     prId: '',
     prNo: 'Direct',
@@ -417,24 +586,26 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     validityDate: null,
     expectedDelivery: null,
     discount: '',
-    shippingCharges: '', // freight
+    discountType: 'amount',
+    shippingCharges: '',
     loadingCharges: '',
-    unloadingCharges: '',
+    unloadingCharges: '0',
     packingCharges: '',
     insurance: '',
     otherCharges: '',
+    tds: '',
+    supplierQuoteRef: '',
     applyGst: true,
-    termsAndConditions: '',
-    items: [{ category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', gstRate: 18 }],
+    termsAndConditions: DEFAULT_GTC,
+    items: [{ category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', gstRate: 18, specMatch: 'Yes', remarks: '' }],
   });
 
   const [chargeGstStates, setChargeGstStates] = useState({
-    shippingCharges: false,
-    loadingCharges: false,
-    unloadingCharges: false,
-    packingCharges: false,
-    insurance: false,
-    otherCharges: false,
+    shippingCharges: { applied: false, rate: 18 },
+    loadingCharges: { applied: false, rate: 18 },
+    packingCharges: { applied: false, rate: 18 },
+    insurance: { applied: false, rate: 18 },
+    otherCharges: { applied: false, rate: 18 },
   });
 
   const [error, setError] = useState('');
@@ -461,7 +632,9 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
   useEffect(() => {
     if (editPQ) {
       const supplier = suppliers.find(s => s.name.toLowerCase() === editPQ.vendorName.toLowerCase());
-      setIsInterState(editPQ.stateCode ? editPQ.stateCode !== '27' : (editPQ.vendorGstin ? editPQ.vendorGstin.substring(0, 2) !== '27' : false));
+      const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
+      const stateCode = editPQ.stateCode || (editPQ.vendorGstin ? editPQ.vendorGstin.substring(0, 2) : companyStateCode);
+      setIsInterState(stateCode !== companyStateCode);
       setForm({
         prId: prs.find(p => p.prNo === editPQ.prNo)?.id || '',
         prNo: editPQ.prNo || 'Direct',
@@ -478,22 +651,27 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         validityDate: editPQ.validityDate ? new Date(editPQ.validityDate) : null,
         expectedDelivery: editPQ.expectedDelivery ? new Date(editPQ.expectedDelivery) : null,
         discount: editPQ.discount !== undefined ? String(editPQ.discount) : '',
+        discountType: 'amount',
         shippingCharges: editPQ.shippingCharges !== undefined ? String(editPQ.shippingCharges) : '',
         loadingCharges: editPQ.loadingCharges !== undefined ? String(editPQ.loadingCharges) : '',
-        unloadingCharges: editPQ.unloadingCharges !== undefined ? String(editPQ.unloadingCharges) : '',
+        unloadingCharges: '0',
         packingCharges: editPQ.packingCharges !== undefined ? String(editPQ.packingCharges) : '',
         insurance: editPQ.insurance !== undefined ? String(editPQ.insurance) : '',
         otherCharges: editPQ.otherCharges !== undefined ? String(editPQ.otherCharges) : '',
+        tds: editPQ.tds !== undefined ? String(editPQ.tds) : '',
+        supplierQuoteRef: editPQ.supplierQuoteRef || '',
         applyGst: editPQ.applyGst !== undefined ? Boolean(editPQ.applyGst) : true,
-        termsAndConditions: editPQ.termsAndConditions || '',
+        termsAndConditions: editPQ.termsAndConditions || DEFAULT_GTC,
         items: editPQ.items?.map(item => ({
           category: item.category,
-          itemDescription: item.itemDescription,
-          hsnSac: item.hsnSac,
+          itemDescription: item.itemDescription || item.description || '',
+          hsnSac: item.hsnSac || item.hsnCode || '',
           quantity: item.quantity,
-          unit: item.unit,
+          unit: item.unit || item.uom || 'Nos',
           unitPrice: String(item.unitPrice),
-          gstRate: Number(item.gstRate)
+          gstRate: Number(item.gstRate),
+          specMatch: item.specMatch || 'Yes',
+          remarks: item.remarks || ''
         })) || [],
       });
 
@@ -502,13 +680,20 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           const parsed = typeof editPQ.chargeGstStates === 'string'
             ? JSON.parse(editPQ.chargeGstStates)
             : editPQ.chargeGstStates;
+          
+          const parseLegacy = (val) => {
+            if (!val) return { applied: false, rate: 18 };
+            if (val === true || val === 'true') return { applied: true, rate: 18 };
+            if (typeof val === 'object') return { applied: !!val.applied, rate: Number(val.rate || 18) };
+            return { applied: false, rate: 18 };
+          };
+
           setChargeGstStates({
-            shippingCharges: !!parsed.shippingCharges,
-            loadingCharges: !!parsed.loadingCharges,
-            unloadingCharges: !!parsed.unloadingCharges,
-            packingCharges: !!parsed.packingCharges,
-            insurance: !!parsed.insurance,
-            otherCharges: !!parsed.otherCharges,
+            shippingCharges: parseLegacy(parsed.shippingCharges || parsed.freight),
+            loadingCharges: parseLegacy(parsed.loadingCharges),
+            packingCharges: parseLegacy(parsed.packingCharges),
+            insurance: parseLegacy(parsed.insurance),
+            otherCharges: parseLegacy(parsed.otherCharges),
           });
         } catch (e) {
           console.error(e);
@@ -518,13 +703,27 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
   }, [editPQ, prs, suppliers]);
 
   useEffect(() => {
+    const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
     if (form.vendorGstin && form.vendorGstin.trim().length >= 2) {
       const stateCode = form.vendorGstin.trim().substring(0, 2);
       if (/^\d+$/.test(stateCode)) {
-        setIsInterState(stateCode !== '27');
+        const isIntra = stateCode === companyStateCode;
+        setIsInterState(!isIntra);
+        if (!isIntra) {
+          setForm(prev => ({
+            ...prev,
+            items: prev.items.map(i => ({ ...i, gstRate: 18 }))
+          }));
+        }
       }
+    } else {
+      setIsInterState(true);
+      setForm(prev => ({
+        ...prev,
+        items: prev.items.map(i => ({ ...i, gstRate: 18 }))
+      }));
     }
-  }, [form.vendorGstin]);
+  }, [form.vendorGstin, taxSettings?.companyGstin]);
 
   const calcTotals = (item) => {
     const base = Number(item.quantity) * Number(item.unitPrice || 0);
@@ -543,23 +742,35 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
 
   const freight = Number(form.shippingCharges || 0);
   const loadingCharges = Number(form.loadingCharges || 0);
-  const unloadingCharges = Number(form.unloadingCharges || 0);
   const packingCharges = Number(form.packingCharges || 0);
   const insurance = Number(form.insurance || 0);
   const otherCharges = Number(form.otherCharges || 0);
-  const discount = Number(form.discount || 0);
+  const discountInput = Number(form.discount || 0);
+  const tds = Number(form.tds || 0);
 
-  const calcChargeGst = (val, key) => chargeGstStates[key] && Number(val) > 0 ? Number(val) * 0.18 : 0;
+  const discount = form.discountType === 'percent'
+    ? totals.taxable * (discountInput / 100)
+    : discountInput;
+
+  const calcChargeGst = (val, key) => {
+    const state = chargeGstStates[key];
+    const isApplied = state && state.applied;
+    if (isApplied && Number(val) > 0) {
+      const rate = isInterState ? 18 : (state.rate !== undefined ? Number(state.rate) : 18);
+      return Number(val) * (rate / 100);
+    }
+    return 0;
+  };
+
   const extraGst = form.applyGst ? (
     calcChargeGst(freight, 'shippingCharges') +
     calcChargeGst(loadingCharges, 'loadingCharges') +
-    calcChargeGst(unloadingCharges, 'unloadingCharges') +
     calcChargeGst(packingCharges, 'packingCharges') +
     calcChargeGst(insurance, 'insurance') +
     calcChargeGst(otherCharges, 'otherCharges')
   ) : 0;
 
-  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - discount;
+  const preRoundTotal = totals.taxable + totals.gst + extraGst + freight + loadingCharges + packingCharges + insurance + otherCharges - discount - tds;
   const grandTotal = Math.round(preRoundTotal);
   const roundOff = grandTotal - preRoundTotal;
 
@@ -583,17 +794,21 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     setError('');
     if (!form.vendorName) { setError('Vendor name is required'); return; }
     if (form.items.some(i => !i.itemDescription || !i.unitPrice)) { setError('All item fields are required'); return; }
+    const companyStateCode = taxSettings?.companyGstin ? taxSettings.companyGstin.trim().substring(0, 2) : '33';
+    const fallbackInterstateState = companyStateCode === '33' ? '29' : '33';
+    const resolvedStateCode = isInterState ? (form.vendorGstin && form.vendorGstin.length >= 2 ? form.vendorGstin.substring(0, 2) : fallbackInterstateState) : companyStateCode;
     const payload = {
       ...form,
-      stateCode: isInterState ? (form.vendorGstin && form.vendorGstin.length >= 2 ? form.vendorGstin.substring(0, 2) : '29') : '27',
+      stateCode: resolvedStateCode,
       isInterState,
-      discount: Number(form.discount || 0),
-      shippingCharges: Number(form.shippingCharges || 0),
-      loadingCharges: Number(form.loadingCharges || 0),
-      unloadingCharges: Number(form.unloadingCharges || 0),
-      packingCharges: Number(form.packingCharges || 0),
-      insurance: Number(form.insurance || 0),
-      otherCharges: Number(form.otherCharges || 0),
+      discount,
+      shippingCharges: freight,
+      loadingCharges: loadingCharges,
+      unloadingCharges: 0,
+      packingCharges: packingCharges,
+      insurance: insurance,
+      otherCharges: otherCharges,
+      tds: tds,
       chargeGstStates,
       items: form.items.map(i => {
         const c = calcTotals(i);
@@ -606,7 +821,8 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           igst: isInterState ? c.gstAmount : 0,
           discountedPrice: Number(i.unitPrice),
           lineTotal: c.totalWithGst,
-          specMatch: 'Yes'
+          specMatch: i.specMatch || 'Yes',
+          remarks: i.remarks || ''
         };
       }),
     };
@@ -615,7 +831,20 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
 
   const update = (f, v) => setForm(p => ({ ...p, [f]: v }));
   const updateItem = (idx, f, v) => setForm(p => ({ ...p, items: p.items.map((item, i) => i === idx ? { ...item, [f]: v } : item) }));
-  const addItem = () => setForm(p => ({ ...p, items: [...p.items, { category: 'IT Equipment', itemDescription: '', hsnSac: '8471', quantity: 1, unit: 'Nos', unitPrice: '', gstRate: 18 }] }));
+  const addItem = () => setForm(p => ({
+    ...p,
+    items: [...p.items, {
+      category: 'IT Equipment',
+      itemDescription: '',
+      hsnSac: '8471',
+      quantity: 1,
+      unit: 'Nos',
+      unitPrice: '',
+      gstRate: 18,
+      specMatch: 'Yes',
+      remarks: ''
+    }]
+  }));
   const removeItem = idx => setForm(p => ({ ...p, items: p.items.filter((_, i) => i !== idx) }));
 
   const handleCategoryChange = (idx, category) => {
@@ -626,7 +855,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         ...item,
         category,
         hsnSac: mapDetails.hsn,
-        gstRate: mapDetails.gst
+        gstRate: isInterState ? 18 : mapDetails.gst
       } : item)
     }));
   };
@@ -640,7 +869,6 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     const pr = prs.find(p => p.id === prId);
     if (!pr) return;
 
-    // Find the preferred vendor details in the suppliers list
     const supplier = pr.preferredVendor
       ? suppliers.find(s => s.name.toLowerCase() === pr.preferredVendor.toLowerCase())
       : null;
@@ -656,7 +884,9 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           quantity: item.quantity,
           unit: item.uom || 'Nos',
           unitPrice: Number(item.estimatedUnitCost),
-          gstRate: catDetails.gst
+          gstRate: isInterState ? 18 : catDetails.gst,
+          specMatch: 'Yes',
+          remarks: ''
         };
       });
     } else {
@@ -668,7 +898,9 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
         quantity: pr.quantity,
         unit: pr.uom || 'Nos',
         unitPrice: Number(pr.estimatedUnitCost),
-        gstRate: catDetails.gst
+        gstRate: isInterState ? 18 : catDetails.gst,
+        specMatch: 'Yes',
+        remarks: ''
       }];
     }
 
@@ -687,8 +919,132 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
     }));
   };
 
+  // Group item taxes by GST rate for tooltip & dynamic display
+  const taxRows = [];
+  const taxBreakdown = {};
+  
+  if (form.applyGst) {
+    form.items.forEach(item => {
+      const rate = Number(item.gstRate || 0);
+      const base = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+      if (base <= 0) return;
+      const gst = base * (rate / 100);
+      if (!taxBreakdown[rate]) {
+        taxBreakdown[rate] = { rate, taxable: 0, gst: 0, items: [], charges: [] };
+      }
+      taxBreakdown[rate].taxable += base;
+      taxBreakdown[rate].gst += gst;
+      taxBreakdown[rate].items.push({
+        description: item.itemDescription || 'Asset Item',
+        taxable: base,
+        gstRate: rate,
+        gstAmount: gst,
+        total: base + gst
+      });
+    });
+
+    const addChargeTax = (val, key, label) => {
+      const numVal = Number(val || 0);
+      if (numVal <= 0) return;
+      const state = chargeGstStates[key];
+      if (state && state.applied) {
+        const rate = isInterState ? 18 : Number(state.rate || 18);
+        const gst = numVal * (rate / 100);
+        if (!taxBreakdown[rate]) {
+          taxBreakdown[rate] = { rate, taxable: 0, gst: 0, items: [], charges: [] };
+        }
+        taxBreakdown[rate].taxable += numVal;
+        taxBreakdown[rate].gst += gst;
+        taxBreakdown[rate].charges.push({
+          label,
+          taxable: numVal,
+          gstRate: rate,
+          gstAmount: gst,
+          total: numVal + gst
+        });
+      }
+    };
+    
+    addChargeTax(freight, 'shippingCharges', 'Freight');
+    addChargeTax(loadingCharges, 'loadingCharges', 'Loading & Unloading');
+    addChargeTax(packingCharges, 'packingCharges', 'Packing Charges');
+    addChargeTax(insurance, 'insurance', 'Insurance');
+    addChargeTax(otherCharges, 'otherCharges', 'Other Charges');
+
+    // Generate CGST / SGST or IGST rows sorted by rate
+    Object.values(taxBreakdown).sort((a, b) => a.rate - b.rate).forEach(tb => {
+      if (isInterState) {
+        taxRows.push({
+          label: `IGST @ ${tb.rate}%`,
+          value: tb.gst,
+          breakdown: tb
+        });
+      } else {
+        const halfRate = Number((tb.rate / 2).toFixed(2));
+        taxRows.push({
+          label: `CGST @ ${halfRate}%`,
+          value: tb.gst / 2,
+          breakdown: tb
+        });
+        taxRows.push({
+          label: `SGST @ ${halfRate}%`,
+          value: tb.gst / 2,
+          breakdown: tb
+        });
+      }
+    });
+  } else {
+    taxRows.push({
+      label: 'GST (Exempted)',
+      value: 0,
+      breakdown: null
+    });
+  }
+
+  const summaryItems = [
+    { label: 'Taxable Value', value: totals.taxable },
+    ...taxRows,
+    { label: 'Freight', value: freight },
+    { label: 'Loading & Unloading', value: loadingCharges },
+    { label: 'Packing Charges', value: packingCharges },
+    { label: 'Insurance', value: insurance },
+    { label: 'Other Charges', value: otherCharges },
+    { label: 'Discount', value: -discount },
+    { label: 'TDS Deduction', value: -tds },
+    { label: 'Round Off', value: roundOff },
+  ];
+
   return (
     <div className="space-y-6 w-full">
+      {activeChargeGstEdit && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-xs border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
+            <h4 className="font-bold text-sm text-slate-900 dark:text-white">
+              Configure GST Rate for {activeChargeGstEdit === 'shippingCharges' ? 'Freight' : activeChargeGstEdit === 'loadingCharges' ? 'Loading & Unloading' : activeChargeGstEdit === 'packingCharges' ? 'Packing' : activeChargeGstEdit === 'insurance' ? 'Insurance' : 'Other Charges'}
+            </h4>
+            <div className="space-y-1.5">
+              <Label className="text-xs">GST Rate (%)</Label>
+              <select
+                value={chargeGstStates[activeChargeGstEdit]?.rate || 18}
+                onChange={e => {
+                  const val = Number(e.target.value);
+                  setChargeGstStates(prev => ({
+                    ...prev,
+                    [activeChargeGstEdit]: { ...prev[activeChargeGstEdit], rate: val }
+                  }));
+                }}
+                className="w-full h-10 px-3 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+              >
+                {[0, 5, 12, 18, 28].map(r => <option key={r} value={r}>{r}%</option>)}
+              </select>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button size="sm" onClick={() => setActiveChargeGstEdit(null)} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-5 h-9">Done</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddSupplier && (
         <AddSupplierInline
           onClose={() => setShowAddSupplier(false)}
@@ -726,7 +1082,6 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Link to PR */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <FileSearch className="w-4 h-4 text-indigo-500" /> Link to Purchase Request (Optional)
@@ -740,7 +1095,6 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           </div>
         </div>
 
-        {/* Vendor Details */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <Building2 className="w-4 h-4 text-indigo-500" /> Vendor Details
@@ -768,27 +1122,27 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
             </div>
             <div className="space-y-1.5">
               <Label>GSTIN</Label>
-              <Input value={form.vendorGstin} onChange={e => update('vendorGstin', e.target.value)} placeholder="22AAAAA0000A1Z5" className="h-10 rounded-xl font-mono" />
+              <Input value={form.vendorGstin} readOnly placeholder="22AAAAA0000A1Z5" className="h-10 rounded-xl font-mono bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="space-y-1.5">
               <Label>PAN</Label>
-              <Input value={form.vendorPan} onChange={e => update('vendorPan', e.target.value)} placeholder="AAAAA0000A" className="h-10 rounded-xl font-mono" />
+              <Input value={form.vendorPan} readOnly placeholder="AAAAA0000A" className="h-10 rounded-xl font-mono bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="space-y-1.5">
               <Label>Phone</Label>
-              <Input value={form.phone} onChange={e => update('phone', e.target.value)} placeholder="Phone number" className="h-10 rounded-xl" />
+              <Input value={form.phone} readOnly placeholder="Phone number" className="h-10 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="space-y-1.5">
               <Label>Email</Label>
-              <Input type="email" value={form.email} onChange={e => update('email', e.target.value)} placeholder="email@example.com" className="h-10 rounded-xl" />
+              <Input type="email" value={form.email} readOnly placeholder="email@example.com" className="h-10 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="space-y-1.5">
               <Label>Contact Person</Label>
-              <Input value={form.contactPerson} onChange={e => update('contactPerson', e.target.value)} placeholder="John Doe" className="h-10 rounded-xl" />
+              <Input value={form.contactPerson} readOnly placeholder="John Doe" className="h-10 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="md:col-span-2 space-y-1.5">
               <Label>Vendor Address</Label>
-              <Input value={form.vendorAddress} onChange={e => update('vendorAddress', e.target.value)} placeholder="Full registered address" className="h-10 rounded-xl" />
+              <Input value={form.vendorAddress} readOnly placeholder="Full registered address" className="h-10 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-500" />
             </div>
             <div className="space-y-1.5">
               <Label>Currency</Label>
@@ -801,25 +1155,24 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
               </div>
             </div>
           </div>
-          {/* Inter-state toggle */}
-          <div className="mt-4 flex items-center gap-3">
-            <button type="button" onClick={() => setIsInterState(p => !p)}
-              className={`relative w-10 h-5 rounded-full transition-colors ${isInterState ? 'bg-indigo-600' : 'bg-slate-200 dark:bg-slate-700'}`}>
-              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isInterState ? 'translate-x-5' : ''}`} />
-            </button>
+          <div className="mt-4 flex items-center gap-3 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
+            <div className={`w-2 h-2 rounded-full ${isInterState ? 'bg-amber-500' : 'bg-emerald-500'}`} />
             <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">Inter-state Supply (IGST applicable)</p>
-              <p className="text-xs text-slate-500">{isInterState ? 'IGST will be applied (no CGST/SGST)' : 'CGST + SGST will be applied (intra-state)'}</p>
+              <p className="text-xs font-bold text-slate-850 dark:text-slate-200">
+                Supply Type: {isInterState ? 'Inter-state Supply (IGST applicable)' : 'Intra-state Supply (CGST + SGST)'}
+              </p>
+              <p className="text-[10px] text-slate-500">
+                {isInterState ? 'All line items and taxable charges will automatically be set to 18% IGST.' : 'GST will be split equally into CGST & SGST. GST rates for charges are configurable.'}
+              </p>
             </div>
           </div>
         </div>
 
-        {/* Dates & Terms */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-indigo-500" /> Validity & Terms
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             <DatePicker label="Validity Date" value={form.validityDate} onChange={d => update('validityDate', d)} placeholder="Quote valid until" />
             <DatePicker label="Expected Delivery" value={form.expectedDelivery} onChange={d => update('expectedDelivery', d)} placeholder="Expected delivery" />
             <div className="space-y-1.5">
@@ -842,10 +1195,18 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                 <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
               </div>
             </div>
+            <div className="space-y-1.5">
+              <Label>Supplier Quotation Ref No</Label>
+              <Input
+                value={form.supplierQuoteRef}
+                onChange={e => update('supplierQuoteRef', e.target.value)}
+                placeholder="Enter quote ref no"
+                className="h-10 rounded-xl text-sm"
+              />
+            </div>
           </div>
         </div>
 
-        {/* Line Items */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
@@ -859,7 +1220,7 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           </div>
           <div className="space-y-3">
             {form.items.map((item, idx) => {
-              const { totalBeforeTax, gstAmount, totalWithGst } = calcTotals(item);
+              const { totalWithGst } = calcTotals(item);
               return (
                 <div key={idx} className="bg-slate-50/60 dark:bg-slate-800/30 rounded-xl p-4 border border-slate-200/60 dark:border-slate-800/60">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -929,10 +1290,15 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                     <div className="space-y-1">
                       <Label className="text-xs">GST Rate</Label>
                       <div className="relative">
-                        <select value={item.gstRate} onChange={e => updateItem(idx, 'gstRate', Number(e.target.value))} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+                        <select
+                          disabled={isInterState}
+                          value={item.gstRate}
+                          onChange={e => updateItem(idx, 'gstRate', Number(e.target.value))}
+                          className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50"
+                        >
                           {GST_RATES.map(r => <option key={r} value={r}>{r}%</option>)}
                         </select>
-                        <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />
+                        {!isInterState && <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />}
                       </div>
                     </div>
                     <div className="space-y-1">
@@ -940,6 +1306,34 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                       <div className="h-9 px-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex items-center text-sm font-bold text-indigo-600 dark:text-indigo-400">
                         ₹{totalWithGst.toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                       </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mt-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                    <div className="space-y-1 md:col-span-1">
+                      <Label className="text-xs font-semibold text-slate-500">Spec Compliance</Label>
+                      <div className="relative">
+                        <select
+                          disabled={isReadOnly}
+                          value={item.specMatch || 'Yes'}
+                          onChange={e => updateItem(idx, 'specMatch', e.target.value)}
+                          className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50 text-slate-700 dark:text-slate-200 font-medium"
+                        >
+                          <option value="Yes">Compliant (Yes)</option>
+                          <option value="No">Non-Compliant (No)</option>
+                          <option value="Partial">Partially Compliant</option>
+                        </select>
+                        {!isReadOnly && <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />}
+                      </div>
+                    </div>
+                    <div className="space-y-1 md:col-span-3">
+                      <Label className="text-xs font-semibold text-slate-500">Technical Specifications / Remarks</Label>
+                      <Input
+                        disabled={isReadOnly}
+                        value={item.remarks || ''}
+                        onChange={e => updateItem(idx, 'remarks', e.target.value)}
+                        placeholder="Enter specific vendor specs (e.g. Model, CPU, RAM, Color, etc.)"
+                        className="h-9 rounded-lg text-sm disabled:opacity-60 disabled:cursor-not-allowed disabled:bg-slate-100/50 dark:disabled:bg-slate-800/50"
+                      />
                     </div>
                   </div>
                   {!isPrLinked && form.items.length > 1 && (
@@ -954,10 +1348,8 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
             })}
           </div>
 
-          {/* Totals + Other Charges */}
           <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="space-y-4">
-              {/* GST Toggles */}
               <div className="bg-slate-50/50 dark:bg-slate-800/10 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">GST Applicability</span>
@@ -970,18 +1362,66 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                 </div>
               </div>
 
-              {/* Discount */}
-              <div className="bg-white dark:bg-slate-900 border border-rose-200/60 dark:border-rose-900/30 rounded-xl p-3">
-                <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Discount (₹)</Label>
-                <Input type="number" min="0" step="0.01" value={form.discount} onChange={e => update('discount', e.target.value)} placeholder="0.00" className="h-8 rounded-lg text-sm mt-1.5" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-white dark:bg-slate-900 border border-rose-200/60 dark:border-rose-900/30 rounded-xl p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-rose-600 dark:text-rose-400">Discount</Label>
+                    <div className="flex items-center gap-1 bg-slate-105 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => update('discountType', 'amount')}
+                        className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${form.discountType === 'amount' ? 'bg-white dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500'}`}
+                      >
+                        Flat
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => update('discountType', 'percent')}
+                        className={`px-2 py-0.5 text-[10px] font-bold rounded transition-all ${form.discountType === 'percent' ? 'bg-white dark:bg-slate-950 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500'}`}
+                      >
+                        %
+                      </button>
+                    </div>
+                  </div>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.discount}
+                    onChange={e => update('discount', e.target.value)}
+                    placeholder={form.discountType === 'percent' ? '0%' : '0.00'}
+                    className="h-8 rounded-lg text-sm mt-1"
+                  />
+                  {form.discountType === 'percent' && Number(form.discount || 0) > 0 && (
+                    <p className="text-[10px] text-rose-500 font-medium">
+                      Calculated: -₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-white dark:bg-slate-900 border border-amber-200/60 dark:border-amber-900/30 rounded-xl p-3 space-y-2">
+                  <Label className="text-xs font-semibold text-amber-600 dark:text-amber-400">TDS Deduction (₹)</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.tds}
+                    onChange={e => update('tds', e.target.value)}
+                    placeholder="0.00"
+                    className="h-8 rounded-lg text-sm mt-1"
+                  />
+                  {Number(form.tds || 0) > 0 && (
+                    <p className="text-[10px] text-amber-500 font-medium">
+                      TDS Deduction: -₹{tds.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* Charge rows with GST checkbox */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
                   { label: 'Freight (₹)', key: 'shippingCharges' },
-                  { label: 'Loading Charges (₹)', key: 'loadingCharges' },
-                  { label: 'Unloading Charges (₹)', key: 'unloadingCharges' },
+                  { label: 'Loading & Unloading Charges (₹)', key: 'loadingCharges' },
                   { label: 'Packing Charges (₹)', key: 'packingCharges' },
                   { label: 'Insurance (₹)', key: 'insurance' },
                   { label: 'Other Charges (₹)', key: 'otherCharges' },
@@ -991,38 +1431,26 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                     label={label}
                     fieldKey={key}
                     value={form[key]}
-                    gstChecked={chargeGstStates[key]}
+                    gstState={chargeGstStates[key]}
                     isInterState={isInterState}
                     onChange={v => update(key, v)}
-                    onGstChange={checked => setChargeGstStates(prev => ({ ...prev, [key]: checked }))}
+                    onGstChange={checked => setChargeGstStates(prev => ({ ...prev, [key]: { ...prev[key], applied: checked } }))}
+                    onConfigureGst={() => setActiveChargeGstEdit(key)}
                   />
                 ))}
               </div>
             </div>
 
             <div className="bg-gradient-to-br from-indigo-50 to-violet-50 dark:from-indigo-950/30 dark:to-violet-950/30 rounded-2xl p-4 space-y-2 text-sm h-fit">
-              {[
-                { label: 'Taxable Value', value: totals.taxable },
-                ...(form.applyGst ? (
-                  isInterState ? [{ label: 'IGST', value: totals.gst + extraGst }] : [
-                    { label: 'CGST', value: (totals.gst + extraGst) / 2 },
-                    { label: 'SGST', value: (totals.gst + extraGst) / 2 }
-                  ]
-                ) : [{ label: 'GST (Exempted)', value: 0 }]),
-                { label: 'Freight', value: freight },
-                { label: 'Loading', value: loadingCharges },
-                { label: 'Unloading', value: unloadingCharges },
-                { label: 'Packing', value: packingCharges },
-                { label: 'Insurance', value: insurance },
-                { label: 'Other Charges', value: otherCharges },
-                { label: 'Discount', value: -discount },
-                { label: 'Round Off', value: roundOff },
-              ].map(({ label, value }) => {
+              {summaryItems.map(({ label, value, breakdown }) => {
                 const formatted = Math.abs(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
                 let textClass = 'text-slate-800 dark:text-slate-200';
                 let prefix = '₹';
                 if (label === 'Discount' && value < 0) {
                   textClass = 'text-rose-500 font-bold';
+                  prefix = '-₹';
+                } else if (label === 'TDS Deduction' && value < 0) {
+                  textClass = 'text-amber-500 font-bold';
                   prefix = '-₹';
                 } else if (label === 'Round Off') {
                   if (value > 0) {
@@ -1031,9 +1459,65 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
                     prefix = '-₹';
                   }
                 }
+                const hasBreakdown = breakdown && (breakdown.items.length > 0 || breakdown.charges.length > 0);
                 return (
-                  <div key={label} className="flex justify-between text-slate-600 dark:text-slate-400">
-                    <span>{label}</span>
+                  <div key={label} className="flex justify-between text-slate-600 dark:text-slate-400 items-center relative group">
+                    <span className="flex items-center gap-1">
+                      {label}
+                      {hasBreakdown && (
+                        <span className="inline-block relative">
+                          <Info className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600 cursor-pointer transition-colors" />
+                          <span className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-100 absolute z-50 bottom-full mb-2 left-0 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-4 text-xs text-slate-700 dark:text-slate-350 pointer-events-none">
+                            <span className="font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-2 flex justify-between items-center">
+                              <span>GST Calculation Details</span>
+                              <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded text-[10px] font-black">{breakdown.rate}% Rate Block</span>
+                            </span>
+                            <span className="space-y-2 block max-h-48 overflow-y-auto">
+                              {breakdown.items.length > 0 && (
+                                <span className="block">
+                                  <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Line Items</span>
+                                  <span className="space-y-1 block">
+                                    {breakdown.items.map((it, idx) => (
+                                      <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                        <span className="max-w-[180px] truncate font-medium block" title={it.description}>{it.description}</span>
+                                        <span className="text-right block">
+                                          <span className="font-mono">₹{it.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                          <span className="text-[10px] text-slate-450 block font-normal">+ {isInterState ? 'IGST' : 'CGST+SGST'}: ₹{it.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </span>
+                                </span>
+                              )}
+                              {breakdown.charges.length > 0 && (
+                                <span className="pt-1 block">
+                                  <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Taxable Charges</span>
+                                  <span className="space-y-1 block">
+                                    {breakdown.charges.map((ch, idx) => (
+                                      <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
+                                        <span className="font-medium block">{ch.label}</span>
+                                        <span className="text-right block">
+                                          <span className="font-mono">₹{ch.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                          <span className="text-[10px] text-slate-455 block font-normal">+ GST: ₹{ch.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                        </span>
+                                      </span>
+                                    ))}
+                                  </span>
+                                </span>
+                              )}
+                            </span>
+                            <span className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white block">
+                              <span>Total Taxable ({breakdown.rate}%)</span>
+                              <span className="font-mono">₹{breakdown.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            </span>
+                            <span className="mt-1 flex justify-between font-bold text-indigo-600 dark:text-indigo-400 block">
+                              <span>Total GST ({breakdown.rate}%)</span>
+                              <span className="font-mono">₹{breakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                            </span>
+                          </span>
+                        </span>
+                      )}
+                    </span>
                     <span className={`font-semibold ${textClass}`}>
                       {prefix}{formatted}
                     </span>
@@ -1048,14 +1532,12 @@ function CreatePQForm({ onBack, isReadOnly, editPQId }) {
           </div>
         </div>
 
-        {/* T&C */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
           <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <Shield className="w-4 h-4 text-indigo-500" /> Terms & Conditions
+            <Shield className="w-4 h-4 text-indigo-500" /> General Terms & Conditions (GTC)
           </h3>
-          <textarea value={form.termsAndConditions} onChange={e => update('termsAndConditions', e.target.value)} rows={3}
-            placeholder="e.g. Warranty 1 year onsite, free delivery, MSME vendor, DDP terms..."
-            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-none" />
+          <textarea value={form.termsAndConditions} onChange={e => update('termsAndConditions', e.target.value)} rows={12}
+            className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-xs bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 resize-y font-mono" />
         </div>
 
         <div className="flex justify-end gap-3">
@@ -1099,6 +1581,7 @@ function CompareQuotationsView({ onBack }) {
   const recommendedVendorId = comparisonData?.recommendedVendorId;
   const recommendation = comparisonData?.recommendation;
   const warning = comparisonData?.warning;
+  const maxItems = Math.max(...quotations.map(q => q.items?.length || 0));
 
   return (
     <div className="space-y-6 w-full">
@@ -1206,18 +1689,25 @@ function CompareQuotationsView({ onBack }) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                {/* Parameter rows */}
+                {/* ─── SECTION 1: FINANCIAL SUMMARY ─── */}
+                <tr className="bg-slate-100/60 dark:bg-slate-800/40 border-y border-slate-200 dark:border-slate-700">
+                  <td colSpan={quotations.length + 1} className="px-6 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-left bg-slate-100/50 dark:bg-slate-850">
+                    Financial Summary
+                  </td>
+                </tr>
                 {[
                   { label: 'Total Cost of Ownership (TCO)', key: 'tco', fmt: v => `₹${Number(v).toLocaleString('en-IN')}`, isBold: true, highlight: true },
-                  { label: 'Quote Grand Total', key: 'grandTotal', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Quote Grand Total', key: 'grandTotal', fmt: v => `₹${Number(v).toLocaleString('en-IN')}`, isBold: true },
+                  { label: 'Subtotal (Excl. Tax & Charges)', key: 'subtotal', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'GST Amount', key: 'taxAmount', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Freight / Shipping', key: 'shippingCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Loading & Unloading', key: 'loadingCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Packing Charges', key: 'packingCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Insurance', key: 'insurance', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Other Charges', key: 'otherCharges', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
+                  { label: 'Discount Applied', key: 'discount', fmt: v => `-₹${Number(v).toLocaleString('en-IN')}`, textClass: 'text-rose-600 dark:text-rose-400 font-semibold' },
+                  { label: 'TDS Deduction', key: 'tds', fmt: v => `₹${Number(v).toLocaleString('en-IN')}` },
                   { label: 'AMC Cost per Year', key: 'amcCost', fmt: (v, q) => q.amcAvailable ? `₹${Number(v).toLocaleString('en-IN')}` : 'Not Available' },
-                  { label: 'Lead Time (Delivery)', key: 'leadTime', fmt: v => `${v} Days` },
-                  { label: 'Warranty Period', key: 'warrantyPeriod', fmt: v => `${v} Months` },
-                  { label: 'Payment Terms', key: 'paymentTerms' },
-                  { label: 'Delivery Terms', key: 'deliveryTerms' },
-                  { label: 'Valid Until', key: 'validityDate', fmt: v => v ? format(new Date(v), 'dd MMM yyyy') : '—' },
-                  { label: 'Exchange Rate', key: 'exchangeRate', fmt: (v, q) => `${q.currency} @ ${v}` },
-                  { label: 'Status', key: 'status', badge: true },
                 ].map(row => (
                   <tr key={row.label} className={row.highlight ? 'bg-indigo-50/20 dark:bg-indigo-950/10' : 'hover:bg-slate-50/30'}>
                     <td className={`px-6 py-4 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium ${
@@ -1236,14 +1726,172 @@ function CompareQuotationsView({ onBack }) {
                       }
                       return (
                         <td key={q.id} className={`px-6 py-4 text-center ${
-                          row.isBold ? 'font-black text-indigo-600 dark:text-indigo-400 text-lg' : 'text-slate-700 dark:text-slate-300 font-medium'
-                        } ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                          row.isBold ? 'font-black text-indigo-650 dark:text-indigo-400 text-lg' : 'text-slate-700 dark:text-slate-300 font-medium'
+                        } ${row.textClass || ''} ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
                           {rendered}
                         </td>
                       );
                     })}
                   </tr>
                 ))}
+
+                {/* ─── SECTION 2: COMMERCIAL TERMS ─── */}
+                <tr className="bg-slate-100/60 dark:bg-slate-800/40 border-y border-slate-200 dark:border-slate-700">
+                  <td colSpan={quotations.length + 1} className="px-6 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-left bg-slate-100/50 dark:bg-slate-850">
+                    Commercial Terms
+                  </td>
+                </tr>
+                {[
+                  { label: 'Lead Time (Delivery)', key: 'leadTime', fmt: v => `${v} Days` },
+                  { label: 'Warranty Period', key: 'warrantyPeriod', fmt: v => `${v} Months` },
+                  { label: 'Payment Terms', key: 'paymentTerms' },
+                  { label: 'Delivery Terms', key: 'deliveryTerms' },
+                  { label: 'Valid Until', key: 'validityDate', fmt: v => v ? format(new Date(v), 'dd MMM yyyy') : '—' },
+                  { label: 'Exchange Rate', key: 'exchangeRate', fmt: (v, q) => `${q.currency || 'INR'} @ ${v || '1.0'}` },
+                  { label: 'Status', key: 'status', badge: true },
+                  { label: 'Terms Block Notes', key: 'termsAndConditions', truncated: true },
+                ].map(row => (
+                  <tr key={row.label} className="hover:bg-slate-50/30">
+                    <td className="px-6 py-4 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-500">{row.label}</td>
+                    {quotations.map(q => {
+                      const isRecommended = q.id === recommendedVendorId;
+                      const rawValue = q[row.key];
+                      let rendered = row.fmt ? row.fmt(rawValue, q) : rawValue || '—';
+                      if (row.badge) {
+                        rendered = (
+                          <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${STATUS_STYLES[rawValue] || STATUS_STYLES.Draft}`}>
+                            {rawValue}
+                          </span>
+                        );
+                      } else if (row.truncated && rawValue) {
+                        rendered = rawValue.length > 50 ? `${rawValue.substring(0, 50)}...` : rawValue;
+                      }
+                      return (
+                        <td key={q.id} className={`px-6 py-4 text-center text-slate-700 dark:text-slate-300 font-medium ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                          {rendered}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+
+                {/* ─── SECTION 3: LINE ITEMS & SPECIFICATIONS ─── */}
+                <tr className="bg-slate-100/60 dark:bg-slate-800/40 border-y border-slate-200 dark:border-slate-700">
+                  <td colSpan={quotations.length + 1} className="px-6 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider text-left bg-slate-100/50 dark:bg-slate-850">
+                    Line Items & Technical Specifications
+                  </td>
+                </tr>
+                {Array.from({ length: maxItems }).map((_, i) => {
+                  const prItemDescription = quotations.find(q => q.items && q.items[i])?.items[i]?.itemDescription || `Line Item ${i + 1}`;
+                  return (
+                    <React.Fragment key={i}>
+                      {/* Item sub-header row */}
+                      <tr className="bg-indigo-50/10 dark:bg-indigo-950/5 border-y border-slate-100 dark:border-slate-800">
+                        <td colSpan={quotations.length + 1} className="px-6 py-2 text-xs font-bold text-indigo-650 dark:text-indigo-400 bg-indigo-50/5 dark:bg-indigo-950/5 text-left">
+                          Item {i + 1}: {prItemDescription}
+                        </td>
+                      </tr>
+                      {/* Description */}
+                      <tr className="hover:bg-slate-50/30">
+                        <td className="px-6 py-3.5 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-400 pl-8">Quoted Description</td>
+                        {quotations.map(q => {
+                          const isRecommended = q.id === recommendedVendorId;
+                          return (
+                            <td key={q.id} className={`px-6 py-3.5 text-center text-slate-700 dark:text-slate-300 font-medium ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                              {q.items[i]?.itemDescription || '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Price */}
+                      <tr className="hover:bg-slate-50/30">
+                        <td className="px-6 py-3.5 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-400 pl-8">Quoted Unit Price</td>
+                        {quotations.map(q => {
+                          const isRecommended = q.id === recommendedVendorId;
+                          const unitPrice = q.items[i]?.unitPrice;
+                          return (
+                            <td key={q.id} className={`px-6 py-3.5 text-center font-bold text-slate-900 dark:text-white ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                              {unitPrice ? `₹${Number(unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Quantity & Unit */}
+                      <tr className="hover:bg-slate-50/30">
+                        <td className="px-6 py-3.5 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-400 pl-8">Quoted Qty / Unit</td>
+                        {quotations.map(q => {
+                          const isRecommended = q.id === recommendedVendorId;
+                          const item = q.items[i];
+                          return (
+                            <td key={q.id} className={`px-6 py-3.5 text-center text-slate-600 dark:text-slate-350 ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                              {item ? `${item.quantity} ${item.unit || 'Nos'}` : '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* GST Rate */}
+                      <tr className="hover:bg-slate-50/30">
+                        <td className="px-6 py-3.5 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-400 pl-8">GST Rate</td>
+                        {quotations.map(q => {
+                          const isRecommended = q.id === recommendedVendorId;
+                          const item = q.items[i];
+                          return (
+                            <td key={q.id} className={`px-6 py-3.5 text-center text-slate-600 dark:text-slate-350 ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                              {item ? `${item.gstRate}%` : '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Line Total */}
+                      <tr className="hover:bg-slate-50/30">
+                        <td className="px-6 py-3.5 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-semibold text-slate-500 pl-8">Line Total (Incl. GST)</td>
+                        {quotations.map(q => {
+                          const isRecommended = q.id === recommendedVendorId;
+                          const totalWithGst = q.items[i]?.totalWithGst;
+                          return (
+                            <td key={q.id} className={`px-6 py-3.5 text-center font-bold text-indigo-650 dark:text-indigo-400 ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                              {totalWithGst ? `₹${Number(totalWithGst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Spec Match Badge */}
+                      <tr className="hover:bg-slate-50/30">
+                        <td className="px-6 py-3.5 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-400 pl-8">Spec Compliance Match</td>
+                        {quotations.map(q => {
+                          const isRecommended = q.id === recommendedVendorId;
+                          const specVal = q.items[i]?.specMatch || 'Yes';
+                          let badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/50';
+                          if (specVal === 'No') {
+                            badgeColor = 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-900/50';
+                          } else if (specVal === 'Partial') {
+                            badgeColor = 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50';
+                          }
+                          return (
+                            <td key={q.id} className={`px-6 py-3.5 text-center ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`}>
+                              <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${badgeColor}`}>
+                                {specVal}
+                              </span>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                      {/* Specifications / Remarks */}
+                      <tr className="hover:bg-slate-50/30">
+                        <td className="px-6 py-3.5 text-left border-r border-slate-100 dark:border-slate-800 sticky left-0 z-10 bg-white dark:bg-slate-900 font-medium text-slate-400 pl-8">Specs / Vendor Remarks</td>
+                        {quotations.map(q => {
+                          const isRecommended = q.id === recommendedVendorId;
+                          const remarks = q.items[i]?.remarks;
+                          return (
+                            <td key={q.id} className={`px-6 py-3.5 text-center italic font-normal text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate ${isRecommended ? 'bg-indigo-50/30 dark:bg-indigo-950/15 border-x-2 border-indigo-500' : ''}`} title={remarks}>
+                              {remarks || '—'}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </React.Fragment>
+                  );
+                })}
                 
                 {/* Actions row */}
                 <tr>

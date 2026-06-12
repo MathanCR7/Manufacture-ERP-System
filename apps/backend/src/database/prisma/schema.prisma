@@ -1210,6 +1210,9 @@ model AssetPQ {
   applyGst             Boolean       @default(true) @map("apply_gst")
   roundOff             Decimal       @default(0.00) @map("round_off")
   grandTotal           Decimal       @map("grand_total")
+  tds                  Decimal       @default(0.00)
+  supplierQuoteRef     String?       @map("supplier_quote_ref")
+  termsBlock           String?       @db.Text @map("terms_block")
   status               String        @default("Draft")
   isRecommended        Boolean       @default(false) @map("is_recommended")
   recommendationReason String?       @db.Text @map("recommendation_reason")
@@ -1296,6 +1299,8 @@ model AssetPO {
   chargeGstStates Json?         @map("charge_gst_states")
   roundOff        Decimal       @default(0.00) @map("round_off")
   grandTotal      Decimal       @map("grand_total")
+  tds             Decimal       @default(0.00)
+  supplierQuoteRef String?       @map("supplier_quote_ref")
   items           AssetPOItem[]
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
@@ -1415,6 +1420,7 @@ model AssetAPInvoice {
   paymentMode         String?              @map("payment_mode")
   paymentTerms        String?              @map("payment_terms")
   termsBlock          String?              @map("terms_block")
+  supplierQuoteRef    String?              @map("supplier_quote_ref")
   roundOff            Decimal              @default(0.00) @map("round_off")
   invoiceTotal        Decimal              @map("invoice_total")
   amountInWords       String               @map("amount_in_words")
@@ -1551,4 +1557,17 @@ model CommunicationLog {
 
   @@index([documentNo, documentType])
   @@map("communication_logs")
+}
+
+model CompanyDetails {
+  id             String   @id @default(uuid())
+  companyName    String   @map("company_name")
+  companyAddress String   @db.Text @map("company_address")
+  companyGstin   String   @map("company_gstin")
+  companyPan     String   @map("company_pan")
+  companyMobile  String   @map("company_mobile")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("company_details")
 }

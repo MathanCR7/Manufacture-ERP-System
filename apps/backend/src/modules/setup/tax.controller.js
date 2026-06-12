@@ -1,15 +1,13 @@
-const fs = require('fs');
-const path = require('path');
-
-const SETTINGS_FILE_PATH = path.join(__dirname, '../../database/tax_settings.json');
+const prisma = require('../../database/prisma');
 
 const DEFAULT_SETTINGS = {
-  companyName: "Leonex",
-  companyAddress: "O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053",
-  companyGstin: "BCLNU556863412",
+  companyName: "Leonex pvt limited",
+  companyAddress: "Factory / Registered Office Address",
+  companyGstin: "33AABCL0702C1ZG",
+  companyPan: "AABCL0702C",
   companyMobile: "+91 9360163523",
   collectTax: "Yes",
-  taxRegNo: "BCLNU556863412",
+  taxRegNo: "33AABCL0702C1ZG",
   taxType: "Exclusive Tax",
   taxes: [
     { name: "CGST", rate: "9.00" },
@@ -18,14 +16,28 @@ const DEFAULT_SETTINGS = {
   ]
 };
 
-const getTaxSettingsData = () => {
+const getTaxSettingsData = async () => {
   try {
-    if (fs.existsSync(SETTINGS_FILE_PATH)) {
-      const data = fs.readFileSync(SETTINGS_FILE_PATH, 'utf8');
-      return JSON.parse(data);
+    const details = await prisma.companyDetails.findFirst();
+    if (details) {
+      return {
+        companyName: details.companyName,
+        companyAddress: details.companyAddress,
+        companyGstin: details.companyGstin,
+        companyPan: details.companyPan,
+        companyMobile: details.companyMobile,
+        collectTax: "Yes",
+        taxRegNo: details.companyGstin,
+        taxType: "Exclusive Tax",
+        taxes: [
+          { name: "CGST", rate: "9.00" },
+          { name: "SGST", rate: "9.00" },
+          { name: "IGST", rate: "18.00" }
+        ]
+      };
     }
   } catch (err) {
-    console.error('[Tax Controller] Error reading settings file, using defaults:', err);
+    console.error('[Tax Controller] Error reading settings from DB, using defaults:', err);
   }
   return DEFAULT_SETTINGS;
 };
@@ -33,7 +45,7 @@ const getTaxSettingsData = () => {
 class TaxController {
   async getSettings(req, res, next) {
     try {
-      const settings = getTaxSettingsData();
+      const settings = await getTaxSettingsData();
       res.json(settings);
     } catch (error) {
       next(error);
@@ -42,18 +54,54 @@ class TaxController {
 
   async saveSettings(req, res, next) {
     try {
-      const settings = req.body;
-      if (!settings.companyName || !settings.companyAddress || !settings.companyGstin) {
-        return res.status(400).json({ error: 'Company Name, Address, and GSTIN are required fields.' });
+      const { companyName, companyAddress, companyGstin, companyPan, companyMobile } = req.body;
+      if (!companyName || !companyAddress || !companyGstin || !companyPan) {
+        return res.status(400).json({ error: 'Company Name, Address, GSTIN, and PAN are required fields.' });
       }
 
-      // Ensure mobile field exists
-      if (!settings.companyMobile) {
-        settings.companyMobile = "+91 9360163523";
+      const mobile = companyMobile || "+91 9360163523";
+
+      let existing = await prisma.companyDetails.findFirst();
+      let updated;
+      if (existing) {
+        updated = await prisma.companyDetails.update({
+          where: { id: existing.id },
+          data: {
+            companyName,
+            companyAddress,
+            companyGstin,
+            companyPan,
+            companyMobile: mobile
+          }
+        });
+      } else {
+        updated = await prisma.companyDetails.create({
+          data: {
+            companyName,
+            companyAddress,
+            companyGstin,
+            companyPan,
+            companyMobile: mobile
+          }
+        });
       }
 
-      // Write to file
-      fs.writeFileSync(SETTINGS_FILE_PATH, JSON.stringify(settings, null, 2), 'utf8');
+      const settings = {
+        companyName: updated.companyName,
+        companyAddress: updated.companyAddress,
+        companyGstin: updated.companyGstin,
+        companyPan: updated.companyPan,
+        companyMobile: updated.companyMobile,
+        collectTax: "Yes",
+        taxRegNo: updated.companyGstin,
+        taxType: "Exclusive Tax",
+        taxes: [
+          { name: "CGST", rate: "9.00" },
+          { name: "SGST", rate: "9.00" },
+          { name: "IGST", rate: "18.00" }
+        ]
+      };
+
       res.json({ success: true, settings });
     } catch (error) {
       next(error);
