@@ -4,7 +4,7 @@ import { Trash2, Plus, FileText, Calendar, User, Save, ListFilter, Percent } fro
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import DatePicker from '@/components/ui/DatePicker';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 export default function ProductionLossPage() {
   const [batches, setBatches] = useState([]);
@@ -13,6 +13,9 @@ export default function ProductionLossPage() {
   const [users, setUsers] = useState([]);
   
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const editId = searchParams.get('edit');
+  const [isInitialEditLoad, setIsInitialEditLoad] = useState(true);
 
   // Form State
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -45,8 +48,56 @@ export default function ProductionLossPage() {
     fetchDropdowns();
   }, []);
 
+  // Fetch edit details if editId is provided
+  useEffect(() => {
+    if (!editId) {
+      setIsInitialEditLoad(false);
+      return;
+    }
+
+    const fetchEditData = async () => {
+      try {
+        const res = await api.get(`/production/loss/${editId}`);
+        const loss = res.data;
+        
+        setDate(loss.date ? loss.date.split('T')[0] : '');
+        setResponsiblePersonId(loss.responsiblePersonId);
+        setProductionBatchId(loss.productionBatchId);
+        setNote(loss.note || '');
+        
+        setProductLoss(loss.lossProducts.map(p => ({
+          productId: p.productId,
+          productName: p.product?.name,
+          productionQty: Number(p.productionQty || 0),
+          lossQty: Number(p.lossQty || 0),
+          lossAmount: Number(p.lossAmount || 0)
+        })));
+
+        setRawMaterialLoss(loss.lossMaterials.map(m => ({
+          rmId: m.rmId,
+          rmName: m.rawMaterial?.name,
+          productionQty: Number(m.productionQty || 0),
+          lossQty: Number(m.lossQty || 0),
+          lossAmount: Number(m.lossAmount || 0)
+        })));
+        
+        setSelectedBatchDetail(loss.batch);
+        setIsInitialEditLoad(false);
+      } catch (err) {
+        console.error('Error fetching edit loss data:', err);
+        alert('Failed to load loss report data for editing');
+      }
+    };
+
+    fetchEditData();
+  }, [editId]);
+
   // Fetch full batch detail and prepopulate losses with default values
   useEffect(() => {
+    if (editId && isInitialEditLoad) {
+      return; // Skip prepopulating during initial load of edit mode
+    }
+
     if (!productionBatchId) {
       setSelectedBatchDetail(null);
       setProductLoss([]);
@@ -64,7 +115,7 @@ export default function ProductionLossPage() {
         setProductLoss([{
           productId: res.data.productId,
           productName: res.data.product?.name,
-          productionQty: res.data.quantity,
+          productionQty: Number(res.data.quantity || 0),
           lossQty: 0,
           lossAmount: 0
         }]);
@@ -74,7 +125,7 @@ export default function ProductionLossPage() {
           setRawMaterialLoss(res.data.rmUsages.map(rm => ({
             rmId: rm.rmId,
             rmName: rm.rawMaterial?.name,
-            productionQty: rm.requiredQty,
+            productionQty: Number(rm.requiredQty || 0),
             lossQty: 0,
             lossAmount: 0
           })));
@@ -86,17 +137,17 @@ export default function ProductionLossPage() {
       }
     };
     fetchBatch();
-  }, [productionBatchId]);
+  }, [productionBatchId, editId, isInitialEditLoad]);
 
   const handleProductLossChange = (index, field, val) => {
     const updated = [...productLoss];
-    updated[index][field] = Number(val);
+    updated[index][field] = val;
     setProductLoss(updated);
   };
 
   const handleMaterialLossChange = (index, field, val) => {
     const updated = [...rawMaterialLoss];
-    updated[index][field] = Number(val);
+    updated[index][field] = val;
     setRawMaterialLoss(updated);
   };
 
@@ -104,14 +155,30 @@ export default function ProductionLossPage() {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await api.post('/production/loss', {
+      const payload = {
         date,
         responsiblePersonId,
         productionBatchId,
-        productLoss,
-        rawMaterialLoss,
+        productLoss: productLoss.map(p => ({
+          productId: p.productId,
+          productionQty: Number(p.productionQty || 0),
+          lossQty: Number(p.lossQty || 0),
+          lossAmount: Number(p.lossAmount || 0)
+        })),
+        rawMaterialLoss: rawMaterialLoss.map(m => ({
+          rmId: m.rmId,
+          productionQty: Number(m.productionQty || 0),
+          lossQty: Number(m.lossQty || 0),
+          lossAmount: Number(m.lossAmount || 0)
+        })),
         note
-      });
+      };
+
+      if (editId) {
+        await api.put(`/production/loss/${editId}`, payload);
+      } else {
+        await api.post('/production/loss', payload);
+      }
       navigate('/production/loss-report');
     } catch (err) {
       alert(err.response?.data?.error || 'Failed to submit production loss report');
@@ -122,14 +189,26 @@ export default function ProductionLossPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
-          <Percent className="w-6 h-6 mr-2 text-indigo-600" />
-          Record Production Loss
-        </h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Record spoilage, waste, and finished product/raw material losses for a batch.
-        </p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
+            <Percent className="w-6 h-6 mr-2 text-indigo-600" />
+            Record Production Loss
+          </h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Record spoilage, waste, and finished product/raw material losses for a batch.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => navigate('/production/loss-report')}
+          className="rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center gap-1.5"
+        >
+          <Plus className="w-4 h-4 rotate-45" />
+          View Loss Reports
+        </Button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -216,21 +295,25 @@ export default function ProductionLossPage() {
                     {productLoss.map((p, idx) => (
                       <tr key={p.productId}>
                         <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">{p.productName}</td>
-                        <td className="px-4 py-3 text-right text-slate-600">{p.productionQty}</td>
+                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{Number(p.productionQty || 0).toFixed(2)}</td>
                         <td className="px-4 py-3 text-right w-40">
                           <Input
                             type="number"
                             min="0"
+                            step="any"
                             value={p.lossQty}
                             onChange={(e) => handleProductLossChange(idx, 'lossQty', e.target.value)}
+                            className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
                           />
                         </td>
                         <td className="px-4 py-3 text-right w-40">
                           <Input
                             type="number"
                             min="0"
+                            step="any"
                             value={p.lossAmount}
                             onChange={(e) => handleProductLossChange(idx, 'lossAmount', e.target.value)}
+                            className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
                           />
                         </td>
                       </tr>
@@ -262,21 +345,25 @@ export default function ProductionLossPage() {
                       {rawMaterialLoss.map((m, idx) => (
                         <tr key={m.rmId}>
                           <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">{m.rmName}</td>
-                          <td className="px-4 py-3 text-right text-slate-600">{m.productionQty.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{Number(m.productionQty || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-right w-40">
                             <Input
                               type="number"
                               min="0"
+                              step="any"
                               value={m.lossQty}
                               onChange={(e) => handleMaterialLossChange(idx, 'lossQty', e.target.value)}
+                              className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
                             />
                           </td>
                           <td className="px-4 py-3 text-right w-40">
                             <Input
                               type="number"
                               min="0"
+                              step="any"
                               value={m.lossAmount}
                               onChange={(e) => handleMaterialLossChange(idx, 'lossAmount', e.target.value)}
+                              className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
                             />
                           </td>
                         </tr>

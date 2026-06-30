@@ -353,401 +353,6 @@ router.post('/stock/levels', authenticateToken, roleMiddleware(['MAIN_MASTER', '
   }
 });
 
-// GET /api/products - list all products
-router.get('/', authenticateToken, async (req, res, next) => {
-  try {
-    const includeDeleted = req.query.includeDeleted === 'true';
-    const products = await prisma.finishedProduct.findMany({
-      where: includeDeleted ? undefined : { deletedAt: null },
-      include: {
-        category: true,
-        unit: true,
-        bom: { include: { rawMaterial: true } },
-        nonInventoryCosts: { include: { item: true } },
-        stages: { include: { stage: true } },
-        stockLevels: true
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-    res.json(products);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/products/:id - product detail
-router.get('/:id', authenticateToken, async (req, res, next) => {
-  try {
-    const product = await prisma.finishedProduct.findFirst({
-      where: { id: req.params.id, deletedAt: null },
-      include: {
-        category: true,
-        unit: true,
-        bom: { include: { rawMaterial: true } },
-        nonInventoryCosts: { include: { item: true } },
-        stages: { include: { stage: true } },
-        stockLevels: true
-      }
-    });
-
-    if (!product) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    res.json(product);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /api/products/:id/bom - Get product BOM
-router.get('/:id/bom', authenticateToken, async (req, res, next) => {
-  try {
-    const bom = await prisma.productBOM.findMany({
-      where: { productId: req.params.id },
-      include: { rawMaterial: true }
-    });
-    res.json(bom);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/products/:id/bom/expand?qty=X - Expand BoM by qty with stock check
-router.post('/:id/bom/expand', authenticateToken, async (req, res, next) => {
-  try {
-    const qty = Number(req.query.qty || req.body.qty || 1);
-    const bom = await prisma.productBOM.findMany({
-      where: { productId: req.params.id },
-      include: { rawMaterial: true }
-    });
-
-    const expanded = bom.map(item => {
-      const requiredQty = Number(item.consumptionPerUnit) * qty;
-      const availableStock = Number(item.rawMaterial.currentStock || 0);
-      const isSufficient = availableStock >= requiredQty;
-
-      return {
-        id: item.id,
-        rawMaterialId: item.rmId,
-        rawMaterialName: item.rawMaterial.name,
-        rawMaterialCode: item.rawMaterial.code,
-        consumption: Number(item.consumptionPerUnit),
-        requiredQty,
-        availableStock,
-        unitCost: Number(item.unitPrice),
-        totalCost: requiredQty * Number(item.unitPrice),
-        status: isSufficient ? 'Sufficient' : 'Insufficient'
-      };
-    });
-
-    const totalRmCost = expanded.reduce((sum, item) => sum + item.totalCost, 0);
-
-    res.json({
-      items: expanded,
-      totalRmCost
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// POST /api/products - Create Product
-router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
-  try {
-    const schema = z.object({
-      name: z.string().min(1),
-      categoryId: z.string().min(1),
-      unitId: z.string().min(1),
-      stockMethod: z.string(),
-      openingStock: z.coerce.number().nonnegative().default(0),
-      alertLevel: z.coerce.number().nonnegative().default(0),
-      profitMargin: z.coerce.number().nonnegative(),
-      cgst: z.coerce.number().default(18),
-      sgst: z.coerce.number().default(9),
-      igst: z.coerce.number().default(9),
-      bom: z.array(z.object({
-        rmId: z.string().min(1),
-        consumption: z.coerce.number().positive(),
-        unitPrice: z.coerce.number().positive(),
-        totalCost: z.coerce.number().positive()
-      })),
-      nonInventoryCosts: z.array(z.object({
-        itemId: z.string().min(1),
-        cost: z.coerce.number().positive()
-      })),
-      stages: z.array(z.object({
-        stageId: z.string().min(1),
-        months: z.coerce.number().default(0),
-        days: z.coerce.number().default(0),
-        hours: z.coerce.number().default(0),
-        minutes: z.coerce.number().default(0),
-        sortOrder: z.coerce.number().default(0)
-      }))
-    });
-
-    const data = schema.parse(req.body);
-
-    const product = await prisma.$transaction(async (tx) => {
-      const code = await generateProductCode(tx);
-
-      // Resolve static UOM label/UUID
-      const resolvedUomId = await resolveUomId(tx, data.unitId);
-      if (!resolvedUomId) {
-        throw new Error('Invalid UOM provided');
-      }
-
-      // Calculate cost aggregates
-      const totalRawMaterialCost = data.bom.reduce((sum, b) => sum + Number(b.totalCost), 0);
-      const totalNonInventoryCost = data.nonInventoryCosts.reduce((sum, n) => sum + Number(n.cost), 0);
-      const totalCost = totalRawMaterialCost + totalNonInventoryCost;
-      const salePrice = totalCost * (1 + Number(data.profitMargin) / 100);
-
-      // 1. Create main product
-      const newProduct = await tx.finishedProduct.create({
-        data: {
-          code,
-          name: data.name,
-          categoryId: data.categoryId,
-          unitId: resolvedUomId,
-          stockMethod: data.stockMethod,
-          totalRawMaterialCost,
-          totalNonInventoryCost,
-          totalCost,
-          profitMargin: data.profitMargin,
-          cgst: data.cgst,
-          sgst: data.sgst,
-          igst: data.igst,
-          salePrice,
-          openingStock: data.openingStock,
-          currentStock: data.openingStock,
-          alertLevel: data.alertLevel,
-          createdBy: req.user.id
-        }
-      });
-
-      // 2. Create BOM items
-      if (data.bom.length > 0) {
-        await tx.productBOM.createMany({
-          data: data.bom.map(b => ({
-            productId: newProduct.id,
-            rmId: b.rmId,
-            consumptionPerUnit: b.consumption,
-            unitPrice: b.unitPrice,
-            totalCost: b.totalCost
-          }))
-        });
-      }
-
-      // 3. Create Non-Inventory cost items
-      if (data.nonInventoryCosts.length > 0) {
-        await tx.productNonInventoryCost.createMany({
-          data: data.nonInventoryCosts.map(n => ({
-            productId: newProduct.id,
-            itemId: n.itemId,
-            cost: n.cost
-          }))
-        });
-      }
-
-      // 4. Create stages
-      if (data.stages.length > 0) {
-        await tx.productStage.createMany({
-          data: data.stages.map((s, idx) => ({
-            productId: newProduct.id,
-            stageId: s.stageId,
-            months: s.months,
-            days: s.days,
-            hours: s.hours,
-            minutes: s.minutes,
-            sortOrder: s.sortOrder || idx
-          }))
-        });
-      }
-
-      return newProduct;
-    });
-
-    res.status(201).json(product);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      console.error('\n[ZOD VALIDATION ERROR IN POST PRODUCT]:', error.errors);
-      return res.status(400).json({ error: error.errors });
-    }
-    console.error('\n[PRODUCT CREATE ERROR]:', error);
-    next(error);
-  }
-});
-
-// PUT /api/products/:id - Update Product
-router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
-  try {
-    const id = req.params.id;
-    const schema = z.object({
-      name: z.string().min(1),
-      categoryId: z.string().min(1),
-      unitId: z.string().min(1),
-      stockMethod: z.string(),
-      openingStock: z.coerce.number().nonnegative().default(0),
-      alertLevel: z.coerce.number().nonnegative().default(0),
-      profitMargin: z.coerce.number().nonnegative(),
-      cgst: z.coerce.number().default(18),
-      sgst: z.coerce.number().default(9),
-      igst: z.coerce.number().default(9),
-      bom: z.array(z.object({
-        rmId: z.string().min(1),
-        consumption: z.coerce.number().positive(),
-        unitPrice: z.coerce.number().positive(),
-        totalCost: z.coerce.number().positive()
-      })),
-      nonInventoryCosts: z.array(z.object({
-        itemId: z.string().min(1),
-        cost: z.coerce.number().positive()
-      })),
-      stages: z.array(z.object({
-        stageId: z.string().min(1),
-        months: z.coerce.number().default(0),
-        days: z.coerce.number().default(0),
-        hours: z.coerce.number().default(0),
-        minutes: z.coerce.number().default(0),
-        sortOrder: z.coerce.number().default(0)
-      }))
-    });
-
-    const data = schema.parse(req.body);
-
-    const product = await prisma.$transaction(async (tx) => {
-      const existing = await tx.finishedProduct.findFirst({
-        where: { id, deletedAt: null }
-      });
-
-      if (!existing) {
-        throw new Error('Product not found or deleted');
-      }
-
-      // Resolve static UOM label/UUID
-      const resolvedUomId = await resolveUomId(tx, data.unitId);
-      if (!resolvedUomId) {
-        throw new Error('Invalid UOM provided');
-      }
-
-      // Calculate cost aggregates
-      const totalRawMaterialCost = data.bom.reduce((sum, b) => sum + Number(b.totalCost), 0);
-      const totalNonInventoryCost = data.nonInventoryCosts.reduce((sum, n) => sum + Number(n.cost), 0);
-      const totalCost = totalRawMaterialCost + totalNonInventoryCost;
-      const salePrice = totalCost * (1 + Number(data.profitMargin) / 100);
-
-      // 1. Update product
-      const updatedProduct = await tx.finishedProduct.update({
-        where: { id },
-        data: {
-          name: data.name,
-          categoryId: data.categoryId,
-          unitId: resolvedUomId,
-          stockMethod: data.stockMethod,
-          totalRawMaterialCost,
-          totalNonInventoryCost,
-          totalCost,
-          profitMargin: data.profitMargin,
-          cgst: data.cgst,
-          sgst: data.sgst,
-          igst: data.igst,
-          salePrice,
-          openingStock: data.openingStock,
-          alertLevel: data.alertLevel
-        }
-      });
-
-      // 2. Recreate BOM
-      await tx.productBOM.deleteMany({ where: { productId: id } });
-      if (data.bom.length > 0) {
-        await tx.productBOM.createMany({
-          data: data.bom.map(b => ({
-            productId: id,
-            rmId: b.rmId,
-            consumptionPerUnit: b.consumption,
-            unitPrice: b.unitPrice,
-            totalCost: b.totalCost
-          }))
-        });
-      }
-
-      // 3. Recreate Non-Inventory costs
-      await tx.productNonInventoryCost.deleteMany({ where: { productId: id } });
-      if (data.nonInventoryCosts.length > 0) {
-        await tx.productNonInventoryCost.createMany({
-          data: data.nonInventoryCosts.map(n => ({
-            productId: id,
-            itemId: n.itemId,
-            cost: n.cost
-          }))
-        });
-      }
-
-      // 4. Recreate Stages
-      await tx.productStage.deleteMany({ where: { productId: id } });
-      if (data.stages.length > 0) {
-        await tx.productStage.createMany({
-          data: data.stages.map((s, idx) => ({
-            productId: id,
-            stageId: s.stageId,
-            months: s.months,
-            days: s.days,
-            hours: s.hours,
-            minutes: s.minutes,
-            sortOrder: s.sortOrder || idx
-          }))
-        });
-      }
-
-      return updatedProduct;
-    });
-
-    res.json(product);
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      console.error('\n[ZOD VALIDATION ERROR IN PUT PRODUCT]:', error.errors);
-      return res.status(400).json({ error: error.errors });
-    }
-    if (error.message && error.message.includes('not found')) {
-      return res.status(404).json({ error: error.message });
-    }
-    console.error('\n[PRODUCT UPDATE ERROR]:', error);
-    next(error);
-  }
-});
-
-// DELETE /api/products/:id - Try Hard Delete, fallback to Soft Delete
-router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
-  try {
-    const id = req.params.id;
-    const existing = await prisma.finishedProduct.findFirst({
-      where: { id, deletedAt: null }
-    });
-
-    if (!existing) {
-      return res.status(404).json({ error: 'Product not found' });
-    }
-
-    try {
-      // Attempt hard delete first
-      await prisma.finishedProduct.delete({
-        where: { id }
-      });
-    } catch (e) {
-      // Fallback to soft delete if referenced by other tables (foreign key violation)
-      await prisma.finishedProduct.update({
-        where: { id },
-        data: { deletedAt: new Date() }
-      });
-    }
-
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
-
 // GET /api/products/stock/movements - Fetch all stock movements
 router.get('/stock/movements', authenticateToken, async (req, res, next) => {
   try {
@@ -832,7 +437,6 @@ router.post('/wastage', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
         where: { productId: data.productId, direction: -1 },
         _sum: { quantity: true }
       });
-
       const currentStock = Number(product.openingStock || 0) + Number(sumIn._sum.quantity || 0) - Number(sumOut._sum.quantity || 0);
 
       // Validate wastage quantity is under or equal to current stock
@@ -840,7 +444,6 @@ router.post('/wastage', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
         throw new Error(`Wastage quantity (${data.quantity}) cannot exceed current stock (${currentStock})`);
       }
 
-      // Generate reference number
       const referenceNo = await generateWastageReference(tx);
 
       // 2. Create the wastage record
@@ -853,12 +456,10 @@ router.post('/wastage', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
           date: data.date ? new Date(data.date) : new Date(),
           createdBy: req.user.id
         },
-        include: {
-          product: true
-        }
+        include: { product: true }
       });
 
-      // 3. Log stock movement
+      // 3. Log a stock movement OUT (-1) for this wastage
       await tx.productStockMovement.create({
         data: {
           productId: data.productId,
@@ -1021,5 +622,476 @@ router.delete('/wastage/:id', authenticateToken, roleMiddleware(['MAIN_MASTER'])
     res.status(400).json({ error: error.message });
   }
 });
+
+// GET /api/products - list all products
+router.get('/', authenticateToken, async (req, res, next) => {
+  try {
+    const includeDeleted = req.query.includeDeleted === 'true';
+    const products = await prisma.finishedProduct.findMany({
+      where: includeDeleted ? undefined : { deletedAt: null },
+      include: {
+        category: true,
+        unit: true,
+        bom: { include: { rawMaterial: true } },
+        nonInventoryCosts: { include: { item: true } },
+        stages: { include: { stage: true } },
+        stockLevels: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(products);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/products/:id - product detail
+router.get('/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const product = await prisma.finishedProduct.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      include: {
+        category: true,
+        unit: true,
+        bom: { include: { rawMaterial: true } },
+        nonInventoryCosts: { include: { item: true } },
+        stages: { include: { stage: true } },
+        stockLevels: true
+      }
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    res.json(product);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/products/:id/bom - Get product BOM
+router.get('/:id/bom', authenticateToken, async (req, res, next) => {
+  try {
+    const bom = await prisma.productBOM.findMany({
+      where: { productId: req.params.id },
+      include: { rawMaterial: true }
+    });
+    res.json(bom);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/products/:id/bom/expand?qty=X - Expand BoM by qty with stock check
+router.post('/:id/bom/expand', authenticateToken, async (req, res, next) => {
+  try {
+    const qty = Number(req.query.qty || req.body.qty || 1);
+    const bom = await prisma.productBOM.findMany({
+      where: { productId: req.params.id },
+      include: { rawMaterial: true }
+    });
+
+    const expanded = bom.map(item => {
+      const requiredQty = Number(item.consumptionPerUnit) * qty;
+      const availableStock = Number(item.rawMaterial.currentStock || 0);
+      const isSufficient = availableStock >= requiredQty;
+
+      return {
+        id: item.id,
+        rawMaterialId: item.rmId,
+        rawMaterialName: item.rawMaterial.name,
+        rawMaterialCode: item.rawMaterial.code,
+        consumption: Number(item.consumptionPerUnit),
+        requiredQty,
+        availableStock,
+        unitCost: Number(item.unitPrice),
+        totalCost: requiredQty * Number(item.unitPrice),
+        status: isSufficient ? 'Sufficient' : 'Insufficient'
+      };
+    });
+
+    const totalRmCost = expanded.reduce((sum, item) => sum + item.totalCost, 0);
+
+    res.json({
+      items: expanded,
+      totalRmCost
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/products - Create Product
+router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
+  try {
+    const schema = z.object({
+      name: z.string().min(1),
+      categoryId: z.string().min(1),
+      unitId: z.string().min(1),
+      stockMethod: z.string(),
+      openingStock: z.coerce.number().nonnegative().default(0),
+      alertLevel: z.coerce.number().nonnegative().default(0),
+      profitMargin: z.coerce.number().nonnegative(),
+      salePrice: z.coerce.number().nonnegative().optional(),
+      cgst: z.coerce.number().default(18),
+      sgst: z.coerce.number().default(9),
+      igst: z.coerce.number().default(9),
+      bom: z.array(z.object({
+        rmId: z.string().min(1),
+        consumption: z.coerce.number().positive(),
+        unitPrice: z.coerce.number().positive(),
+        totalCost: z.coerce.number().positive()
+      })),
+      nonInventoryCosts: z.array(z.object({
+        itemId: z.string().min(1),
+        cost: z.coerce.number().positive()
+      })),
+      stages: z.array(z.object({
+        stageId: z.string().min(1),
+        months: z.coerce.number().default(0),
+        days: z.coerce.number().default(0),
+        hours: z.coerce.number().default(0),
+        minutes: z.coerce.number().default(0),
+        sortOrder: z.coerce.number().default(0)
+      })),
+      expectedOutput: z.coerce.number().positive().optional(),
+      sopSteps: z.array(z.object({
+        stepNumber: z.coerce.number(),
+        instruction: z.string(),
+        tempTime: z.string().optional().nullable(),
+        safetyNote: z.string().optional().nullable()
+      })).optional(),
+      imageUrl: z.string().optional().nullable(),
+      isSopLocked: z.boolean().optional()
+    });
+
+    const data = schema.parse(req.body);
+
+    const product = await prisma.$transaction(async (tx) => {
+      const code = await generateProductCode(tx);
+
+      // Resolve static UOM label/UUID
+      const resolvedUomId = await resolveUomId(tx, data.unitId);
+      if (!resolvedUomId) {
+        throw new Error('Invalid UOM provided');
+      }
+
+      // Calculate cost aggregates
+      const totalRawMaterialCost = data.bom.reduce((sum, b) => sum + Number(b.totalCost), 0);
+      const totalNonInventoryCost = data.nonInventoryCosts.reduce((sum, n) => sum + Number(n.cost), 0);
+      const totalCost = totalRawMaterialCost + totalNonInventoryCost;
+      const salePrice = data.salePrice !== undefined ? Number(data.salePrice) : totalCost * (1 + Number(data.profitMargin) / 100);
+
+      // 1. Create main product
+      const newProduct = await tx.finishedProduct.create({
+        data: {
+          code,
+          name: data.name,
+          categoryId: data.categoryId,
+          unitId: resolvedUomId,
+          stockMethod: data.stockMethod,
+          totalRawMaterialCost,
+          totalNonInventoryCost,
+          totalCost,
+          profitMargin: data.profitMargin,
+          cgst: data.cgst,
+          sgst: data.sgst,
+          igst: data.igst,
+          salePrice,
+          openingStock: data.openingStock,
+          currentStock: data.openingStock,
+          alertLevel: data.alertLevel,
+          expectedOutput: data.expectedOutput || null,
+          sopSteps: data.sopSteps || null,
+          isSopLocked: data.isSopLocked || (data.sopSteps && data.sopSteps.length > 0) ? true : false,
+          imageUrl: data.imageUrl || null,
+          createdBy: req.user.id
+        }
+      });
+
+      // 2. Create BOM items
+      if (data.bom.length > 0) {
+        await tx.productBOM.createMany({
+          data: data.bom.map(b => ({
+            productId: newProduct.id,
+            rmId: b.rmId,
+            consumptionPerUnit: b.consumption,
+            unitPrice: b.unitPrice,
+            totalCost: b.totalCost
+          }))
+        });
+      }
+
+      // 3. Create Non-Inventory cost items
+      if (data.nonInventoryCosts.length > 0) {
+        await tx.productNonInventoryCost.createMany({
+          data: data.nonInventoryCosts.map(n => ({
+            productId: newProduct.id,
+            itemId: n.itemId,
+            cost: n.cost
+          }))
+        });
+      }
+
+      // 4. Create stages
+      if (data.stages.length > 0) {
+        await tx.productStage.createMany({
+          data: data.stages.map((s, idx) => ({
+            productId: newProduct.id,
+            stageId: s.stageId,
+            months: s.months,
+            days: s.days,
+            hours: s.hours,
+            minutes: s.minutes,
+            sortOrder: s.sortOrder || idx
+          }))
+        });
+      }
+
+      return newProduct;
+    });
+
+    res.status(201).json(product);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error('\n[ZOD VALIDATION ERROR IN POST PRODUCT]:', error.errors);
+      return res.status(400).json({ error: error.errors });
+    }
+    console.error('\n[PRODUCT CREATE ERROR]:', error);
+    next(error);
+  }
+});
+
+// PUT /api/products/:id - Update Product
+router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const schema = z.object({
+      name: z.string().min(1),
+      categoryId: z.string().min(1),
+      unitId: z.string().min(1),
+      stockMethod: z.string(),
+      openingStock: z.coerce.number().nonnegative().default(0),
+      alertLevel: z.coerce.number().nonnegative().default(0),
+      profitMargin: z.coerce.number().nonnegative(),
+      salePrice: z.coerce.number().nonnegative().optional(),
+      cgst: z.coerce.number().default(18),
+      sgst: z.coerce.number().default(9),
+      igst: z.coerce.number().default(9),
+      bom: z.array(z.object({
+        rmId: z.string().min(1),
+        consumption: z.coerce.number().positive(),
+        unitPrice: z.coerce.number().positive(),
+        totalCost: z.coerce.number().positive()
+      })),
+      nonInventoryCosts: z.array(z.object({
+        itemId: z.string().min(1),
+        cost: z.coerce.number().positive()
+      })),
+      stages: z.array(z.object({
+        stageId: z.string().min(1),
+        months: z.coerce.number().default(0),
+        days: z.coerce.number().default(0),
+        hours: z.coerce.number().default(0),
+        minutes: z.coerce.number().default(0),
+        sortOrder: z.coerce.number().default(0)
+      })),
+      expectedOutput: z.coerce.number().positive().optional(),
+      sopSteps: z.array(z.object({
+        stepNumber: z.coerce.number(),
+        instruction: z.string(),
+        tempTime: z.string().optional().nullable(),
+        safetyNote: z.string().optional().nullable()
+      })).optional(),
+      imageUrl: z.string().optional().nullable(),
+      isSopLocked: z.boolean().optional()
+    });
+
+    const data = schema.parse(req.body);
+
+    const product = await prisma.$transaction(async (tx) => {
+      const existing = await tx.finishedProduct.findFirst({
+        where: { id, deletedAt: null },
+        include: { bom: true }
+      });
+
+      if (!existing) {
+        throw new Error('Product not found or deleted');
+      }
+
+      // Resolve static UOM label/UUID
+      const resolvedUomId = await resolveUomId(tx, data.unitId);
+      if (!resolvedUomId) {
+        throw new Error('Invalid UOM provided');
+      }
+
+      // Calculate cost aggregates
+      const totalRawMaterialCost = data.bom.reduce((sum, b) => sum + Number(b.totalCost), 0);
+      const totalNonInventoryCost = data.nonInventoryCosts.reduce((sum, n) => sum + Number(n.cost), 0);
+      const totalCost = totalRawMaterialCost + totalNonInventoryCost;
+      const salePrice = data.salePrice !== undefined ? Number(data.salePrice) : totalCost * (1 + Number(data.profitMargin) / 100);
+
+      // Archive previous SOP values if locked and edited
+      let updatedSopHistory = existing.sopHistory || [];
+      if (existing.isSopLocked && (
+        JSON.stringify(existing.sopSteps) !== JSON.stringify(data.sopSteps) ||
+        JSON.stringify(existing.bom.map(b => ({ rmId: b.rmId, consumption: Number(b.consumptionPerUnit) }))) !== 
+        JSON.stringify(data.bom.map(b => ({ rmId: b.rmId, consumption: b.consumption }))) ||
+        Number(existing.expectedOutput) !== Number(data.expectedOutput)
+      )) {
+        const editorUser = await tx.user.findUnique({ where: { id: req.user.id } });
+        const editorName = editorUser ? editorUser.name : req.user.role;
+        
+        updatedSopHistory.push({
+          date: new Date().toISOString(),
+          editorName,
+          expectedOutput: existing.expectedOutput ? Number(existing.expectedOutput) : null,
+          sopSteps: existing.sopSteps,
+          bom: existing.bom.map(b => ({
+            rmId: b.rmId,
+            consumption: Number(b.consumptionPerUnit),
+            unitPrice: Number(b.unitPrice),
+            totalCost: Number(b.totalCost)
+          }))
+        });
+      }
+
+      // 1. Update product
+      const updatedProduct = await tx.finishedProduct.update({
+        where: { id },
+        data: {
+          name: data.name,
+          categoryId: data.categoryId,
+          unitId: resolvedUomId,
+          stockMethod: data.stockMethod,
+          totalRawMaterialCost,
+          totalNonInventoryCost,
+          totalCost,
+          profitMargin: data.profitMargin,
+          cgst: data.cgst,
+          sgst: data.sgst,
+          igst: data.igst,
+          salePrice,
+          openingStock: data.openingStock,
+          alertLevel: data.alertLevel,
+          expectedOutput: data.expectedOutput || null,
+          sopSteps: data.sopSteps || null,
+          isSopLocked: data.isSopLocked !== undefined ? data.isSopLocked : (data.sopSteps && data.sopSteps.length > 0 ? true : false),
+          sopHistory: updatedSopHistory,
+          imageUrl: data.imageUrl || null
+        }
+      });
+
+      // 2. Recreate BOM
+      await tx.productBOM.deleteMany({ where: { productId: id } });
+      if (data.bom.length > 0) {
+        await tx.productBOM.createMany({
+          data: data.bom.map(b => ({
+            productId: id,
+            rmId: b.rmId,
+            consumptionPerUnit: b.consumption,
+            unitPrice: b.unitPrice,
+            totalCost: b.totalCost
+          }))
+        });
+      }
+
+      // 3. Recreate Non-Inventory costs
+      await tx.productNonInventoryCost.deleteMany({ where: { productId: id } });
+      if (data.nonInventoryCosts.length > 0) {
+        await tx.productNonInventoryCost.createMany({
+          data: data.nonInventoryCosts.map(n => ({
+            productId: id,
+            itemId: n.itemId,
+            cost: n.cost
+          }))
+        });
+      }
+
+      // 4. Recreate Stages
+      await tx.productStage.deleteMany({ where: { productId: id } });
+      if (data.stages.length > 0) {
+        await tx.productStage.createMany({
+          data: data.stages.map((s, idx) => ({
+            productId: id,
+            stageId: s.stageId,
+            months: s.months,
+            days: s.days,
+            hours: s.hours,
+            minutes: s.minutes,
+            sortOrder: s.sortOrder || idx
+          }))
+        });
+      }
+
+      // Write action to Audit Log
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'UPDATE_PRODUCT_SOP',
+          tableName: 'products',
+          recordId: id,
+          oldValue: {
+            expectedOutput: existing.expectedOutput,
+            sopSteps: existing.sopSteps
+          },
+          newValue: {
+            expectedOutput: data.expectedOutput,
+            sopSteps: data.sopSteps
+          },
+          ip: req.ip || '127.0.0.1'
+        }
+      });
+
+      return updatedProduct;
+    });
+
+    res.json(product);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error('\n[ZOD VALIDATION ERROR IN PUT PRODUCT]:', error.errors);
+      return res.status(400).json({ error: error.errors });
+    }
+    if (error.message && error.message.includes('not found')) {
+      return res.status(404).json({ error: error.message });
+    }
+    console.error('\n[PRODUCT UPDATE ERROR]:', error);
+    next(error);
+  }
+});
+
+// DELETE /api/products/:id - Try Hard Delete, fallback to Soft Delete
+router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const existing = await prisma.finishedProduct.findFirst({
+      where: { id, deletedAt: null }
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    try {
+      // Attempt hard delete first
+      await prisma.finishedProduct.delete({
+        where: { id }
+      });
+    } catch (e) {
+      // Fallback to soft delete if referenced by other tables (foreign key violation)
+      await prisma.finishedProduct.update({
+        where: { id },
+        data: { deletedAt: new Date() }
+      });
+    }
+
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+
 
 module.exports = router;

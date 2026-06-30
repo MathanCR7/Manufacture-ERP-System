@@ -411,10 +411,10 @@ const MENU_GROUPS = [
     icon: ShoppingCart,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'],
     items: [
-      { name: 'Purchase Order', path: '/purchase-orders', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
-      { name: 'Upcoming Deliveries', path: '/grn/upcoming', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: 'GRN Records', path: '/grn/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'] },
-      { name: 'Purchase Return', path: '/purchase-return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
+      { name: '🛒 Purchase Order', path: '/purchase-orders', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
+      { name: '🚚 Upcoming Deliveries', path: '/grn/upcoming', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '📥 GRN Records', path: '/grn/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'] },
+      { name: '🔄 Purchase Return', path: '/purchase-return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
     ]
   },
   {
@@ -423,13 +423,13 @@ const MENU_GROUPS = [
     icon: HardDrive,
     roles: ['MAIN_MASTER', 'SUPERVISOR'],
     items: [
-      { name: 'Purchase Requests', path: '/asset-management/requests', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Purchase Quotations', path: '/asset-management/quotations', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Purchase Orders', path: '/asset-management/orders', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Goods Receipt PO', path: '/asset-management/grpo', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'A/P Invoice', path: '/asset-management/invoice', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Asset Register', path: '/asset-management/register', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Reports & Analytics', path: '/asset-management/reports', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
+      { name: '📨 Purchase Requests', path: '/asset-management/requests', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '💬 Purchase Quotations', path: '/asset-management/quotations', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '📄 Purchase Orders', path: '/asset-management/orders', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '📦 Goods Receipt PO', path: '/asset-management/grpo', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🧾 A/P Invoice', path: '/asset-management/invoice', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🗃️ Asset Register', path: '/asset-management/register', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '📈 Reports & Analytics', path: '/asset-management/reports', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
     ]
   },
   {
@@ -438,14 +438,14 @@ const MENU_GROUPS = [
     icon: FlaskConical,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'],
     items: [
-      { name: 'Pending RM Lab Tests', path: '/lab/pending', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: 'RM Lab Results', path: '/lab/results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: 'RM Lab Category', path: '/lab/rm-lab-category', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: 'RM Required Lab Results', path: '/lab/rm-required-results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: 'Lab Inventory', path: '/lab-inventory/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: 'Log Lab Usage', path: '/lab-inventory/use', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: 'QC Queue', path: '/production/qc-queue', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'], badgeKey: 'qcPending' },
-      { name: 'Product Stock (Setup)', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '🧪 Pending RM Lab Tests', path: '/lab/pending', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '🔬 RM Lab Results', path: '/lab/results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '🏷️ RM Lab Category', path: '/lab/rm-lab-category', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '⚠️ Required RM Lab Results', path: '/lab/rm-required-results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '📦 Lab Inventory', path: '/lab-inventory/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '📝 Log Lab Usage', path: '/lab-inventory/use', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '⚖️ QC Queue', path: '/production/qc-queue', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'], badgeKey: 'qcPending' },
+      { name: '📦 Product Stock (Setup)', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
     ]
   },
   {
@@ -454,9 +454,9 @@ const MENU_GROUPS = [
     icon: Factory,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
     items: [
-      { name: 'RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: 'Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: 'Stock Adjustment', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '🏬 RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '⚠️ Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '🔄 Stock Adjustment', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
     ]
   },
   {
@@ -465,8 +465,8 @@ const MENU_GROUPS = [
     icon: ShoppingCart,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
     items: [
-      { name: 'Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
-      { name: 'Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] }
+      { name: '📋 Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
+      { name: '🚦 Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] }
     ]
   },
   {
@@ -475,8 +475,8 @@ const MENU_GROUPS = [
     icon: TrendingUp,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
     items: [
-      { name: 'Forecast by Order', path: '/forecasting/by-order', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
-      { name: 'Forecast by Product', path: '/forecasting/by-product', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] }
+      { name: '📈 Forecast by Order', path: '/forecasting/by-order', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
+      { name: '🔮 Forecast by Product', path: '/forecasting/by-product', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] }
     ]
   },
   {
@@ -485,10 +485,10 @@ const MENU_GROUPS = [
     icon: Factory,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
     items: [
-      { name: 'Production Batches', path: '/production/batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: 'Production Loss', path: '/production/loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: 'Loss Report', path: '/production/loss-report', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: 'Product Wastage', path: '/production/wastage', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '⚙️ Production Batches', path: '/production/batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: '📉 Production Loss', path: '/production/loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: '📋 Loss Report', path: '/production/loss-report', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: '🗑️ Product Wastage', path: '/production/wastage', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
     ]
   },
   {
@@ -497,8 +497,8 @@ const MENU_GROUPS = [
     icon: Layers,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
     items: [
-      { name: 'Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
-      { name: 'Low Stock Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'], badgeKey: 'lowStock' },
+      { name: '📦 Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
+      { name: '🚨 Low Stock Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'], badgeKey: 'lowStock' },
     ]
   },
   {
@@ -507,8 +507,8 @@ const MENU_GROUPS = [
     icon: DollarSign,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
     items: [
-      { name: 'Expenses', path: '/finance/expenses', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: 'Accounts', path: '/finance/accounts', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '💸 Expenses', path: '/finance/expenses', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '🏦 Accounts', path: '/finance/accounts', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
     ]
   },
   {
@@ -517,10 +517,10 @@ const MENU_GROUPS = [
     icon: DollarSign,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
     items: [
-      { name: 'Add Sale', path: '/sales/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: 'Sale List', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: 'Add Sale Return', path: '/sales/return/add', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: 'Sale Return List', path: '/sales/return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: '🛒 POS Checkout', path: '/sales/pos', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: '📋 Sales & Invoices', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: '↩️ Returns & Replacements', path: '/sales/return', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+      { name: '📊 Manager Analytics', path: '/sales/dashboard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
     ]
   },
   {
@@ -529,7 +529,7 @@ const MENU_GROUPS = [
     icon: Archive,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'],
     items: [
-      { name: 'RM Waste', path: '/waste/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'] },
+      { name: '🗑️ RM Waste', path: '/waste/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'] },
     ]
   },
   {
@@ -538,8 +538,8 @@ const MENU_GROUPS = [
     icon: Users,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
     items: [
-      { name: 'Customer List', path: '/parties/customers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: 'Supplier List', path: '/parties/suppliers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '👥 Customer List', path: '/parties/customers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '🤝 Supplier List', path: '/parties/suppliers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
     ]
   },
   {
@@ -548,11 +548,11 @@ const MENU_GROUPS = [
     icon: Settings,
     roles: ['MAIN_MASTER', 'SUPERVISOR'],
     items: [
-      { name: 'RM Category', path: '/setup/rm-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Raw Material', path: '/setup/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Non Inventory', path: '/setup/non-inventory', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Product Category', path: '/setup/product-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
+      { name: '🏷️ RM Category', path: '/setup/rm-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🌾 Raw Material', path: '/setup/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🚫 Non Inventory', path: '/setup/non-inventory', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🗂️ Product Category', path: '/setup/product-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '📦 Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
     ]
   },
   {
@@ -561,19 +561,19 @@ const MENU_GROUPS = [
     icon: Settings,
     roles: ['MAIN_MASTER', 'SUPERVISOR'],
     items: [
-      { name: 'User Management', path: '/admin/users', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Tax Settings', path: '/setup/tax', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Audit Log', path: '/audit-logs', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Notification Audit', path: '/admin/notifications-audit', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: 'Database Backups', path: '/admin/backups', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '👥 User Management', path: '/admin/users', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '💸 Tax Settings', path: '/setup/tax', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '📋 Audit Log', path: '/audit-logs', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🔔 Notification Audit', path: '/admin/notifications-audit', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '💾 Database Backups', path: '/admin/backups', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
     ]
   }
 ];
 
 const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'dashboards' },
-  { type: 'group', id: 'purchases' },
   { type: 'group', id: 'assetManagement' },
+  { type: 'group', id: 'purchases' },
   { type: 'group', id: 'lab' },
   { type: 'group', id: 'rmStock' },
   { type: 'group', id: 'orders' },

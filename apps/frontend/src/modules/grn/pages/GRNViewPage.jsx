@@ -229,11 +229,28 @@ export default function GRNViewPage() {
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {grn.labTest.testResults?.map(tr => (
                       <tr key={tr.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{tr.rmName}</td>
+                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">
+                          <div>{tr.rmName}</div>
+                          {tr.needTesting === false ? (
+                            <span className="inline-block mt-1 text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">No Testing Required</span>
+                          ) : (
+                            tr.categoryParams && Object.keys(tr.categoryParams).length > 0 && (
+                              <div className="mt-1.5 flex flex-wrap gap-1.5 max-w-md">
+                                {Object.entries(tr.categoryParams).map(([k, v]) => (
+                                  <span key={k} className="inline-flex items-center bg-violet-50/70 dark:bg-violet-950/45 text-violet-750 dark:text-violet-300 text-[10px] px-1.5 py-0.5 rounded-md border border-violet-100 dark:border-violet-900/30">
+                                    <strong className="font-semibold mr-1">{k}:</strong> {v}
+                                  </span>
+                                ))}
+                              </div>
+                            )
+                          )}
+                        </td>
                         <td className="px-6 py-4 text-slate-600 dark:text-slate-400">{tr.expiryDate ? format(new Date(tr.expiryDate), 'dd MMM yyyy') : '-'}</td>
                         <td className="px-6 py-4 text-slate-500 dark:text-slate-400">{tr.testNotes || '-'}</td>
                         <td className="px-6 py-4 text-center">
-                          {tr.passed ? (
+                          {tr.needTesting === false ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-slate-100 text-slate-505 dark:bg-slate-800 dark:text-slate-400"><CheckCircle2 className="w-3 h-3 text-slate-400" />Exempt</span>
+                          ) : tr.passed ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"><CheckCircle2 className="w-3 h-3" />Pass</span>
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"><XCircle className="w-3 h-3" />Fail</span>
@@ -249,9 +266,26 @@ export default function GRNViewPage() {
               <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-800">
                 {grn.labTest.testResults?.map(tr => (
                   <div key={tr.id} className="p-4 space-y-3 hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                    <div className="flex justify-between items-center gap-2">
-                      <span className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{tr.rmName}</span>
-                      {tr.passed ? (
+                    <div className="flex justify-between items-start gap-2">
+                      <div>
+                        <span className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{tr.rmName}</span>
+                        {tr.needTesting === false ? (
+                          <span className="block mt-1 w-fit text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">No Testing Required</span>
+                        ) : (
+                          tr.categoryParams && Object.keys(tr.categoryParams).length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {Object.entries(tr.categoryParams).map(([k, v]) => (
+                                <span key={k} className="inline-block bg-violet-50/70 dark:bg-violet-950/45 text-violet-750 dark:text-violet-300 text-[9px] px-1 py-0.5 rounded border border-violet-100/50 dark:border-violet-900/10">
+                                  {k}: {v}
+                                </span>
+                              ))}
+                            </div>
+                          )
+                        )}
+                      </div>
+                      {tr.needTesting === false ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-slate-100 text-slate-505 dark:bg-slate-800 dark:text-slate-400"><CheckCircle2 className="w-3 h-3 text-slate-400" />Exempt</span>
+                      ) : tr.passed ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400"><CheckCircle2 className="w-3.5 h-3.5" />Pass</span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"><XCircle className="w-3.5 h-3.5" />Fail</span>

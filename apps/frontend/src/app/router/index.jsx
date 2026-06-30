@@ -83,6 +83,12 @@ const ProductStockPage = lazy(() => import('@/modules/production/pages/ProductSt
 const LowStockAlertsPage = lazy(() => import('@/modules/production/pages/LowStockAlertsPage'));
 const ProductionsPage = lazy(() => import('@/modules/production/pages/ProductionsPage'));
 const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProductionPage'));
+
+// Kulfi ERP Sales Module Pages
+const SalesPOSPage = lazy(() => import('@/modules/sales/pages/SalesPOSPage'));
+const SalesListPage = lazy(() => import('@/modules/sales/pages/SalesListPage'));
+const SalesReturnsPage = lazy(() => import('@/modules/sales/pages/SalesReturnsPage'));
+const SalesDashboard = lazy(() => import('@/modules/sales/pages/SalesDashboard'));
 const ProductionLossPage = lazy(() => import('@/modules/production/pages/ProductionLossPage'));
 const LossReportPage = lazy(() => import('@/modules/production/pages/LossReportPage'));
 const QCQueuePage = lazy(() => import('@/modules/production/pages/QCQueuePage'));
@@ -241,11 +247,12 @@ const AppRouter = () => {
             </Route>
 
             {/* Sales Module */}
-            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']} />}> 
-              <Route path="/sales/add" element={<PlaceholderPage title="Add Sale" />} />
-              <Route path="/sales/list" element={<PlaceholderPage title="Sale List" />} />
-              <Route path="/sales/return/add" element={<PlaceholderPage title="Add Sale Return" />} />
-              <Route path="/sales/return/list" element={<PlaceholderPage title="Sale Return List" />} />
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM']} />}> 
+              <Route path="/sales/pos" element={<SalesPOSPage />} />
+              <Route path="/sales/add" element={<SalesPOSPage />} />
+              <Route path="/sales/list" element={<SalesListPage />} />
+              <Route path="/sales/return" element={<SalesReturnsPage />} />
+              <Route path="/sales/dashboard" element={<SalesDashboard />} />
             </Route>
             {/* Kulfi ERP Products */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>

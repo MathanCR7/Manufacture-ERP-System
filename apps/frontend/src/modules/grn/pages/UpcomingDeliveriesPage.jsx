@@ -12,6 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SortSelect } from '@/components/ui/SortSelect';
+import _QRCode from 'react-qr-code';
+
+const QRCode = typeof _QRCode === 'function' ? _QRCode : (_QRCode?.default || _QRCode?.QRCode || 'div');
 
 const GRN_STATUS_CONFIG = {
   PENDING_LAB:    { label: 'Pending Lab',    color: 'bg-amber-50/80 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400 border-amber-200/60 dark:border-amber-500/20', icon: FlaskConical },
@@ -122,12 +125,39 @@ function DeliveryCard({ d, idx, navigate, onQRView }) {
               <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm">{d.referenceNo}</span>
               <POStatusPill hasGrn={d.hasGrn} grnStatus={d.grnStatus} />
             </div>
-            <h4 className="font-semibold text-slate-800 dark:text-slate-200 mt-1.5 text-sm sm:text-base leading-snug break-words">{d.name}</h4>
+            {d.items && Array.isArray(d.items) && d.items.length > 1 ? (
+              <div className="mt-3 space-y-2 bg-slate-50/50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80">
+                <p className="text-[10px] uppercase font-bold text-indigo-600 dark:text-indigo-400 tracking-wider flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5" /> Items List ({d.items.length})
+                </p>
+                <div className="grid grid-cols-1 gap-1">
+                  {d.items.map((item, idx) => (
+                    <div key={idx} className="flex justify-between items-center text-xs py-1 border-b border-dashed border-slate-100 dark:border-slate-800/40 last:border-b-0">
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">{item.name}</span>
+                      <span className="font-mono text-slate-600 dark:text-slate-400 font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/60 px-2 py-0.5 rounded text-[11px] shrink-0 ml-4">
+                        {Number(item.quantity).toLocaleString()} <span className="text-[10px] font-normal text-slate-450">{item.uomLabel || d.uom?.abbreviation || 'units'}</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <h4 className="font-semibold text-slate-800 dark:text-slate-200 mt-1.5 text-sm sm:text-base leading-snug break-words flex items-center gap-2">
+                <Package className="w-4 h-4 text-indigo-500 shrink-0" />
+                <span>{d.name}</span>
+              </h4>
+            )}
           </div>
-          <div className="text-left sm:text-right shrink-0 bg-slate-50 dark:bg-slate-950 p-2 sm:p-0 rounded-xl sm:bg-transparent dark:sm:bg-transparent border border-slate-100 sm:border-0 dark:border-slate-800/40 sm:dark:border-0 flex sm:flex-col justify-between items-center sm:items-end gap-2 sm:gap-0">
-            <p className="text-base font-bold text-slate-800 dark:text-white sm:text-lg">
-              {Number(d.quantity).toLocaleString()} <span className="text-xs font-normal text-slate-400">{d.uom?.abbreviation}</span>
-            </p>
+          <div className="text-left sm:text-right shrink-0 bg-slate-50 dark:bg-slate-955 p-2 sm:p-0 rounded-xl sm:bg-transparent dark:sm:bg-transparent border border-slate-100 sm:border-0 dark:border-slate-800/40 sm:dark:border-0 flex sm:flex-col justify-between items-center sm:items-end gap-2 sm:gap-0">
+            {d.items && Array.isArray(d.items) && d.items.length > 1 ? (
+              <p className="text-xs font-bold text-slate-500 dark:text-slate-450">
+                Multiple Materials
+              </p>
+            ) : (
+              <p className="text-base font-bold text-slate-800 dark:text-white sm:text-lg">
+                {Number(d.quantity).toLocaleString()} <span className="text-xs font-normal text-slate-400">{d.uom?.abbreviation || 'units'}</span>
+              </p>
+            )}
             <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400 font-mono">₹{Number(d.amount).toLocaleString('en-IN', { minimumFractionDigits: 1 })}</p>
           </div>
         </div>

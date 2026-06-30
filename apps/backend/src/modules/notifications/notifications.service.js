@@ -15,12 +15,47 @@ class NotificationService {
       metadata
     } = data;
 
+    let finalSenderId = sender_id;
+
+    // Verify senderId exists in the user table to prevent FK violation on Notification_senderId_fkey
+    let senderExists = false;
+    if (finalSenderId && finalSenderId !== 'system') {
+      try {
+        const user = await prismaClient.user.findUnique({
+          where: { id: finalSenderId },
+          select: { id: true }
+        });
+        if (user) {
+          senderExists = true;
+        }
+      } catch (err) {
+        console.error('Error verifying notification sender ID:', err);
+      }
+    }
+
+    if (!senderExists) {
+      try {
+        const fallbackUser = await prismaClient.user.findFirst({
+          where: { role: 'MAIN_MASTER' },
+          select: { id: true }
+        }) || await prismaClient.user.findFirst({
+          select: { id: true }
+        });
+
+        if (fallbackUser) {
+          finalSenderId = fallbackUser.id;
+        }
+      } catch (err) {
+        console.error('Error finding fallback user for notification:', err);
+      }
+    }
+
     const notification = await prismaClient.notification.create({
       data: {
         type,
         recipientRoles: recipient_roles,
         senderRole: sender_role,
-        senderId: sender_id,
+        senderId: finalSenderId,
         referenceType: reference_type,
         referenceId: reference_id,
         eventAt: event_at || new Date(),

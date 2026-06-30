@@ -55,14 +55,24 @@ export default function ReceiveDeliveryPage() {
 
   useEffect(() => {
     if (po) {
-      setItems([{
-        rmId: po.rmId,
-        rmName: po.name,
-        expectedQty: Number(po.quantity),
-        actualReceivedQty: Number(po.quantity),
-        returnQty: 0,
-      }]);
-      setFormData(prev => ({ ...prev, amountPaid: String(Number(po.amount)) }));
+      if (po.items && Array.isArray(po.items) && po.items.length > 0) {
+        setItems(po.items.map(it => ({
+          rmId: it.rmId,
+          rmName: it.name,
+          expectedQty: Number(it.quantity || 0),
+          actualReceivedQty: Number(it.quantity || 0),
+          returnQty: 0,
+        })));
+      } else {
+        setItems([{
+          rmId: po.rmId,
+          rmName: po.name,
+          expectedQty: Number(po.quantity || 0),
+          actualReceivedQty: Number(po.quantity || 0),
+          returnQty: 0,
+        }]);
+      }
+      setFormData(prev => ({ ...prev, amountPaid: String(Number(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount)) }));
     }
   }, [po]);
 
@@ -143,7 +153,7 @@ export default function ReceiveDeliveryPage() {
                 <div><span className="text-slate-505 block">Material Name</span><span className="font-medium text-slate-900 dark:text-slate-101">{po.name}</span></div>
                 <div><span className="text-slate-505 block">Supplier</span><span className="font-medium text-slate-900 dark:text-slate-101">{po.supplier?.name || '-'}</span></div>
                 <div><span className="text-slate-505 block">Expected Qty</span><span className="font-bold text-slate-900 dark:text-slate-101">{Number(po.quantity).toLocaleString()} {po.uom?.abbreviation || ''}</span></div>
-                <div><span className="text-slate-505 block">PO Amount</span><span className="font-bold text-slate-900 dark:text-slate-101">₹{Number(po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+                <div><span className="text-slate-505 block">PO Amount</span><span className="font-bold text-slate-900 dark:text-slate-101">₹{Number(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
               </div>
             </div>
 

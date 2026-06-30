@@ -83,7 +83,17 @@ exports.getPOs = async (req, res, next) => {
       supplierName: po.supplier ? po.supplier.name : null,
       expectedDelivery: po.expectedDelivery,
       status: po.status,
-      createdAt: po.createdAt
+      createdAt: po.createdAt,
+      subtotal: po.subtotal,
+      orderTax: po.orderTax,
+      discount: po.discount,
+      shipping: po.shipping,
+      otherCharges: po.otherCharges,
+      cgst: po.cgst,
+      sgst: po.sgst,
+      igst: po.igst,
+      grandTotal: po.grandTotal,
+      items: po.items
     }));
 
     res.json(formattedPos);
@@ -122,6 +132,18 @@ const createPOSchema = z.object({
   uomId: z.string().min(1),
   expectedDelivery: z.string().min(1),
   supplierId: z.string().uuid().optional(),
+  
+  // Financial details
+  subtotal: z.coerce.number().optional(),
+  orderTax: z.coerce.number().optional(),
+  discount: z.coerce.number().optional(),
+  shipping: z.coerce.number().optional(),
+  otherCharges: z.coerce.number().optional(),
+  cgst: z.coerce.number().optional(),
+  sgst: z.coerce.number().optional(),
+  igst: z.coerce.number().optional(),
+  grandTotal: z.coerce.number().optional(),
+  items: z.any().optional(),
 });
 
 exports.createPO = async (req, res, next) => {
@@ -157,7 +179,17 @@ exports.createPO = async (req, res, next) => {
           expectedDelivery: new Date(parsedData.expectedDelivery),
           supplierId: parsedData.supplierId,
           status: 'PENDING',
-          createdBy: req.user.id
+          createdBy: req.user.id,
+          subtotal: parsedData.subtotal || 0,
+          orderTax: parsedData.orderTax || 0,
+          discount: parsedData.discount || 0,
+          shipping: parsedData.shipping || 0,
+          otherCharges: parsedData.otherCharges || 0,
+          cgst: parsedData.cgst || 0,
+          sgst: parsedData.sgst || 0,
+          igst: parsedData.igst || 0,
+          grandTotal: parsedData.grandTotal || 0,
+          items: parsedData.items || null,
         }
       });
 
@@ -207,6 +239,18 @@ const updatePOSchema = z.object({
   uomId: z.string().min(1).optional(),
   expectedDelivery: z.string().min(1).optional(),
   supplierId: z.string().uuid().nullable().optional(),
+  
+  // Financial details
+  subtotal: z.coerce.number().optional(),
+  orderTax: z.coerce.number().optional(),
+  discount: z.coerce.number().optional(),
+  shipping: z.coerce.number().optional(),
+  otherCharges: z.coerce.number().optional(),
+  cgst: z.coerce.number().optional(),
+  sgst: z.coerce.number().optional(),
+  igst: z.coerce.number().optional(),
+  grandTotal: z.coerce.number().optional(),
+  items: z.any().optional(),
 });
 
 exports.updatePO = async (req, res, next) => {
@@ -251,6 +295,16 @@ exports.updatePO = async (req, res, next) => {
     if (parsedData.expectedDelivery !== undefined) updateData.expectedDelivery = new Date(parsedData.expectedDelivery);
     if (parsedData.supplierId !== undefined) updateData.supplierId = parsedData.supplierId || null;
     if (parsedData.uomId !== undefined) updateData.uomId = resolvedUomId;
+    if (parsedData.subtotal !== undefined) updateData.subtotal = parsedData.subtotal;
+    if (parsedData.orderTax !== undefined) updateData.orderTax = parsedData.orderTax;
+    if (parsedData.discount !== undefined) updateData.discount = parsedData.discount;
+    if (parsedData.shipping !== undefined) updateData.shipping = parsedData.shipping;
+    if (parsedData.otherCharges !== undefined) updateData.otherCharges = parsedData.otherCharges;
+    if (parsedData.cgst !== undefined) updateData.cgst = parsedData.cgst;
+    if (parsedData.sgst !== undefined) updateData.sgst = parsedData.sgst;
+    if (parsedData.igst !== undefined) updateData.igst = parsedData.igst;
+    if (parsedData.grandTotal !== undefined) updateData.grandTotal = parsedData.grandTotal;
+    if (parsedData.items !== undefined) updateData.items = parsedData.items;
 
     const oldSnapshot = {
       referenceNo: existing.referenceNo,

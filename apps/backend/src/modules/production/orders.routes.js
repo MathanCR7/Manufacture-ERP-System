@@ -241,6 +241,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       quotationNote: z.string().optional(),
       internalNote: z.string().optional(),
       status: z.string().default('Quotation'),
+      paymentTerms: z.string().optional(),
       items: z.array(z.object({
         productId: z.string().uuid(),
         quantity: z.coerce.number().positive(),
@@ -306,6 +307,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
           quotationNote: data.quotationNote || null,
           internalNote: data.internalNote || null,
           status: data.status,
+          paymentTerms: data.paymentTerms || null,
           totalSubtotal,
           totalCost,
           totalProfit,
@@ -340,6 +342,26 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
           }))
         });
       }
+
+      // Write Audit Log
+      const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'CREATE_CUSTOMER_ORDER',
+          tableName: 'customer_orders',
+          recordId: newOrder.id,
+          oldValue: null,
+          newValue: {
+            referenceNo: newOrder.referenceNo,
+            customerId: newOrder.customerId,
+            type: newOrder.type,
+            status: newOrder.status,
+            totalSubtotal: newOrder.totalSubtotal
+          },
+          ip: clientIp
+        }
+      });
 
       return newOrder;
     });
@@ -443,6 +465,20 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
         data: { status: data.status }
       });
 
+      // Write Audit Log
+      const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'UPDATE_ORDER_STATUS',
+          tableName: 'customer_orders',
+          recordId: id,
+          oldValue: { status: order.status },
+          newValue: { status: data.status },
+          ip: clientIp
+        }
+      });
+
       return record;
     });
 
@@ -466,6 +502,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       quotationNote: z.string().optional(),
       internalNote: z.string().optional(),
       status: z.string().default('Quotation'),
+      paymentTerms: z.string().optional(),
       items: z.array(z.object({
         productId: z.string().min(1),
         quantity: z.coerce.number().positive(),
@@ -534,6 +571,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           quotationNote: data.quotationNote || null,
           internalNote: data.internalNote || null,
           status: data.status,
+          paymentTerms: data.paymentTerms || null,
           totalSubtotal,
           totalCost,
           totalProfit

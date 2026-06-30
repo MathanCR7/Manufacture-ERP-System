@@ -14,9 +14,7 @@ export default function RMStockPage() {
   const { data: stock = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['rm-stock'],
     queryFn: async () => {
-      const response = await api.get('/rm-stock', {
-        headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
-      });
+      const response = await api.get('/rm-stock');
       setLastRefreshed(new Date());
       return response.data;
     },

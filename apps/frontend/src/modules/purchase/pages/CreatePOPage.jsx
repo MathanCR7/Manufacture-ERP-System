@@ -248,7 +248,11 @@ export default function CreatePOPage({ onBack }) {
     amount: '',
     uomId: '',
     expectedDelivery: null,
+    discount: '0',
+    shipping: '0',
+    otherCharges: '0',
   });
+  const [items, setItems] = useState([]);
   
   const [errorMsg, setErrorMsg] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
@@ -349,16 +353,60 @@ export default function CreatePOPage({ onBack }) {
     return containsMatch || null;
   };
 
-  useEffect(() => {
-    if (!formData.selectedRm) return;
+  const handleAddRmItem = (rm) => {
+    if (!rm) return;
+    const exists = items.some(item => item.id === rm.id);
+    if (exists) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Item already added',
+        text: `${rm.name} is already in the items list. You can update its quantity directly.`,
+        confirmButtonColor: '#4f46e5',
+      });
+      return;
+    }
+    
+    const defaultUom = getDefaultUomForRawMaterial(rm);
+    const uomLabel = defaultUom ? defaultUom.abbreviation : (rm.unitId || rm.consumptionUnit || 'units');
+    const uomId = defaultUom ? defaultUom.id : '';
 
-    const defaultUom = getDefaultUomForRawMaterial(formData.selectedRm);
-    setFormData(prev => ({
-      ...prev,
-      name: formData.selectedRm.name,
-      uomId: defaultUom ? defaultUom.id : prev.uomId,
-    }));
-  }, [formData.selectedRm, rmUoms, allUoms]);
+    const newItem = {
+      id: rm.id,
+      rmId: rm.code,
+      name: rm.name,
+      quantity: 1,
+      unitPrice: Number(rm.ratePerUnit || 0),
+      uomLabel: uomLabel,
+      uomId: uomId,
+      gstApplicable: true,
+      gstPercentage: 18,
+    };
+    setItems(prev => [...prev, newItem]);
+    setFormData(prev => ({ ...prev, selectedRm: null }));
+  };
+
+  // Tax and Grand Total calculations
+  const subtotal = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+  const shipping = Number(formData.shipping || 0);
+  const discount = Number(formData.discount || 0);
+  const otherCharges = Number(formData.otherCharges || 0);
+
+  // Check supplier state code (prefix 33)
+  const isInterState = formData.selectedSupplier?.gstin
+    ? !formData.selectedSupplier.gstin.trim().startsWith('33')
+    : false;
+
+  const totalItemTax = items.reduce((sum, item) => {
+    if (!item.gstApplicable) return sum;
+    const itemSubtotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+    return sum + (itemSubtotal * (Number(item.gstPercentage || 0) / 100));
+  }, 0);
+
+  const cgstAmount = isInterState ? 0 : totalItemTax / 2;
+  const sgstAmount = isInterState ? 0 : totalItemTax / 2;
+  const igstAmount = isInterState ? totalItemTax : 0;
+
+  const grandTotal = subtotal + totalItemTax + shipping + otherCharges - discount;
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -389,33 +437,41 @@ export default function CreatePOPage({ onBack }) {
     e.preventDefault();
     setErrorMsg('');
 
-    if (!formData.selectedRm && !rmIdData?.candidateId) {
-      setErrorMsg('RM ID is still generating...');
-      return;
-    }
-    if (!formData.selectedRm && !formData.name.trim()) {
-      setErrorMsg('Raw Material Name is required');
+    if (items.length === 0) {
+      setErrorMsg('Please add at least one raw material item.');
       return;
     }
     if (!formData.expectedDelivery) {
       setErrorMsg('Expected Delivery Date is required');
       return;
     }
-
-    const fallbackUomText = formData.selectedRm ? (formData.selectedRm.unitId || formData.selectedRm.consumptionUnit || '') : '';
-    if (!formData.uomId && !fallbackUomText) {
-      setErrorMsg('Unit of Measurement is required');
+    if (!formData.selectedSupplier) {
+      setErrorMsg('Supplier is required');
       return;
     }
 
+    const firstItem = items[0];
+    const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+
     createMutation.mutate({
-      rmId: formData.selectedRm ? formData.selectedRm.code : rmIdData.candidateId,
-      name: formData.selectedRm ? formData.selectedRm.name : formData.name,
-      quantity: Number(formData.quantity),
-      amount: Number(formData.amount),
-      uomId: formData.uomId || fallbackUomText,
-      supplierId: formData.selectedSupplier ? formData.selectedSupplier.id : undefined,
+      rmId: firstItem.rmId,
+      name: firstItem.name,
+      quantity: totalQuantity,
+      amount: Number(grandTotal),
+      uomId: firstItem.uomId || firstItem.uomLabel,
+      supplierId: formData.selectedSupplier.id,
       expectedDelivery: formData.expectedDelivery.toISOString(),
+      
+      subtotal: subtotal,
+      orderTax: 0,
+      discount: discount,
+      shipping: shipping,
+      otherCharges: otherCharges,
+      cgst: cgstAmount,
+      sgst: sgstAmount,
+      igst: igstAmount,
+      grandTotal: grandTotal,
+      items: items,
     });
   };
 
@@ -423,12 +479,6 @@ export default function CreatePOPage({ onBack }) {
     e.preventDefault();
     rotateId();
   };
-
-
-  const selectedUom = getDefaultUomForRawMaterial(formData.selectedRm);
-  const selectedUomLabel = selectedUom
-    ? `${selectedUom.name} (${selectedUom.abbreviation})`
-    : formData.selectedRm?.unitId || formData.selectedRm?.consumptionUnit || '';
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6 lg:space-y-8 min-h-screen">
@@ -485,8 +535,8 @@ export default function CreatePOPage({ onBack }) {
               <FileText className="w-4 h-4 text-indigo-500" />
               General Details
             </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-end">
-                           <DatePicker
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
+              <DatePicker
                 label="Date (Expected Delivery)"
                 required
                 value={formData.expectedDelivery}
@@ -509,14 +559,8 @@ export default function CreatePOPage({ onBack }) {
                 </div>
               </div>
 
-              {/* Attach Document */}
-              <div className="space-y-2">
-                <Label className="text-slate-700 dark:text-slate-300 font-medium">Attach Document</Label>
-                <Input type="file" className="text-sm h-[42px] px-0 py-0 cursor-pointer rounded-xl border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 file:mr-4 file:py-2.5 file:px-4 file:h-[42px] file:rounded-l-xl file:border-0 file:text-xs file:font-bold file:tracking-wide file:bg-slate-200/70 file:text-slate-700 dark:file:bg-slate-800 dark:file:text-slate-300 hover:file:bg-slate-300 dark:hover:file:bg-slate-700 shadow-sm transition-all hover:border-indigo-400" />
-              </div>
-
               {/* Supplier Select */}
-              <div className="space-y-2 lg:col-span-1">
+              <div className="space-y-2">
                 <Label className="text-slate-700 dark:text-slate-300 font-medium">Supplier <span className="text-rose-500">*</span></Label>
                 <SupplierSelect 
                   suppliers={suppliers} 
@@ -524,25 +568,40 @@ export default function CreatePOPage({ onBack }) {
                   onChange={(s) => setFormData({...formData, selectedSupplier: s})} 
                   onAddNew={() => setShowAddSupplier(true)}
                 />
-                {formData.selectedSupplier && (
-                  <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 text-xs space-y-1 text-slate-600 dark:text-slate-400">
-                    <p><strong>Phone:</strong> {formData.selectedSupplier.phone || 'N/A'}</p>
-                    <p><strong>GSTIN:</strong> {formData.selectedSupplier.gstin || 'N/A'}</p>
-                    <p><strong>PAN:</strong> {formData.selectedSupplier.pan || 'N/A'}</p>
-                    <p><strong>Address:</strong> {formData.selectedSupplier.address || 'N/A'}</p>
-                  </div>
-                )}
               </div>
             </div>
-          </div>
 
-          {/* Items Section */}
+            {/* Supplier Details Horizontal Banner */}
+            {formData.selectedSupplier && (
+              <div className="mt-6 p-4 bg-gradient-to-r from-indigo-50/40 to-slate-50/40 dark:from-indigo-950/10 dark:to-slate-800/10 border border-indigo-100/80 dark:border-indigo-900/30 rounded-2xl flex flex-wrap gap-x-8 gap-y-3 text-xs text-slate-600 dark:text-slate-400 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Phone:</span>
+                  <span>{formData.selectedSupplier.phone || 'N/A'}</span>
+                </div>
+                <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">GSTIN:</span>
+                  <span className="font-mono font-medium text-indigo-600 dark:text-indigo-400">{formData.selectedSupplier.gstin || 'N/A'}</span>
+                </div>
+                <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">PAN:</span>
+                  <span className="font-mono">{formData.selectedSupplier.pan || 'N/A'}</span>
+                </div>
+                <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
+                <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Address:</span>
+                  <span className="truncate" title={formData.selectedSupplier.address}>{formData.selectedSupplier.address || 'N/A'}</span>
+                </div>
+              </div>
+            )}
+          </div>          {/* Items Section */}
           <div className="p-6 md:p-8 bg-slate-50/50 dark:bg-slate-800/10 border-b border-slate-100 dark:border-slate-800/80">
             
             <div className="mb-6 max-w-3xl">
               <Label className="text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2 font-bold text-sm uppercase tracking-wider">
                 <Package className="w-4 h-4 text-indigo-500" />
-                Order Items <span className="text-rose-500">*</span>
+                Select Raw Material to Add <span className="text-rose-500">*</span>
               </Label>
               <div className="relative">
                 {isLoadingRMs ? (
@@ -553,7 +612,7 @@ export default function CreatePOPage({ onBack }) {
                   <RawMaterialSelect 
                     rawMaterials={rawMaterials}
                     value={formData.selectedRm}
-                    onChange={(rm) => setFormData({...formData, selectedRm: rm, uomId: ''})} 
+                    onChange={handleAddRmItem} 
                     lowStockIds={lowStockIds}
                   />
                 )}
@@ -567,74 +626,120 @@ export default function CreatePOPage({ onBack }) {
                   <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200/80 dark:border-slate-700/80">
                     <tr>
                       <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs">#</th>
-                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs">Product Details</th>
-                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-right w-40">Quantity</th>
-                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs w-32">UOM</th>
-                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-right w-44">Subtotal (₹)</th>
+                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs">Material Details</th>
+                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-right w-36">Quantity</th>
+                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-right w-36">Unit Price (₹)</th>
+                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-center w-36">GST Status</th>
+                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-center w-28">GST Rate</th>
+                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-right w-40">Subtotal (₹)</th>
                       <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-center w-20">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {formData.selectedRm ? (
-                      <tr className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
-                        <td className="px-5 py-4 text-slate-400 font-medium">1</td>
-                        <td className="px-5 py-4">
-                          <div className="font-semibold text-slate-900 dark:text-slate-100 text-base">{formData.name}</div>
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs font-mono text-slate-500 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">{formData.selectedRm.code}</span>
-                            {lowStockIds.has(formData.selectedRm.id) && (
-                              <Badge variant="outline" className="text-[10px] bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50 px-1.5 py-0">Low Stock</Badge>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          <Input 
-                            type="number" 
-                            step="1" 
-                            min="1"
-                            value={formData.quantity} 
-                            onChange={(e) => setFormData({...formData, quantity: e.target.value})} 
-                            className="w-full ml-auto text-right h-10 rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-900/50 font-medium" 
-                            required
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="px-5 py-4">
-                          <div className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-medium text-xs border border-slate-200 dark:border-slate-700">
-                            {formData.selectedRm?.unitId || <span className="text-amber-500 font-normal flex items-center gap-1"><Info className="w-3 h-3"/> Not set</span>}
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 text-right">
-                          <Input 
-                            type="number" 
-                            step="1" 
-                            min="1"
-                            value={formData.amount} 
-                            onChange={(e) => setFormData({...formData, amount: e.target.value})} 
-                            className="w-full ml-auto text-right h-10 rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-900/50 font-bold text-slate-900 dark:text-white" 
-                            required
-                            placeholder="0"
-                          />
-                        </td>
-                        <td className="px-5 py-4 text-center">
-                          <button 
-                            type="button" 
-                            onClick={() => setFormData({...formData, selectedRm: null, quantity: '', amount: ''})} 
-                            className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all mx-auto block"
-                            title="Remove item"
-                          >
-                            <X className="w-5 h-5 mx-auto" />
-                          </button>
-                        </td>
-                      </tr>
+                    {items.length > 0 ? (
+                      items.map((item, index) => {
+                        const itemSubtotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+                        return (
+                          <tr key={item.id || index} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
+                            <td className="px-5 py-4 text-slate-400 font-medium">{index + 1}</td>
+                            <td className="px-5 py-4">
+                              <div className="font-semibold text-slate-900 dark:text-slate-100 text-sm">{item.name}</div>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="text-xs font-mono text-slate-505 bg-slate-105 dark:bg-slate-800 px-2 py-0.5 rounded">{item.rmId}</span>
+                                {lowStockIds.has(item.id) && (
+                                  <Badge variant="outline" className="text-[10px] bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-900/20 dark:text-rose-400 dark:border-rose-800/50 px-1.5 py-0">Low Stock</Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-5 py-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <Input 
+                                  type="number" 
+                                  step="0.001" 
+                                  min="0.001"
+                                  value={item.quantity} 
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setItems(prev => prev.map(it => it.id === item.id ? { ...it, quantity: val } : it));
+                                  }} 
+                                  className="w-24 text-right h-9 rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-900/50 font-medium text-xs" 
+                                  required
+                                />
+                                <span className="text-slate-500 font-medium text-xs font-mono shrink-0 w-8 text-left">{item.uomLabel}</span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-4 text-right">
+                              <Input 
+                                type="number" 
+                                step="0.01" 
+                                min="0"
+                                value={item.unitPrice} 
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setItems(prev => prev.map(it => it.id === item.id ? { ...it, unitPrice: val } : it));
+                                }} 
+                                className="w-24 text-right h-9 rounded-lg border-slate-300 focus:border-indigo-500 focus:ring-indigo-500/20 bg-slate-50/50 dark:bg-slate-900/50 font-medium text-xs ml-auto" 
+                                required
+                              />
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              <Button
+                                type="button"
+                                variant={item.gstApplicable ? "default" : "outline"}
+                                onClick={() => {
+                                  setItems(prev => prev.map(it => it.id === item.id ? { ...it, gstApplicable: !it.gstApplicable } : it));
+                                }}
+                                className={twMerge(
+                                  "h-8 px-2.5 text-[11px] font-bold rounded-lg shadow-sm transition-all",
+                                  item.gstApplicable 
+                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/10 border-transparent" 
+                                    : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                                )}
+                              >
+                                {item.gstApplicable ? 'GST Applicable' : 'Non-GST'}
+                              </Button>
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              <select
+                                disabled={!item.gstApplicable}
+                                value={item.gstPercentage}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  setItems(prev => prev.map(it => it.id === item.id ? { ...it, gstPercentage: val } : it));
+                                }}
+                                className="h-9 px-2 py-1 text-xs border rounded-lg bg-slate-50/50 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 dark:text-slate-202 font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed w-20 mx-auto block"
+                              >
+                                <option value={0}>0%</option>
+                                <option value={5}>5%</option>
+                                <option value={12}>12%</option>
+                                <option value={18}>18%</option>
+                                <option value={28}>28%</option>
+                              </select>
+                            </td>
+                            <td className="px-5 py-4 text-right font-bold text-slate-900 dark:text-white">
+                              ₹{itemSubtotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                            </td>
+                            <td className="px-5 py-4 text-center">
+                              <button 
+                                type="button" 
+                                onClick={() => setItems(prev => prev.filter(it => it.id !== item.id))} 
+                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all mx-auto block"
+                                title="Remove item"
+                              >
+                                <X className="w-5 h-5 mx-auto" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     ) : (
                       <tr>
-                        <td colSpan={6} className="px-5 py-12 text-center">
+                        <td colSpan={8} className="px-5 py-12 text-center">
                           <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-slate-400 dark:text-slate-500">
                             <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800/50 flex items-center justify-center mb-4">
                               <Search className="w-8 h-8 text-slate-300 dark:text-slate-600" />
                             </div>
-                            <p className="text-base font-medium text-slate-600 dark:text-slate-400 mb-1">No products selected</p>
+                            <p className="text-base font-medium text-slate-650 dark:text-slate-400 mb-1">No products selected</p>
                             <p className="text-sm">Please search and select a raw material above to add it to your order.</p>
                           </div>
                         </td>
@@ -646,8 +751,8 @@ export default function CreatePOPage({ onBack }) {
             </div>
             
             {/* Fallback Reference Badge Info */}
-            <div className="mt-5 flex justify-end items-center text-xs text-slate-500 dark:text-slate-400">
-              <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
+            <div className="mt-5 flex justify-end items-center text-xs text-slate-550 dark:text-slate-400">
+              <div className="flex items-center gap-2 bg-slate-105 dark:bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm">
                 <Tag className="w-3.5 h-3.5 text-indigo-500" />
                 System Reference No: 
                 <span className="font-mono font-semibold text-slate-700 dark:text-slate-300 ml-1">
@@ -664,34 +769,50 @@ export default function CreatePOPage({ onBack }) {
               Additional Charges
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-              <div className="space-y-2">
-                <Label className="text-slate-700 dark:text-slate-300 font-medium">Order Tax</Label>
-                <div className="flex relative shadow-sm">
-                  <Input type="number" defaultValue="0" className="rounded-r-none h-[42px] text-sm focus:z-10 focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50 dark:bg-slate-900/50" />
-                  <span className="flex items-center justify-center px-4 bg-slate-100 dark:bg-slate-800 border border-l-0 border-slate-300 dark:border-slate-700 rounded-r-xl text-slate-500 font-semibold text-sm">
-                    %
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-slate-700 dark:text-slate-300 font-medium">Discount</Label>
-                <div className="relative shadow-sm">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">₹</span>
-                  <Input type="number" defaultValue="0" className="h-[42px] text-sm pl-8 rounded-xl focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50 dark:bg-slate-900/50" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-slate-700 dark:text-slate-300 font-medium">Shipping</Label>
-                <div className="relative shadow-sm">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">₹</span>
-                  <Input type="number" defaultValue="0" className="h-[42px] text-sm pl-8 rounded-xl focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50 dark:bg-slate-900/50" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-slate-700 dark:text-slate-300 font-medium">Payment Status <span className="text-rose-500">*</span></Label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5 mb-8">
+              <div className="space-y-1.5">
+                <Label className="text-slate-600 dark:text-slate-300 font-semibold text-xs tracking-wide">Discount (₹)</Label>
                 <div className="relative">
-                  <select className="w-full h-[42px] px-4 py-2 text-sm border rounded-xl bg-slate-50/50 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 hover:border-indigo-400 transition-all text-slate-700 dark:text-slate-200 shadow-sm appearance-none font-medium cursor-pointer">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    value={formData.discount} 
+                    onChange={(e) => setFormData({ ...formData, discount: e.target.value })}
+                    className="h-10 text-sm pl-8 rounded-xl focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50 dark:bg-slate-900/50 transition-all border-slate-200 dark:border-slate-800" 
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-600 dark:text-slate-300 font-semibold text-xs tracking-wide">Shipping (₹)</Label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    value={formData.shipping} 
+                    onChange={(e) => setFormData({ ...formData, shipping: e.target.value })}
+                    className="h-10 text-sm pl-8 rounded-xl focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50 dark:bg-slate-900/50 transition-all border-slate-200 dark:border-slate-800" 
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-600 dark:text-slate-300 font-semibold text-xs tracking-wide">Other Charges (₹)</Label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-medium">₹</span>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    value={formData.otherCharges} 
+                    onChange={(e) => setFormData({ ...formData, otherCharges: e.target.value })}
+                    className="h-10 text-sm pl-8 rounded-xl focus:ring-indigo-500/20 focus:border-indigo-500 bg-slate-50/50 dark:bg-slate-900/50 transition-all border-slate-200 dark:border-slate-800" 
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-slate-600 dark:text-slate-300 font-semibold text-xs tracking-wide">Payment Status <span className="text-rose-500">*</span></Label>
+                <div className="relative">
+                  <select className="w-full h-10 px-3.5 py-2 text-sm border rounded-xl bg-slate-50/50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 hover:border-indigo-400 transition-all text-slate-700 dark:text-slate-200 shadow-sm appearance-none font-medium cursor-pointer">
                     <option>Pending</option>
                     <option>Due</option>
                     <option>Partial</option>
@@ -703,7 +824,7 @@ export default function CreatePOPage({ onBack }) {
             </div>
 
             <div className="space-y-2 mb-10">
-              <Label className="text-slate-700 dark:text-slate-300 font-medium">Note / Instructions</Label>
+              <Label className="text-slate-755 dark:text-slate-300 font-medium">Note / Instructions</Label>
               <textarea 
                 className="w-full border rounded-2xl p-4 h-28 bg-slate-50/50 dark:bg-slate-900/50 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 hover:border-indigo-400 transition-all text-sm resize-none shadow-sm" 
                 placeholder="Add any specific instructions for the supplier..."
@@ -718,47 +839,65 @@ export default function CreatePOPage({ onBack }) {
             )}
 
             {/* Grand Total Summary Box */}
-            <div className="bg-gradient-to-br from-slate-50 to-indigo-50/50 dark:from-slate-800/60 dark:to-indigo-900/20 p-6 md:p-8 rounded-3xl flex flex-col lg:flex-row justify-between items-center border border-slate-200/80 dark:border-slate-700/80 gap-8 shadow-inner relative overflow-hidden">
+            <div className="bg-gradient-to-r from-slate-50 via-indigo-50/20 to-slate-50 dark:from-slate-900 dark:via-indigo-950/20 dark:to-slate-900 p-5 md:p-6 rounded-2xl flex flex-col lg:flex-row justify-between items-center border border-slate-200 dark:border-slate-800 gap-6 shadow-md relative overflow-hidden transition-all duration-300 hover:border-indigo-500/40">
               <div className="absolute top-0 right-0 p-16 bg-indigo-500/5 dark:bg-indigo-500/10 rounded-full blur-3xl -mr-10 -mt-10 pointer-events-none"></div>
               
-              <div className="flex flex-wrap gap-x-8 gap-y-4 text-sm w-full lg:w-auto relative z-10">
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-500 dark:text-slate-400 font-medium">Total Items</span>
-                  <span className="font-bold text-slate-900 dark:text-slate-100 text-lg">{formData.selectedRm ? '1' : '0'}</span>
+              {/* Financial Metrics Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-y-4 gap-x-6 text-sm w-full lg:w-auto relative z-10 select-none">
+                <div className="flex flex-col gap-0.5 group/metric transition-transform duration-200 hover:translate-y-[-2px]">
+                  <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px] uppercase tracking-wider">Total Items</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 text-base">{items.length}</span>
                 </div>
-                <div className="w-px h-10 bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-500 dark:text-slate-400 font-medium">Subtotal</span>
-                  <span className="font-bold text-slate-900 dark:text-slate-100 text-lg">₹{Number(formData.amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
+                
+                <div className="flex flex-col gap-0.5 group/metric transition-transform duration-200 hover:translate-y-[-2px]">
+                  <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px] uppercase tracking-wider">Subtotal</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 text-base">₹{subtotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}</span>
                 </div>
-                <div className="w-px h-10 bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-500 dark:text-slate-400 font-medium">Order Tax</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">₹0.00</span>
+
+                <div className="flex flex-col gap-0.5 group/metric transition-transform duration-200 hover:translate-y-[-2px]">
+                  <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px] uppercase tracking-wider">Taxes</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 text-base">
+                    ₹{totalItemTax.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                  </span>
+                  <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                    {isInterState ? 'IGST' : 'CGST+SGST'}
+                  </span>
                 </div>
-                <div className="w-px h-10 bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-500 dark:text-slate-400 font-medium">Discount</span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">-₹0.00</span>
+
+                <div className="flex flex-col gap-0.5 group/metric transition-transform duration-200 hover:translate-y-[-2px]">
+                  <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px] uppercase tracking-wider">Discount</span>
+                  <span className="font-extrabold text-emerald-600 dark:text-emerald-400 text-base">
+                    -₹{discount.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                  </span>
                 </div>
-                <div className="w-px h-10 bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-500 dark:text-slate-400 font-medium">Shipping</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">+₹0.00</span>
+
+                <div className="flex flex-col gap-0.5 group/metric transition-transform duration-200 hover:translate-y-[-2px]">
+                  <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px] uppercase tracking-wider">Shipping</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 text-base">
+                    +₹{shipping.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                  </span>
+                </div>
+
+                <div className="flex flex-col gap-0.5 group/metric transition-transform duration-200 hover:translate-y-[-2px]">
+                  <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px] uppercase tracking-wider">Other Charges</span>
+                  <span className="font-extrabold text-slate-800 dark:text-slate-200 text-base">
+                    +₹{otherCharges.toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                  </span>
                 </div>
               </div>
               
-              <div className="flex flex-col sm:flex-row items-center gap-6 w-full lg:w-auto relative z-10 border-t sm:border-t-0 border-slate-200 dark:border-slate-700 pt-6 sm:pt-0 mt-2 sm:mt-0">
-                <div className="text-center sm:text-right">
-                  <div className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+              {/* Grand Total & CTA */}
+              <div className="flex flex-col sm:flex-row items-center gap-5 w-full lg:w-auto relative z-10 border-t sm:border-t-0 border-slate-200 dark:border-slate-800 pt-5 sm:pt-0 mt-1 sm:mt-0">
+                <div className="text-center sm:text-right shrink-0">
+                  <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-0.5">
                     Grand Total
                   </div>
-                  <div className="text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight drop-shadow-sm">
-                    ₹{Number(formData.amount || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}
+                  <div className="text-2xl md:text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight transition-all duration-300 hover:scale-105">
+                    ₹{grandTotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}
                   </div>
                 </div>
-                <Button type="submit" disabled={createMutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white min-w-40 h-14 rounded-2xl text-base font-bold shadow-lg shadow-indigo-600/25 hover:shadow-xl hover:shadow-indigo-600/30 transition-all hover:-translate-y-0.5 active:translate-y-0 w-full sm:w-auto">
-                  {createMutation.isPending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : <CheckCircle2 className="w-5 h-5 mr-2" />}
+                <Button type="submit" disabled={createMutation.isPending} className="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white min-w-36 h-12 rounded-xl text-sm font-extrabold shadow-md shadow-indigo-600/20 hover:shadow-lg hover:shadow-indigo-600/30 transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 w-full sm:w-auto">
+                  {createMutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
                   {createMutation.isPending ? 'Submitting...' : 'Confirm Order'}
                 </Button>
               </div>

@@ -116,6 +116,7 @@ router.get('/upcoming',
             receivedDate: grn?.receivedDate || null,
             amountPaid: grn?.amountPaid || null,
             refundAmount: grn?.refundAmount || null,
+            items: po.items,
           };
         })
         // Exclude LAB_REJECTED entries from upcoming deliveries
@@ -163,29 +164,74 @@ router.post('/receive',
       const existingGrn = await prisma.gRNReceive.findFirst({ where: { poId: data.poId } });
       if (existingGrn) return res.status(409).json({ error: 'Delivery already received for this PO. GRN ID: ' + existingGrn.id });
 
-      const referenceNo = await generateReferenceNo(prisma, 'GRNReceive', 'GRN');
+      const { grn, pr } = await prisma.$transaction(async (tx) => {
+        const referenceNo = await generateReferenceNo(tx, 'GRNReceive', 'GRN');
 
-      const grn = await prisma.gRNReceive.create({
-        data: {
-          referenceNo,
-          poId: data.poId,
-          receivedDate: new Date(data.receivedDate),
-          amountPaid: data.amountPaid,
-          refundAmount: data.refundAmount,
-          discrepancyNotes: data.discrepancyNotes || null,
-          receivedBy: req.user.id,
-          status: 'PENDING_LAB',
-          items: {
-            create: data.items.map(item => ({
+        const g = await tx.gRNReceive.create({
+          data: {
+            referenceNo,
+            poId: data.poId,
+            receivedDate: new Date(data.receivedDate),
+            amountPaid: data.amountPaid,
+            refundAmount: data.refundAmount,
+            discrepancyNotes: data.discrepancyNotes || null,
+            receivedBy: req.user.id,
+            status: 'PENDING_LAB',
+            items: {
+              create: data.items.map(item => ({
+                rmId: item.rmId,
+                rmName: item.rmName,
+                expectedQty: item.expectedQty,
+                actualReceivedQty: item.actualReceivedQty,
+                returnQty: item.returnQty || 0,
+              }))
+            }
+          },
+          include: { items: true, po: { include: { supplier: true, uom: true } } }
+        });
+
+        // Check if any item has returnQty > 0
+        const returnItems = data.items
+          .filter(item => Number(item.returnQty || 0) > 0)
+          .map(item => {
+            let itemUom = '';
+            if (po.items && Array.isArray(po.items)) {
+              const poItem = po.items.find(pi => pi.rmId === item.rmId || pi.name === item.rmName);
+              if (poItem?.uomLabel) itemUom = poItem.uomLabel;
+              else if (poItem?.unit) itemUom = poItem.unit;
+            }
+            return {
               rmId: item.rmId,
               rmName: item.rmName,
-              expectedQty: item.expectedQty,
-              actualReceivedQty: item.actualReceivedQty,
-              returnQty: item.returnQty || 0,
-            }))
-          }
-        },
-        include: { items: true, po: { include: { supplier: true } } }
+              returnQty: Number(item.returnQty),
+              uom: itemUom || g.po?.uom?.abbreviation || null,
+            };
+          });
+
+        let pRecord = null;
+        if (returnItems.length > 0) {
+          const prRefNo = await generateReferenceNo(tx, 'PurchaseReturn', 'PR');
+          const totalReturnQty = returnItems.reduce((s, i) => s + i.returnQty, 0);
+
+          pRecord = await tx.purchaseReturn.create({
+            data: {
+              referenceNo: prRefNo,
+              poId: g.poId,
+              grnId: g.id,
+              returnQty: totalReturnQty,
+              uom: g.po?.uom?.abbreviation || null,
+              returnReason: 'QTY_MISMATCH',
+              reasonDescription: data.discrepancyNotes || 'Immediate return logged during GRN receipt',
+              initiatedBy: 'RECEIVER_INITIATED',
+              status: 'CLOSED',
+              createdBy: req.user.id,
+              items: returnItems,
+              returnDate: new Date(data.receivedDate),
+            }
+          });
+        }
+
+        return { grn: g, pr: pRecord };
       });
 
       // Notify
@@ -228,7 +274,13 @@ router.get('/receive/:id',
           items: true,
           po: { include: { supplier: true, uom: true, user: { select: { name: true } } } },
           receiver: { select: { name: true, role: true } },
-          labTest: true,
+          labTest: {
+            include: {
+              testResults: {
+                orderBy: { createdAt: 'asc' }
+              }
+            }
+          },
         }
       });
       if (!grn) return res.status(404).json({ error: 'GRN not found' });
@@ -248,7 +300,8 @@ router.get('/receive',
       const grns = await prisma.gRNReceive.findMany({
         orderBy: { createdAt: 'desc' },
         include: {
-          po: { include: { supplier: true } },
+          items: true,
+          po: { include: { supplier: true, uom: true } },
           receiver: { select: { name: true } },
           labTest: { select: { id: true, status: true, overallDecision: true, overrideReason: true, labNotes: true, sampleQty: true, categoryParams: true, testedBy: true, approvedBy: true, approvedAt: true, createdAt: true, updatedAt: true } },
         }
@@ -268,9 +321,15 @@ const labTestSchema = z.object({
     grnItemId: z.string().uuid(),
     rmId: z.string(),
     rmName: z.string(),
-    expiryDate: z.string().min(1),
+    expiryDate: z.string().min(1).refine(val => {
+      const d = new Date(val);
+      return !isNaN(d.getTime()) && d.getFullYear() <= 9999 && d.getFullYear() >= 1900;
+    }, { message: "Invalid expiry date or year out of range (1900-9999)" }),
     testNotes: z.string().optional(),
     passed: z.boolean(),
+    needTesting: z.boolean().default(true),
+    rmLabCategoryId: z.string().uuid().optional().nullable(),
+    categoryParams: z.record(z.string(), z.any()).optional().nullable(),
   })).min(1),
   overallDecision: z.enum(['APPROVED', 'REJECTED', 'NEED_SAMPLE']),
   labNotes: z.string().optional(),
@@ -310,7 +369,10 @@ router.post('/lab-test',
                 rmName: tr.rmName,
                 expiryDate: new Date(tr.expiryDate),
                 testNotes: tr.testNotes || null,
-                passed: tr.passed,
+                passed: tr.needTesting === false ? true : tr.passed,
+                needTesting: tr.needTesting !== false,
+                rmLabCategoryId: tr.rmLabCategoryId || null,
+                categoryParams: tr.categoryParams || null,
               }))
             }
           },
@@ -325,6 +387,15 @@ router.post('/lab-test',
         // If approved, update RM stock for each item
         if (data.overallDecision === 'APPROVED') {
           for (const item of grn.items) {
+            // Find test result of this item to see if it passed or did not need testing
+            const trResult = data.testResults.find(tr => tr.grnItemId === item.id);
+            const isPassed = trResult ? (trResult.needTesting === false || trResult.passed === true) : true;
+
+            if (!isPassed) {
+              console.log(`[LAB APPROVED] Skipping stock update for FAILED raw material: ${item.rmName} (rmId: ${item.rmId})`);
+              continue;
+            }
+
             // --- Robust lookup: try 3 strategies so stock update never silently fails ---
             // Strategy 1: RawMaterial.code exactly matches PO registry rmId (e.g. "RM-00001")
             let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
@@ -350,7 +421,7 @@ router.post('/lab-test',
                 data: { currentStock: { increment: netQty } }
               });
 
-              console.log(`[LAB APPROVED] Stock updated: ${rm.name} +${netQty} → new stock: ${updatedRm.currentStock}`);
+              console.log(`[LAB APPROVED] Stock updated for PASSED/EXEMPT item: ${rm.name} +${netQty} → new stock: ${updatedRm.currentStock}`);
 
               // Check if still at or below alert level → trigger notification
               if (Number(updatedRm.currentStock) <= Number(updatedRm.alertLevel)) {

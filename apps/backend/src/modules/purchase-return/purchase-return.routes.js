@@ -13,7 +13,7 @@ const returnSchema = z.object({
   poId: z.string().uuid().optional(),
   grnId: z.string().uuid().optional(),
   supplierId: z.string().uuid().optional(),
-  returnQty: z.coerce.number().positive(),
+  returnQty: z.coerce.number().nonnegative().optional(),
   uom: z.string().optional(),
   returnReason: z.enum(['LAB_REJECTED', 'PHYSICAL_DAMAGE', 'WRONG_MATERIAL', 'SHORT_EXPIRY', 'QTY_MISMATCH', 'EXPIRED_RM', 'OTHER']),
   reasonDescription: z.string().min(1),
@@ -25,6 +25,12 @@ const returnSchema = z.object({
   transporterDriver: z.string().optional(),
   debitNoteNumber: z.string().optional(),
   rawMaterialName: z.string().optional(),
+  items: z.array(z.object({
+    rmId: z.string(),
+    rmName: z.string(),
+    returnQty: z.coerce.number().positive(),
+    uom: z.string().optional(),
+  })).optional(),
 });
 
 // Helper: notify all relevant roles about a purchase return event
@@ -75,12 +81,17 @@ router.post('/',
 
       const referenceNo = await generateReferenceNo(prisma, 'PurchaseReturn', 'PR');
 
+      let finalReturnQty = data.returnQty || 0;
+      if (data.items && data.items.length > 0) {
+        finalReturnQty = data.items.reduce((s, i) => s + Number(i.returnQty), 0);
+      }
+
       const record = await prisma.purchaseReturn.create({
         data: {
           referenceNo,
           poId: data.poId || null,
           grnId: data.grnId || null,
-          returnQty: data.returnQty,
+          returnQty: finalReturnQty,
           uom: data.uom || po?.uom?.abbreviation || null,
           returnReason: data.returnReason,
           reasonDescription: data.reasonDescription,
@@ -93,6 +104,7 @@ router.post('/',
           debitNoteNumber: data.debitNoteNumber || null,
           status: 'PENDING',
           createdBy: req.user.id,
+          items: data.items || null,
         },
         include: {
           po: { include: { supplier: true } },
@@ -221,27 +233,47 @@ router.patch('/:id/status',
 
         // On CLOSED: reduce raw material inventory
         if (status === 'CLOSED' && existing.status !== 'CLOSED') {
-          const returnQty = Number(existing.returnQty || 0);
           const po = existing.po;
+          const itemsToProcess = existing.items && Array.isArray(existing.items) && existing.items.length > 0
+            ? existing.items
+            : (po ? [{ rmId: po.rmId, rmName: po.name, returnQty: existing.returnQty }] : []);
 
-          if (returnQty > 0 && po) {
-            // Find the raw material record
-            let rm = await tx.rawMaterial.findFirst({ where: { code: po.rmId } });
-            if (!rm && po.name) {
+          for (const item of itemsToProcess) {
+            const itemReturnQty = Number(item.returnQty || 0);
+            if (itemReturnQty <= 0) continue;
+
+            // Reduce raw material stock
+            let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+            if (!rm && item.rmName) {
               rm = await tx.rawMaterial.findFirst({
-                where: { name: { equals: po.name, mode: 'insensitive' } },
+                where: { name: { equals: item.rmName, mode: 'insensitive' } },
               });
             }
 
             if (rm) {
-              const newStock = Math.max(0, Number(rm.currentStock) - returnQty);
+              const newStock = Math.max(0, Number(rm.currentStock) - itemReturnQty);
               await tx.rawMaterial.update({
                 where: { id: rm.id },
                 data: { currentStock: newStock },
               });
-              console.log(`[PURCHASE RETURN CLOSED] Stock reduced: ${rm.name} -${returnQty} → ${newStock}`);
+              console.log(`[PURCHASE RETURN CLOSED] Stock reduced: ${rm.name} -${itemReturnQty} → ${newStock}`);
             } else {
-              console.warn(`[PURCHASE RETURN CLOSED] Could not match RawMaterial for rmId="${po.rmId}", name="${po.name}". Stock NOT reduced.`);
+              console.warn(`[PURCHASE RETURN CLOSED] Could not match RawMaterial for rmId="${item.rmId}", name="${item.rmName}". Stock NOT reduced.`);
+            }
+
+            // Update GRNReceiveItem.returnQty
+            if (existing.grnId) {
+              await tx.gRNReceiveItem.updateMany({
+                where: {
+                  grnId: existing.grnId,
+                  rmId: item.rmId,
+                },
+                data: {
+                  returnQty: {
+                    increment: itemReturnQty,
+                  },
+                },
+              });
             }
           }
 

@@ -39,8 +39,6 @@ export default function LabTestPage() {
   const [results, setResults] = useState([]);
   const [overallDecision, setOverallDecision] = useState('APPROVED');
   const [labNotes, setLabNotes] = useState('');
-  const [selectedCategoryId, setSelectedCategoryId] = useState('');
-  const [categoryParams, setCategoryParams] = useState({}); // { paramName: value }
   const [error, setError] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [isEditingDecision, setIsEditingDecision] = useState(false);
@@ -57,15 +55,6 @@ export default function LabTestPage() {
     queryFn: () => api.get('/rm-lab-category').then(r => r.data),
   });
 
-  // Fetch required params for selected category
-  const { data: requiredParams = [] } = useQuery({
-    queryKey: ['rm-required-results', selectedCategoryId],
-    queryFn: () => api.get(`/rm-lab-category/required-results/${selectedCategoryId}`).then(r => r.data),
-    enabled: !!selectedCategoryId,
-  });
-
-  const selectedCategory = rmLabCategories.find(c => c.id === selectedCategoryId);
-
   // Populate results from GRN items once loaded
   useEffect(() => {
     if (grn?.items && results.length === 0) {
@@ -76,27 +65,12 @@ export default function LabTestPage() {
         expiryDate: format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
         testNotes: '',
         passed: true,
+        needTesting: true,
+        rmLabCategoryId: '',
+        categoryParams: {},
       })));
     }
   }, [grn]);
-
-  // When category changes, reset category params based on requiredParams
-  useEffect(() => {
-    if (requiredParams.length > 0) {
-      const defaultParams = {};
-      requiredParams.forEach(p => {
-        defaultParams[p.paramName] = '';
-      });
-      setCategoryParams(defaultParams);
-    } else if (selectedCategory?.labTests) {
-      // Fall back to labTests list if no required params configured
-      const defaultParams = {};
-      selectedCategory.labTests.forEach(t => {
-        defaultParams[t] = '';
-      });
-      setCategoryParams(defaultParams);
-    }
-  }, [requiredParams, selectedCategory]);
 
   const mutation = useMutation({
     mutationFn: async (data) => { const res = await api.post('/grn/lab-test', data); return res.data; },
@@ -116,20 +90,61 @@ export default function LabTestPage() {
     setResults(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   };
 
-  const updateCategoryParam = (paramName, value) => {
-    setCategoryParams(prev => ({ ...prev, [paramName]: value }));
+  const handleItemCategoryChange = (idx, catId) => {
+    const cat = rmLabCategories.find(c => c.id === catId);
+    const initialParams = {};
+    if (cat) {
+      const requiredParams = cat.requiredResults || [];
+      if (requiredParams.length > 0) {
+        requiredParams.forEach(p => {
+          initialParams[p.paramName] = '';
+        });
+      } else if (cat.labTests) {
+        cat.labTests.forEach(t => {
+          initialParams[t] = '';
+        });
+      }
+    }
+    setResults(prev => prev.map((r, i) => i === idx ? { ...r, rmLabCategoryId: catId, categoryParams: initialParams } : r));
+  };
+
+  const updateItemCategoryParam = (idx, paramName, value) => {
+    setResults(prev => prev.map((r, i) => {
+      if (i === idx) {
+        return {
+          ...r,
+          categoryParams: {
+            ...r.categoryParams,
+            [paramName]: value
+          }
+        };
+      }
+      return r;
+    }));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setError('');
+    
     mutation.mutate({
       grnId,
-      testResults: results,
+      testResults: results.map(r => ({
+        grnItemId: r.grnItemId,
+        rmId: r.rmId,
+        rmName: r.rmName,
+        expiryDate: r.expiryDate,
+        testNotes: r.testNotes,
+        passed: r.needTesting === false ? true : r.passed,
+        needTesting: r.needTesting !== false,
+        rmLabCategoryId: r.needTesting && r.rmLabCategoryId ? r.rmLabCategoryId : null,
+        categoryParams: r.needTesting && Object.keys(r.categoryParams || {}).length > 0 ? r.categoryParams : null,
+      })),
       overallDecision,
       labNotes,
-      rmLabCategoryId: selectedCategoryId || undefined,
-      categoryParams: Object.keys(categoryParams).length > 0 ? categoryParams : undefined,
+      // Root fallback for compatibility
+      rmLabCategoryId: results.find(r => r.needTesting && r.rmLabCategoryId)?.rmLabCategoryId || undefined,
+      categoryParams: results.find(r => r.needTesting && Object.keys(r.categoryParams || {}).length > 0)?.categoryParams || undefined,
     });
   };
 
@@ -213,138 +228,204 @@ export default function LabTestPage() {
             )}
           </div>
 
-          {/* RM Lab Category Selection */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 space-y-4">
-            <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-              <Tag className="w-5 h-5 text-violet-500" /> RM Lab Category
-              <span className="text-xs font-normal text-slate-400">(Select to enable category-specific test parameters)</span>
-            </h3>
-            <div className="relative">
-              <select
-                value={selectedCategoryId}
-                onChange={e => setSelectedCategoryId(e.target.value)}
-                className="w-full border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500 appearance-none pr-10"
-              >
-                <option value="">— Select RM category (optional) —</option>
-                {rmLabCategories.map(c => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            </div>
-
-            {selectedCategory && (
-              <div className="p-4 bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/30 rounded-xl">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-sm font-semibold text-violet-800 dark:text-violet-300">{selectedCategory.name}</span>
-                  <span className="text-xs text-violet-500">{selectedCategory.rmExamples}</span>
-                </div>
-
-                {/* Category-specific param fields */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {requiredParams.length > 0 ? (
-                    requiredParams.map(param => (
-                      <div key={param.id} className="space-y-1">
-                        <label className="text-xs font-medium text-slate-600 dark:text-slate-400 flex items-center gap-1">
-                          {param.paramName}
-                          {param.paramUnit && <span className="text-slate-400">({param.paramUnit})</span>}
-                          {param.isRequired && <span className="text-red-400">*</span>}
-                        </label>
-                        <Input
-                          value={categoryParams[param.paramName] || ''}
-                          onChange={e => updateCategoryParam(param.paramName, e.target.value)}
-                          placeholder={
-                            param.acceptableText ||
-                            (param.acceptableMin != null && param.acceptableMax != null
-                              ? `${param.acceptableMin} – ${param.acceptableMax}`
-                              : `Enter ${param.paramName}`)
-                          }
-                          className="h-8 text-xs"
-                        />
-                        {(param.acceptableMin != null || param.acceptableMax != null || param.acceptableText) && (
-                          <p className="text-xs text-slate-400">
-                            Acceptable: {param.acceptableText || `${param.acceptableMin ?? ''}–${param.acceptableMax ?? ''} ${param.paramUnit || ''}`}
-                          </p>
-                        )}
-                      </div>
-                    ))
-                  ) : selectedCategory.labTests?.map(test => (
-                    <div key={test} className="space-y-1">
-                      <label className="text-xs font-medium text-slate-600 dark:text-slate-400">{test}</label>
-                      <Input
-                        value={categoryParams[test] || ''}
-                        onChange={e => updateCategoryParam(test, e.target.value)}
-                        placeholder={`Enter ${test} value`}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                {selectedCategory.acceptableResults && (
-                  <div className="mt-3 p-2 bg-violet-100 dark:bg-violet-500/20 rounded-lg text-xs text-violet-700 dark:text-violet-400">
-                    <strong>Acceptable:</strong> {selectedCategory.acceptableResults}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Test Results per Item */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
               <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                <FlaskConical className="w-5 h-5 text-indigo-500" /> Test Results per Item
+                <FlaskConical className="w-5 h-5 text-indigo-550" /> Test Results per Item
               </h3>
             </div>
             <div className="p-6 space-y-6">
               {grn.items?.map((item, idx) => (
-                <div key={item.id} className="border border-slate-200 dark:border-slate-700 rounded-xl p-5 space-y-4">
-                  <div className="flex items-center justify-between">
+                <div key={item.id} className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 space-y-5 bg-slate-50/30 dark:bg-slate-950/20 hover:border-slate-350 dark:hover:border-slate-700 transition-all duration-200 relative overflow-hidden group">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
                     <div>
-                      <h4 className="font-semibold text-slate-900 dark:text-slate-100">{item.rmName}</h4>
-                      <p className="text-xs text-slate-400 font-mono">{item.rmId}</p>
+                      <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg">{item.rmName}</h4>
+                      <p className="text-xs text-slate-400 font-mono mt-0.5">{item.rmId}</p>
                     </div>
-                    <div className="text-right text-sm">
-                      <span className="text-slate-500">Received: </span>
-                      <span className="font-bold text-slate-900 dark:text-slate-100">{Number(item.actualReceivedQty).toLocaleString()}</span>
-                      {Number(item.returnQty) > 0 && <span className="text-xs text-red-500 ml-2">(Return: {Number(item.returnQty)})</span>}
+                    <div className="text-left sm:text-right text-xs sm:text-sm">
+                      <span className="text-slate-400">Received Quantity: </span>
+                      <span className="font-extrabold text-slate-900 dark:text-slate-100">{Number(item.actualReceivedQty).toLocaleString()}</span>
+                      {Number(item.returnQty) > 0 && (
+                        <span className="text-xs text-red-500 font-semibold ml-2">(Return: {Number(item.returnQty)})</span>
+                      )}
                     </div>
                   </div>
+
+                  {/* Testing Need Toggle */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-250/60 dark:border-slate-800 shadow-sm">
+                    <div>
+                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Testing Requirement</span>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Specify if this raw material needs lab evaluation</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateResult(idx, 'needTesting', true)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
+                          results[idx]?.needTesting !== false
+                            ? 'bg-indigo-600 text-white border-indigo-605 shadow-sm shadow-indigo-500/10'
+                            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'
+                        }`}
+                      >
+                        <FlaskConical className="w-3.5 h-3.5" /> Lab Test Required
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateResult(idx, 'needTesting', false)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
+                          results[idx]?.needTesting === false
+                            ? 'bg-slate-655 text-white border-slate-600 shadow-sm'
+                            : 'bg-white dark:bg-slate-955 border-slate-205 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'
+                        }`}
+                      >
+                        <XCircle className="w-3.5 h-3.5" /> No Lab Test
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Testing Fields */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-1.5">
-                      <Label>Expiry Date *</Label>
+                      <Label className="text-xs font-bold text-slate-600 dark:text-slate-400">Expiry Date *</Label>
                       <Input
                         type="date"
                         required
                         value={results[idx]?.expiryDate || ''}
                         onChange={e => updateResult(idx, 'expiryDate', e.target.value)}
+                        className="rounded-xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
                       />
                     </div>
-                    <div className="space-y-1.5">
-                      <Label>Test Result *</Label>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => updateResult(idx, 'passed', true)}
-                          className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors flex items-center justify-center gap-1 ${results[idx]?.passed ? 'bg-emerald-600 text-white border-emerald-600' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Pass
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateResult(idx, 'passed', false)}
-                          className={`flex-1 py-2 rounded-md text-sm font-medium border transition-colors flex items-center justify-center gap-1 ${!results[idx]?.passed ? 'bg-red-600 text-white border-red-600' : 'border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'}`}
-                        >
-                          <XCircle className="w-3.5 h-3.5" /> Fail
-                        </button>
+
+                    {results[idx]?.needTesting !== false && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-600 dark:text-slate-400">Test Result *</Label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => updateResult(idx, 'passed', true)}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                              results[idx]?.passed
+                                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm shadow-emerald-500/10'
+                                : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Pass
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => updateResult(idx, 'passed', false)}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
+                              !results[idx]?.passed
+                                ? 'bg-rose-600 text-white border-rose-600 shadow-sm shadow-rose-500/10'
+                                : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
+                            }`}
+                          >
+                            <XCircle className="w-3.5 h-3.5" /> Fail
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label>Test Notes</Label>
-                      <Input value={results[idx]?.testNotes || ''} onChange={e => updateResult(idx, 'testNotes', e.target.value)} placeholder="Any observations..." />
+                    )}
+
+                    <div className={results[idx]?.needTesting !== false ? 'space-y-1.5' : 'space-y-1.5 md:col-span-2'}>
+                      <Label className="text-xs font-bold text-slate-600 dark:text-slate-400">Test Notes</Label>
+                      <Input
+                        value={results[idx]?.testNotes || ''}
+                        onChange={e => updateResult(idx, 'testNotes', e.target.value)}
+                        placeholder={results[idx]?.needTesting !== false ? 'Observation details...' : 'Exemption reason or notes...'}
+                        className="rounded-xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                      />
                     </div>
                   </div>
+
+                  {/* Category Parameters (Only if Lab Test Required) */}
+                  {results[idx]?.needTesting !== false && (
+                    <div className="space-y-4 border-t border-slate-100 dark:border-slate-800/80 pt-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-bold text-slate-650 dark:text-slate-300">RM Lab Category</Label>
+                        <div className="relative">
+                          <select
+                            value={results[idx]?.rmLabCategoryId || ''}
+                            onChange={e => handleItemCategoryChange(idx, e.target.value)}
+                            className="w-full border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none pr-10"
+                          >
+                            <option value="">— Select RM category (optional) —</option>
+                            {rmLabCategories.map(c => (
+                              <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
+                            ))}
+                          </select>
+                          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const itemCat = rmLabCategories.find(c => c.id === results[idx]?.rmLabCategoryId);
+                        if (!itemCat) return null;
+                        const itemRequiredParams = itemCat.requiredResults || [];
+
+                        return (
+                          <div className="p-4 bg-indigo-50/20 dark:bg-indigo-950/15 border border-indigo-100/50 dark:border-indigo-900/30 rounded-2xl space-y-4">
+                            <div className="flex items-center justify-between border-b border-indigo-100/40 dark:border-indigo-900/20 pb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-extrabold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">{itemCat.name} Parameters</span>
+                              </div>
+                              {itemCat.rmExamples && (
+                                <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-650 dark:text-indigo-400 px-2 py-0.5 rounded-md font-semibold font-mono">
+                                  e.g. {itemCat.rmExamples}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                              {itemRequiredParams.length > 0 ? (
+                                itemRequiredParams.map(param => (
+                                  <div key={param.id} className="space-y-1">
+                                    <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                      {param.paramName}
+                                      {param.paramUnit && <span className="text-slate-400 font-normal">({param.paramUnit})</span>}
+                                      {param.isRequired && <span className="text-red-400 font-normal">*</span>}
+                                    </label>
+                                    <Input
+                                      value={results[idx]?.categoryParams?.[param.paramName] || ''}
+                                      onChange={e => updateItemCategoryParam(idx, param.paramName, e.target.value)}
+                                      placeholder={
+                                        param.acceptableText ||
+                                        (param.acceptableMin != null && param.acceptableMax != null
+                                          ? `${param.acceptableMin} – ${param.acceptableMax}`
+                                          : `Value...`)
+                                      }
+                                      className="h-9 text-xs bg-white dark:bg-slate-900 border-slate-205 dark:border-slate-800 rounded-xl"
+                                    />
+                                    {(param.acceptableMin != null || param.acceptableMax != null || param.acceptableText) && (
+                                      <p className="text-[10px] text-slate-400 font-medium">
+                                        Acceptable: {param.acceptableText || `${param.acceptableMin ?? ''}–${param.acceptableMax ?? ''} ${param.paramUnit || ''}`}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))
+                              ) : itemCat.labTests?.map(test => (
+                                <div key={test} className="space-y-1">
+                                  <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400">{test}</label>
+                                  <Input
+                                    value={results[idx]?.categoryParams?.[test] || ''}
+                                    onChange={e => updateItemCategoryParam(idx, test, e.target.value)}
+                                    placeholder={`Enter ${test} value`}
+                                    className="h-9 text-xs bg-white dark:bg-slate-900 border-slate-205 dark:border-slate-800 rounded-xl"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+
+                            {itemCat.acceptableResults && (
+                              <div className="text-[10px] bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-450 border border-slate-200/80 dark:border-slate-800/80 p-2 rounded-xl">
+                                <span className="font-bold text-indigo-600 dark:text-indigo-400">Acceptable guidelines:</span> {itemCat.acceptableResults}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -86,6 +86,15 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
     queryFn: () => api.get('/rm-stock').then(r => r.data),
   });
 
+  // Fetch selected GRN details to get all items
+  const { data: grnDetails } = useQuery({
+    queryKey: ['grn-details', form.grnId],
+    queryFn: () => api.get(`/grn/receive/${form.grnId}`).then(r => r.data),
+    enabled: !!form.grnId,
+  });
+
+  const [selectedItems, setSelectedItems] = useState({});
+
   // Auto-set supplier when PO is selected
   useEffect(() => {
     if (form.poId) {
@@ -103,6 +112,50 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
 
   const matchedRM = selectedPO ? rmStockList.find(rm => rm.code === selectedPO.rmId) : null;
   const displayUom = matchedRM ? matchedRM.unit : selectedPO?.uom?.abbreviation;
+
+  const getPoDisplayName = (po) => {
+    if (po?.items && Array.isArray(po.items) && po.items.length > 0) {
+      const names = po.items.map(item => item.name || item.rmName).filter(Boolean);
+      if (names.length > 0) {
+        return names.join(', ');
+      }
+    }
+    return po?.name || '—';
+  };
+
+  // Sync selectedItems when grnDetails changes
+  useEffect(() => {
+    if (grnDetails?.items) {
+      const initial = {};
+      grnDetails.items.forEach(item => {
+        const maxReturnable = Math.max(0, Number(item.actualReceivedQty || 0) - Number(item.returnQty || 0));
+        
+        let itemUom = '';
+        if (selectedPO?.items && Array.isArray(selectedPO.items)) {
+          const poItem = selectedPO.items.find(pi => pi.rmId === item.rmId || pi.name === item.rmName);
+          if (poItem?.uomLabel) itemUom = poItem.uomLabel;
+          else if (poItem?.unit) itemUom = poItem.unit;
+        }
+        if (!itemUom && rmStockList && Array.isArray(rmStockList)) {
+          const matched = rmStockList.find(rm => rm.code === item.rmId || rm.id === item.rmId || rm.name === item.rmName);
+          if (matched?.unit) itemUom = matched.unit;
+          else if (matched?.unitId) itemUom = matched.unitId;
+        }
+        if (!itemUom) {
+          itemUom = displayUom || 'units';
+        }
+
+        initial[item.rmId] = {
+          checked: prefill.returnReason === 'LAB_REJECTED' && maxReturnable > 0,
+          returnQty: maxReturnable.toString(),
+          rmName: item.rmName,
+          uom: itemUom,
+          maxQty: maxReturnable
+        };
+      });
+      setSelectedItems(initial);
+    }
+  }, [grnDetails, rmStockList, selectedPO, displayUom, prefill.returnReason]);
 
   const mutation = useMutation({
     mutationFn: (payload) => api.post('/purchase-return', payload).then(r => r.data),
@@ -122,15 +175,40 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
     setError(null);
     if (!form.poId) return setError('Please select a Purchase Order');
     if (!form.grnId) return setError('Please select a GRN');
-    if (!form.returnQty || Number(form.returnQty) <= 0) return setError('Enter a valid return quantity');
     if (!form.returnReason) return setError('Select a return reason');
     if (!form.reasonDescription) return setError('Enter a detailed reason description');
+
+    const returnItems = Object.entries(selectedItems)
+      .filter(([_, item]) => item.checked)
+      .map(([rmId, item]) => ({
+        rmId,
+        rmName: item.rmName,
+        returnQty: Number(item.returnQty),
+        uom: item.uom,
+      }));
+
+    if (returnItems.length === 0) {
+      return setError('Please select at least one item to return');
+    }
+
+    // Validation
+    for (const item of returnItems) {
+      const stateItem = selectedItems[item.rmId];
+      if (isNaN(item.returnQty) || item.returnQty <= 0) {
+        return setError(`Please enter a valid return quantity for ${item.rmName}`);
+      }
+      if (item.returnQty > stateItem.maxQty) {
+        return setError(`Return quantity for ${item.rmName} cannot exceed the maximum returnable quantity of ${stateItem.maxQty.toFixed(2)} ${stateItem.uom}`);
+      }
+    }
+
+    const totalReturnQty = returnItems.reduce((s, i) => s + i.returnQty, 0);
 
     mutation.mutate({
       poId: form.poId,
       grnId: form.grnId,
       supplierId: form.supplierId || undefined,
-      returnQty: Number(form.returnQty),
+      returnQty: totalReturnQty,
       returnReason: form.returnReason,
       reasonDescription: form.reasonDescription,
       responsibleUserId: form.responsibleUserId || undefined,
@@ -140,6 +218,7 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
       transporterDriver: form.transporterDriver || undefined,
       debitNoteNumber: form.debitNoteNumber || undefined,
       initiatedBy: prefill.initiatedBy || 'RECEIVER_INITIATED',
+      items: returnItems,
     });
   };
 
@@ -228,7 +307,7 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
               >
                 <option value="">Select PO...</option>
                 {filteredPOs.map(po => (
-                  <option key={po.id} value={po.id}>{po.referenceNo} — {po.name}</option>
+                  <option key={po.id} value={po.id}>{po.referenceNo} — {getPoDisplayName(po)}</option>
                 ))}
               </select>
             </div>
@@ -257,8 +336,8 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
                 <p className="text-sm font-medium text-slate-900 dark:text-white">{selectedPO.supplier?.name || selectedSupplier?.name || '—'}</p>
               </div>
               <div>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Raw Material</p>
-                <p className="text-sm font-medium text-slate-900 dark:text-white">{selectedPO.name || '—'}</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Raw Materials</p>
+                <p className="text-sm font-medium text-slate-900 dark:text-white">{getPoDisplayName(selectedPO)}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">Ordered Qty</p>
@@ -279,19 +358,96 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
         {/* Return Details */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
           <h2 className="font-semibold text-slate-900 dark:text-white text-base border-b border-slate-100 dark:border-slate-700 pb-3">Return Details</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Return Quantity *</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.returnQty}
-                onChange={e => setForm(p => ({ ...p, returnQty: e.target.value }))}
-                placeholder="0.00"
-                className="text-sm"
-              />
+          
+          {/* Checklist of GRN Items */}
+          {grnDetails?.items && grnDetails.items.length > 0 ? (
+            <div className="space-y-3 border-b border-slate-100 dark:border-slate-700 pb-4">
+              <Label className="text-sm font-bold text-slate-900 dark:text-white mb-2 block">Select Materials & Quantities to Return *</Label>
+              <div className="space-y-2.5">
+                {grnDetails.items.map((item) => {
+                  const stateItem = selectedItems[item.rmId] || { checked: false, returnQty: '0', maxQty: 0 };
+                  const maxReturnable = stateItem.maxQty;
+                  
+                  return (
+                    <div
+                      key={item.id || item.rmId}
+                      className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border transition-all ${
+                        stateItem.checked
+                          ? 'bg-orange-50/40 dark:bg-orange-950/10 border-orange-200 dark:border-orange-900/50 shadow-sm'
+                          : 'bg-slate-50/50 dark:bg-slate-800/30 border-slate-100 dark:border-slate-700/60'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          id={`check-${item.rmId}`}
+                          checked={stateItem.checked}
+                          disabled={maxReturnable <= 0}
+                          onChange={(e) => {
+                            setSelectedItems(prev => ({
+                              ...prev,
+                              [item.rmId]: {
+                                ...prev[item.rmId],
+                                checked: e.target.checked
+                              }
+                            }));
+                          }}
+                          className="mt-1.5 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-orange-600 focus:ring-orange-500 cursor-pointer disabled:opacity-50"
+                        />
+                        <div className="flex flex-col">
+                          <label htmlFor={`check-${item.rmId}`} className="font-semibold text-sm text-slate-800 dark:text-slate-200 cursor-pointer">
+                            {item.rmName}
+                          </label>
+                          <span className="text-xs text-slate-400">
+                            Received: <strong className="text-slate-600 dark:text-slate-300">{Number(item.actualReceivedQty).toFixed(2)}</strong> | 
+                            Already Returned: <strong className="text-slate-505">{Number(item.returnQty || 0).toFixed(2)}</strong> | 
+                            Max Returnable: <strong className="text-orange-600 dark:text-orange-400">{maxReturnable.toFixed(2)} {stateItem.uom}</strong>
+                          </span>
+                          {maxReturnable <= 0 && (
+                            <span className="text-[10px] text-red-500 font-medium mt-0.5">Fully returned or zero available.</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 sm:ml-auto">
+                        <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">Return Qty:</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max={maxReturnable}
+                          step="0.01"
+                          disabled={!stateItem.checked}
+                          value={stateItem.returnQty}
+                          onChange={(e) => {
+                            setSelectedItems(prev => ({
+                              ...prev,
+                              [item.rmId]: {
+                                ...prev[item.rmId],
+                                returnQty: e.target.value
+                              }
+                            }));
+                          }}
+                          placeholder="0.00"
+                          className="w-24 h-9 text-right text-sm border-slate-200 dark:border-slate-600 focus:ring-orange-500 focus:border-orange-500"
+                        />
+                        <span className="text-xs font-medium text-slate-500 shrink-0 w-8">{stateItem.uom}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+          ) : form.grnId ? (
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 text-slate-400 text-xs rounded-xl flex items-center justify-center border border-dashed">
+              No items found in selected GRN.
+            </div>
+          ) : (
+            <div className="p-4 bg-slate-50 dark:bg-slate-800/40 text-slate-400 text-xs rounded-xl flex items-center justify-center border border-dashed">
+              Please select a GRN first to choose items.
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Return Reason *</Label>
               <select
@@ -304,7 +460,17 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
                 {RETURN_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
+            <div>
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Return Date</Label>
+              <Input
+                type="date"
+                value={form.returnDate}
+                onChange={e => setForm(p => ({ ...p, returnDate: e.target.value }))}
+                className="text-sm"
+              />
+            </div>
           </div>
+
           <div>
             <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Detailed Reason Description *</Label>
             <textarea
@@ -315,27 +481,17 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
               className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Return Date</Label>
-              <Input
-                type="date"
-                value={form.returnDate}
-                onChange={e => setForm(p => ({ ...p, returnDate: e.target.value }))}
-                className="text-sm"
-              />
-            </div>
-            <div>
-              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Responsible User</Label>
-              <select
-                value={form.responsibleUserId}
-                onChange={e => setForm(p => ({ ...p, responsibleUserId: e.target.value }))}
-                className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-              >
-                <option value="">Select user...</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role?.replace('_', ' ')})</option>)}
-              </select>
-            </div>
+
+          <div>
+            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Responsible User</Label>
+            <select
+              value={form.responsibleUserId}
+              onChange={e => setForm(p => ({ ...p, responsibleUserId: e.target.value }))}
+              className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
+            >
+              <option value="">Select user...</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role?.replace('_', ' ')})</option>)}
+            </select>
           </div>
         </div>
 

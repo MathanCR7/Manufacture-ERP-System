@@ -135,7 +135,7 @@ export default function PODetailPage() {
     quantity: po.quantity,
     uom: po.uom?.abbreviation,
     expectedDelivery: po.expectedDelivery,
-    poAmount: po.amount,
+    poAmount: po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount,
     paymentStatus: po.status,
     // Stage 2: GRN details (if received)
     ...(grn && {
@@ -248,8 +248,125 @@ export default function PODetailPage() {
             {po.supplier && (
               <InfoRow icon={User} label="Supplier" value={`${po.supplier.name}${po.supplier.phone ? ` · ${po.supplier.phone}` : ''}`} />
             )}
-            <InfoRow icon={Tag} label="Quantity & UOM" value={`${po.quantity} ${po.uom?.abbreviation || po.uom?.name || ''}`} />
-            <InfoRow icon={IndianRupee} label="Total Amount" value={`₹${parseFloat(po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}`} />
+            {po.items && Array.isArray(po.items) && po.items.length > 0 ? (
+              <div className="mt-4 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-850">
+                    <tr>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase">#</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase">Material Details</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase text-right">Quantity</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase text-center">UOM</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase text-right">Unit Price (₹)</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase text-center">GST Status</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase text-center">GST Rate</th>
+                      <th className="px-4 py-3 font-semibold text-xs uppercase text-right">Subtotal (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {po.items.map((item, idx) => (
+                      <tr key={item.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="px-4 py-3 text-slate-400 font-medium">{idx + 1}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">{item.name}</div>
+                          <div className="text-xs font-mono text-slate-505 bg-slate-105 dark:bg-slate-800 w-fit px-1.5 py-0.5 rounded mt-0.5">{item.rmId}</div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium text-slate-900 dark:text-slate-100">{item.quantity}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-mono">
+                            {item.uomLabel || po.uom?.abbreviation || po.uom?.name || 'units'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">₹{Number(item.unitPrice || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${item.gstApplicable ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' : 'bg-slate-100 text-slate-505 dark:bg-slate-800 dark:text-slate-400'}`}>
+                            {item.gstApplicable ? 'GST Active' : 'Non-GST'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center font-medium">{item.gstPercentage || 0}%</td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-955 dark:text-white">₹{(Number(item.quantity || 0) * Number(item.unitPrice || 0)).toLocaleString('en-IN', {minimumFractionDigits: 2})}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <InfoRow icon={Tag} label="Quantity & UOM" value={`${po.quantity} ${po.uom?.abbreviation || po.uom?.name || ''}`} />
+            )}
+            
+            {/* Detailed Pricing Breakdown */}
+            <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 text-sm space-y-2.5">
+              <p className="text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Financial Summary</p>
+              
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 dark:text-slate-400">Subtotal:</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                  ₹{parseFloat(po.subtotal && Number(po.subtotal) > 0 ? po.subtotal : po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              {Number(po.igst || 0) > 0 && (
+                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">IGST:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    ₹{parseFloat(po.igst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {Number(po.cgst || 0) > 0 && (
+                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">CGST:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    ₹{parseFloat(po.cgst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {Number(po.sgst || 0) > 0 && (
+                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">SGST:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    ₹{parseFloat(po.sgst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {Number(po.discount || 0) > 0 && (
+                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">Discount:</span>
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    -₹{parseFloat(po.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {Number(po.shipping || 0) > 0 && (
+                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">Shipping:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    +₹{parseFloat(po.shipping).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {Number(po.otherCharges || 0) > 0 && (
+                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">Other Charges:</span>
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    +₹{parseFloat(po.otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-700 pt-2.5 font-bold text-base text-indigo-600 dark:text-indigo-400">
+                <span>Grand Total:</span>
+                <span>
+                  ₹{parseFloat(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
             <InfoRow icon={Calendar} label="Expected Delivery" value={format(new Date(po.expectedDelivery), 'PPPP')} />
             <InfoRow icon={User} label="Created By" value={po.user?.name || '—'} />
           </div>

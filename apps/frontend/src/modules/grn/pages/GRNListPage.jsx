@@ -300,19 +300,16 @@ const GRNListPage = () => {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
-                  {['GRN #', 'PO #', 'Supplier', 'Raw Material', 'Ordered', 'Received', 'Shortfall', 'Invoice', 'Date', 'Lab Status', 'Inventory', 'Lab Params', 'Actions'].map(h => (
+                  {['GRN #', 'PO #', 'Supplier', 'Received Materials', 'Invoice', 'Date', 'Lab Status', 'Inventory', 'Lab Params', 'Actions'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
                 {sorted.map(grn => {
-                  const orderedQty = Number(grn.po?.quantity || 0);
-                  const receivedQty = grn.items?.reduce((s, i) => s + Number(i.actualReceivedQty), 0) || 0;
-                  const shortfall = Math.max(0, orderedQty - receivedQty);
                   const labCfg = LAB_STATUS_CONFIG[grn.status] || LAB_STATUS_CONFIG.PENDING_LAB;
                   const LabIcon = labCfg.icon;
                   const invCfg = INV_STATUS_CONFIG[grn.inventoryStatus || 'NOT_UPLOADED'];
@@ -322,7 +319,7 @@ const GRNListPage = () => {
                   return (
                     <tr
                       key={grn.id}
-                      className={`hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors ${labCfg.rowClass}`}
+                      className={`hover:bg-slate-50/80 dark:hover:bg-slate-700/40 transition-colors ${labCfg.rowClass}`}
                     >
                       <td className="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
                         <div className="flex flex-col gap-0.5">
@@ -341,19 +338,43 @@ const GRNListPage = () => {
                         {grn.po?.referenceNo || '—'}
                       </td>
                       <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white whitespace-nowrap">{grn.po?.supplier?.name || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap">{grn.po?.name || grn.items?.[0]?.rmName || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                        {orderedQty.toFixed(2)} <span className="text-xs text-slate-400">{grn.po?.uom?.abbreviation}</span>
+                      
+                      {/* Consolidated Received Materials Column */}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1.5 max-w-[340px]">
+                          {grn.items && grn.items.length > 0 ? (
+                            grn.items.map(item => {
+                              const itemExpected = Number(item.expectedQty || 0);
+                              const itemReceived = Number(item.actualReceivedQty || 0);
+                              const itemShortfall = Math.max(0, itemExpected - itemReceived);
+                              const itemUom = grn.po?.uom?.abbreviation || '';
+
+                              return (
+                                <div key={item.id || item.rmId} className="flex items-center justify-between gap-3 text-xs bg-slate-50 dark:bg-slate-700/30 border border-slate-100 dark:border-slate-800 rounded-lg px-2.5 py-1">
+                                  <div className="flex flex-col">
+                                    <span className="font-semibold text-slate-850 dark:text-slate-200">{item.rmName}</span>
+                                    <span className="text-[10px] text-slate-400">
+                                      Recv: <strong className="text-slate-700 dark:text-slate-300">{itemReceived.toFixed(2)}</strong> / Exp: {itemExpected.toFixed(2)} {itemUom}
+                                    </span>
+                                  </div>
+                                  {itemShortfall > 0 ? (
+                                    <span className="text-[10px] font-bold text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-950/30 px-1.5 py-0.5 rounded">
+                                      -{itemShortfall.toFixed(2)} {itemUom}
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded font-medium">
+                                      Ok
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <span className="text-slate-400 text-xs">—</span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                        {receivedQty.toFixed(2)} <span className="text-xs font-normal text-slate-400">{grn.po?.uom?.abbreviation}</span>
-                      </td>
-                      <td className="px-4 py-3 text-sm whitespace-nowrap">
-                        {shortfall > 0
-                          ? <span className="text-orange-600 dark:text-orange-400 font-semibold">-{shortfall.toFixed(2)}</span>
-                          : <span className="text-green-500">—</span>
-                        }
-                      </td>
+
                       <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{grn.invoiceNumber || '—'}</td>
                       <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                         {grn.receivedDate ? format(new Date(grn.receivedDate), 'dd MMM yyyy') : '—'}
@@ -403,7 +424,7 @@ const GRNListPage = () => {
                               onClick={() => navigate('/purchase-return/add', {
                                 state: { grnId: grn.id, poId: grn.poId, returnReason: 'LAB_REJECTED', initiatedBy: 'LAB_REJECTED' }
                               })}
-                              className="p-1.5 text-red-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors text-xs whitespace-nowrap"
+                              className="p-1.5 text-red-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors text-xs font-semibold whitespace-nowrap"
                               title="Initiate Return"
                             >
                               Return

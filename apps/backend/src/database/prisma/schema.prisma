@@ -173,6 +173,19 @@ model RawMaterialPO {
   deletedAt        DateTime?
   createdBy        String
   supplierId       String?             // <--- ADDED
+  
+  // Financial & Tax Details
+  subtotal         Decimal             @default(0.00)
+  orderTax         Decimal             @default(0.00) @map("order_tax")
+  discount         Decimal             @default(0.00)
+  shipping         Decimal             @default(0.00)
+  otherCharges     Decimal             @default(0.00) @map("other_charges")
+  cgst             Decimal             @default(0.00)
+  sgst             Decimal             @default(0.00)
+  igst             Decimal             @default(0.00)
+  grandTotal       Decimal             @default(0.00) @map("grand_total")
+  items            Json?
+  
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
@@ -402,10 +415,12 @@ model Customer {
   creditLimit     Decimal   @default(0)
   defaultDiscount Decimal   @default(0)
   customerType    String    @default("RETAIL")
+  paymentTermsDays Int      @default(0) @map("payment_terms_days")
   dob             DateTime?
   doa             DateTime?
   note            String?   @db.Text
   status          String    @default("ACTIVE")
+  loyaltyPoints   Int       @default(0) @map("loyalty_points")
   addedBy         String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -639,15 +654,18 @@ model GRNLabTest {
 }
 
 model GRNLabTestResult {
-  id          String   @id @default(uuid())
-  labTestId   String
-  grnItemId   String
-  rmId        String
-  rmName      String
-  expiryDate  DateTime
-  testNotes   String?  @db.Text
-  passed      Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  id              String   @id @default(uuid())
+  labTestId       String
+  grnItemId       String
+  rmId            String
+  rmName          String
+  expiryDate      DateTime
+  testNotes       String?  @db.Text
+  passed          Boolean  @default(false)
+  needTesting     Boolean  @default(true) @map("need_testing")
+  rmLabCategoryId String?  @map("rm_lab_category_id")
+  categoryParams  Json?    @map("category_params")
+  createdAt       DateTime @default(now())
 
   labTest  GRNLabTest     @relation(fields: [labTestId], references: [id], onDelete: Cascade)
   grnItem  GRNReceiveItem @relation(fields: [grnItemId], references: [id])
@@ -674,6 +692,7 @@ model PurchaseReturn {
   transporterVehicle   String?
   transporterDriver    String?
   debitNoteNumber      String?
+  items                Json?
   status               String   @default("PENDING") // PENDING / DISPATCHED / ACKNOWLEDGED / CLOSED
   createdBy            String
   createdAt            DateTime @default(now())
@@ -823,6 +842,11 @@ model FinishedProduct {
   openingStock          Decimal                     @default(0) @map("opening_stock")
   currentStock          Decimal                     @default(0) @map("current_stock")
   alertLevel            Decimal                     @default(0) @map("alert_level")
+  expectedOutput        Decimal?                    @map("expected_output")
+  sopSteps              Json?                       @map("sop_steps")
+  isSopLocked           Boolean                     @default(false) @map("is_sop_locked")
+  sopHistory            Json?                       @map("sop_history")
+  imageUrl              String?                     @map("image_url")
   createdBy             String                      @map("created_by")
   deletedAt             DateTime?                   @map("deleted_at")
   createdAt             DateTime                    @default(now()) @map("created_at")
@@ -841,6 +865,8 @@ model FinishedProduct {
   orderItems          CustomerOrderItem[]
   lossProducts        ProductionLossProduct[]
   wastages            ProductWastage[] @relation("ProductWastages")
+  campaigns           SalesCampaign[]
+  returnItems         SalesReturnItem[]
 
   @@map("products")
 }
@@ -916,6 +942,8 @@ model ProductionBatchNew {
   quantity            Decimal
   partiallyDoneQty    Decimal                     @default(0) @map("partially_done_quantity")
   remainingQty        Decimal                     @map("remaining_quantity")
+  actualOutput        Decimal?                    @map("actual_output")
+  rmVariance          Json?                       @map("rm_variance")
   currentStageId      String?                     @map("current_stage_id")
   totalCost           Decimal                     @default(0) @map("total_cost")
   profitMargin        Decimal                     @default(0) @map("profit_margin")
@@ -1014,6 +1042,7 @@ model LabProductionTestNew {
   qcNotes           String?            @db.Text @map("qc_notes")
   result            String             // pass / fail / partial
   action            String             // approved / rejected
+  qcParams          Json?              @map("qc_params")
   testedBy          String             @map("tested_by")
   createdAt         DateTime           @default(now()) @map("created_at")
 
@@ -1054,6 +1083,7 @@ model CustomerOrder {
   quotationNote  String?                  @db.Text @map("quotation_note")
   internalNote   String?                  @db.Text @map("internal_note")
   status         String                   @default("Quotation") // Quotation / Confirmed / Waiting for Production / In Production / Ready for Shipment / Delivered / Cancelled
+  paymentTerms   String?                  @map("payment_terms")
   totalSubtotal  Decimal                  @default(0) @map("total_subtotal")
   totalCost      Decimal                  @default(0) @map("total_cost")
   totalProfit    Decimal                  @default(0) @map("total_profit")
@@ -1068,6 +1098,7 @@ model CustomerOrder {
   deliveries     CustomerOrderDelivery[]
   stockMovements ProductStockMovement[]
   productionBatches ProductionBatchNew[]
+  returns        SalesReturn[]
 
   @@map("customer_orders")
 }
@@ -1570,4 +1601,80 @@ model CompanyDetails {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("company_details")
+}
+
+model SalesCampaign {
+  id                 String                      @id @default(uuid())
+  name               String
+  productId          String                      @map("product_id")
+  targetQuantity     Decimal                     @map("target_quantity")
+  price              Decimal                     @map("price")
+  minDepositPercent  Decimal                     @default(0) @map("min_deposit_percent")
+  startDate          DateTime                    @map("start_date")
+  endDate            DateTime                    @map("end_date")
+  status             String                      @default("Active") // Active, Completed
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  
+  product            FinishedProduct             @relation(fields: [productId], references: [id])
+  preOrders          SalesCampaignOrder[]
+
+  @@map("sales_campaigns")
+}
+
+model SalesCampaignOrder {
+  id             String                      @id @default(uuid())
+  campaignId     String                      @map("campaign_id")
+  customerName   String                      @map("customer_name")
+  quantity       Decimal
+  depositPaid    Decimal                     @map("deposit_paid")
+  balanceDue     Decimal                     @map("balance_due")
+  status         String                      @default("Booked") // Booked, Fulfilled, Delivered
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  
+  campaign       SalesCampaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("sales_campaign_orders")
+}
+
+model SalesReturn {
+  id             String                      @id @default(uuid())
+  returnNo       String                      @unique @map("return_no") // SR-XXXXXX
+  invoiceId      String                      @map("invoice_id") // Links to CustomerOrder (representing invoice)
+  reason         String
+  refundMethod   String                      @map("refund_method") // Cash, Credit Note, Replacement
+  status         String                      @default("Completed")
+  createdAt      DateTime                    @default(now()) @map("created_at")
+  
+  order          CustomerOrder               @relation(fields: [invoiceId], references: [id])
+  items          SalesReturnItem[]
+
+  @@map("sales_returns")
+}
+
+model SalesReturnItem {
+  id            String                       @id @default(uuid())
+  returnId      String                       @map("return_id")
+  productId     String                       @map("product_id")
+  quantity      Decimal
+  condition     String                       // Resaleable, Damaged, Destroyed
+  
+  return        SalesReturn                  @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  product       FinishedProduct              @relation(fields: [productId], references: [id])
+
+  @@map("sales_return_items")
+}
+
+model ErrorLog {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  userRole  String?  @map("user_role")
+  message   String   @db.Text
+  stack     String?  @db.Text
+  path      String
+  method    String
+  ip        String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("error_logs")
 }

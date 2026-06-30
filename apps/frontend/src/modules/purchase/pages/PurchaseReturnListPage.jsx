@@ -36,16 +36,17 @@ const REASON_LABELS = {
 const STATUS_FLOW = ['PENDING', 'DISPATCHED', 'ACKNOWLEDGED', 'CLOSED'];
 
 // QR Detail Modal for purchase return
-function ReturnQRModal({ ret, onClose }) {
+function ReturnQRModal({ ret, onClose, getItemUom }) {
   if (!ret) return null;
   const qrPayload = JSON.stringify({
     returnId: ret.referenceNo,
     poNumber: ret.po?.referenceNo,
     grnNumber: ret.grn?.referenceNo,
     supplierName: ret.po?.supplier?.name,
-    rawMaterial: ret.po?.name,
+    rawMaterial: ret.items && ret.items.length > 0 ? undefined : ret.po?.name,
+    items: ret.items && ret.items.length > 0 ? ret.items.map(i => ({ rmName: i.rmName, returnQty: i.returnQty, uom: getItemUom ? getItemUom(i.rmId, i.rmName, i.uom || ret.uom) : (i.uom || ret.uom) })) : undefined,
     returnQty: ret.returnQty,
-    uom: ret.uom,
+    uom: ret.items && ret.items.length > 0 ? undefined : (getItemUom ? getItemUom(ret.po?.rmId, ret.po?.name, ret.uom) : ret.uom),
     returnReason: REASON_LABELS[ret.returnReason] || ret.returnReason,
     returnDate: ret.returnDate,
     status: ret.status,
@@ -62,7 +63,7 @@ function ReturnQRModal({ ret, onClose }) {
           <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <QrCode className="w-5 h-5 text-orange-500" /> Return QR Code
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+          <button onClick={onClose} className="text-slate-405 hover:text-slate-600 text-xl">×</button>
         </div>
 
         <div className="flex justify-center">
@@ -77,17 +78,30 @@ function ReturnQRModal({ ret, onClose }) {
             { label: 'PO Number', value: ret.po?.referenceNo || '—' },
             { label: 'GRN Number', value: ret.grn?.referenceNo || '—' },
             { label: 'Supplier', value: ret.po?.supplier?.name || '—' },
-            { label: 'Raw Material', value: ret.po?.name || '—' },
-            { label: 'Return Qty', value: `${Number(ret.returnQty).toFixed(2)} ${ret.uom || ''}` },
+            {
+              label: 'Returned Items',
+              value: ret.items && Array.isArray(ret.items) && ret.items.length > 0 ? (
+                <div className="flex flex-col gap-1 w-full text-right">
+                  {ret.items.map((item, idx) => (
+                    <span key={idx} className="text-xs font-medium text-slate-800 dark:text-slate-200 block">
+                      {item.rmName}: <strong>{Number(item.returnQty).toFixed(2)} {getItemUom ? getItemUom(item.rmId, item.rmName, item.uom || ret.uom) : (item.uom || ret.uom)}</strong>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                `${Number(ret.returnQty).toFixed(2)} ${getItemUom ? getItemUom(ret.po?.rmId, ret.po?.name, ret.uom) : (ret.uom || '')}`
+              ),
+              isCustomNode: true
+            },
             { label: 'Return Reason', value: REASON_LABELS[ret.returnReason] || ret.returnReason },
             { label: 'Return Date', value: ret.returnDate ? format(new Date(ret.returnDate), 'dd MMM yyyy') : '—' },
             { label: 'Status', value: STATUS_CONFIG[ret.status]?.label || ret.status },
             ...(ret.transporterName ? [{ label: 'Transporter', value: ret.transporterName }] : []),
             ...(ret.transporterVehicle ? [{ label: 'Vehicle', value: ret.transporterVehicle }] : []),
-          ].map(({ label, value }) => (
+          ].map(({ label, value, isCustomNode }) => (
             <div key={label} className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
-              <span className="text-slate-500 dark:text-slate-400">{label}</span>
-              <span className="font-medium text-slate-900 dark:text-slate-100 text-right">{value}</span>
+              <span className="text-slate-500 dark:text-slate-400 shrink-0">{label}</span>
+              {isCustomNode ? value : <span className="font-medium text-slate-900 dark:text-slate-200 text-right">{value}</span>}
             </div>
           ))}
         </div>
@@ -135,6 +149,19 @@ const PurchaseReturnListPage = () => {
       return api.get(`/purchase-return?${params.toString()}`).then(r => r.data);
     },
   });
+
+  const { data: rmStockList = [] } = useQuery({
+    queryKey: ['rm-stock'],
+    queryFn: () => api.get('/rm-stock').then(r => r.data),
+  });
+
+  const getItemUom = (rmId, rmName, fallbackUom) => {
+    if (rmStockList && Array.isArray(rmStockList)) {
+      const matched = rmStockList.find(rm => rm.code === rmId || rm.id === rmId || rm.name === rmName);
+      if (matched?.unit) return matched.unit;
+    }
+    return fallbackUom;
+  };
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }) => api.patch(`/purchase-return/${id}/status`, { status }).then(r => r.data),
@@ -322,7 +349,7 @@ const PurchaseReturnListPage = () => {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
-                  {['Return ID', 'PO Number', 'GRN', 'Supplier', 'Raw Material', 'Return Qty', 'Reason', 'Return Date', 'Status', 'Actions'].map(h => (
+                  {['Return ID', 'PO Number', 'GRN', 'Supplier', 'Returned Materials', 'Reason', 'Return Date', 'Status', 'Actions'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -356,12 +383,31 @@ const PurchaseReturnListPage = () => {
                       <td className="px-4 py-3 text-xs text-indigo-600 dark:text-indigo-400 whitespace-nowrap">{ret.po?.referenceNo || '—'}</td>
                       <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{ret.grn?.referenceNo || '—'}</td>
                       <td className="px-4 py-3 text-sm font-medium text-slate-900 dark:text-white whitespace-nowrap">{ret.po?.supplier?.name || '—'}</td>
-                      <td className="px-4 py-3 text-sm text-slate-700 dark:text-slate-300 whitespace-nowrap">{ret.po?.name || '—'}</td>
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-900 dark:text-white whitespace-nowrap">
-                        {Number(ret.returnQty).toFixed(2)} <span className="text-xs font-normal text-slate-500">{ret.uom}</span>
+                              {/* Consolidated Returned Materials Column */}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1.5 max-w-[280px]">
+                          {ret.items && Array.isArray(ret.items) && ret.items.length > 0 ? (
+                            ret.items.map((item, idx) => (
+                              <div key={idx} className="flex items-center justify-between text-xs bg-slate-50 dark:bg-slate-700/30 border border-slate-100 dark:border-slate-800 rounded-lg px-2.5 py-1">
+                                <span className="font-semibold text-slate-800 dark:text-slate-200">{item.rmName}</span>
+                                <span className="font-mono font-medium text-slate-700 dark:text-slate-350 ml-2 whitespace-nowrap">
+                                  {Number(item.returnQty).toFixed(2)} <span className="text-[10px] text-slate-450">{getItemUom(item.rmId, item.rmName, item.uom || ret.uom)}</span>
+                                </span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="flex items-center justify-between text-xs bg-slate-50 dark:bg-slate-700/30 border border-slate-100 dark:border-slate-800 rounded-lg px-2.5 py-1">
+                              <span className="font-semibold text-slate-800 dark:text-slate-200">{ret.po?.name || '—'}</span>
+                              <span className="font-mono font-medium text-slate-700 dark:text-slate-350 ml-2 whitespace-nowrap">
+                                {Number(ret.returnQty).toFixed(2)} <span className="text-[10px] text-slate-450">{getItemUom(ret.po?.rmId, ret.po?.name, ret.uom)}</span>
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{REASON_LABELS[ret.returnReason] || ret.returnReason}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+
+                      <td className="px-4 py-3 text-xs text-slate-650 dark:text-slate-300 whitespace-nowrap">{REASON_LABELS[ret.returnReason] || ret.returnReason}</td>
+                      <td className="px-4 py-3 text-xs text-slate-550 dark:text-slate-400 whitespace-nowrap">
                         {ret.returnDate ? format(new Date(ret.returnDate), 'dd MMM yyyy') : '—'}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
@@ -426,7 +472,7 @@ const PurchaseReturnListPage = () => {
       )}
 
       {/* QR Modal */}
-      {qrReturn && <ReturnQRModal ret={qrReturn} onClose={() => setQRReturn(null)} />}
+      {qrReturn && <ReturnQRModal ret={qrReturn} onClose={() => setQRReturn(null)} getItemUom={getItemUom} />}
     </div>
   );
 };

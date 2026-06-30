@@ -81,6 +81,7 @@ function RawMaterialForm({ editId, onBack }) {
   const queryClient = useQueryClient();
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm();
+  const [hasHsnDescription, setHasHsnDescription] = useState(false);
 
   const selectedUom = watch('unitId');
   const selectedHsn = watch('hsnCode') || '';
@@ -185,7 +186,10 @@ function RawMaterialForm({ editId, onBack }) {
   });
 
   useEffect(() => {
-    if (existingData) reset(existingData);
+    if (existingData) {
+      reset(existingData);
+      setHasHsnDescription(!!existingData.hsnCode && !!existingData.description);
+    }
   }, [existingData, reset]);
 
   const mutation = useMutation({
@@ -374,13 +378,34 @@ function RawMaterialForm({ editId, onBack }) {
               <input type="hidden" {...register('hsnCode')} />
               <HsnSelect
                 value={selectedHsn}
-                onChange={(val) => setValue('hsnCode', val, { shouldValidate: true })}
+                onChange={(val) => {
+                  setValue('hsnCode', val, { shouldValidate: true });
+                  if (!val) {
+                    setValue('description', '');
+                    setHasHsnDescription(false);
+                  }
+                }}
+                onSelect={(item) => {
+                  if (item && item.description) {
+                    setValue('description', item.description);
+                    setHasHsnDescription(true);
+                  } else {
+                    setHasHsnDescription(false);
+                  }
+                }}
               />
             </div>
 
             <div className="space-y-2 md:col-span-2">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
-              <textarea {...register('description')} rows="2" className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white bg-white border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <textarea 
+                {...register('description')} 
+                rows="2" 
+                readOnly={hasHsnDescription}
+                className={`w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white bg-white border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                  hasHsnDescription ? 'bg-slate-100 dark:bg-slate-800 cursor-not-allowed opacity-75' : ''
+                }`}
+              />
             </div>
           </CardContent>
         </Card>
