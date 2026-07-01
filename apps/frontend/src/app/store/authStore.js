@@ -9,7 +9,7 @@ const useAuthStore = create(
       setAuth: (token, user) => set({ token, user }),
       clearAuth: () => set({ token: null, user: null }),
     }),
-    { name: 'kulfi-auth' }
+    { name: 'leonex-auth' }
   )
 );
 

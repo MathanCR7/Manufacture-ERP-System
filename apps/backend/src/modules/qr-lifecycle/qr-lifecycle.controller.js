@@ -90,13 +90,40 @@ const getLifecycle = async (req, res, next) => {
       });
     }
 
+    // Try production batch
+    let prodBatch = null;
     if (!grn && !po && !batch) {
+      prodBatch = await prisma.productionBatchNew.findFirst({
+        where: { OR: [{ referenceNo: searchId }, { id: searchId }] },
+        include: {
+          product: { include: { unit: true } },
+          creator: { select: { id: true, name: true, email: true, role: true } },
+          order: { include: { customer: true } },
+          qcTests: { include: { tester: { select: { name: true, email: true } } } },
+          stockMovements: { include: { creator: { select: { name: true } } } }
+        }
+      });
+    }
+
+    if (!grn && !po && !batch && !prodBatch) {
       return res.status(404).json({ error: 'No lifecycle data found for this ID.', searchedId: searchId, originalPayload: parsedData });
     }
 
     // Normalize into lifecycle object
     let lifecycle;
-    if (grn) {
+    if (prodBatch) {
+      const logs = await prisma.auditLog.findMany({
+        where: { tableName: 'production_batches', recordId: prodBatch.id },
+        include: { user: { select: { name: true } } },
+        orderBy: { createdAt: 'asc' }
+      });
+      lifecycle = {
+        type: 'production',
+        searchedId: searchId,
+        batch: prodBatch,
+        auditLogs: logs
+      };
+    } else if (grn) {
       lifecycle = {
         searchedId: searchId,
         originalPayload: parsedData,

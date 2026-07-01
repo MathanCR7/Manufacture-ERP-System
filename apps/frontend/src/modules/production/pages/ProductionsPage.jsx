@@ -3,11 +3,11 @@ import { api } from '@/lib/axios';
 import { 
   Factory, Search, RefreshCw, Plus, Calendar, AlertCircle, Play, CheckCircle, 
   Pause, Trash2, Eye, ChevronLeft, X, ClipboardList, Info, Flame, Scale, Check, 
-  Grid, List as ListIcon, Award, Activity, AlertTriangle, HelpCircle, DollarSign, Clock
+  Grid, List as ListIcon, Award, Activity, AlertTriangle, HelpCircle, DollarSign, Clock, Layers, ArrowUpRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -17,8 +17,12 @@ import AddProductionPage from './AddProductionPage';
 export default function ProductionsPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const batchIdParam = searchParams.get('id');
+  
   const [view, setView] = useState({ type: 'list', prefill: null });
   const [displayMode, setDisplayMode] = useState('grid'); // 'grid' | 'table'
+  const [dragOver, setDragOver] = useState(false);
 
   useEffect(() => {
     if (location.pathname === '/production/add' || location.state?.prefill) {
@@ -42,8 +46,9 @@ export default function ProductionsPage() {
   const [actualRmUsages, setActualRmUsages] = useState([]); // Array of { rmId, name, requiredQty, actualUsedQty, unit }
   const [completionNote, setCompletionNote] = useState('');
 
-  // Details Modal State
+  // Details Page State (loaded if batchIdParam exists)
   const [detailBatch, setDetailBatch] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
 
   const fetchBatches = async () => {
     setLoading(true);
@@ -68,6 +73,27 @@ export default function ProductionsPage() {
     fetchBatches();
   }, [page, statusFilter, displayMode]);
 
+  // Handle URL ID query parameter sync to load details view
+  useEffect(() => {
+    if (batchIdParam) {
+      const fetchDetail = async () => {
+        setLoadingDetail(true);
+        try {
+          const res = await api.get(`/production/${batchIdParam}`);
+          setDetailBatch(res.data);
+        } catch (e) {
+          console.error(e);
+          Swal.fire({ title: 'Error', text: 'Failed to load production batch details.', icon: 'error' });
+        } finally {
+          setLoadingDetail(false);
+        }
+      };
+      fetchDetail();
+    } else {
+      setDetailBatch(null);
+    }
+  }, [batchIdParam]);
+
   const handleSearch = (e) => {
     e.preventDefault();
     setPage(1);
@@ -78,7 +104,6 @@ export default function ProductionsPage() {
     const isDark = document.documentElement.classList.contains('dark');
     try {
       if (newStatus === 'In Progress') {
-        // Enforce RM shortfall check before starting
         await api.patch(`/production/${id}/status`, { status: newStatus });
         Swal.fire({
           title: '<span class="text-sm font-bold text-slate-800 dark:text-slate-100">Production Started!</span>',
@@ -108,7 +133,6 @@ export default function ProductionsPage() {
   // Open modal to record actual details
   const handleOpenCompletionModal = async (batch) => {
     try {
-      // Fetch full batch details including BOM and recipe
       const res = await api.get(`/production/${batch.id}`);
       const fullBatch = res.data;
       setExecBatch(fullBatch);
@@ -138,7 +162,6 @@ export default function ProductionsPage() {
     }
   };
 
-  // Submit actual completion to backend
   const handleSubmitCompletion = async () => {
     const isDark = document.documentElement.classList.contains('dark');
     try {
@@ -178,18 +201,437 @@ export default function ProductionsPage() {
     }
   };
 
-  const handleOpenDetailModal = async (batch) => {
-    try {
-      const res = await api.get(`/production/${batch.id}`);
-      setDetailBatch(res.data);
-    } catch (e) {
-      console.error(e);
-      Swal.fire({ title: 'Error', text: 'Failed to load batch logs', icon: 'error' });
+  const handleOpenDetailModal = (batch) => {
+    setSearchParams({ id: batch.id });
+  };
+
+  const handleCloseDetailModal = () => {
+    setSearchParams({});
+    setDetailBatch(null);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const id = e.dataTransfer.getData("text/plain");
+    if (id) {
+      setSearchParams({ id });
     }
+  };
+
+  // Timing logs parser
+  const calculateProductionTimes = (logs) => {
+    if (!logs || logs.length === 0) return { timeline: [], durationText: 'N/A' };
+
+    let startTime = null;
+    let totalMs = 0;
+    const timeline = [];
+
+    const sorted = [...logs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    sorted.forEach((log) => {
+      let eventName = '';
+      const newVal = log.newValue || {};
+      const oldVal = log.oldValue || {};
+      
+      if (log.action === 'CREATE_PRODUCTION_BATCH') {
+        eventName = 'Batch Created';
+      } else if (log.action === 'UPDATE_PRODUCTION_STATUS') {
+        if (newVal.status === 'In Progress') {
+          eventName = oldVal.status === 'On Hold' ? 'Resumed' : 'Started';
+          startTime = new Date(log.createdAt);
+        } else if (newVal.status === 'On Hold') {
+          eventName = 'Paused';
+          if (startTime) {
+            totalMs += new Date(log.createdAt) - startTime;
+            startTime = null;
+          }
+        } else if (newVal.status === 'Cancelled') {
+          eventName = 'Cancelled';
+          startTime = null;
+        }
+      } else if (log.action === 'COMPLETE_PRODUCTION_BATCH') {
+        eventName = 'Completed';
+        if (startTime) {
+          totalMs += new Date(log.createdAt) - startTime;
+          startTime = null;
+        }
+      } else if (log.action === 'APPROVE_PRODUCTION_QC') {
+        eventName = 'QC Approved & Released';
+      }
+
+      if (eventName) {
+        timeline.push({
+          event: eventName,
+          time: new Date(log.createdAt),
+          user: log.user?.name || 'System'
+        });
+      }
+    });
+
+    if (startTime) {
+      totalMs += new Date() - startTime;
+    }
+
+    const totalMinutes = Math.floor(totalMs / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
+    
+    let durationText = '0m';
+    if (hours > 0) {
+      durationText = `${hours}h ${mins}m`;
+    } else if (mins > 0) {
+      durationText = `${mins}m`;
+    } else {
+      durationText = 'less than a minute';
+    }
+
+    return { timeline, durationText };
   };
 
   if (view.type === 'create') {
     return <AddProductionPage />;
+  }
+
+  // ─────────────────────── RENDERING DETAILED SUB-PAGE VIEW ───────────────────────
+  if (batchIdParam) {
+    if (loadingDetail) {
+      return (
+        <div className="min-h-[70vh] flex flex-col items-center justify-center text-slate-400 gap-3">
+          <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
+          <span className="text-sm font-semibold">Fetching batch details...</span>
+        </div>
+      );
+    }
+
+    if (!detailBatch) {
+      return (
+        <div className="p-6 max-w-4xl mx-auto text-center space-y-4">
+          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Batch Not Found</h2>
+          <Button onClick={handleCloseDetailModal} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl">
+            Back to Batch Listing
+          </Button>
+        </div>
+      );
+    }
+
+    const { timeline, durationText } = calculateProductionTimes(detailBatch.auditLogs);
+    const rawUsages = detailBatch.rmUsages || [];
+    const calculatedVariances = rawUsages.map(u => {
+      const required = Number(u.requiredQty || 0);
+      const actual = Number(u.actualUsedQty || 0);
+      return {
+        rawMaterialName: u.rawMaterial?.name || 'Raw Material',
+        requiredQty: required,
+        actualUsedQty: actual,
+        variance: actual - required,
+        unit: u.rawMaterial?.unit?.abbreviation || 'units'
+      };
+    });
+
+    return (
+      <div className="p-6 max-w-7xl mx-auto space-y-6 animate__animated animate__fadeIn">
+        {/* Navigation & Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-205 dark:border-slate-850">
+          <div className="space-y-1">
+            <button 
+              onClick={handleCloseDetailModal}
+              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline mb-1"
+            >
+              <ChevronLeft className="w-4 h-4" /> Back to Batch Execution Center
+            </button>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+              Batch Execution Dashboard
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Audit log details, timing reports, and component consumption stats for Batch #{detailBatch.referenceNo}.
+            </p>
+          </div>
+          <span className={`px-3 py-1 rounded-full text-xs font-extrabold border ${
+            detailBatch.status === 'Planned' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400' :
+            detailBatch.status === 'In Progress' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400' :
+            detailBatch.status === 'Completed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400' :
+            detailBatch.status === 'qc_passed' ? 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-500/10 dark:text-emerald-450' :
+            'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/10 dark:text-slate-400'
+          }`}>
+            Status: {detailBatch.status === 'qc_passed' ? 'Passed QC' : detailBatch.status === 'qc_failed' ? 'Failed QC' : detailBatch.status}
+          </span>
+        </div>
+
+        {/* Dashboard Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* LEFT 2 COLUMNS: Operations logs & BOM specs */}
+          <div className="lg:col-span-2 space-y-6">
+            
+            {/* Batch Core Info */}
+            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <CardHeader className="pb-3 border-b dark:border-slate-800">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Info className="w-4 h-4 text-indigo-500" /> Basic Batch Info
+                </h3>
+              </CardHeader>
+              <CardContent className="pt-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
+                <div>
+                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Product Name</span>
+                  <span className="font-semibold text-slate-850 dark:text-slate-200 block mt-0.5">{detailBatch.product?.name}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Production Type</span>
+                  <span className="font-semibold text-slate-850 dark:text-slate-200 block mt-0.5">{detailBatch.productionType}</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Target Quantity</span>
+                  <span className="font-semibold text-slate-850 dark:text-slate-200 block mt-0.5">{detailBatch.quantity} pcs</span>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Actual Output Yield</span>
+                  <span className="font-semibold text-slate-855 dark:text-slate-200 block mt-0.5">{detailBatch.actualOutput || 'N/A'} pcs</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Timing execution log timeline */}
+            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <CardHeader className="pb-3 border-b dark:border-slate-800 flex flex-row items-center justify-between">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-indigo-500" /> Timing Execution Report
+                </h3>
+                <span className="text-2xs font-extrabold text-indigo-650 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-0.5 rounded-lg border dark:border-indigo-950">
+                  Active Duration: {durationText}
+                </span>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-4 text-xs">
+                {timeline.length > 0 ? (
+                  <div className="relative pl-4 border-l border-slate-200 dark:border-slate-800 space-y-4">
+                    {timeline.map((item, idx) => (
+                      <div key={idx} className="relative">
+                        <span className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-indigo-600 border-2 border-white dark:border-slate-900" />
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
+                          <span className="font-bold text-slate-800 dark:text-white uppercase text-[10px] tracking-wide">{item.event}</span>
+                          <span className="text-[10px] text-slate-455">
+                            {new Date(item.time).toLocaleString('en-GB')} by {item.user}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-slate-400 italic">No timeline logs recorded for this batch.</span>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Raw Material Consumption & Variance */}
+            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <CardHeader className="pb-3 border-b dark:border-slate-800">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Scale className="w-4 h-4 text-indigo-500" /> Raw Material Variance Report
+                </h3>
+              </CardHeader>
+              <CardContent className="pt-4 p-0">
+                <div className="overflow-x-auto text-xs">
+                  <table className="w-full text-left">
+                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-100 dark:border-slate-850">
+                      <tr>
+                        <th className="px-4 py-3">Raw Material</th>
+                        <th className="px-4 py-3 text-right">Required (SOP)</th>
+                        <th className="px-4 py-3 text-right">Actual Used</th>
+                        <th className="px-4 py-3 text-right">Variance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {calculatedVariances.length > 0 ? (
+                        calculatedVariances.map((varItem, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20">
+                            <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{varItem.rawMaterialName}</td>
+                            <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-350">{varItem.requiredQty.toFixed(2)} {varItem.unit}</td>
+                            <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-350">{varItem.actualUsedQty.toFixed(2)} {varItem.unit}</td>
+                            <td className={`px-4 py-3 text-right font-mono font-bold ${
+                              varItem.variance > 0 ? 'text-amber-500' : varItem.variance < 0 ? 'text-indigo-500' : 'text-slate-450'
+                            }`}>
+                              {varItem.variance > 0 ? '+' : ''}{varItem.variance.toFixed(2)} {varItem.unit}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4} className="p-4 text-center text-slate-400 italic">No raw materials allocated.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Lab Quality Control Checks */}
+            {detailBatch.qcTests && detailBatch.qcTests.length > 0 && (
+              <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                <CardHeader className="pb-3 border-b dark:border-slate-800">
+                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-emerald-500" /> Quality Control (QC) Lab Report
+                  </h3>
+                </CardHeader>
+                <CardContent className="pt-4 space-y-4 text-xs">
+                  {detailBatch.qcTests.map((t, idx) => {
+                    const isPassed = t.result?.toLowerCase() === 'pass' || t.action?.toLowerCase() === 'approved';
+                    return (
+                      <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-950 border dark:border-slate-850 rounded-2xl space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className={`px-2.5 py-1 text-[10px] font-extrabold rounded-full border ${
+                            isPassed 
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-400' 
+                              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-955/20 dark:text-rose-450'
+                          }`}>
+                            {isPassed ? 'PASSED QC' : 'FAILED QC'}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Tested at: {new Date(t.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs leading-normal">
+                          <div>
+                            <span className="text-slate-455 text-[10px] uppercase font-bold block">Lab Tester Name</span>
+                            <span className="font-semibold text-slate-805 dark:text-slate-200">{t.tester?.name || 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-455 text-[10px] uppercase font-bold block">Username / Email</span>
+                            <span className="font-mono text-slate-700 dark:text-slate-350">{t.tester?.email || 'N/A'}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-455 text-[10px] uppercase font-bold block">Verdict Action</span>
+                            <span className="font-semibold text-slate-805 dark:text-slate-200 uppercase">{t.action || 'Approved'}</span>
+                          </div>
+                        </div>
+
+                        {t.qcParams && (
+                          <div className="pt-3 border-t dark:border-slate-800 grid grid-cols-2 sm:grid-cols-5 gap-3 bg-white dark:bg-slate-900/60 p-3 rounded-xl">
+                            <div>
+                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Taste</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.taste || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Texture</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.texture || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Safety</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.safety || 'N/A'}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Appearance</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.appearance || 'N/A'}</span>
+                            </div>
+                            <div className="col-span-2 sm:col-span-1">
+                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Weight / Port.</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.weightPortion || 'N/A'}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {t.qcNotes && (
+                          <div className="text-2xs text-slate-455 italic pt-1 flex items-start gap-1">
+                            <Info className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
+                            <span>Notes: "{t.qcNotes}"</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* RIGHT COLUMN: Costs, Linked Orders & QR code */}
+          <div className="space-y-6">
+            {/* Draggable QR Code Panel */}
+            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 flex flex-col items-center justify-center text-center space-y-3">
+              <div className="p-3 bg-indigo-50 dark:bg-indigo-950 text-indigo-650 rounded-2xl">
+                <Layers className="w-5 h-5 animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-xs font-black uppercase text-slate-700 dark:text-white tracking-wider">Batch Identity Card</h4>
+                <p className="text-[10px] text-slate-400">Draggable barcode identity. Drag to top header drop scanner.</p>
+              </div>
+              <div className="p-4 border dark:border-slate-800 bg-slate-50 dark:bg-slate-950 rounded-2xl shadow-xs">
+                <img 
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${detailBatch.id}`} 
+                  alt="Batch QR Code"
+                  draggable="true"
+                  onDragStart={(e) => e.dataTransfer.setData("text/plain", detailBatch.id)}
+                  className="w-32 h-32 border rounded-xl p-1 bg-white cursor-grab active:cursor-grabbing hover:scale-105 transition-transform"
+                  title="Drag me to header QR scanner dropzone!"
+                />
+              </div>
+              <span className="text-[9px] font-black uppercase text-indigo-500 tracking-widest bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded">
+                Active QR ID
+              </span>
+            </Card>
+
+            {/* Financial cost summary */}
+            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <CardHeader className="pb-3 border-b dark:border-slate-800">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <DollarSign className="w-4 h-4 text-indigo-550" /> Production Cost Ledger
+                </h3>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-3.5 text-xs">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-450 font-medium">Production Cost:</span>
+                  <span className="font-mono font-bold text-slate-855 dark:text-white">
+                    ₹{Number(detailBatch.totalCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-450 font-medium">Target Sale Price:</span>
+                  <span className="font-mono font-bold text-slate-855 dark:text-white">
+                    ₹{Number(detailBatch.salePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t dark:border-slate-800 font-semibold text-indigo-600 dark:text-indigo-400">
+                  <span>Margin Profit:</span>
+                  <span>{detailBatch.profitMargin}%</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Linked Sales Order */}
+            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+              <CardHeader className="pb-3 border-b dark:border-slate-800">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-violet-500" /> Linked Customer Order
+                </h3>
+              </CardHeader>
+              <CardContent className="pt-4 text-xs">
+                {detailBatch.order ? (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-450">Customer Name:</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200">{detailBatch.order.customer?.name || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-455">Order Reference:</span>
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{detailBatch.order.referenceNo || 'N/A'}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-455">Order Received Value:</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        ₹{Number(detailBatch.order.totalSubtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-slate-450 italic block py-2">Make to Stock (No linked customer order)</span>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Derived stats overview counts
@@ -218,62 +660,90 @@ export default function ProductionsPage() {
             Batch Execution Center
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Control production schedules, track chronological workflow stages, and record raw material consumption variables.
+            Manage SOP execution recipe runs and quality controls.
           </p>
         </div>
-        
-        <div className="flex items-center gap-3">
-          {/* Display grid/list view selection */}
-          <div className="flex bg-slate-100 dark:bg-slate-900 border border-slate-250 dark:border-slate-850 p-1 rounded-xl shadow-2xs">
-            <button
-              onClick={() => setDisplayMode('grid')}
-              className={`p-1.5 rounded-lg transition-all ${displayMode === 'grid' ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-xs' : 'text-slate-500'}`}
-              title="Batch Cards view"
-            >
-              <Grid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setDisplayMode('table')}
-              className={`p-1.5 rounded-lg transition-all ${displayMode === 'table' ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-xs' : 'text-slate-505'}`}
-              title="Execution logs table view"
-            >
-              <ListIcon className="w-4 h-4" />
-            </button>
+
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+          {/* QR Code Header Scanner Zone */}
+          <div 
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+            className={`border border-dashed rounded-xl px-3 py-1.5 flex items-center gap-2 transition-all duration-200 ${
+              dragOver 
+                ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 scale-105 shadow-md' 
+                : 'border-slate-200 dark:border-slate-800 hover:border-slate-350 dark:hover:border-slate-700 bg-white dark:bg-slate-900'
+            }`}
+          >
+            <Layers className="w-4 h-4 text-indigo-650 dark:text-indigo-400 flex-shrink-0 animate-pulse" />
+            <div className="text-[10px] leading-tight">
+              <p className="font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">QR Scanner</p>
+              <p className="text-slate-400">Drag QR here</p>
+            </div>
           </div>
 
           <Button
-            onClick={() => navigate('/production/add')}
-            className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg hover:-translate-y-[1px] transition-all px-4 h-10 flex items-center cursor-pointer"
+            onClick={() => setDisplayMode(d => d === 'grid' ? 'table' : 'grid')}
+            className="bg-white hover:bg-slate-105 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl px-2.5 py-1 text-2xs font-extrabold h-9 cursor-pointer"
+            title={displayMode === 'grid' ? 'Table View' : 'Grid View'}
           >
-            <Plus className="w-4 h-4 mr-1.5" />
-            Schedule Production Batch
+            {displayMode === 'grid' ? <ListIcon className="w-4 h-4" /> : <Grid className="w-4 h-4" />}
+          </Button>
+
+          <Button
+            onClick={() => navigate('/production/add')}
+            className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow-md cursor-pointer"
+          >
+            <Plus className="w-4 h-4 mr-1" /> Record New Batch
           </Button>
         </div>
       </div>
 
-      {/* Analytical Stats Panel */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { title: 'Active Batches', val: totalActive, icon: Activity, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-50 dark:bg-indigo-950/20' },
-          { title: 'Completed Batches', val: totalCompleted, icon: CheckCircle, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/20' },
-          { title: 'Lab QC Pass Rate', val: `${qcPassRate}%`, icon: Award, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/20' },
-          { title: 'Cancelled / OnHold', val: batches.filter(b => ['On Hold', 'Cancelled', 'qc_failed'].includes(b.status)).length, icon: AlertTriangle, color: 'text-rose-600 dark:text-rose-450', bg: 'bg-rose-50 dark:bg-rose-950/20' }
-        ].map((card, idx) => (
-          <Card key={idx} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-[10px] uppercase font-bold text-slate-405 tracking-wider">{card.title}</p>
-                <h4 className="text-lg font-extrabold text-slate-850 dark:text-white mt-1">{card.val}</h4>
-              </div>
-              <div className={`p-2.5 rounded-xl ${card.bg} ${card.color}`}>
-                <card.icon className="w-4 h-4" />
-              </div>
-            </div>
-          </Card>
-        ))}
+      {/* Stats Summary Panel */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl flex items-center justify-between shadow-xs">
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Batches</span>
+            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{totalActive}</span>
+          </div>
+          <div className="p-2.5 bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 rounded-xl">
+            <Activity className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl flex items-center justify-between shadow-xs">
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Completed Batches</span>
+            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{totalCompleted}</span>
+          </div>
+          <div className="p-2.5 bg-indigo-50 dark:bg-indigo-955/20 text-indigo-600 dark:text-indigo-400 rounded-xl">
+            <Check className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl flex items-center justify-between shadow-xs">
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">QC Pass Rate</span>
+            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{qcPassRate}%</span>
+          </div>
+          <div className="p-2.5 bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-455 rounded-xl">
+            <Award className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-850 p-4 rounded-2xl flex items-center justify-between shadow-xs">
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">QC Passed Yield</span>
+            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{qcPassedCount}</span>
+          </div>
+          <div className="p-2.5 bg-violet-50 dark:bg-violet-955/20 text-violet-600 dark:text-violet-400 rounded-xl">
+            <Info className="w-5 h-5" />
+          </div>
+        </div>
       </div>
 
-      {/* Filters and Search toolbar */}
+      {/* Filters toolbar */}
       <div className="bg-slate-50/50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-205 dark:border-slate-800 shadow-xs flex flex-col md:flex-row gap-4 justify-between items-center">
         <form onSubmit={handleSearch} className="flex items-center gap-2 w-full md:w-auto flex-1">
           <div className="relative flex-1 max-w-md">
@@ -347,7 +817,7 @@ export default function ProductionsPage() {
                     </div>
 
                     <div>
-                      <h4 className="font-bold text-slate-850 dark:text-slate-100 text-sm line-clamp-1 group-hover:text-indigo-650 dark:group-hover:text-indigo-400 transition-colors">
+                      <h4 className="font-bold text-slate-855 dark:text-slate-100 text-sm line-clamp-1 group-hover:text-indigo-650 dark:group-hover:text-indigo-400 transition-colors">
                         {batch.product?.name}
                       </h4>
                       <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1.5">
@@ -357,11 +827,11 @@ export default function ProductionsPage() {
 
                     <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-450">Planned Yield:</span>
+                        <span className="text-slate-455">Planned Yield:</span>
                         <span className="font-bold dark:text-slate-200">{batch.quantity} {batch.product?.unit?.abbreviation || 'pcs'}</span>
                       </div>
                       <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-450">Production Cost:</span>
+                        <span className="text-slate-455">Production Cost:</span>
                         <span className="font-mono font-bold text-slate-700 dark:text-slate-300">₹{Number(batch.totalCost).toLocaleString('en-IN')}</span>
                       </div>
                     </div>
@@ -373,9 +843,9 @@ export default function ProductionsPage() {
                       <Button
                         size="sm"
                         onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                        className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-2xs py-1.5 rounded-xl cursor-pointer"
+                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-2xs py-1.5 rounded-xl cursor-pointer"
                       >
-                        <Play className="w-3.5 h-3.5 mr-1" /> Start Batch
+                        <Play className="w-3.5 h-3.5 mr-1" /> Start
                       </Button>
                     )}
                     {batch.status === 'In Progress' && (
@@ -401,20 +871,23 @@ export default function ProductionsPage() {
                       <Button
                         size="sm"
                         onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                        className="w-full bg-emerald-650 hover:bg-emerald-700 text-white font-bold text-2xs py-1.5 rounded-xl cursor-pointer"
+                        className="flex-1 bg-emerald-650 hover:bg-emerald-700 text-white font-bold text-2xs py-1.5 rounded-xl cursor-pointer"
                       >
-                        <Play className="w-3.5 h-3.5 mr-1" /> Resume Batch
+                        <Play className="w-3.5 h-3.5 mr-1" /> Resume
                       </Button>
                     )}
-                    {['Completed', 'qc_passed', 'qc_failed'].includes(batch.status) && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleOpenDetailModal(batch)}
-                        className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-300 font-bold text-2xs py-1.5 rounded-xl border dark:border-slate-700 cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5 mr-1" /> View Logs
-                      </Button>
-                    )}
+                    
+                    {/* View Button */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleOpenDetailModal(batch)}
+                      className={`${
+                        ['Completed', 'qc_passed', 'qc_failed'].includes(batch.status) ? 'w-full' : 'px-3'
+                      } border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold text-2xs py-1.5 rounded-xl cursor-pointer`}
+                    >
+                      <Eye className="w-3.5 h-3.5 mr-1" /> View
+                    </Button>
                   </div>
                 </Card>
               );
@@ -453,7 +926,7 @@ export default function ProductionsPage() {
                   batches.map(batch => (
                     <TableRow key={batch.id} className="dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
                       <TableCell className="px-6 py-4 font-mono font-bold text-slate-500">{batch.referenceNo}</TableCell>
-                      <TableCell className="px-6 py-4 font-bold text-slate-850 dark:text-slate-100">{batch.product?.name}</TableCell>
+                      <TableCell className="px-6 py-4 font-bold text-slate-855 dark:text-slate-100">{batch.product?.name}</TableCell>
                       <TableCell className="px-6 py-4 text-center text-slate-500">{batch.productionType}</TableCell>
                       <TableCell className="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
                         {batch.quantity} <span className="text-[10px] font-normal text-slate-400">{batch.product?.unit?.abbreviation}</span>
@@ -478,11 +951,11 @@ export default function ProductionsPage() {
                           {batch.status === 'qc_passed' ? 'Passed QC' : batch.status === 'qc_failed' ? 'Failed QC' : batch.status}
                         </span>
                       </TableCell>
-                      <TableCell className="px-6 py-4 text-right font-mono font-bold text-slate-850 dark:text-white">
+                      <TableCell className="px-6 py-4 text-right font-mono font-bold text-slate-855 dark:text-white">
                         ₹{Number(batch.totalCost).toLocaleString('en-IN')}
                       </TableCell>
                       <TableCell className="px-6 py-4 text-center">
-                        <div className="flex items-center justify-center space-x-2">
+                        <div className="flex items-center justify-center space-x-1.5">
                           {batch.status === 'Planned' && (
                             <Button
                               size="sm"
@@ -501,7 +974,7 @@ export default function ProductionsPage() {
                                 variant="ghost"
                                 onClick={() => handleOpenCompletionModal(batch)}
                                 className="text-indigo-650 hover:text-indigo-700 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded transition-all"
-                                title="Verify SOP & Complete"
+                                title="Complete Production"
                               >
                                 <CheckCircle className="w-4 h-4" />
                               </Button>
@@ -527,17 +1000,16 @@ export default function ProductionsPage() {
                               <Play className="w-4 h-4" />
                             </Button>
                           )}
-                          {(batch.status === 'Completed' || batch.status === 'qc_passed' || batch.status === 'qc_failed') && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleOpenDetailModal(batch)}
-                              className="text-slate-500 hover:text-slate-700 p-1.5 hover:bg-slate-105 dark:hover:bg-slate-800 rounded transition-all"
-                              title="View Batch logs"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </Button>
-                          )}
+                          
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleOpenDetailModal(batch)}
+                            className="text-slate-500 hover:text-slate-700 p-1.5 hover:bg-slate-105 dark:hover:bg-slate-800 rounded transition-all"
+                            title="View logs"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -558,7 +1030,7 @@ export default function ProductionsPage() {
           <button 
             onClick={() => setPage(p => Math.max(1, p - 1))} 
             disabled={page === 1} 
-            className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-300"
+            className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-105 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-350"
           >
             Previous
           </button>
@@ -574,7 +1046,7 @@ export default function ProductionsPage() {
           <button 
             onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
             disabled={page === totalPages || totalPages === 0} 
-            className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-300"
+            className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-105 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-350"
           >
             Next
           </button>
@@ -606,7 +1078,7 @@ export default function ProductionsPage() {
                 <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
                   {execBatch.product?.sopSteps && execBatch.product.sopSteps.length > 0 ? (
                     execBatch.product.sopSteps.map((step, idx) => (
-                      <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-105 dark:border-slate-850 rounded-2xl space-y-1">
+                      <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-105 dark:border-slate-855 rounded-2xl space-y-1">
                         <p className="text-2xs font-extrabold text-indigo-650 dark:text-indigo-400">Step #{idx + 1}</p>
                         <p className="text-xs text-slate-700 dark:text-slate-200 font-medium leading-relaxed">{step.instruction}</p>
                         {(step.tempTime || step.safetyNote) && (
@@ -623,7 +1095,7 @@ export default function ProductionsPage() {
                 </div>
               </div>
 
-              {/* Right Column: Actual Usage Side-by-Side */}
+              {/* Right Column: Actual Usage */}
               <div className="space-y-4">
                 <h4 className="text-2xs font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                   <Scale className="w-4 h-4 text-indigo-505 dark:text-indigo-400" /> 2. Actual Raw Materials Consumption
@@ -635,10 +1107,10 @@ export default function ProductionsPage() {
                     const displayVariance = usage.inputValue - displayTarget;
 
                     return (
-                      <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-100 dark:border-slate-850 space-y-2">
+                      <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-955 rounded-2xl border border-slate-100 dark:border-slate-855 space-y-2">
                         <div className="flex justify-between items-center text-xs font-semibold">
                           <span className="text-slate-855 dark:text-slate-200">{usage.name}</span>
-                          <span className="text-[10px] text-slate-400 font-bold">Target: {displayTarget.toFixed(2)} {displayUnit}</span>
+                          <span className="text-[10px] text-slate-405 font-bold">Target: {displayTarget.toFixed(2)} {displayUnit}</span>
                         </div>
                         <div className="grid grid-cols-2 gap-2 items-center">
                           <div className="flex items-center gap-1.5 justify-start">
@@ -702,7 +1174,7 @@ export default function ProductionsPage() {
               </div>
             </div>
 
-            {/* Bottom Row: Pieces Produced */}
+            {/* Bottom Row */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t dark:border-slate-800 pt-4">
               <div className="space-y-1">
                 <label className="text-2xs font-extrabold text-slate-555 dark:text-slate-400 uppercase block">Actual Output Yield *</label>
@@ -712,10 +1184,10 @@ export default function ProductionsPage() {
                   required
                   value={actualOutput}
                   onChange={(e) => setActualOutput(e.target.value)}
-                  className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 text-slate-850 dark:text-slate-100 rounded-xl"
+                  className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 text-slate-855 dark:text-slate-100 rounded-xl"
                   placeholder="Output pieces count"
                 />
-                <p className="text-[10px] text-slate-400">Calculates finished kulfi inventory batch count.</p>
+                <p className="text-[10px] text-slate-400">Calculates finished product inventory batch count.</p>
               </div>
 
               <div className="space-y-1">
@@ -723,7 +1195,7 @@ export default function ProductionsPage() {
                 <Input
                   value={completionNote}
                   onChange={(e) => setCompletionNote(e.target.value)}
-                  className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 text-slate-850 dark:text-slate-100 rounded-xl"
+                  className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 text-slate-855 dark:text-slate-100 rounded-xl"
                   placeholder="Record deviations or notes here..."
                 />
               </div>
@@ -731,113 +1203,9 @@ export default function ProductionsPage() {
 
             <div className="flex justify-end space-x-3 border-t dark:border-slate-800 pt-4">
               <Button variant="outline" onClick={() => setExecBatch(null)} className="border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold cursor-pointer">Cancel</Button>
-              <Button onClick={handleSubmitCompletion} className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
+              <Button onClick={handleSubmitCompletion} className="bg-indigo-600 hover:bg-indigo-755 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
                 Submit Completion to QC Queue
               </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Details View Modal */}
-      {detailBatch && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full max-h-[85vh] overflow-y-auto border border-slate-205 dark:border-slate-800 shadow-2xl p-6 space-y-5 animate__animated animate__fadeIn animate__faster">
-            <div className="flex justify-between items-center border-b dark:border-slate-800 pb-3">
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-850 dark:text-white uppercase tracking-wide">
-                  Batch Execution Logs: #{detailBatch.referenceNo}
-                </h3>
-                <p className="text-xs text-slate-455 mt-0.5">{detailBatch.product?.name}</p>
-              </div>
-              <button onClick={() => setDetailBatch(null)} className="p-1.5 hover:bg-slate-105 dark:hover:bg-slate-800 rounded-xl">
-                <X className="w-4 h-4 text-slate-400" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 text-xs">
-              <div className="p-3 bg-slate-50 dark:bg-slate-950/60 border dark:border-slate-850 rounded-2xl">
-                <span className="text-[10px] uppercase text-slate-400 font-bold block">Production Type</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{detailBatch.productionType}</span>
-              </div>
-              <div className="p-3 bg-slate-50 dark:bg-slate-955/60 border dark:border-slate-850 rounded-2xl">
-                <span className="text-[10px] uppercase text-slate-400 font-bold block">Status</span>
-                <span className="font-semibold uppercase text-slate-800 dark:text-slate-200">{detailBatch.status}</span>
-              </div>
-              <div className="p-3 bg-slate-50 dark:bg-slate-955/60 border dark:border-slate-850 rounded-2xl">
-                <span className="text-[10px] uppercase text-slate-400 font-bold block">Target Quantity</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">{detailBatch.quantity} pcs</span>
-              </div>
-              <div className="p-3 bg-slate-50 dark:bg-slate-955/60 border dark:border-slate-850 rounded-2xl">
-                <span className="text-[10px] uppercase text-slate-400 font-bold block">Actual Output</span>
-                <span className="font-semibold text-slate-805 dark:text-slate-200">{detailBatch.actualOutput || 'N/A'} pcs</span>
-              </div>
-            </div>
-
-            {/* Material Variance table */}
-            <div className="space-y-2">
-              <h4 className="text-2xs font-extrabold text-slate-400 uppercase tracking-wide">Raw Material Variance Reports</h4>
-              <div className="border border-slate-105 dark:border-slate-800 rounded-2xl overflow-hidden text-xs">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-55 dark:bg-slate-950 text-slate-500 font-bold">
-                    <tr>
-                      <th className="p-2.5">Raw Material</th>
-                      <th className="p-2.5 text-right">SOP Target</th>
-                      <th className="p-2.5 text-right">Actual Used</th>
-                      <th className="p-2.5 text-right">Variance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-850">
-                    {detailBatch.rmVariance && Array.isArray(detailBatch.rmVariance) ? (
-                      detailBatch.rmVariance.map((varItem, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/20">
-                          <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">{varItem.rawMaterialName}</td>
-                          <td className="p-2.5 text-right font-mono text-slate-650 dark:text-slate-350">{Number(varItem.requiredQty).toFixed(2)}</td>
-                          <td className="p-2.5 text-right font-mono text-slate-650 dark:text-slate-350">{Number(varItem.actualUsedQty).toFixed(2)}</td>
-                          <td className={`p-2.5 text-right font-mono font-bold ${
-                            Number(varItem.variance) > 0 ? 'text-amber-500' : Number(varItem.variance) < 0 ? 'text-indigo-500' : 'text-slate-400'
-                          }`}>
-                            {Number(varItem.variance) > 0 ? '+' : ''}{Number(varItem.variance).toFixed(2)}
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={4} className="p-4 text-center text-slate-400 italic">No consumption log logged.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Lab QC details */}
-            {detailBatch.qcTests && detailBatch.qcTests.length > 0 && (
-              <div className="p-4 bg-emerald-50/20 dark:bg-emerald-950/15 border border-emerald-100/50 dark:border-emerald-900/30 rounded-2xl space-y-2 text-xs">
-                <h4 className="font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide flex items-center">
-                  <Award className="w-4 h-4 mr-1 text-emerald-600" /> Lab Quality Check Results
-                </h4>
-                {detailBatch.qcTests.map((t, tidx) => (
-                  <div key={tidx} className="grid grid-cols-2 gap-2 text-[11px] text-slate-605 dark:text-slate-350">
-                    <div>Tested By: <span className="font-semibold text-slate-800 dark:text-white">{t.tester?.name || 'Lab Assistant'}</span></div>
-                    <div>Date: <span className="font-semibold text-slate-800 dark:text-white">{new Date(t.createdAt).toLocaleDateString('en-GB')}</span></div>
-                    {t.qcParams && (
-                      <div className="col-span-2 pt-2 border-t dark:border-slate-800 mt-1.5 grid grid-cols-2 gap-2 bg-white dark:bg-slate-900/40 p-2.5 rounded-xl">
-                        <div>Taste: <span className="font-semibold">{t.qcParams.taste}</span></div>
-                        <div>Texture: <span className="font-semibold">{t.qcParams.texture}</span></div>
-                        <div>Safety: <span className="font-semibold">{t.qcParams.safety}</span></div>
-                        <div>Appearance: <span className="font-semibold">{t.qcParams.appearance}</span></div>
-                        <div className="col-span-2">Weight / Portion: <span className="font-semibold">{t.qcParams.weightPortion}</span></div>
-                      </div>
-                    )}
-                    {t.qcNotes && <div className="col-span-2 mt-1 italic text-slate-400">Notes: "{t.qcNotes}"</div>}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex justify-end border-t dark:border-slate-800 pt-3">
-              <Button onClick={() => setDetailBatch(null)} className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">Close Logs</Button>
             </div>
           </div>
         </div>

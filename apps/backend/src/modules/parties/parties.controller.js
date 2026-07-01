@@ -4,7 +4,7 @@ const { checkWhatsAppEligibility } = require('../../utils/communication');
 class PartiesController {
   async createCustomer(req, res, next) {
     try {
-      const { name, phone, email, openingBalance, balanceType, creditLimit, defaultDiscount, customerType, dob, doa, address, note } = req.body;
+      const { name, phone, email, openingBalance, balanceType, creditLimit, defaultDiscount, customerType, dob, doa, address, note, gstin } = req.body;
 
       if (!name || !phone) {
         return res.status(400).json({ message: 'Name and Phone are required' });
@@ -24,6 +24,7 @@ class PartiesController {
         doa: doa ? new Date(doa) : null,
         address,
         note,
+        gstin,
         addedBy: req.user.id
       });
 
@@ -54,7 +55,7 @@ class PartiesController {
 
   async updateCustomer(req, res, next) {
     try {
-      const { name, phone, email, openingBalance, balanceType, creditLimit, defaultDiscount, customerType, dob, doa, address, note } = req.body;
+      const { name, phone, email, openingBalance, balanceType, creditLimit, defaultDiscount, customerType, dob, doa, address, note, gstin } = req.body;
       
       const updatedData = {
         name,
@@ -69,7 +70,8 @@ class PartiesController {
         dob: dob ? new Date(dob) : null,
         doa: doa ? new Date(doa) : null,
         address,
-        note
+        note,
+        gstin
       };
 
       const customer = await PartiesRepository.updateCustomer(req.params.id, updatedData);

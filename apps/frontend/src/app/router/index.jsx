@@ -78,14 +78,13 @@ const QRLifecyclePage = lazy(() => import('@/modules/shared/pages/QRLifecyclePag
 // Inventory Module
 const InventoryUploadPage = lazy(() => import('@/modules/inventory/pages/InventoryUploadPage'));
 
-// Kulfi ERP Production Module Pages
+// Leonex ERP Production Module Pages
 const ProductStockPage = lazy(() => import('@/modules/production/pages/ProductStockPage'));
 const LowStockAlertsPage = lazy(() => import('@/modules/production/pages/LowStockAlertsPage'));
 const ProductionsPage = lazy(() => import('@/modules/production/pages/ProductionsPage'));
 const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProductionPage'));
 
-// Kulfi ERP Sales Module Pages
-const SalesPOSPage = lazy(() => import('@/modules/sales/pages/SalesPOSPage'));
+// Leonex ERP Sales Module Pages
 const SalesListPage = lazy(() => import('@/modules/sales/pages/SalesListPage'));
 const SalesReturnsPage = lazy(() => import('@/modules/sales/pages/SalesReturnsPage'));
 const SalesDashboard = lazy(() => import('@/modules/sales/pages/SalesDashboard'));
@@ -94,12 +93,12 @@ const LossReportPage = lazy(() => import('@/modules/production/pages/LossReportP
 const QCQueuePage = lazy(() => import('@/modules/production/pages/QCQueuePage'));
 const ProductWastagePage = lazy(() => import('@/modules/production/pages/ProductWastagePage'));
 
-// Kulfi ERP Customer Order Module Pages
+// Leonex ERP Customer Order Module Pages
 const AddOrderPage = lazy(() => import('@/modules/production/pages/AddOrderPage'));
 const OrderListPage = lazy(() => import('@/modules/production/pages/OrderListPage'));
 const OrderStatusPage = lazy(() => import('@/modules/production/pages/OrderStatusPage'));
 
-// Kulfi ERP Forecasting Module Pages
+// Leonex ERP Forecasting Module Pages
 const ForecastByOrderPage = lazy(() => import('@/modules/production/pages/ForecastByOrderPage'));
 const ForecastByProductPage = lazy(() => import('@/modules/production/pages/ForecastByProductPage'));
 
@@ -248,19 +247,19 @@ const AppRouter = () => {
 
             {/* Sales Module */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM']} />}> 
-              <Route path="/sales/pos" element={<SalesPOSPage />} />
-              <Route path="/sales/add" element={<SalesPOSPage />} />
+              <Route path="/sales/pos" element={<AddOrderPage />} />
+              <Route path="/sales/add" element={<AddOrderPage />} />
               <Route path="/sales/list" element={<SalesListPage />} />
               <Route path="/sales/return" element={<SalesReturnsPage />} />
               <Route path="/sales/dashboard" element={<SalesDashboard />} />
             </Route>
-            {/* Kulfi ERP Products */}
+            {/* Leonex ERP Products */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/products/stock" element={<ProductStockPage />} />
               <Route path="/products/low-stock" element={<LowStockAlertsPage />} />
             </Route>
 
-            {/* Kulfi ERP Production */}
+            {/* Leonex ERP Production */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/production/batches" element={<ProductionsPage />} />
               <Route path="/production/add" element={<ProductionsPage />} />
@@ -273,7 +272,7 @@ const AppRouter = () => {
               <Route path="/production/wastage" element={<ProductWastagePage />} />
             </Route>
 
-            {/* Kulfi ERP Customer Orders */}
+            {/* Leonex ERP Customer Orders */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/orders/add" element={<OrderListPage />} />
               <Route path="/orders/list" element={<OrderListPage />} />
@@ -281,7 +280,7 @@ const AppRouter = () => {
               <Route path="/orders/status" element={<OrderStatusPage />} />
             </Route>
 
-            {/* Kulfi ERP Forecasting */}
+            {/* Leonex ERP Forecasting */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/forecasting/by-order" element={<ForecastByOrderPage />} />
               <Route path="/forecasting/by-product" element={<ForecastByProductPage />} />

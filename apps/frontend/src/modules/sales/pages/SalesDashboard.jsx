@@ -253,7 +253,7 @@ export default function SalesDashboard() {
               <h3 className="font-bold text-slate-800 dark:text-white flex items-center text-xs uppercase tracking-wide">
                 <BadgePercent className="w-4.5 h-4.5 mr-1.5 text-indigo-500 animate-bounce" /> Launch Seasonal Pre-sale Campaign
               </h3>
-              <p className="text-[10px] text-slate-400 mt-0.5">Collect pre-orders with deposit for upcoming kulfi productions.</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Collect pre-orders with deposit for upcoming productions.</p>
             </div>
 
             <form onSubmit={handleCreateCampaign} className="space-y-3 text-xs">

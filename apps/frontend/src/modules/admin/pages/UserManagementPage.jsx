@@ -571,7 +571,7 @@ export default function UserManagementPage() {
                     type="email" 
                     value={formData.email} 
                     onChange={e => setFormData({...formData, email: e.target.value})} 
-                    placeholder="john@kulfierp.com" 
+                    placeholder="john@leonex.com" 
                     className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-11"
                   />
                 </div>

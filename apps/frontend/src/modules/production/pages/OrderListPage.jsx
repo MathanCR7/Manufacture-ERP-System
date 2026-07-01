@@ -3,10 +3,15 @@ import { api } from '@/lib/axios';
 import {
   ShoppingCart, Search, RefreshCw, Plus, Edit, Trash2, Eye,
   Download, Printer, X, ChevronLeft, ChevronRight, Package,
-  TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown
+  TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown, Info, Sparkles, AlertCircle, Loader2
 } from 'lucide-react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import AddOrderPage from './AddOrderPage';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import Swal from 'sweetalert2';
+import { jsPDF } from 'jspdf';
 
 const STATUS_CONFIG = {
   'Quotation':            { bg: 'bg-blue-50 dark:bg-blue-500/10',   text: 'text-blue-600 dark:text-blue-400',   dot: 'bg-blue-500 dark:bg-blue-400',   border: 'border-blue-100 dark:border-blue-500/20' },
@@ -23,6 +28,9 @@ const PAGE_SIZE = 12;
 export default function OrderListPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const orderIdParam = searchParams.get('id');
+
   const [view, setView] = useState({ type: 'list', prefill: null });
 
   useEffect(() => {
@@ -38,14 +46,20 @@ export default function OrderListPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [showInvoice, setShowInvoice] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [invoiceData, setInvoiceData] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfUrlA4, setPdfUrlA4] = useState(null);
+  const [pdfUrlBill, setPdfUrlBill] = useState(null);
+  const [previewMode, setPreviewMode] = useState('invoice');
 
   // Load Company & Tax Settings dynamically from localStorage
-  const savedSettings = localStorage.getItem('kulfi_erp_tax_settings');
-  let compName = 'Kulfi ERP System Ltd.';
-  let compAddr = '12, Ice Cream Industrial Zone, Mumbai, Maharashtra';
-  let compGstin = '27AABC1234F1Z5';
+  const savedSettings = localStorage.getItem('leonex_erp_tax_settings');
+  let compName = 'LEONEX SYSTEMS PRIVATE LIMITED';
+  let compAddr = 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
+  let compGstin = '33AABCL0702C1ZG';
 
   if (savedSettings) {
     try {
@@ -53,9 +67,7 @@ export default function OrderListPage() {
       if (parsed.companyName) compName = parsed.companyName;
       if (parsed.companyAddress) compAddr = parsed.companyAddress;
       if (parsed.companyGstin) compGstin = parsed.companyGstin;
-    } catch (e) {
-      console.error('Error parsing tax settings in OrderListPage', e);
-    }
+    } catch (e) { console.error(e); }
   }
 
   const fetchOrders = async () => {
@@ -70,520 +82,1037 @@ export default function OrderListPage() {
 
   useEffect(() => { fetchOrders(); }, []);
 
+  // Sync parameter search ID
+  useEffect(() => {
+    if (orderIdParam) {
+      const fetchDetail = async () => {
+        setLoadingDetail(true);
+        try {
+          const res = await api.get(`/orders/${orderIdParam}`);
+          setSelectedOrder(res.data);
+        } catch (e) {
+          console.error(e);
+        } finally {
+          setLoadingDetail(false);
+        }
+      };
+      fetchDetail();
+    } else {
+      setSelectedOrder(null);
+    }
+  }, [orderIdParam]);
+
+  // Pre-select order if navigated from Kanban with state
+  useEffect(() => {
+    if (location.state?.orderId && orders.length > 0) {
+      const found = orders.find(o => o.id === location.state.orderId);
+      if (found) {
+        setSearchParams({ id: found.id });
+      }
+    }
+  }, [orders, location.state]);
+
   const handleUpdateStatus = async (id, newStatus) => {
     try {
       await api.patch(`/orders/${id}/status`, { status: newStatus });
       fetchOrders();
+      if (selectedOrder && selectedOrder.id === id) {
+        setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
+      }
     } catch (e) { alert(e.response?.data?.error || 'Failed to update status'); }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this order? Stock will be reclaimed.')) return;
+    if (!window.confirm('Are you sure you want to delete this order?')) return;
     try {
       await api.delete(`/orders/${id}`);
       fetchOrders();
     } catch (e) { alert(e.response?.data?.error || 'Failed to delete order'); }
   };
 
-  const handleExport = () => {
-    if (!orders.length) return;
-    const headers = ['Order Ref','Customer','Type','Delivery Date','Status','Total (INR)','Profit (INR)','Created'];
-    const rows = orders.map(o => [
-      o.referenceNo, o.customer?.name || 'N/A', o.type,
-      new Date(o.deliveryDate).toLocaleDateString('en-GB'), o.status,
-      Number(o.totalSubtotal).toFixed(2), Number(o.totalProfit).toFixed(2),
-      new Date(o.createdAt).toLocaleDateString('en-GB')
-    ]);
-    const csv = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const link = document.createElement('a');
-    link.setAttribute('href', encodeURI(csv));
-    link.setAttribute('download', `orders_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+  const compileInvoiceA4PDF = (order, companySettings) => {
+    const doc = new jsPDF();
+
+    const companyName = companySettings?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
+    const companyAddress = companySettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
+    const companyGstin = companySettings?.companyGstin || '33AABCL0702C1ZG';
+    const companyMobile = companySettings?.companyMobile || '+91 9360163523';
+
+    const customerGstin = order.customer?.gstin || order.taxRegNo || '';
+    const customerState = customerGstin.trim().replace(/^GSTIN-/, '').substring(0, 2);
+    const companyState = companyGstin.trim().substring(0, 2);
+    const isSameState = customerState === companyState || !customerState;
+
+    doc.setFillColor(30, 27, 75);
+    doc.rect(0, 0, 210, 8, 'F');
+    doc.setFillColor(245, 158, 11);
+    doc.rect(0, 8, 210, 1.5, 'F');
+
+    let currentY = 22;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.setTextColor(30, 27, 75);
+    doc.text('TAX INVOICE', 14, currentY);
+
+    currentY += 7;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text(companyName.toUpperCase(), 14, currentY);
+    currentY += 4.5;
+    
+    const companyAddressLines = doc.splitTextToSize(companyAddress, 80);
+    doc.text(companyAddressLines, 14, currentY);
+    const companyAddressHeight = companyAddressLines.length * 4.5;
+    currentY += companyAddressHeight;
+    
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 27, 75);
+    doc.text(`GSTIN: ${companyGstin}`, 14, currentY);
+    currentY += 4.5;
+    doc.text(`Mobile: ${companyMobile}`, 14, currentY);
+
+    const metaBoxX = 115;
+    const metaBoxWidth = 81;
+    const metaBoxY = 15;
+    const metaBoxHeight = 35;
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(metaBoxX, metaBoxY, metaBoxWidth, metaBoxHeight, 3, 3, 'FD');
+
+    let mY = metaBoxY + 5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('INVOICE NO.', metaBoxX + 4, mY);
+    doc.setTextColor(30, 27, 75);
+    doc.setFontSize(9);
+    doc.text(order.referenceNo || 'N/A', metaBoxX + 4, mY + 4);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('INVOICE DATE', metaBoxX + 44, mY);
+    doc.setTextColor(30, 27, 75);
+    doc.setFontSize(9);
+    doc.text(new Date(order.createdAt).toLocaleDateString('en-GB') || 'N/A', metaBoxX + 44, mY + 4);
+
+    mY += 12;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('PAYMENT TERMS', metaBoxX + 4, mY);
+    doc.setTextColor(30, 27, 75);
+    doc.setFontSize(9);
+    doc.text(order.paymentTerms || 'Not Paid', metaBoxX + 4, mY + 4);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('DELIVERY DATE', metaBoxX + 44, mY);
+    doc.setTextColor(30, 27, 75);
+    doc.setFontSize(9);
+    doc.text(new Date(order.deliveryDate).toLocaleDateString('en-GB') || 'N/A', metaBoxX + 44, mY + 4);
+
+    currentY = Math.max(currentY + 6, 60);
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(255, 255, 255);
+    doc.roundedRect(14, currentY, 182, 24, 2, 2, 'D');
+
+    let bY = currentY + 5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text('BILLED TO (BUYER):', 18, bY);
+    doc.setTextColor(30, 27, 75);
+    doc.setFontSize(9.5);
+    doc.text(order.customer?.name || 'Walk-in Customer', 18, bY + 4.5);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    const delAddress = order.deliveryAddress || order.customer?.address || 'N/A';
+    const customerAddressLines = doc.splitTextToSize(delAddress, 85);
+    doc.text(customerAddressLines, 18, bY + 9);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 27, 75);
+    doc.text(`Buyer GSTIN: ${customerGstin || 'Unregistered'}`, 115, bY + 4.5);
+
+    currentY += 32;
+    doc.setFillColor(30, 27, 75);
+    doc.rect(14, currentY, 182, 8, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text('SN', 17, currentY + 5.5, { align: 'center' });
+    doc.text('PRODUCT DESCRIPTION', 24, currentY + 5.5);
+    doc.text('HSN CODE', 95, currentY + 5.5);
+    doc.text('QTY', 120, currentY + 5.5, { align: 'right' });
+    doc.text('RATE (Rs.)', 140, currentY + 5.5, { align: 'right' });
+    doc.text('DISC (Rs.)', 160, currentY + 5.5, { align: 'right' });
+    doc.text('TOTAL (Rs.)', 192, currentY + 5.5, { align: 'right' });
+
+    let tY = currentY + 8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(30, 27, 75);
+
+    let totalTaxableValue = 0;
+    (order.items || []).forEach((item, index) => {
+      const qty = Number(item.quantity) || 0;
+      const rate = Math.round(Number(item.unitPrice) || 0);
+      const disc = Math.round(Number(item.discount) || 0);
+      const lineTotalVal = (rate - disc) * qty;
+      totalTaxableValue += lineTotalVal;
+
+      doc.setDrawColor(241, 245, 249);
+      doc.line(14, tY + 7, 196, tY + 7);
+
+      doc.text(String(index + 1), 17, tY + 4.5, { align: 'center' });
+      doc.setFont('helvetica', 'bold');
+      doc.text(item.product?.name || 'Leonex Product', 24, tY + 4.5);
+      doc.setFont('helvetica', 'normal');
+      doc.text(item.product?.hsnCode || '21050000', 95, tY + 4.5);
+      doc.text(String(qty), 120, tY + 4.5, { align: 'right' });
+      doc.text(`Rs.${rate}`, 140, tY + 4.5, { align: 'right' });
+      doc.text(`Rs.${disc}`, 160, tY + 4.5, { align: 'right' });
+      doc.text(`Rs.${lineTotalVal}`, 192, tY + 4.5, { align: 'right' });
+
+      tY += 7.5;
+    });
+
+    const discountVal = Number(order.discountValue || 0);
+    const collectTax = !!order.collectTax;
+    const freightVal = Number(order.freight || 0);
+    const loadingVal = Number(order.loadingCharges || 0);
+    const packingVal = Number(order.packingCharges || 0);
+    const insuranceVal = Number(order.insurance || 0);
+    const otherVal = Number(order.otherCharges || 0);
+    const cgstVal = Number(order.cgst || 0);
+    const sgstVal = Number(order.sgst || 0);
+    const igstVal = Number(order.igst || 0);
+    const roundedGrandTotal = Number(order.grandTotal || (totalTaxableValue + cgstVal + sgstVal + igstVal + freightVal + loadingVal + packingVal + insuranceVal + otherVal - discountVal));
+
+    tY += 5;
+    const summaryX = 115;
+    const summaryWidth = 81;
+
+    const chargeOffsetCount = 
+      (freightVal > 0 ? 1 : 0) + 
+      (loadingVal > 0 ? 1 : 0) + 
+      (packingVal > 0 ? 1 : 0) + 
+      (insuranceVal > 0 ? 1 : 0) + 
+      (otherVal > 0 ? 1 : 0) + 
+      (discountVal > 0 ? 1 : 0);
+    const boxHeight = 25 + (collectTax ? 10 : 0) + (chargeOffsetCount * 4.5);
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setFillColor(255, 255, 255);
+    doc.rect(summaryX, tY, summaryWidth, boxHeight, 'D');
+
+    let sY = tY + 4.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Taxable Subtotal:', summaryX + 4, sY);
+    doc.setTextColor(30, 27, 75);
+    doc.text(`Rs.${totalTaxableValue}`, summaryX + 77, sY, { align: 'right' });
+
+    if (discountVal > 0) {
+      sY += 4.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Discount:', summaryX + 4, sY);
+      doc.setTextColor(220, 38, 38);
+      doc.text(`-Rs.${discountVal}`, summaryX + 77, sY, { align: 'right' });
+    }
+
+    if (collectTax) {
+      if (isSameState) {
+        sY += 4.5;
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text('CGST:', summaryX + 4, sY);
+        doc.setTextColor(30, 27, 75);
+        doc.text(`Rs.${Math.round(cgstVal)}`, summaryX + 77, sY, { align: 'right' });
+
+        sY += 4.5;
+        doc.setTextColor(100, 116, 139);
+        doc.text('SGST:', summaryX + 4, sY);
+        doc.setTextColor(30, 27, 75);
+        doc.text(`Rs.${Math.round(sgstVal)}`, summaryX + 77, sY, { align: 'right' });
+      } else {
+        sY += 4.5;
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text('IGST:', summaryX + 4, sY);
+        doc.setTextColor(30, 27, 75);
+        doc.text(`Rs.${Math.round(igstVal)}`, summaryX + 77, sY, { align: 'right' });
+      }
+    }
+
+    if (freightVal > 0) {
+      sY += 4.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Freight Charges:', summaryX + 4, sY);
+      doc.setTextColor(30, 27, 75);
+      doc.text(`Rs.${freightVal}`, summaryX + 77, sY, { align: 'right' });
+    }
+
+    if (loadingVal > 0) {
+      sY += 4.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Loading/Unloading:', summaryX + 4, sY);
+      doc.setTextColor(30, 27, 75);
+      doc.text(`Rs.${loadingVal}`, summaryX + 77, sY, { align: 'right' });
+    }
+
+    if (packingVal > 0) {
+      sY += 4.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Packing Charges:', summaryX + 4, sY);
+      doc.setTextColor(30, 27, 75);
+      doc.text(`Rs.${packingVal}`, summaryX + 77, sY, { align: 'right' });
+    }
+
+    if (insuranceVal > 0) {
+      sY += 4.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Insurance:', summaryX + 4, sY);
+      doc.setTextColor(30, 27, 75);
+      doc.text(`Rs.${insuranceVal}`, summaryX + 77, sY, { align: 'right' });
+    }
+
+    if (otherVal > 0) {
+      sY += 4.5;
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text('Other Charges:', summaryX + 4, sY);
+      doc.setTextColor(30, 27, 75);
+      doc.text(`Rs.${otherVal}`, summaryX + 77, sY, { align: 'right' });
+    }
+
+    sY += 5;
+    doc.setDrawColor(226, 232, 240);
+    doc.line(summaryX, sY - 1, summaryX + summaryWidth, sY - 1);
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 27, 75);
+    doc.text('Grand Total:', summaryX + 4, sY + 1.5);
+    doc.text(`Rs.${Math.round(roundedGrandTotal)}`, summaryX + 77, sY + 1.5, { align: 'right' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Page 1 of 2 - Terms & Conditions and Seal on Page 2.', 105, 286, { align: 'center' });
+
+    doc.addPage();
+    doc.setFillColor(30, 27, 75);
+    doc.rect(0, 0, 210, 8, 'F');
+    doc.setFillColor(245, 158, 11);
+    doc.rect(0, 8, 210, 1.5, 'F');
+
+    let termsY = 22;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(30, 27, 75);
+    doc.text('TERMS & CONDITIONS', 14, termsY);
+    doc.line(14, termsY + 2, 196, termsY + 2);
+
+    termsY += 8;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(71, 85, 105);
+    
+    const termsText = order.quotationNote || 'No terms specified.';
+    const termsLines = doc.splitTextToSize(termsText, 182);
+    doc.text(termsLines, 14, termsY);
+
+    const sigY = 230;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(30, 27, 75);
+    doc.text(`For ${companyName.toUpperCase()}`, 145, sigY);
+    
+    doc.setDrawColor(16, 185, 129);
+    doc.setLineWidth(0.4);
+    doc.setFillColor(209, 250, 229);
+    doc.roundedRect(145, sigY + 3, 40, 14, 1, 1, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(4, 120, 87);
+    doc.text('LEONEX VERIFIED', 165, sigY + 8.5, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5);
+    doc.text('AUTHORISED SIGNATORY', 165, sigY + 13, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Page 2 of 2 - Generated via Leonex ERP.', 105, 286, { align: 'center' });
+
+    return doc.output('blob');
   };
 
-  const handlePrint = (order) => {
-    const items = order.items || [];
-    const itemRows = items.map((item, idx) => {
-      const unitPrice = Number(item.unitPrice || 0);
-      const discount = Number(item.discount || 0);
-      const qty = Number(item.quantity || 0);
-      const cgstRate = Number(item.product?.cgst || 9);
-      const sgstRate = Number(item.product?.sgst || 9);
-      const igstRate = Number(item.product?.igst || 9);
-      const sub = (unitPrice - discount) * qty;
-      const cgstAmt = sub * cgstRate / 100;
-      const sgstAmt = sub * sgstRate / 100;
-      const igstAmt = sub * igstRate / 100;
-      const total = sub + cgstAmt + sgstAmt + igstAmt;
-      return `
-        <tr>
-          <td style="padding:10px 12px;text-align:center;border-bottom:1px solid #f1f5f9;">${idx + 1}</td>
-          <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;">
-            <strong style="color:#1e293b;">${item.product?.name || 'Item'}</strong>
-            <span style="color:#94a3b8;font-size:11px;display:block;">${item.product?.code || ''}</span>
-          </td>
-          <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #f1f5f9;">${qty}</td>
-          <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #f1f5f9;">₹${unitPrice.toFixed(2)}</td>
-          <td style="padding:10px 12px;text-align:right;border-bottom:1px solid #f1f5f9;">₹${discount.toFixed(2)}</td>
-          <td style="padding:10px 12px;text-align:right;color:#64748b;border-bottom:1px solid #f1f5f9;">₹${cgstAmt.toFixed(2)} (${cgstRate}%)</td>
-          <td style="padding:10px 12px;text-align:right;color:#64748b;border-bottom:1px solid #f1f5f9;">₹${sgstAmt.toFixed(2)} (${sgstRate}%)</td>
-          <td style="padding:10px 12px;text-align:right;color:#64748b;border-bottom:1px solid #f1f5f9;">₹${igstAmt.toFixed(2)} (${igstRate}%)</td>
-          <td style="padding:10px 12px;text-align:right;font-weight:700;color:#1e293b;border-bottom:1px solid #f1f5f9;">₹${total.toFixed(2)}</td>
-        </tr>`;
-    }).join('');
+  const compileThermalBillPDF = (order, companySettings) => {
+    const companyName = companySettings?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
+    const companyAddress = companySettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
+    const companyGstin = companySettings?.companyGstin || '33AABCL0702C1ZG';
+    
+    const itemsCount = (order.items || []).length;
+    const dynamicHeight = 90 + (itemsCount * 8); // height in mm
+    
+    const doc = new jsPDF({
+      unit: 'mm',
+      format: [80, dynamicHeight]
+    });
+    
+    // Thermal receipt header
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(30, 27, 75);
+    doc.text('RETAIL BILL', 40, 8, { align: 'center' });
+    
+    doc.setFontSize(7);
+    doc.text(companyName.substring(0, 34), 40, 12, { align: 'center' });
+    
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(71, 85, 105);
+    const addressLines = doc.splitTextToSize(companyAddress, 70);
+    doc.text(addressLines, 40, 15, { align: 'center' });
+    
+    let curY = 15 + (addressLines.length * 3);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`GSTIN: ${companyGstin}`, 40, curY, { align: 'center' });
+    
+    curY += 4;
+    doc.line(5, curY, 75, curY); // divider
+    
+    curY += 4;
+    doc.setFontSize(6.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Bill No: ${order.referenceNo || 'N/A'}`, 5, curY);
+    doc.text(`Date: ${new Date(order.createdAt).toLocaleDateString('en-GB')}`, 45, curY);
+    
+    curY += 3.5;
+    doc.text(`Customer: ${(order.customer?.name || 'Walk-in Customer').substring(0, 22)}`, 5, curY);
+    const taxRegNo = order.customer?.gstin || order.taxRegNo;
+    if (taxRegNo) {
+      curY += 3.5;
+      doc.text(`Buyer GSTIN: ${taxRegNo}`, 5, curY);
+    }
+    
+    curY += 3.5;
+    doc.line(5, curY, 75, curY); // divider
+    
+    // Table headers
+    curY += 4;
+    doc.setFont('helvetica', 'bold');
+    doc.text('ITEM', 5, curY);
+    doc.text('QTY', 38, curY, { align: 'right' });
+    doc.text('RATE', 53, curY, { align: 'right' });
+    doc.text('TOTAL', 75, curY, { align: 'right' });
+    
+    curY += 2.5;
+    doc.line(5, curY, 75, curY);
+    
+    curY += 4;
+    doc.setFont('helvetica', 'normal');
+    
+    let totalTaxableValue = 0;
+    (order.items || []).forEach((item) => {
+      const qty = Number(item.quantity) || 0;
+      const rate = Math.round(Number(item.unitPrice) || 0);
+      const disc = Math.round(Number(item.discount) || 0);
+      const lineTotal = (rate - disc) * qty;
+      totalTaxableValue += lineTotal;
+      
+      const nameTrunc = (item.product?.name || 'Leonex Product').substring(0, 20);
+      doc.setFont('helvetica', 'bold');
+      doc.text(nameTrunc, 5, curY);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(qty), 38, curY, { align: 'right' });
+      doc.text(`Rs.${rate - disc}`, 53, curY, { align: 'right' });
+      doc.text(`Rs.${lineTotal}`, 75, curY, { align: 'right' });
+      curY += 4;
+    });
+    
+    doc.line(5, curY - 1, 75, curY - 1);
+    
+    // Summary
+    const discountVal = Number(order.discountValue || 0);
+    const collectTax = !!order.collectTax;
+    const freightVal = Number(order.freight || 0);
+    const loadingVal = Number(order.loadingCharges || 0);
+    const packingVal = Number(order.packingCharges || 0);
+    const insuranceVal = Number(order.insurance || 0);
+    const otherVal = Number(order.otherCharges || 0);
+    const cgstVal = Number(order.cgst || 0);
+    const sgstVal = Number(order.sgst || 0);
+    const igstVal = Number(order.igst || 0);
+    const roundedGrandTotal = Number(order.grandTotal || (totalTaxableValue + cgstVal + sgstVal + igstVal + freightVal + loadingVal + packingVal + insuranceVal + otherVal - discountVal));
 
-    const grandTotal = items.reduce((acc, item) => {
-      const sub = (Number(item.unitPrice) - Number(item.discount)) * Number(item.quantity);
-      const tax = sub * ((Number(item.product?.cgst || 9) + Number(item.product?.sgst || 9) + Number(item.product?.igst || 9)) / 100);
-      return acc + sub + tax;
-    }, 0);
-
-    const subtotal = Number(order.totalSubtotal || 0);
-    const printDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
-    const deliveryDate = new Date(order.deliveryDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
-    const createdDate = new Date(order.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
-
-    const html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <title>Invoice – ${order.referenceNo}</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box;}
-    body{font-family:'Segoe UI',Arial,sans-serif;color:#1e293b;background:#fff;padding:32px;}
-    @page{size:A4;margin:16mm;}
-    @media print{body{padding:0;}}
-
-    /* Header */
-    .inv-header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:24px;border-bottom:3px solid #4f46e5;margin-bottom:24px;}
-    .company-name{font-size:22px;font-weight:900;color:#4f46e5;letter-spacing:-0.5px;text-transform:uppercase;}
-    .company-sub{font-size:11px;color:#64748b;margin-top:4px;line-height:1.6;}
-    .inv-label{text-align:right;}
-    .inv-title{font-size:24px;font-weight:800;color:#0f172a;letter-spacing:1px;text-transform:uppercase;}
-    .inv-ref{font-family:monospace;font-size:13px;font-weight:700;color:#4f46e5;margin-top:4px;}
-    .inv-date{font-size:11px;color:#64748b;margin-top:2px;}
-
-    /* Info Grid */
-    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
-    .info-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;}
-    .info-card-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#94a3b8;margin-bottom:8px;}
-    .info-card-name{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px;}
-    .info-card-sub{font-size:11px;color:#64748b;line-height:1.7;}
-    .badge{display:inline-block;padding:2px 10px;border-radius:99px;font-size:10px;font-weight:700;background:#dcfce7;color:#15803d;letter-spacing:0.5px;}
-
-    /* Table */
-    table{width:100%;border-collapse:collapse;margin-bottom:24px;font-size:12px;}
-    thead tr{background:#4f46e5;color:#fff;}
-    thead th{padding:10px 12px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;}
-    thead th:first-child{text-align:center;}
-    thead th:not(:first-child){text-align:right;}
-    thead th:nth-child(2){text-align:left;}
-    tbody tr:nth-child(even){background:#f8fafc;}
-
-    /* Totals */
-    .totals-wrap{display:flex;justify-content:flex-end;margin-bottom:32px;}
-    .totals-box{width:300px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;}
-    .totals-row{display:flex;justify-content:space-between;padding:8px 16px;font-size:12px;border-bottom:1px solid #e2e8f0;}
-    .totals-row:last-child{background:#4f46e5;color:#fff;font-weight:800;font-size:13px;border-bottom:none;}
-    .totals-label{color:#64748b;}
-    .totals-row:last-child .totals-label{color:#c7d2fe;}
-
-    /* Footer */
-    .inv-footer{border-top:2px solid #e2e8f0;padding-top:16px;display:flex;justify-content:space-between;align-items:flex-end;font-size:10px;color:#94a3b8;}
-    .sig-line{border-top:1px solid #cbd5e1;width:160px;padding-top:6px;text-align:center;font-size:10px;color:#64748b;}
-    .watermark{font-size:9px;text-align:center;color:#cbd5e1;margin-top:16px;}
-  </style>
-</head>
-<body>
-  <!-- Header with dynamic details fetched from Tax Settings page -->
-  <div class="inv-header">
-    <div>
-      <div class="company-name">${compName}</div>
-      <div class="company-sub">
-        ${compAddr}<br>
-        GSTIN: ${compGstin} &nbsp;|&nbsp; Tel: +91-22-12345678 &nbsp;|&nbsp; info@kulferp.com
-      </div>
-    </div>
-    <div class="inv-label">
-      <div class="inv-title">Tax Invoice</div>
-      <div class="inv-ref">${order.referenceNo}</div>
-      <div class="inv-date">Date: ${createdDate}</div>
-      <div class="inv-date">Printed: ${printDate}</div>
-    </div>
-  </div>
-
-  <!-- Billed To / Order Info -->
-  <div class="info-grid">
-    <div class="info-card">
-      <div class="info-card-label">Billed To</div>
-      <div class="info-card-name">${order.customer?.name || 'N/A'}</div>
-      <div class="info-card-sub">
-        Phone: ${order.customer?.phone || 'N/A'}<br>
-        Address: ${order.deliveryAddress || order.customer?.address || 'N/A'}<br>
-        ${order.customer?.gstin ? 'GSTIN: ' + order.customer.gstin : ''}
-      </div>
-    </div>
-    <div class="info-card">
-      <div class="info-card-label">Order Details</div>
-      <div class="info-card-sub">
-        <strong>Order Type:</strong> ${order.type}<br>
-        <strong>Status:</strong> &nbsp;<span class="badge">${order.status}</span><br>
-        <strong>Delivery Date:</strong> ${deliveryDate}<br>
-        <strong>Created On:</strong> ${createdDate}
-      </div>
-    </div>
-  </div>
-
-  <!-- Items Table -->
-  <table>
-    <thead>
-      <tr>
-        <th>#</th><th style="text-align:left;">Item</th>
-        <th>Qty</th><th>Rate</th><th>Discount</th>
-        <th>CGST</th><th>SGST</th><th>IGST</th><th>Amount</th>
-      </tr>
-    </thead>
-    <tbody>${itemRows || '<tr><td colspan="9" style="text-align:center;padding:16px;color:#94a3b8;">No items</td></tr>'}</tbody>
-  </table>
-
-  <!-- Totals -->
-  <div class="totals-wrap">
-    <div class="totals-box">
-      <div class="totals-row">
-        <span class="totals-label">Subtotal (excl. tax)</span>
-        <span>₹${subtotal.toFixed(2)}</span>
-      </div>
-      <div class="totals-row">
-        <span class="totals-label">Grand Total (incl. GST)</span>
-        <span>₹${grandTotal.toFixed(2)}</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Footer -->
-  <div class="inv-footer">
-    <div>
-      <div style="margin-bottom:8px;font-size:11px;color:#475569;font-weight:600;">Terms & Conditions</div>
-      <div>1. Payment due within 30 days of invoice date.</div>
-      <div>2. Goods once sold will not be taken back.</div>
-      <div>3. Subject to Mumbai jurisdiction only.</div>
-    </div>
-    <div style="text-align:right;">
-      <div class="sig-line">Authorised Signatory</div>
-    </div>
-  </div>
-  <div class="watermark">This is a computer-generated invoice and does not require a physical signature.</div>
-
-  <script>window.onload=function(){window.print();window.onafterprint=function(){window.close();};};</script>
-</body>
-</html>`;
-
-    const win = window.open('', '_blank', 'width=900,height=700');
-    win.document.open();
-    win.document.write(html);
-    win.document.close();
+    curY += 3;
+    doc.setFontSize(6);
+    doc.text('Taxable Subtotal:', 40, curY, { align: 'right' });
+    doc.text(`Rs.${totalTaxableValue}`, 75, curY, { align: 'right' });
+    
+    if (discountVal > 0) {
+      curY += 3;
+      doc.text('Discount:', 40, curY, { align: 'right' });
+      doc.text(`-Rs.${discountVal}`, 75, curY, { align: 'right' });
+    }
+    
+    if (collectTax) {
+      const isTamilNadu = taxRegNo?.trim().replace(/^GSTIN-/, '').substring(0, 2) === '33' || !taxRegNo;
+      if (isTamilNadu) {
+        curY += 3;
+        doc.text('CGST (9%):', 40, curY, { align: 'right' });
+        doc.text(`Rs.${Math.round(cgstVal)}`, 75, curY, { align: 'right' });
+        
+        curY += 3;
+        doc.text('SGST (9%):', 40, curY, { align: 'right' });
+        doc.text(`Rs.${Math.round(sgstVal)}`, 75, curY, { align: 'right' });
+      } else {
+        curY += 3;
+        doc.text('IGST (18%):', 40, curY, { align: 'right' });
+        doc.text(`Rs.${Math.round(igstVal)}`, 75, curY, { align: 'right' });
+      }
+    }
+    
+    const totalChg = freightVal + loadingVal + packingVal + insuranceVal + otherVal;
+    if (totalChg > 0) {
+      curY += 3;
+      doc.text('Extra Charges:', 40, curY, { align: 'right' });
+      doc.text(`Rs.${totalChg}`, 75, curY, { align: 'right' });
+    }
+    
+    curY += 4.5;
+    doc.line(40, curY - 1.5, 75, curY - 1.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.text('GRAND TOTAL:', 40, curY, { align: 'right' });
+    doc.text(`Rs.${roundedGrandTotal}`, 75, curY, { align: 'right' });
+    
+    curY += 6;
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(6);
+    doc.text('Thank you! Visit again.', 40, curY, { align: 'center' });
+    
+    return doc.output('blob');
   };
 
-  const statuses = ['All', ...Object.keys(STATUS_CONFIG)];
+  const handlePrint = async (order) => {
+    const isDark = document.documentElement.classList.contains('dark');
+    Swal.fire({
+      title: 'Compiling Invoice PDF',
+      html: '<p class="text-xs text-slate-500 mt-1">Generating printable tax receipt...</p>',
+      allowOutsideClick: false,
+      didOpen: () => {
+        Swal.showLoading();
+      },
+      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+      color: isDark ? '#f8fafc' : '#0f172a',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-100 dark:border-slate-800 shadow-xl'
+      }
+    });
+
+    try {
+      const taxRes = await api.get('/setup/tax');
+      const taxSettings = taxRes.data;
+
+      const orderRes = await api.get(`/orders/${order.id}`);
+      const fullOrder = orderRes.data;
+
+      const a4Blob = compileInvoiceA4PDF(fullOrder, taxSettings);
+      const billBlob = compileThermalBillPDF(fullOrder, taxSettings);
+      const a4Url = URL.createObjectURL(a4Blob);
+      const billUrl = URL.createObjectURL(billBlob);
+
+      setPdfUrlA4(a4Url);
+      setPdfUrlBill(billUrl);
+      setPdfUrl(a4Url); // Default to A4 Invoice
+      setPreviewMode('invoice');
+      setInvoiceData(fullOrder);
+      setShowInvoiceModal(true);
+      Swal.close();
+    } catch (err) {
+      console.error(err);
+      Swal.fire({
+        title: 'Error',
+        text: 'Failed to retrieve billing information or target details.',
+        icon: 'error',
+        confirmButtonColor: '#6366f1'
+      });
+    }
+  };
+
+  const handleCloseInvoiceView = () => {
+    setSearchParams({});
+    setSelectedOrder(null);
+  };
+
   const filtered = orders.filter(o => {
-    const matchSearch = o.referenceNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (o.customer?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchSearch = o.referenceNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        o.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchStatus = statusFilter === 'All' || o.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
   const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
-
-  useEffect(() => { setCurrentPage(1); }, [searchTerm, statusFilter]);
-
-  const totalRevenue = orders.reduce((s, o) => s + Number(o.totalSubtotal || 0), 0);
-  const totalProfit = orders.reduce((s, o) => s + Number(o.totalProfit || 0), 0);
-  const pending = orders.filter(o => !['Delivered','Cancelled'].includes(o.status)).length;
 
   if (view.type === 'create') {
     return <AddOrderPage />;
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-55 via-white to-slate-100/50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-100">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 print:hidden">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/20 border border-indigo-100 dark:border-indigo-500/30 flex items-center justify-center">
-              <ShoppingCart className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">Customer Orders</h1>
-          </div>
-          <p className="text-slate-500 dark:text-slate-400 text-sm ml-13 pl-1">Manage, track and invoice customer orders</p>
+  // ─────────────────────── RENDERING DETAILED SUB-PAGE VIEW ───────────────────────
+  if (orderIdParam) {
+    if (loadingDetail) {
+      return (
+        <div className="min-h-[70vh] flex flex-col items-center justify-center text-slate-400 gap-3">
+          <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
+          <span className="text-sm font-semibold">Loading Invoice Record...</span>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={() => navigate('/orders/add')}
-            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-xl transition-all shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-0.5">
-            <Plus className="w-4 h-4" /> New Order
-          </button>
-          <button onClick={handleExport} disabled={!orders.length}
-            className="flex items-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 text-slate-700 dark:text-slate-300 text-sm font-medium rounded-xl transition-all disabled:opacity-40">
-            <Download className="w-4 h-4" /> Export
-          </button>
-          <button onClick={fetchOrders} disabled={loading}
-            className="p-2.5 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-505 dark:text-slate-404 rounded-xl transition-all">
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
+      );
+    }
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6 print:hidden">
-        {[
-          { label: 'Total Orders', value: orders.length, icon: Package, color: 'indigo' },
-          { label: 'Active Orders', value: pending, icon: TrendingUp, color: 'amber' },
-          { label: 'Total Revenue', value: `₹${totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, icon: IndianRupee, color: 'emerald' },
-          { label: 'Total Profit', value: `₹${totalProfit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, icon: TrendingUp, color: totalProfit >= 0 ? 'teal' : 'rose' },
-        ].map((s, i) => (
-          <div key={i} className="bg-white/80 dark:bg-slate-800/60 backdrop-blur border border-slate-200 dark:border-slate-700/50 rounded-2xl p-4">
-            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium mb-2">{s.label}</p>
-            <p className={`text-xl font-bold text-${s.color}-600 dark:text-${s.color}-400`}>{s.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4 print:hidden">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-505" />
-          <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Search by reference or customer..."
-            className="w-full bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-505 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 transition-colors" />
+    if (!selectedOrder) {
+      return (
+        <div className="p-6 max-w-4xl mx-auto text-center space-y-4">
+          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
+          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Order Record Not Found</h2>
+          <Button onClick={handleCloseInvoiceView} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl">
+            Back to Registry
+          </Button>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <Filter className="w-4 h-4 text-slate-400 dark:text-slate-505" />
-          {statuses.map(s => (
-            <button key={s} onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
-                statusFilter === s
-                  ? 'bg-indigo-600 border-indigo-500 text-white'
-                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-slate-400 dark:hover:border-slate-505 hover:text-slate-800 dark:hover:text-slate-200'
-              }`}>
-              {s}
+      );
+    }
+
+    return (
+      <div className="p-6 max-w-5xl mx-auto space-y-6 animate__animated animate__fadeIn print:p-0 print:bg-white">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-205 dark:border-slate-850 print:hidden">
+          <div className="space-y-1">
+            <button 
+              onClick={handleCloseInvoiceView}
+              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline mb-1"
+            >
+              <ChevronLeft className="w-4 h-4" /> Back to Order Registry
             </button>
-          ))}
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+              Tax Invoice details
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Tax details, customer billings and line item profits for {selectedOrder.referenceNo}.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button onClick={() => handlePrint(selectedOrder)} className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-md">
+              <Printer className="w-4 h-4 mr-1.5" /> Print Invoice
+            </Button>
+          </div>
+        </div>
+
+        {/* Invoice Page Wrapper */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-xl overflow-hidden p-8 space-y-6 print:shadow-none print:rounded-none print:border-none print:bg-white print:text-slate-900">
+          <div className="flex flex-col sm:flex-row justify-between border-b border-slate-200 dark:border-slate-800 pb-6 gap-4">
+            <div>
+              <h2 className="text-2xl font-black text-indigo-650 dark:text-indigo-400 uppercase tracking-tight flex items-center gap-1.5">
+                <Sparkles className="w-6 h-6" /> {compName}
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm leading-relaxed">{compAddr}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold font-mono mt-0.5">GSTIN: {compGstin}</p>
+            </div>
+            <div className="text-left sm:text-right">
+              <h3 className="text-base font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-3.5 py-1.5 rounded-xl inline-block">TAX INVOICE</h3>
+              <p className="text-sm font-mono font-black text-indigo-650 dark:text-indigo-400 mt-2">{selectedOrder.referenceNo}</p>
+              <p className="text-xs text-slate-455 mt-1">Date: {new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-slate-50 dark:bg-slate-950/40 p-5 rounded-2xl text-xs border border-slate-200/50 dark:border-slate-800 print:bg-slate-50">
+            <div className="space-y-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Billed To Customer</span>
+              <p className="font-extrabold text-slate-800 dark:text-white text-sm">{selectedOrder.customer?.name}</p>
+              {selectedOrder.customer?.phone && <p className="text-slate-500 dark:text-slate-400 font-mono">Phone: {selectedOrder.customer.phone}</p>}
+              <p className="text-slate-500 dark:text-slate-400 leading-relaxed">Address: {selectedOrder.deliveryAddress || selectedOrder.customer?.address || 'N/A'}</p>
+            </div>
+            <div className="text-left sm:text-right space-y-1">
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Order Parameters</span>
+              <p className="text-slate-700 dark:text-slate-350">Order Type: <strong className="text-slate-900 dark:text-white">{selectedOrder.type}</strong></p>
+              <p className="text-slate-700 dark:text-slate-350">Payment Status: <strong className="text-indigo-600 dark:text-indigo-400">{selectedOrder.paymentTerms || 'Not Paid'}</strong></p>
+              <p className="text-slate-700 dark:text-slate-350">Delivery Date: <strong className="text-slate-900 dark:text-white">{new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB')}</strong></p>
+              <p className="text-slate-700 dark:text-slate-350">Status: <strong className="text-emerald-600 uppercase">{selectedOrder.status}</strong></p>
+            </div>
+          </div>
+
+          {/* Invoice lines table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left min-w-[700px]">
+              <thead>
+                <tr className="bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-205 dark:border-slate-800">
+                  <th className="px-4 py-3 text-center w-12 font-bold">SN</th>
+                  <th className="px-4 py-3">Item Details</th>
+                  <th className="px-4 py-3 text-right w-16">Qty</th>
+                  <th className="px-4 py-3 text-right w-24">Rate</th>
+                  <th className="px-4 py-3 text-right w-20">Discount</th>
+                  <th className="px-4 py-3 text-right w-28">Taxable Val</th>
+                  <th className="px-4 py-3 text-right w-20">CGST</th>
+                  <th className="px-4 py-3 text-right w-20">SGST</th>
+                  <th className="px-4 py-3 text-right w-20">IGST</th>
+                  <th className="px-4 py-3 text-right w-32">Total Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
+                {(selectedOrder.items || []).map((item, idx) => {
+                  const sub = (Number(item.unitPrice) - Number(item.discount)) * Number(item.quantity);
+                  const cgst = Number(item.product?.cgst || 9);
+                  const sgst = Number(item.product?.sgst || 9);
+                  const igst = Number(item.product?.igst || 9);
+                  const total = sub * (1 + (cgst + sgst + igst) / 100);
+                  return (
+                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10">
+                      <td className="px-4 py-3 text-center text-slate-405 font-bold">{idx + 1}</td>
+                      <td className="px-4 py-3 font-bold text-slate-800 dark:text-slate-200">
+                        {item.product?.name} <span className="text-[10px] text-slate-455 font-mono">({item.product?.code})</span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono">{item.quantity}</td>
+                      <td className="px-4 py-3 text-right font-mono">₹{Number(item.unitPrice).toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-500">₹{Number(item.discount).toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right font-mono font-bold">₹{sub.toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-500">₹{(sub * cgst / 100).toFixed(2)} ({cgst}%)</td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-500">₹{(sub * sgst / 100).toFixed(2)} ({sgst}%)</td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-500">₹{(sub * igst / 100).toFixed(2)} ({igst}%)</td>
+                      <td className="px-4 py-3 text-right font-extrabold text-slate-900 dark:text-white font-mono">
+                        ₹{total.toFixed(2)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-slate-205 dark:border-slate-800">
+            <div className="w-80 space-y-2 text-xs">
+              <div className="flex justify-between text-slate-500 dark:text-slate-400">
+                <span className="font-semibold">Subtotal Amount:</span>
+                <span className="font-mono">₹{Number(selectedOrder.totalSubtotal).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-sm font-extrabold text-indigo-650 dark:text-indigo-400 border-t border-slate-200 dark:border-slate-800 pt-2.5">
+                <span>Net Grand Total (incl. GST):</span>
+                <span className="font-mono text-base">₹{(Number(selectedOrder.totalSubtotal) * 1.18).toFixed(2)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto p-4 md:p-6 animate__animated animate__fadeIn">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+            <ShoppingCart className="w-5 h-5 text-indigo-650" />
+            Customer Order Registry
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Browse quotations, check fulfillment timelines, and modify active sales orders.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button
+            onClick={() => navigate('/orders/add')}
+            className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-extrabold text-xs px-4 py-2 rounded-xl shadow-md cursor-pointer"
+          >
+            <Plus className="w-4 h-4 mr-1" /> Add New Order (POS Mode)
+          </Button>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white dark:bg-slate-800/60 backdrop-blur border border-slate-200 dark:border-slate-700/50 rounded-2xl overflow-hidden print:hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 dark:border-slate-700/50 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 bg-slate-50/50 dark:bg-transparent">
-                <th className="px-4 py-3 text-center">#</th>
-                <th className="px-4 py-3 text-left">Ref No</th>
-                <th className="px-4 py-3 text-left">Customer</th>
-                <th className="px-4 py-3 text-left">Products</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3 text-right">Profit</th>
-                <th className="px-4 py-3 text-center">Delivery</th>
-                <th className="px-4 py-3 text-center">Status</th>
-                <th className="px-4 py-3 text-center">Update</th>
-                <th className="px-4 py-3 text-center">Actions</th>
+      {/* Toolbar filters */}
+      <div className="bg-slate-50/50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row gap-4 justify-between items-center text-xs">
+        <div className="flex items-center gap-2 w-full md:w-auto flex-1">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-450" />
+            <Input
+              placeholder="Search by order reference no or customer name..."
+              className="pl-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-750 text-slate-800 dark:text-white rounded-xl focus:ring-indigo-500 text-xs"
+              value={searchTerm}
+              onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+          <div className="flex items-center gap-1.5">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <select
+              value={statusFilter}
+              onChange={e => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-805 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9"
+            >
+              <option value="All">All Statuses</option>
+              {Object.keys(STATUS_CONFIG).map(st => (
+                <option key={st} value={st}>{st}</option>
+              ))}
+            </select>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchOrders}
+            className="flex items-center gap-1.5 border-slate-205 dark:border-slate-700 rounded-xl h-9 text-xs font-bold bg-white dark:bg-slate-950 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      {/* Orders Grid/Table Listing */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto text-xs">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase font-semibold border-b dark:border-slate-800">
+              <tr>
+                <th className="px-6 py-4">Reference No</th>
+                <th className="px-6 py-4">Customer Name</th>
+                <th className="px-6 py-4 text-center">Type</th>
+                <th className="px-6 py-4 text-right">Items Count</th>
+                <th className="px-6 py-4 text-right">Subtotal Value</th>
+                <th className="px-6 py-4 text-center">Delivery Date</th>
+                <th className="px-6 py-4 text-center">Order Status</th>
+                <th className="px-6 py-4 text-center">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 dark:divide-slate-700/30">
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
-                <tr><td colSpan={10} className="py-20 text-center text-slate-500 dark:text-slate-400">
-                  <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-400" />
-                  Loading orders...
-                </td></tr>
+                <tr>
+                  <td colSpan={8} className="px-6 py-12 text-center text-slate-400">Loading customer orders...</td>
+                </tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={10} className="py-20 text-center text-slate-500 dark:text-slate-400">
-                  <Package className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                  No orders found
-                </td></tr>
-              ) : paginated.map((order, idx) => {
-                const cfg = STATUS_CONFIG[order.status] || STATUS_CONFIG['Quotation'];
-                const profit = Number(order.totalProfit);
-                return (
-                  <tr key={order.id} className="hover:bg-slate-50 dark:hover:bg-slate-700/20 transition-colors group">
-                    <td className="px-4 py-3.5 text-center text-slate-404 dark:text-slate-504 text-xs font-mono">
-                      {(currentPage - 1) * PAGE_SIZE + idx + 1}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-1 rounded-lg border border-indigo-100 dark:border-indigo-500/20">
-                        {order.referenceNo}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 font-semibold text-slate-800 dark:text-slate-200">{order.customer?.name || 'N/A'}</td>
-                    <td className="px-4 py-3.5 max-w-[200px]">
-                      <span className="text-xs text-slate-500 dark:text-slate-400 truncate block" title={order.items?.map(it => `${it.product?.name} x${it.quantity}`).join(', ')}>
-                        {order.items?.map(it => `${it.product?.name || 'Item'}`).join(', ') || '—'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-right font-bold text-slate-800 dark:text-slate-200">
-                      ₹{Number(order.totalSubtotal).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                    </td>
-                    <td className={`px-4 py-3.5 text-right font-bold ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                      ₹{profit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <div className="flex items-center justify-center gap-1.5 text-slate-500 dark:text-slate-400 text-xs">
-                        <Calendar className="w-3 h-3" />
+                <tr>
+                  <td colSpan={8} className="px-6 py-12 text-center text-slate-400">No orders matched your search criteria.</td>
+                </tr>
+              ) : (
+                paginated.map(order => {
+                  const itemsCount = (order.items || []).reduce((acc, it) => acc + Number(it.quantity || 0), 0);
+                  const config = STATUS_CONFIG[order.status] || { bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400', border: 'border-slate-200' };
+                  return (
+                    <tr key={order.id} className="dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
+                      <td className="px-6 py-4 font-mono font-bold text-indigo-650 dark:text-indigo-400">{order.referenceNo}</td>
+                      <td className="px-6 py-4 font-bold text-slate-800 dark:text-slate-200">{order.customer?.name}</td>
+                      <td className="px-6 py-4 text-center text-slate-500">{order.type}</td>
+                      <td className="px-6 py-4 text-right font-mono">{itemsCount}</td>
+                      <td className="px-6 py-4 text-right font-mono font-bold text-slate-855 dark:text-white">
+                        ₹{Number(order.totalSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-4 text-center text-slate-505">
                         {new Date(order.deliveryDate).toLocaleDateString('en-GB')}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${cfg.bg} ${cfg.text} ${cfg.border}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                        {order.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <select value={order.status} onChange={e => handleUpdateStatus(order.id, e.target.value)}
-                        className="text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-500 cursor-pointer">
-                        {Object.keys(STATUS_CONFIG).map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => { setSelectedOrder(order); setShowInvoice(true); }}
-                          className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-colors" title="View Invoice">
-                          <Eye className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => navigate(`/orders/edit/${order.id}`)}
-                          className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-lg transition-colors" title="Edit">
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button onClick={() => handleDelete(order.id)}
-                          className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors" title="Delete">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-2xs font-extrabold rounded-full border ${config.bg} ${config.text} ${config.border}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
+                          {order.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button onClick={() => setSearchParams({ id: order.id })}
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 rounded-lg transition-colors" title="View details">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => navigate(`/orders/edit/${order.id}`)}
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-lg transition-colors" title="Edit">
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handlePrint(order)}
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded-lg transition-colors" title="Print Invoice">
+                            <Printer className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleDelete(order.id)}
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors" title="Delete">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
 
-        {/* Pagination */}
+        {/* Pagination control */}
         {totalPages > 1 && (
-          <div className="flex justify-between items-center px-4 py-3 border-t border-slate-200 dark:border-slate-700/50 bg-slate-50/30 dark:bg-transparent">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Showing {Math.min((currentPage-1)*PAGE_SIZE+1, filtered.length)}–{Math.min(currentPage*PAGE_SIZE, filtered.length)} of {filtered.length}
-            </span>
-            <div className="flex items-center gap-1">
-              <button onClick={() => setCurrentPage(p => Math.max(p-1,1))} disabled={currentPage===1}
-                className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 disabled:opacity-30 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-                <ChevronLeft className="w-4 h-4" />
+          <div className="p-4 bg-slate-50/20 dark:bg-slate-900 border-t border-slate-205 dark:border-slate-800 flex justify-between items-center gap-4 text-xs text-slate-455">
+            <div>
+              Showing {Math.min((currentPage - 1) * PAGE_SIZE + 1, filtered.length)} to {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} entries
+            </div>
+            <div className="flex space-x-1">
+              <button 
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+                disabled={currentPage === 1} 
+                className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-105 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-350"
+              >
+                Previous
               </button>
-              {Array.from({length: totalPages}, (_,i) => i+1).filter(p => Math.abs(p-currentPage)<=2).map(p => (
-                <button key={p} onClick={() => setCurrentPage(p)}
-                  className={`w-7 h-7 text-xs font-medium rounded-lg transition-colors ${p===currentPage ? 'bg-indigo-600 text-white' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-600'}`}>
-                  {p}
+              {Array.from({ length: totalPages }).map((_, i) => (
+                <button 
+                  key={i} 
+                  onClick={() => setCurrentPage(i + 1)} 
+                  className={`px-3 py-1 border rounded-lg transition-all font-bold cursor-pointer ${currentPage === i + 1 ? 'bg-indigo-650 dark:bg-indigo-500 text-white border-indigo-650' : 'bg-white dark:bg-slate-900 dark:border-slate-700 text-slate-700 dark:text-slate-350 hover:bg-slate-105 dark:hover:bg-slate-800'}`}
+                >
+                  {i + 1}
                 </button>
               ))}
-              <button onClick={() => setCurrentPage(p => Math.min(p+1,totalPages))} disabled={currentPage===totalPages}
-                className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400 disabled:opacity-30 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
-                <ChevronRight className="w-4 h-4" />
+              <button 
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+                disabled={currentPage === totalPages} 
+                className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-105 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-350"
+              >
+                Next
               </button>
             </div>
           </div>
         )}
       </div>
+      {showInvoiceModal && invoiceData && (
+        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
+          <div className="bg-slate-900 border border-slate-800 text-slate-100 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh]">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950">
+              <div>
+                <h3 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-indigo-500" /> Premium Tax Invoice Preview
+                </h3>
+                <p className="text-3xs text-slate-500 mt-0.5">Reference: {invoiceData.referenceNo}</p>
+              </div>
+              <button
+                onClick={() => setShowInvoiceModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-      {/* Invoice Modal */}
-      {showInvoice && selectedOrder && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 print:p-0 print:bg-white print:static">
-          <div className="bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden relative print:shadow-none print:rounded-none max-h-[90vh] flex flex-col print:bg-white print:text-slate-900">
-            <div className="flex justify-between items-center px-8 py-4 border-b border-slate-200 dark:border-slate-800 print:hidden">
-              <h3 className="font-bold text-lg text-slate-800 dark:text-slate-200">Tax Invoice</h3>
-              <div className="flex items-center gap-2">
-                <button onClick={() => handlePrint(selectedOrder)}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors">
-                  <Printer className="w-4 h-4" /> Print Invoice
-                </button>
-                <button onClick={() => setShowInvoice(false)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors text-slate-505 dark:text-slate-404">
-                  <X className="w-5 h-5 text-slate-500 dark:text-slate-400" />
-                </button>
+            {/* Modal Body / Iframe View */}
+            <div className="flex-1 bg-slate-950 p-6 flex flex-col md:flex-row gap-6 overflow-y-auto">
+              {/* Left Column: Interactive Actions */}
+              <div className="w-full md:w-64 space-y-4 shrink-0">
+                {/* Format layout choice */}
+                <div className="bg-slate-900 p-4 border border-slate-800 rounded-2xl space-y-2.5">
+                  <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Choose Layout</span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPdfUrl(pdfUrlA4);
+                        setPreviewMode('invoice');
+                      }}
+                      className={`py-1.5 rounded-lg text-3xs font-extrabold transition-all border cursor-pointer ${
+                        previewMode === 'invoice' 
+                          ? 'bg-indigo-600 border-indigo-500 text-white' 
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      A4 Invoice
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPdfUrl(pdfUrlBill);
+                        setPreviewMode('bill');
+                      }}
+                      className={`py-1.5 rounded-lg text-3xs font-extrabold transition-all border cursor-pointer ${
+                        previewMode === 'bill' 
+                          ? 'bg-indigo-600 border-indigo-500 text-white' 
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      Thermal POS
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-slate-900 p-4.5 rounded-2xl border border-slate-800 space-y-3.5">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Receipt Controls</span>
+                  
+                  <Button 
+                    onClick={() => {
+                      const iframe = document.getElementById('invoice-print-frame');
+                      if (iframe) {
+                        iframe.contentWindow.focus();
+                        iframe.contentWindow.print();
+                      }
+                    }} 
+                    className="w-full bg-indigo-650 hover:bg-indigo-750 text-white font-extrabold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer"
+                  >
+                    <Printer className="w-4 h-4" /> Spool Print
+                  </Button>
+
+                  <Button 
+                    onClick={() => {
+                      const a = document.createElement('a');
+                      a.href = pdfUrl;
+                      a.download = `${previewMode === 'invoice' ? 'INVOICE' : 'BILL'}-${invoiceData.referenceNo}.pdf`;
+                      a.click();
+                    }} 
+                    variant="outline" 
+                    className="w-full border-slate-850 hover:border-slate-800 text-slate-350 hover:bg-slate-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" /> Download PDF
+                  </Button>
+                </div>
+
+                <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-850 space-y-2 text-3xs text-slate-400">
+                  <span className="font-extrabold text-slate-350 block uppercase">Terms & Instructions:</span>
+                  <p>1. Ensure your thermal or laser print spooler is active.</p>
+                  <p>2. Select <strong>A4 Invoice</strong> to include full terms and conditions on a dedicated page.</p>
+                  <p>3. Select <strong>Thermal POS</strong> for a compact bill receipt excluding terms to conserve paper.</p>
+                </div>
+              </div>
+
+              {/* Right Column: PDF Viewer */}
+              <div className="flex-1 min-h-[500px] border border-slate-800 rounded-2xl overflow-hidden bg-slate-900 relative">
+                {pdfUrl ? (
+                  <iframe
+                    id="invoice-print-frame"
+                    src={pdfUrl}
+                    className="w-full h-full border-none"
+                    title="PDF Preview"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 gap-3">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+                    <span className="text-xs font-semibold">Compiling jsPDF Vector Elements...</span>
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="overflow-y-auto flex-1 p-8 space-y-6">
-              {/* Dynamic Invoice Header (using state configured on Tax & Company Settings page) */}
-              <div className="flex justify-between border-b border-slate-200 dark:border-slate-800 pb-6">
-                <div>
-                  <h2 className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-tight">{compName}</h2>
-                  <p className="text-xs text-slate-550 dark:text-slate-400 mt-1">{compAddr}</p>
-                  <p className="text-xs text-slate-550 dark:text-slate-400 font-semibold mt-0.5">GSTIN: {compGstin}</p>
-                </div>
-                <div className="text-right">
-                  <h3 className="text-xl font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">TAX INVOICE</h3>
-                  <p className="text-sm font-mono font-semibold text-indigo-600 dark:text-indigo-400">{selectedOrder.referenceNo}</p>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}</p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl text-sm print:bg-slate-50">
-                <div>
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase block mb-1">Billed To</span>
-                  <p className="font-bold">{selectedOrder.customer?.name}</p>
-                  <p className="text-slate-500 dark:text-slate-400">Phone: {selectedOrder.customer?.phone || 'N/A'}</p>
-                  <p className="text-slate-500 dark:text-slate-400">Address: {selectedOrder.deliveryAddress || selectedOrder.customer?.address || 'N/A'}</p>
-                </div>
-                <div className="text-right">
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-bold uppercase block mb-1">Order Info</span>
-                  <p>Type: <strong>{selectedOrder.type}</strong></p>
-                  <p>Status: <strong className="text-emerald-600">{selectedOrder.status}</strong></p>
-                  <p>Delivery: <strong>{new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB')}</strong></p>
-                </div>
-              </div>
-
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs uppercase border-b border-slate-200 dark:border-slate-700 print:bg-slate-100 print:text-slate-600">
-                    {['#','Item','Qty','Rate','Discount','CGST','SGST','IGST','Amount'].map(h => (
-                      <th key={h} className="px-3 py-2 text-right first:text-center">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-150 dark:divide-slate-800 text-xs">
-                  {(selectedOrder.items || []).map((item, idx) => {
-                    const sub = (Number(item.unitPrice) - Number(item.discount)) * Number(item.quantity);
-                    const cgst = Number(item.product?.cgst || 9);
-                    const sgst = Number(item.product?.sgst || 9);
-                    const igst = Number(item.product?.igst || 9);
-                    const total = sub * (1 + (cgst+sgst+igst)/100);
-                    return (
-                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="px-3 py-2.5 text-center">{idx+1}</td>
-                        <td className="px-3 py-2.5 font-semibold text-slate-800 dark:text-slate-200">{item.product?.name} <span className="text-slate-400 dark:text-slate-500 font-normal font-sans">({item.product?.code})</span></td>
-                        <td className="px-3 py-2.5 text-right">{item.quantity}</td>
-                        <td className="px-3 py-2.5 text-right">₹{Number(item.unitPrice).toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right">₹{Number(item.discount).toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right text-slate-500 dark:text-slate-400">₹{(sub*cgst/100).toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right text-slate-500 dark:text-slate-400">₹{(sub*sgst/100).toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right text-slate-500 dark:text-slate-400">₹{(sub*igst/100).toFixed(2)}</td>
-                        <td className="px-3 py-2.5 text-right font-bold">₹{total.toFixed(2)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-
-              <div className="flex justify-end pt-4 border-t border-slate-200 dark:border-slate-800">
-                <div className="w-72 space-y-2 text-sm">
-                  <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                    <span>Subtotal:</span>
-                    <span className="font-mono">₹{Number(selectedOrder.totalSubtotal).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-base font-bold text-indigo-600 dark:text-indigo-400 border-t border-slate-200 dark:border-slate-800 pt-2">
-                    <span>Grand Total (incl. GST):</span>
-                    <span className="font-mono">₹{(Number(selectedOrder.totalSubtotal)*1.18).toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-800 bg-slate-950 flex justify-end">
+              <Button onClick={() => setShowInvoiceModal(false)} variant="outline" className="border-slate-800 text-slate-350 px-6 py-2 rounded-xl text-xs font-bold cursor-pointer">
+                Close
+              </Button>
             </div>
           </div>
         </div>

@@ -179,7 +179,7 @@ export default function QCQueuePage() {
             Laboratory QC Clearance Queue
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Verify texture, taste, weight, and safety metrics before releasing finished kulfi batches.
+            Verify texture, taste, weight, and safety metrics before releasing finished product batches.
           </p>
         </div>
         

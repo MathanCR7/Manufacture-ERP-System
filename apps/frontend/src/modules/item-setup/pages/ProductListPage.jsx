@@ -273,7 +273,7 @@ function ProductForm({ editId, onBack }) {
           });
           setCode(`FP-${String(maxNum + 1).padStart(6, '0')}`);
 
-          const saved = localStorage.getItem('kulfi_erp_tax_settings');
+          const saved = localStorage.getItem('leonex_erp_tax_settings');
           if (saved) {
             try {
               const parsed = JSON.parse(saved);

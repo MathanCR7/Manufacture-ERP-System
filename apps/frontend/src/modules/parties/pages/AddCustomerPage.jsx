@@ -199,6 +199,15 @@ export default function AddCustomerPage() {
             </div>
 
             <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">GSTIN / GST Number</label>
+              <input 
+                {...register('gstin')} 
+                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 uppercase font-mono" 
+                placeholder="e.g. 33AABCL0702C1ZG" 
+              />
+            </div>
+
+            <div className="space-y-2">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-305">Date of Birth</label>
               <Controller
                 control={control}

@@ -29,7 +29,7 @@ export default function TaxSettingsPage() {
         }
       } catch (err) {
         console.error('Failed to load company settings from backend, trying localStorage fallback:', err);
-        const saved = localStorage.getItem('kulfi_erp_tax_settings');
+        const saved = localStorage.getItem('leonex_erp_tax_settings');
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
@@ -76,13 +76,13 @@ export default function TaxSettingsPage() {
 
     try {
       await api.post('/setup/tax', settings);
-      localStorage.setItem('kulfi_erp_tax_settings', JSON.stringify(settings));
+      localStorage.setItem('leonex_erp_tax_settings', JSON.stringify(settings));
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error('Failed to save settings to backend:', err);
       alert('Failed to save settings to backend. Saving locally instead.');
-      localStorage.setItem('kulfi_erp_tax_settings', JSON.stringify(settings));
+      localStorage.setItem('leonex_erp_tax_settings', JSON.stringify(settings));
       setSuccess(true);
       setTimeout(() => setSuccess(false), 3000);
     }

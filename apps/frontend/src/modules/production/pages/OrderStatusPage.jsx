@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
+import { useNavigate } from 'react-router-dom';
 import {
   LayoutGrid, RefreshCw, Download, Search, Calendar, IndianRupee,
-  TrendingUp, Package, Clock, ArrowUpDown, ChevronDown, Layers
+  TrendingUp, Package, Clock, ArrowUpDown, ChevronDown, Layers, Eye
 } from 'lucide-react';
 
 const COLUMNS = [
@@ -22,6 +23,7 @@ const COLOR_MAP = {
 };
 
 export default function OrderStatusPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState({});
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -183,7 +185,20 @@ export default function OrderStatusPage() {
                             <span className={`font-mono text-[11px] font-bold ${c.text} bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-100 dark:border-transparent`}>
                               #{order.referenceNo}
                             </span>
-                            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  navigate('/orders/list', { state: { orderId: order.id } });
+                                }}
+                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                                title="View Details"
+                              >
+                                <Eye className="w-3.5 h-3.5" />
+                              </button>
+                              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                            </div>
                           </div>
                           <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-tight">{order.customerName}</p>
                           <div className="flex items-center justify-between">

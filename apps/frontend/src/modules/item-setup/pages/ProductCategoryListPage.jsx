@@ -278,7 +278,7 @@ function ProductCategoryForm({ editId, onBack }) {
               <FieldLabel required>Category Name</FieldLabel>
               <input
                 {...register('name', { required: 'Category name is required' })}
-                placeholder="e.g. Ice Cream Mix, Kulfi Mix"
+                placeholder="e.g. Ice Cream Mix, Cone/Cup Mix"
                 className={errors.name ? errorInputCls : inputCls}
                 autoComplete="off"
               />

@@ -810,7 +810,10 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       include: {
         product: { include: { unit: true } },
         currentStage: true,
-        rmUsages: { include: { rawMaterial: true } }
+        rmUsages: { include: { rawMaterial: true } },
+        order: { include: { customer: true } },
+        creator: { select: { id: true, name: true } },
+        qcTests: { include: { tester: { select: { name: true, email: true } } } }
       }
     });
 
@@ -818,7 +821,17 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       return res.status(404).json({ error: 'Production batch not found' });
     }
 
-    res.json(batch);
+    // Fetch timing logs from auditLogs
+    const logs = await prisma.auditLog.findMany({
+      where: { tableName: 'production_batches', recordId: req.params.id },
+      include: { user: { select: { name: true } } },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    res.json({
+      ...batch,
+      auditLogs: logs
+    });
   } catch (error) {
     next(error);
   }
