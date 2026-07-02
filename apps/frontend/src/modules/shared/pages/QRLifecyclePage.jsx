@@ -385,27 +385,25 @@ const QRLifecyclePage = () => {
             {(() => {
               const stockIn = lifecycle.batch?.stockMovements?.find(m => m.type === 'production_in');
               return (
-                <Card className="p-0 border-0 shadow-none bg-transparent">
-                  <StageCard 
-                    step={4} 
-                    title="Inventory Allocation" 
-                    icon={Archive} 
-                    color="emerald"
-                    isDone={!!stockIn} 
-                    isEmpty={!stockIn}
-                  >
-                    {stockIn ? (
-                      <div className="space-y-2">
-                        <Row label="Inventory Release" value={<StatusBadge status="AVAILABLE" />} />
-                        <Row label="Released Quantity" value={`${stockIn.quantity} ${lifecycle.batch.product?.unit?.abbreviation || 'pcs'}`} />
-                        <Row label="Released On" value={fmtDateTime(stockIn.createdAt)} />
-                        <Row label="Product Expiry Date" value={fmtDate(lifecycle.batch.expiryDate)} />
-                        <Row label="Storage Location" value="Finished Goods Freezer Warehouse" />
-                        <Row label="Released Notes" value={stockIn.note} />
-                      </div>
-                    ) : <p className="text-sm text-slate-400">Not yet uploaded to finished goods inventory.</p>}
-                  </StageCard>
-                </Card>
+                <StageCard 
+                  step={4} 
+                  title="Inventory Allocation" 
+                  icon={Archive} 
+                  color="emerald"
+                  isDone={!!stockIn} 
+                  isEmpty={!stockIn}
+                >
+                  {stockIn ? (
+                    <div className="space-y-2">
+                      <Row label="Inventory Release" value={<StatusBadge status="AVAILABLE" />} />
+                      <Row label="Released Quantity" value={`${stockIn.quantity} ${lifecycle.batch.product?.unit?.abbreviation || 'pcs'}`} />
+                      <Row label="Released On" value={fmtDateTime(stockIn.createdAt)} />
+                      <Row label="Product Expiry Date" value={fmtDate(lifecycle.batch.expiryDate)} />
+                      <Row label="Storage Location" value="Finished Goods Freezer Warehouse" />
+                      <Row label="Released Notes" value={stockIn.note} />
+                    </div>
+                  ) : <p className="text-sm text-slate-400">Not yet uploaded to finished goods inventory.</p>}
+                </StageCard>
               );
             })()}
 

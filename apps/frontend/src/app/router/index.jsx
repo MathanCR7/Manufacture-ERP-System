@@ -67,7 +67,6 @@ const LabInventoryUsagePage = lazy(() => import('@/modules/lab/pages/LabInventor
 
 // NEW: RM Lab Category & Required Results
 const RMLabCategoryPage = lazy(() => import('@/modules/lab/pages/RMLabCategoryPage'));
-const RMRequiredLabResultsPage = lazy(() => import('@/modules/lab/pages/RMRequiredLabResultsPage'));
 
 // Shared
 const ChangeProfilePage = lazy(() => import('@/modules/shared/pages/ChangeProfilePage'));
@@ -235,7 +234,6 @@ const AppRouter = () => {
             {/* NEW: RM Lab Category & Required Results */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'LAB_ASSISTANT']} />}>
               <Route path="/lab/rm-lab-category" element={<RMLabCategoryPage />} />
-              <Route path="/lab/rm-required-results" element={<RMRequiredLabResultsPage />} />
             </Route>
 
             {/* Lab Inventory */}

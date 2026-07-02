@@ -174,7 +174,7 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
 });
 
 // GET /api/products/stock - Current stock per finished product
-router.get('/stock', authenticateToken, cacheMiddleware, async (req, res, next) => {
+router.get('/stock', authenticateToken, async (req, res, next) => {
   try {
     const productsData = await prisma.$queryRaw`
       SELECT 
@@ -243,7 +243,7 @@ router.get('/stock', authenticateToken, cacheMiddleware, async (req, res, next) 
 });
 
 // GET /api/products/low-stock - Products below min stock
-router.get('/low-stock', authenticateToken, cacheMiddleware, async (req, res, next) => {
+router.get('/low-stock', authenticateToken, async (req, res, next) => {
   try {
     const productsData = await prisma.$queryRaw`
       SELECT 
@@ -639,7 +639,33 @@ router.get('/', authenticateToken, async (req, res, next) => {
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json(products);
+
+    // Fetch movements for all products to compute live stock
+    const movements = await prisma.productStockMovement.findMany({
+      select: {
+        productId: true,
+        quantity: true,
+        direction: true
+      }
+    });
+
+    const netMovements = {};
+    movements.forEach(m => {
+      const q = Number(m.quantity || 0);
+      const dir = Number(m.direction || 0);
+      netMovements[m.productId] = (netMovements[m.productId] || 0) + (dir * q);
+    });
+
+    const liveProducts = products.map(p => {
+      const net = netMovements[p.id] || 0;
+      const liveStock = Number(p.openingStock || 0) + net;
+      return {
+        ...p,
+        currentStock: liveStock
+      };
+    });
+
+    res.json(liveProducts);
   } catch (error) {
     next(error);
   }
@@ -663,6 +689,22 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });
     }
+
+    // Fetch movements for this product to compute live stock
+    const movements = await prisma.productStockMovement.findMany({
+      where: { productId: product.id },
+      select: {
+        quantity: true,
+        direction: true
+      }
+    });
+
+    let net = 0;
+    movements.forEach(m => {
+      net += Number(m.direction || 0) * Number(m.quantity || 0);
+    });
+
+    product.currentStock = Number(product.openingStock || 0) + net;
 
     res.json(product);
   } catch (error) {

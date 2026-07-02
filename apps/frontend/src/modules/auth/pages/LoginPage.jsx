@@ -271,7 +271,7 @@ const LoginPage = () => {
       
       {/* Footer minimal */}
       <div className="absolute bottom-4 w-full text-center text-xs text-slate-600/80 hidden sm:block pointer-events-none">
-        &copy; {new Date().getFullYear()} Manufacture ERP. All rights reserved. Let's Build the Future.
+        &copy; {new Date().getFullYear()} ERP. All rights reserved. Let's Build the Future.
       </div>
     </div>
   );

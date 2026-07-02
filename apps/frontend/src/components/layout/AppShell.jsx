@@ -441,7 +441,6 @@ const MENU_GROUPS = [
       { name: '🧪 Pending RM Lab Tests', path: '/lab/pending', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '🔬 RM Lab Results', path: '/lab/results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '🏷️ RM Lab Category', path: '/lab/rm-lab-category', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
-      { name: '⚠️ Required RM Lab Results', path: '/lab/rm-required-results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '📦 Lab Inventory', path: '/lab-inventory/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '📝 Log Lab Usage', path: '/lab-inventory/use', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '⚖️ QC Queue', path: '/production/qc-queue', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'], badgeKey: 'qcPending' },
@@ -819,7 +818,7 @@ const AppShell = () => {
                 <img 
                   src="/favicon.ico" 
                   onError={(e) => { e.target.src = "/favicon.svg"; }}
-                  alt="Manufacture ERP Logo" 
+                  alt="ERP Logo" 
                   className="w-7 h-7 flex-shrink-0 group-hover:scale-110 transition-transform object-contain" 
                 />
               </button>
@@ -830,11 +829,11 @@ const AppShell = () => {
                 <img 
                   src="/favicon.ico" 
                   onError={(e) => { e.target.src = "/favicon.svg"; }}
-                  alt="Manufacture ERP Logo" 
+                  alt="ERP Logo" 
                   className="w-7 h-7 flex-shrink-0 object-contain" 
                 />
                 <span className="transition-all duration-300 whitespace-nowrap bg-gradient-to-r from-indigo-600 to-violet-600 dark:from-indigo-400 dark:to-violet-400 bg-clip-text text-transparent">
-                  Manufacture ERP
+                  ERP
                 </span>
               </div>
               

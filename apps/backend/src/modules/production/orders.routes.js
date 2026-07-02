@@ -8,6 +8,8 @@ const { sendSalesInvoiceDual } = require('../../utils/communication');
 
 const router = express.Router();
 
+const ALLOCATED_STATUSES = ['Confirmed', 'Ready for Shipment', 'Delivered'];
+
 // Helper to generate unique order reference (CO-XXXXXX)
 const generateOrderReference = async (tx) => {
   const result = await tx.$queryRaw`
@@ -383,6 +385,68 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
         });
       }
 
+      // 4b. Handle stock allocation if order is confirmed/invoiced immediately
+      const isAllocated = ALLOCATED_STATUSES.includes(data.status) || 
+                          data.type === 'Invoice' || 
+                          data.type === 'POS';
+
+      if (isAllocated) {
+        for (const item of orderItemsData) {
+          await tx.productStockMovement.create({
+            data: {
+              productId: item.productId,
+              orderId: newOrder.id,
+              type: 'order_allocation',
+              quantity: item.quantity,
+              direction: -1,
+              note: `Stock allocated for Order ${newOrder.referenceNo} (Created)`,
+              createdBy: req.user.id
+            }
+          });
+
+          // Check if stock levels drop below min
+          const sumIn = await tx.productStockMovement.aggregate({
+            where: { productId: item.productId, direction: 1 },
+            _sum: { quantity: true }
+          });
+          const sumOut = await tx.productStockMovement.aggregate({
+            where: { productId: item.productId, direction: -1 },
+            _sum: { quantity: true }
+          });
+
+          const currentStock = Number(sumIn._sum.quantity || 0) - Number(sumOut._sum.quantity || 0);
+          const productWithLevels = await tx.finishedProduct.findUnique({
+            where: { id: item.productId },
+            include: { stockLevels: true }
+          });
+          const stockLevel = productWithLevels?.stockLevels?.[0];
+          const minLevel = stockLevel ? Number(stockLevel.minLevel) : 0;
+
+          if (currentStock < minLevel) {
+            // Trigger critical notification
+            await notificationService.createNotification({
+              type: 'STOCK_CRITICAL_ORDER',
+              recipient_roles: ['PRODUCTION_STAFF', 'MAIN_MASTER'],
+              sender_role: 'SYSTEM',
+              sender_id: 'system',
+              reference_type: 'ORDER_ALERT',
+              reference_id: newOrder.id,
+              message: `Order ${newOrder.referenceNo} for ${productWithLevels?.name || 'Product'} × ${item.quantity} will reduce stock to ${currentStock} — below minimum. Review production schedule.`,
+              metadata: {
+                orderId: newOrder.id,
+                referenceNo: newOrder.referenceNo,
+                productName: productWithLevels?.name || 'Product',
+                quantity: item.quantity,
+                currentStock
+              }
+            }, tx);
+          }
+
+          // Trigger standard reorder/critical alert checks
+          await notificationService.checkProductStockAlerts(item.productId, tx);
+        }
+      }
+
       // Write Audit Log
       const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
       await tx.auditLog.create({
@@ -444,8 +508,11 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
         throw new Error('Order not found');
       }
 
-      // If status transitions to Confirmed:
-      if (data.status === 'Confirmed' && order.status !== 'Confirmed') {
+      // Check if new status requires stock allocation and old status did not, or vice versa
+      const isOldAllocated = ALLOCATED_STATUSES.includes(order.status) || order.type === 'Invoice' || order.type === 'POS';
+      const isNewAllocated = ALLOCATED_STATUSES.includes(data.status) || order.type === 'Invoice' || order.type === 'POS';
+
+      if (isNewAllocated && !isOldAllocated) {
         for (const item of order.items) {
           // Log stock movement: order_allocation (direction: -1)
           await tx.productStockMovement.create({
@@ -497,6 +564,11 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
           // Trigger standard reorder/critical alert checks
           await notificationService.checkProductStockAlerts(item.productId, tx);
         }
+      } else if (!isNewAllocated && isOldAllocated) {
+        // Clear stock allocation
+        await tx.productStockMovement.deleteMany({
+          where: { orderId: id, type: 'order_allocation' }
+        });
       }
 
       // Update Order Status
@@ -688,8 +760,9 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         });
       }
 
-      // 6. Manage stock adjustments if status changed or just refresh movements if Confirmed
-      if (data.status === 'Confirmed') {
+      // 6. Manage stock adjustments
+      const isAllocated = ALLOCATED_STATUSES.includes(data.status) || data.type === 'Invoice' || data.type === 'POS';
+      if (isAllocated) {
         // Delete old movements for this order and recreate based on updated items
         await tx.productStockMovement.deleteMany({ where: { orderId: id, type: 'order_allocation' } });
         for (const item of orderItemsData) {
@@ -706,7 +779,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           });
         }
       } else {
-        // If status changed away from Confirmed, clear allocations
+        // If status changed away from allocated status, clear allocations
         await tx.productStockMovement.deleteMany({ where: { orderId: id, type: 'order_allocation' } });
       }
 

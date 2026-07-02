@@ -115,11 +115,27 @@ export default function OrderListPage() {
   const handleUpdateStatus = async (id, newStatus) => {
     try {
       await api.patch(`/orders/${id}/status`, { status: newStatus });
+      Swal.fire({
+        title: 'Status Updated',
+        text: `Order status changed successfully to ${newStatus}`,
+        icon: 'success',
+        timer: 1500,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
       fetchOrders();
       if (selectedOrder && selectedOrder.id === id) {
         setSelectedOrder(prev => prev ? { ...prev, status: newStatus } : null);
       }
-    } catch (e) { alert(e.response?.data?.error || 'Failed to update status'); }
+    } catch (e) {
+      Swal.fire({
+        title: 'Update Failed',
+        text: e.response?.data?.error || 'Failed to update order status.',
+        icon: 'error',
+        confirmButtonColor: '#6366f1'
+      });
+    }
   };
 
   const handleDelete = async (id) => {
@@ -767,20 +783,12 @@ export default function OrderListPage() {
                   <th className="px-4 py-3 text-right w-16">Qty</th>
                   <th className="px-4 py-3 text-right w-24">Rate</th>
                   <th className="px-4 py-3 text-right w-20">Discount</th>
-                  <th className="px-4 py-3 text-right w-28">Taxable Val</th>
-                  <th className="px-4 py-3 text-right w-20">CGST</th>
-                  <th className="px-4 py-3 text-right w-20">SGST</th>
-                  <th className="px-4 py-3 text-right w-20">IGST</th>
-                  <th className="px-4 py-3 text-right w-32">Total Value</th>
+                  <th className="px-4 py-3 text-right w-32 text-indigo-650 dark:text-indigo-400 font-bold">Total Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
                 {(selectedOrder.items || []).map((item, idx) => {
                   const sub = (Number(item.unitPrice) - Number(item.discount)) * Number(item.quantity);
-                  const cgst = Number(item.product?.cgst || 9);
-                  const sgst = Number(item.product?.sgst || 9);
-                  const igst = Number(item.product?.igst || 9);
-                  const total = sub * (1 + (cgst + sgst + igst) / 100);
                   return (
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10">
                       <td className="px-4 py-3 text-center text-slate-405 font-bold">{idx + 1}</td>
@@ -790,12 +798,8 @@ export default function OrderListPage() {
                       <td className="px-4 py-3 text-right font-mono">{item.quantity}</td>
                       <td className="px-4 py-3 text-right font-mono">₹{Number(item.unitPrice).toFixed(2)}</td>
                       <td className="px-4 py-3 text-right font-mono text-slate-500">₹{Number(item.discount).toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right font-mono font-bold">₹{sub.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-slate-500">₹{(sub * cgst / 100).toFixed(2)} ({cgst}%)</td>
-                      <td className="px-4 py-3 text-right font-mono text-slate-500">₹{(sub * sgst / 100).toFixed(2)} ({sgst}%)</td>
-                      <td className="px-4 py-3 text-right font-mono text-slate-500">₹{(sub * igst / 100).toFixed(2)} ({igst}%)</td>
                       <td className="px-4 py-3 text-right font-extrabold text-slate-900 dark:text-white font-mono">
-                        ₹{total.toFixed(2)}
+                        ₹{sub.toFixed(2)}
                       </td>
                     </tr>
                   );
@@ -804,15 +808,97 @@ export default function OrderListPage() {
             </table>
           </div>
 
-          <div className="flex justify-end pt-4 border-t border-slate-205 dark:border-slate-800">
-            <div className="w-80 space-y-2 text-xs">
-              <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                <span className="font-semibold">Subtotal Amount:</span>
-                <span className="font-mono">₹{Number(selectedOrder.totalSubtotal).toFixed(2)}</span>
+          <div className="flex flex-col md:flex-row justify-between pt-6 border-t border-slate-205 dark:border-slate-800 gap-6">
+            {/* Left side: GST & Terms Info */}
+            <div className="flex-1 space-y-4">
+              <div className="bg-slate-50 dark:bg-slate-900 p-4.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-slate-800 dark:text-slate-200">
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">GST Applicability</span>
+                <div className="text-xs space-y-1.5 text-slate-650 dark:text-slate-300">
+                  <div className="flex justify-between">
+                    <span>Tax Collection:</span>
+                    <span className="font-bold">{selectedOrder.collectTax ? 'Apply GST (CGST + SGST / IGST)' : 'No Tax'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tax Registration (GSTIN):</span>
+                    <span className="font-mono font-bold">{selectedOrder.taxRegNo || 'Unregistered'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tax Calculation Model:</span>
+                    <span className="font-bold">{selectedOrder.taxType || 'Exclusive Tax'}</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between text-sm font-extrabold text-indigo-650 dark:text-indigo-400 border-t border-slate-200 dark:border-slate-800 pt-2.5">
-                <span>Net Grand Total (incl. GST):</span>
-                <span className="font-mono text-base">₹{(Number(selectedOrder.totalSubtotal) * 1.18).toFixed(2)}</span>
+            </div>
+
+            {/* Right side: Charges and Totals breakdown */}
+            <div className="w-full md:w-96 space-y-2.5 bg-slate-50 dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block mb-1">Invoice Charges Summary</span>
+              
+              <div className="flex justify-between">
+                <span>Taxable Subtotal:</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.totalSubtotal || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Discount:</span>
+                <span className="font-mono text-rose-500 font-bold">-₹{Number(selectedOrder.discountValue || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Freight Charges (GST 18%):</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.freight || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Loading & Unloading (GST 18%):</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.loadingCharges || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Packing Charges (GST 18%):</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.packingCharges || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Insurance (GST 18%):</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.insurance || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Other Charges (GST 18%):</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.otherCharges || 0).toFixed(2)}</span>
+              </div>
+
+              {selectedOrder.collectTax && (
+                <>
+                  <div className="flex justify-between border-t border-slate-200 dark:border-slate-800 pt-1.5">
+                    <span>CGST @ 9%:</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.cgst || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>SGST @ 9%:</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.sgst || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>IGST @ 18%:</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.igst || 0).toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+
+              <div className="flex justify-between">
+                <span>TDS Deduction (₹):</span>
+                <span className="font-mono text-rose-500 font-bold">-₹{Number(selectedOrder.tdsDeduction || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Round Off (₹):</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.roundOff || 0).toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between text-sm font-black text-indigo-650 dark:text-indigo-400 border-t border-slate-200 dark:border-slate-800 pt-2.5">
+                <span>Total Invoice Amount:</span>
+                <span className="font-mono text-base text-indigo-500 font-black">₹{Number(selectedOrder.grandTotal || 0).toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -927,10 +1013,20 @@ export default function OrderListPage() {
                         {new Date(order.deliveryDate).toLocaleDateString('en-GB')}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-2xs font-extrabold rounded-full border ${config.bg} ${config.text} ${config.border}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${config.dot}`} />
-                          {order.status}
-                        </span>
+                        <select
+                          value={order.status}
+                          onChange={(e) => handleUpdateStatus(order.id, e.target.value)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-2xs font-extrabold rounded-full border bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition-all h-8.5 cursor-pointer font-sans ${config.bg} ${config.text} ${config.border}`}
+                          style={{ minWidth: '150px' }}
+                        >
+                          <option value="Quotation" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Quotation</option>
+                          <option value="Confirmed" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Confirmed</option>
+                          <option value="Waiting for Production" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Waiting for Production</option>
+                          <option value="In Production" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">In Production</option>
+                          <option value="Ready for Shipment" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Ready for Shipment</option>
+                          <option value="Delivered" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Delivered</option>
+                          <option value="Cancelled" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Cancelled</option>
+                        </select>
                       </td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-1.5">

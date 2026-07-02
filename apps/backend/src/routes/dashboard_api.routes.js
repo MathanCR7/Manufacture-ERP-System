@@ -649,17 +649,6 @@ router.get('/forecast/by-product', async (req, res, next) => {
     // Sort by demand descending
     result.sort((a, b) => b.demand - a.demand);
 
-    // If result has less than 5, fill with mock data for demonstration
-    if (result.length === 0) {
-      result.push(
-        { name: 'Kulfi Malai Classique', demand: 1200 },
-        { name: 'Kulfi Kesar Pista Premium', demand: 850 },
-        { name: 'Mango Delight Tub', demand: 620 },
-        { name: 'Chocolate Choco-Chip Kulfi', demand: 450 },
-        { name: 'Rose Gulkand Slice', demand: 320 }
-      );
-    }
-
     res.json(result.slice(0, limit));
   } catch (error) {
     next(error);
@@ -712,15 +701,6 @@ router.get('/forecast/by-order', async (req, res, next) => {
       week,
       forecasted_units
     }));
-
-    // If zero forecasted units, add mock trend to make a beautiful area chart
-    const allZero = result.every(r => r.forecasted_units === 0);
-    if (allZero) {
-      result[0].forecasted_units = 1500;
-      result[1].forecasted_units = 2800;
-      result[2].forecasted_units = 2200;
-      result[3].forecasted_units = 3400;
-    }
 
     res.json(result);
   } catch (error) {

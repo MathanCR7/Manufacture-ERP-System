@@ -1,4 +1,4 @@
-# 🏭 MANUFACTURE ERP SYSTEM
+# 🏭 ERP SYSTEM
 
 > **End-to-end manufacturing operations platform** — from raw material procurement through production, quality control, and stock management. Built for precision, traceability, and role-based accountability at every stage of the manufacturing lifecycle.
 
@@ -38,7 +38,7 @@
 
 ## 🌐 Overview
 
-The **Manufacture ERP System** is a role-based, full-stack web application engineered for manufacturing operations. It manages the complete product lifecycle — from raw material purchase orders, goods receipt, laboratory testing, production batching, quality control, all the way through to finished goods stock management.
+The **ERP System** is a role-based, full-stack web application engineered for manufacturing operations. It manages the complete product lifecycle — from raw material purchase orders, goods receipt, laboratory testing, production batching, quality control, all the way through to finished goods stock management.
 
 Every action in the system is traceable. Every handoff between roles generates real-time notifications. Every mutation is captured in a tamper-evident audit log. The system enforces strict role-based access control (RBAC), optionally combined with IP-level login restrictions per user.
 
@@ -54,39 +54,39 @@ Every action in the system is traceable. Every handoff between roles generates r
 
 ## ✨ Key Features
 
-| Feature | Description |
-|---|---|
-| **Role-Based Access Control** | 5 distinct roles — each with precisely scoped sidebar navigation, API guards, and UI restrictions |
-| **Unique RM ID Registry** | 6-digit raw material IDs guaranteed never to be reused, even after deletion |
-| **End-to-End Workflow** | Purchase Order → GRN → Lab Testing → Production → QC → Stock in a single, connected flow |
-| **Real-Time Notifications** | SSE-powered instant alerts between roles at every workflow handoff |
-| **IP-Level Login Restriction** | Bind any user account to a specific IP address — deny all other origins at middleware level |
-| **Full Audit Log** | Every mutating API call writes to `audit_log` with old/new values, user identity, and IP |
-| **Production QC with Expiry Dates** | Lab sets expiry date on QC-passed batches; stock view shows countdown with colour-coded urgency |
-| **Traceability Timeline** | Single view showing the complete lifecycle of any raw material from PO to finished product |
-| **CSV Export** | Audit logs and reports are exportable as CSV with date-range filtering |
-| **Notes System** | Any role can post notes on any record; Supervisor notes are visually distinguished |
-| **Dashboard Analytics** | Live metrics: today's batches, pending POs, lab queues, QC failures, expiry alerts |
-| **User Session Tracking** | Login/logout times, duration, and IP logged per session for compliance reporting |
+| Feature                             | Description                                                                                       |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------- |
+| **Role-Based Access Control**       | 5 distinct roles — each with precisely scoped sidebar navigation, API guards, and UI restrictions |
+| **Unique RM ID Registry**           | 6-digit raw material IDs guaranteed never to be reused, even after deletion                       |
+| **End-to-End Workflow**             | Purchase Order → GRN → Lab Testing → Production → QC → Stock in a single, connected flow          |
+| **Real-Time Notifications**         | SSE-powered instant alerts between roles at every workflow handoff                                |
+| **IP-Level Login Restriction**      | Bind any user account to a specific IP address — deny all other origins at middleware level       |
+| **Full Audit Log**                  | Every mutating API call writes to `audit_log` with old/new values, user identity, and IP          |
+| **Production QC with Expiry Dates** | Lab sets expiry date on QC-passed batches; stock view shows countdown with colour-coded urgency   |
+| **Traceability Timeline**           | Single view showing the complete lifecycle of any raw material from PO to finished product        |
+| **CSV Export**                      | Audit logs and reports are exportable as CSV with date-range filtering                            |
+| **Notes System**                    | Any role can post notes on any record; Supervisor notes are visually distinguished                |
+| **Dashboard Analytics**             | Live metrics: today's batches, pending POs, lab queues, QC failures, expiry alerts                |
+| **User Session Tracking**           | Login/logout times, duration, and IP logged per session for compliance reporting                  |
 
 ---
 
 ## 🛠 Technology Stack
 
-| Layer | Technology | Rationale |
-|---|---|---|
-| **Frontend** | React 18 + Vite | Fastest dev server; hot reload; optimised production builds |
-| **Routing** | React Router v6 | Nested protected routes; role-based redirect logic |
-| **UI Library** | Tailwind CSS + shadcn/ui | Consistent, accessible component system; zero CSS conflicts |
-| **Client State** | Zustand | Minimal boilerplate auth store; no Redux overhead |
-| **Server State** | TanStack Query (React Query) | Auto-caching, background refetch, optimistic updates |
-| **Backend** | Node.js 20 + Express.js | Async I/O ideal for ERP workloads; massive middleware ecosystem |
-| **ORM** | Prisma ORM | Type-safe queries; auto-migrations; no raw SQL errors |
-| **Database** | PostgreSQL 15 | ACID transactions; JSON columns; proven at scale |
-| **Authentication** | JWT (HS256) | Stateless; no Redis required; IP-binding middleware layer |
-| **Real-Time** | Server-Sent Events (SSE) | No Socket.io overhead; works through all proxies; native browser support |
-| **Containerisation** | Docker + docker-compose | One-command deploy; reproducible environments; $5/month VPS viable |
-| **Validation** | Zod | Runtime schema validation on every API input before DB touch |
+| Layer                | Technology                   | Rationale                                                                |
+| -------------------- | ---------------------------- | ------------------------------------------------------------------------ |
+| **Frontend**         | React 18 + Vite              | Fastest dev server; hot reload; optimised production builds              |
+| **Routing**          | React Router v6              | Nested protected routes; role-based redirect logic                       |
+| **UI Library**       | Tailwind CSS + shadcn/ui     | Consistent, accessible component system; zero CSS conflicts              |
+| **Client State**     | Zustand                      | Minimal boilerplate auth store; no Redux overhead                        |
+| **Server State**     | TanStack Query (React Query) | Auto-caching, background refetch, optimistic updates                     |
+| **Backend**          | Node.js 20 + Express.js      | Async I/O ideal for ERP workloads; massive middleware ecosystem          |
+| **ORM**              | Prisma ORM                   | Type-safe queries; auto-migrations; no raw SQL errors                    |
+| **Database**         | PostgreSQL 15                | ACID transactions; JSON columns; proven at scale                         |
+| **Authentication**   | JWT (HS256)                  | Stateless; no Redis required; IP-binding middleware layer                |
+| **Real-Time**        | Server-Sent Events (SSE)     | No Socket.io overhead; works through all proxies; native browser support |
+| **Containerisation** | Docker + docker-compose      | One-command deploy; reproducible environments; $5/month VPS viable       |
+| **Validation**       | Zod                          | Runtime schema validation on every API input before DB touch             |
 
 ---
 
@@ -94,7 +94,7 @@ Every action in the system is traceable. Every handoff between roles generates r
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        MANUFACTURE ERP                          │
+│                        ERP                          │
 │                                                                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐   │
 │  │  React   │  │  Zustand │  │ TanStack │  │  SSE Client  │   │
@@ -165,30 +165,30 @@ manufacture-erp/
 
 The system enforces five roles. Every sidebar item, API route, and UI action is guarded by role checks at both the frontend (render) and backend (middleware) levels.
 
-| Role | Sidebar Access | Key Capabilities |
-|---|---|---|
-| **Main Master** | All 17 modules | Full CRUD across the entire system; User management; IP restriction; Audit log; Dashboard |
-| **Purchase Accountant** | Dashboard, Purchase Orders, Expenses, Accounts, Notifications | Create/manage POs; Generate and rotate RM IDs; Delete pending POs |
-| **Materials Receiver** | Dashboard, Purchase Orders (view), GRN, RM Stock, RM Wastage, Pending Lab Tests (view), Notifications | Create GRN; Enter final approved quantity; Log wastage |
-| **Lab Assistant** | Dashboard, Pending RM Lab Tests, RM Lab Results, Production QC Queue, Product Stock (view), Notifications | Submit RM lab tests; Submit production QC; Set expiry dates |
-| **Supervisor** | Dashboard, POs, GRN, Lab Results, Production, Stock (all read-only), Notifications | Read all records; Post notes on any record |
+| Role                    | Sidebar Access                                                                                            | Key Capabilities                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Main Master**         | All 17 modules                                                                                            | Full CRUD across the entire system; User management; IP restriction; Audit log; Dashboard |
+| **Purchase Accountant** | Dashboard, Purchase Orders, Expenses, Accounts, Notifications                                             | Create/manage POs; Generate and rotate RM IDs; Delete pending POs                         |
+| **Materials Receiver**  | Dashboard, Purchase Orders (view), GRN, RM Stock, RM Wastage, Pending Lab Tests (view), Notifications     | Create GRN; Enter final approved quantity; Log wastage                                    |
+| **Lab Assistant**       | Dashboard, Pending RM Lab Tests, RM Lab Results, Production QC Queue, Product Stock (view), Notifications | Submit RM lab tests; Submit production QC; Set expiry dates                               |
+| **Supervisor**          | Dashboard, POs, GRN, Lab Results, Production, Stock (all read-only), Notifications                        | Read all records; Post notes on any record                                                |
 
 ### Role–Permission Matrix
 
-| Module / Action | Master | Accountant | Receiver | Lab Asst | Supervisor |
-|---|---|---|---|---|---|
-| Dashboard | **Full** | Read | Read | Read | Read |
-| Purchase Orders — Create | **Full** | **Full** | — | — | — |
-| Purchase Orders — Delete | **Full** | Own/Pending | — | — | — |
-| GRN — Create | **Full** | — | **Full** | — | — |
-| GRN — Final Qty Approve | **Full** | — | **Full** | — | — |
-| Lab RM Test — Submit | **Full** | — | — | **Full** | — |
-| Production Batch — Create | **Full** | — | — | — | — |
-| Production QC — Submit | **Full** | — | — | **Full** | — |
-| Product Stock — View | **Full** | — | — | Read | Read |
-| User Management | **Full** | — | — | — | — |
-| Audit Log | **Full** | — | — | — | — |
-| Notes — Post | **Full** | **Full** | **Full** | **Full** | **Full** |
+| Module / Action           | Master   | Accountant  | Receiver | Lab Asst | Supervisor |
+| ------------------------- | -------- | ----------- | -------- | -------- | ---------- |
+| Dashboard                 | **Full** | Read        | Read     | Read     | Read       |
+| Purchase Orders — Create  | **Full** | **Full**    | —        | —        | —          |
+| Purchase Orders — Delete  | **Full** | Own/Pending | —        | —        | —          |
+| GRN — Create              | **Full** | —           | **Full** | —        | —          |
+| GRN — Final Qty Approve   | **Full** | —           | **Full** | —        | —          |
+| Lab RM Test — Submit      | **Full** | —           | —        | **Full** | —          |
+| Production Batch — Create | **Full** | —           | —        | —        | —          |
+| Production QC — Submit    | **Full** | —           | —        | **Full** | —          |
+| Product Stock — View      | **Full** | —           | —        | Read     | Read       |
+| User Management           | **Full** | —           | —        | —        | —          |
+| Audit Log                 | **Full** | —           | —        | —        | —          |
+| Notes — Post              | **Full** | **Full**    | **Full** | **Full** | **Full**   |
 
 ---
 
@@ -197,6 +197,7 @@ The system enforces five roles. Every sidebar item, API route, and UI action is 
 The system enforces a strict, sequential workflow. Each step gates the next — you cannot create a production batch from unapproved raw materials, and you cannot release finished goods to stock without a passed QC test.
 
 ### Step 1 — Purchase Order Creation
+
 **Actor: Purchase Accountant**
 
 1. Accountant opens Purchase Orders → Create New PO
@@ -207,6 +208,7 @@ The system enforces a strict, sequential workflow. Each step gates the next — 
 6. PO immediately visible to Materials Receiver in their sidebar
 
 ### Step 2 — Goods Receipt (GRN)
+
 **Actor: Materials Receiver**
 
 1. Receiver sees all pending POs with expected delivery dates
@@ -217,6 +219,7 @@ The system enforces a strict, sequential workflow. Each step gates the next — 
 6. Lab Assistant receives **real-time SSE notification**: `RM #100034 arrived — Full Cream Milk 100kg — Health: Good`
 
 ### Step 3 — Raw Material Lab Testing
+
 **Actor: Lab Assistant**
 
 1. Lab Assistant sees badge count on **Pending RM Lab Tests** sidebar item
@@ -229,6 +232,7 @@ The system enforces a strict, sequential workflow. Each step gates the next — 
 8. **If Need Re-sample**: Receiver notified → send another sample to lab
 
 ### Step 4 — Final Quantity Approval
+
 **Actor: Materials Receiver**
 
 1. Receiver gets notification: `RM #100034 approved — enter final quantity`
@@ -238,6 +242,7 @@ The system enforces a strict, sequential workflow. Each step gates the next — 
 5. PO status → `APPROVED` — RM queued for production
 
 ### Step 5 — Production Batch
+
 **Actor: Main Master / Production Team**
 
 1. Opens Production Batches → Create Batch
@@ -249,6 +254,7 @@ The system enforces a strict, sequential workflow. Each step gates the next — 
 7. Lab Assistant notified: `Batch MP-000001 complete — QC required`
 
 ### Step 6 — Production Quality Control
+
 **Actor: Lab Assistant**
 
 1. Lab sees badge on **Production QC Queue** sidebar
@@ -273,14 +279,14 @@ The system enforces a strict, sequential workflow. Each step gates the next — 
 
 Every document type in the system generates a formatted, sequential reference number for full traceability across all roles.
 
-| Document | Format | Example | Description |
-|---|---|---|---|
-| Raw Material ID | `6-digit number` | `100034` | Unique RM identifier — never reused, permanent in registry |
-| Purchase Order | `PO-000001` | `PO-000031` | Sequential, auto-generated on PO creation |
-| Goods Receipt Note | `GRN-000001` | `GRN-000019` | Linked to PO + RM ID |
-| RM Lab Test | `LAB-RM-000001` | `LAB-RM-000012` | Linked to RM ID + GRN |
-| Production Batch | `MP-000001` | `MP-000013` | Sequential production run |
-| Production QC | `QC-000001` | `QC-000008` | Linked to Production Batch |
+| Document           | Format           | Example         | Description                                                |
+| ------------------ | ---------------- | --------------- | ---------------------------------------------------------- |
+| Raw Material ID    | `6-digit number` | `100034`        | Unique RM identifier — never reused, permanent in registry |
+| Purchase Order     | `PO-000001`      | `PO-000031`     | Sequential, auto-generated on PO creation                  |
+| Goods Receipt Note | `GRN-000001`     | `GRN-000019`    | Linked to PO + RM ID                                       |
+| RM Lab Test        | `LAB-RM-000001`  | `LAB-RM-000012` | Linked to RM ID + GRN                                      |
+| Production Batch   | `MP-000001`      | `MP-000013`     | Sequential production run                                  |
+| Production QC      | `QC-000001`      | `QC-000008`     | Linked to Production Batch                                 |
 
 ### RM ID Generation Rules
 
@@ -375,81 +381,81 @@ All routes are protected by `authenticateToken` middleware. Mutating routes addi
 
 ### Authentication
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `POST` | `/api/auth/login` | Public | Login with email + password → returns JWT |
+| Method | Endpoint           | Access        | Description                                  |
+| ------ | ------------------ | ------------- | -------------------------------------------- |
+| `POST` | `/api/auth/login`  | Public        | Login with email + password → returns JWT    |
 | `POST` | `/api/auth/logout` | Authenticated | Logs session end; updates `user_session_log` |
 
 ### Raw Material & Purchase Orders
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/rm/id/generate` | Accountant, Master | Generate a candidate RM ID (not saved) |
-| `POST` | `/api/rm/id/rotate` | Accountant, Master | Generate a fresh candidate RM ID |
-| `GET` | `/api/rm/po` | All roles | List all purchase orders |
-| `GET` | `/api/rm/po/:id` | All roles | Single PO detail |
-| `POST` | `/api/rm/po` | Accountant, Master | Create PO (saves RM ID to registry) |
-| `DELETE` | `/api/rm/po/:id` | Accountant, Master | Delete PO (only if `PENDING`) |
-| `GET` | `/api/rm/trace/:rmId` | All roles | Full lifecycle timeline for an RM ID |
-| `GET` | `/api/uom` | All roles | List all active units of measurement |
-| `POST` | `/api/uom` | Master only | Create a new UOM |
+| Method   | Endpoint              | Access             | Description                            |
+| -------- | --------------------- | ------------------ | -------------------------------------- |
+| `GET`    | `/api/rm/id/generate` | Accountant, Master | Generate a candidate RM ID (not saved) |
+| `POST`   | `/api/rm/id/rotate`   | Accountant, Master | Generate a fresh candidate RM ID       |
+| `GET`    | `/api/rm/po`          | All roles          | List all purchase orders               |
+| `GET`    | `/api/rm/po/:id`      | All roles          | Single PO detail                       |
+| `POST`   | `/api/rm/po`          | Accountant, Master | Create PO (saves RM ID to registry)    |
+| `DELETE` | `/api/rm/po/:id`      | Accountant, Master | Delete PO (only if `PENDING`)          |
+| `GET`    | `/api/rm/trace/:rmId` | All roles          | Full lifecycle timeline for an RM ID   |
+| `GET`    | `/api/uom`            | All roles          | List all active units of measurement   |
+| `POST`   | `/api/uom`            | Master only        | Create a new UOM                       |
 
 ### Goods Receipt (GRN)
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/grn` | All roles | List all GRNs |
-| `GET` | `/api/grn/:id` | All roles | GRN detail with linked PO |
-| `GET` | `/api/grn/pending-pos` | Receiver, Master | POs awaiting GRN creation |
-| `POST` | `/api/grn` | Receiver, Master | Create GRN; notifies Lab Assistant |
+| Method  | Endpoint                 | Access           | Description                           |
+| ------- | ------------------------ | ---------------- | ------------------------------------- |
+| `GET`   | `/api/grn`               | All roles        | List all GRNs                         |
+| `GET`   | `/api/grn/:id`           | All roles        | GRN detail with linked PO             |
+| `GET`   | `/api/grn/pending-pos`   | Receiver, Master | POs awaiting GRN creation             |
+| `POST`  | `/api/grn`               | Receiver, Master | Create GRN; notifies Lab Assistant    |
 | `PATCH` | `/api/grn/:id/final-qty` | Receiver, Master | Set final approved qty; locks the GRN |
 
 ### Lab Testing
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/lab/rm` | Lab, Master, Supervisor | All RM lab tests |
-| `GET` | `/api/lab/rm/queue` | Lab, Master | GRNs awaiting lab testing |
-| `GET` | `/api/lab/rm/:rmId` | Lab, Master | Lab result for a specific RM |
-| `POST` | `/api/lab/rm` | Lab, Master | Submit RM lab test + decision |
-| `GET` | `/api/lab/production` | Lab, Master | All production QC tests |
-| `GET` | `/api/lab/production/queue` | Lab, Master | Batches awaiting QC |
-| `POST` | `/api/lab/production` | Lab, Master | Submit production QC + expiry date |
+| Method | Endpoint                    | Access                  | Description                        |
+| ------ | --------------------------- | ----------------------- | ---------------------------------- |
+| `GET`  | `/api/lab/rm`               | Lab, Master, Supervisor | All RM lab tests                   |
+| `GET`  | `/api/lab/rm/queue`         | Lab, Master             | GRNs awaiting lab testing          |
+| `GET`  | `/api/lab/rm/:rmId`         | Lab, Master             | Lab result for a specific RM       |
+| `POST` | `/api/lab/rm`               | Lab, Master             | Submit RM lab test + decision      |
+| `GET`  | `/api/lab/production`       | Lab, Master             | All production QC tests            |
+| `GET`  | `/api/lab/production/queue` | Lab, Master             | Batches awaiting QC                |
+| `POST` | `/api/lab/production`       | Lab, Master             | Submit production QC + expiry date |
 
 ### Production
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/production` | All roles | List all production batches |
-| `GET` | `/api/production/:id` | All roles | Batch detail |
-| `POST` | `/api/production` | Master | Create production batch |
-| `PATCH` | `/api/production/:id/usage` | Master | Record actual RM used |
-| `PATCH` | `/api/production/:id/complete` | Master | Mark batch complete; notifies Lab |
+| Method  | Endpoint                       | Access    | Description                       |
+| ------- | ------------------------------ | --------- | --------------------------------- |
+| `GET`   | `/api/production`              | All roles | List all production batches       |
+| `GET`   | `/api/production/:id`          | All roles | Batch detail                      |
+| `POST`  | `/api/production`              | Master    | Create production batch           |
+| `PATCH` | `/api/production/:id/usage`    | Master    | Record actual RM used             |
+| `PATCH` | `/api/production/:id/complete` | Master    | Mark batch complete; notifies Lab |
 
 ### Notifications
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/notifications/stream` | Authenticated | SSE stream for real-time notifications |
-| `GET` | `/api/notifications/mine` | Authenticated | Last 50 notifications for current user |
-| `PATCH` | `/api/notifications/:id/seen` | Authenticated | Mark notification as seen |
-| `GET` | `/api/notifications/admin-audit` | Master only | All notifications with seen tracking |
+| Method  | Endpoint                         | Access        | Description                            |
+| ------- | -------------------------------- | ------------- | -------------------------------------- |
+| `GET`   | `/api/notifications/stream`      | Authenticated | SSE stream for real-time notifications |
+| `GET`   | `/api/notifications/mine`        | Authenticated | Last 50 notifications for current user |
+| `PATCH` | `/api/notifications/:id/seen`    | Authenticated | Mark notification as seen              |
+| `GET`   | `/api/notifications/admin-audit` | Master only   | All notifications with seen tracking   |
 
 ### Reports & Admin
 
-| Method | Endpoint | Access | Description |
-|---|---|---|---|
-| `GET` | `/api/reports/dashboard` | Master | Live dashboard metrics |
-| `GET` | `/api/reports/stock` | All roles | QC-passed batches with expiry data |
-| `GET` | `/api/audit` | Master | Filterable audit log (cursor-paginated) |
-| `GET` | `/api/audit/export` | Master | Audit log as downloadable CSV |
-| `GET` | `/api/users` | Master | All users |
-| `POST` | `/api/users` | Master | Create user |
-| `PATCH` | `/api/users/:id` | Master | Edit user |
-| `PATCH` | `/api/users/:id/ip` | Master | Set/clear IP restriction |
-| `DELETE` | `/api/users/:id` | Master | Soft-delete user |
-| `GET` | `/api/notes` | All roles | Notes for a record (`?referenceTable=&referenceId=`) |
-| `POST` | `/api/notes` | All roles | Post a note on any record |
+| Method   | Endpoint                 | Access    | Description                                          |
+| -------- | ------------------------ | --------- | ---------------------------------------------------- |
+| `GET`    | `/api/reports/dashboard` | Master    | Live dashboard metrics                               |
+| `GET`    | `/api/reports/stock`     | All roles | QC-passed batches with expiry data                   |
+| `GET`    | `/api/audit`             | Master    | Filterable audit log (cursor-paginated)              |
+| `GET`    | `/api/audit/export`      | Master    | Audit log as downloadable CSV                        |
+| `GET`    | `/api/users`             | Master    | All users                                            |
+| `POST`   | `/api/users`             | Master    | Create user                                          |
+| `PATCH`  | `/api/users/:id`         | Master    | Edit user                                            |
+| `PATCH`  | `/api/users/:id/ip`      | Master    | Set/clear IP restriction                             |
+| `DELETE` | `/api/users/:id`         | Master    | Soft-delete user                                     |
+| `GET`    | `/api/notes`             | All roles | Notes for a record (`?referenceTable=&referenceId=`) |
+| `POST`   | `/api/notes`             | All roles | Post a note on any record                            |
 
 ### Error Response Shape
 
@@ -498,16 +504,16 @@ All error responses follow a consistent structure:
 
 ### Shared Components
 
-| Component | Description |
-|---|---|
-| `NotificationBell` | Real-time bell icon with unread badge; SSE-driven; Popover dropdown |
-| `RoleGuard` | HOC wrapping routes; server-side role mismatch → redirect to `/dashboard` |
-| `StatusBadge` | Colour-coded status chips: `PENDING=amber`, `APPROVED=green`, `QC_FAILED=red`, etc. |
-| `NotePanel` | Collapsible notes panel, attaches to any record via `referenceTable + referenceId` |
-| `AuditTimeline` | Read-only sidebar showing the audit trail for the current record |
-| `RMIDWidget` | Displays current 6-digit candidate ID with copy button and Rotate action |
-| `AppShell` | Top navigation bar + role-aware sidebar + `NotificationBell` |
-| `ProtectedRoute` | Checks Zustand auth store; redirects unauthenticated users to `/login` |
+| Component          | Description                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------- |
+| `NotificationBell` | Real-time bell icon with unread badge; SSE-driven; Popover dropdown                 |
+| `RoleGuard`        | HOC wrapping routes; server-side role mismatch → redirect to `/dashboard`           |
+| `StatusBadge`      | Colour-coded status chips: `PENDING=amber`, `APPROVED=green`, `QC_FAILED=red`, etc. |
+| `NotePanel`        | Collapsible notes panel, attaches to any record via `referenceTable + referenceId`  |
+| `AuditTimeline`    | Read-only sidebar showing the audit trail for the current record                    |
+| `RMIDWidget`       | Displays current 6-digit candidate ID with copy button and Rotate action            |
+| `AppShell`         | Top navigation bar + role-aware sidebar + `NotificationBell`                        |
+| `ProtectedRoute`   | Checks Zustand auth store; redirects unauthenticated users to `/login`              |
 
 ### Formatters (`/client/src/lib/formatters.js`)
 
@@ -525,15 +531,15 @@ timeAgo(iso)              → "3 minutes ago"
 
 All notifications are persisted to the `notifications` database table AND pushed in real-time via Server-Sent Events (SSE) to connected clients. Offline users receive their notifications on next login.
 
-| Trigger Event | Notified Role | Message Content |
-|---|---|---|
-| GRN submitted | Lab Assistant | `RM #100034 arrived — Full Cream Milk 100kg — Health: Good` |
-| Lab requests re-sample | Materials Receiver | `Lab requests re-sample for RM #100034 — please provide` |
-| RM Lab Approved | Materials Receiver | `RM #100034 approved by Lab — enter final approved quantity` |
-| RM Lab Rejected | Materials Receiver | `RM #100034 REJECTED by Lab — goods must be returned` |
-| Production batch completed | Lab Assistant | `Batch #MP-000013 production complete — QC testing required` |
-| Production QC passed | Main Master | `New stock ready: Batch #MP-000013 — 500 pcs — Expires: 15/06/2026` |
-| Production QC failed | Main Master | `Batch #MP-000013 QC FAILED — batch flagged for review` |
+| Trigger Event              | Notified Role      | Message Content                                                     |
+| -------------------------- | ------------------ | ------------------------------------------------------------------- |
+| GRN submitted              | Lab Assistant      | `RM #100034 arrived — Full Cream Milk 100kg — Health: Good`         |
+| Lab requests re-sample     | Materials Receiver | `Lab requests re-sample for RM #100034 — please provide`            |
+| RM Lab Approved            | Materials Receiver | `RM #100034 approved by Lab — enter final approved quantity`        |
+| RM Lab Rejected            | Materials Receiver | `RM #100034 REJECTED by Lab — goods must be returned`               |
+| Production batch completed | Lab Assistant      | `Batch #MP-000013 production complete — QC testing required`        |
+| Production QC passed       | Main Master        | `New stock ready: Batch #MP-000013 — 500 pcs — Expires: 15/06/2026` |
+| Production QC failed       | Main Master        | `Batch #MP-000013 QC FAILED — batch flagged for review`             |
 
 **Seen Tracking:** Every notification records `seen_at` and `seen_by` when the recipient opens it. The Main Master's admin audit page shows which notifications were seen, by whom, and when.
 
@@ -565,26 +571,26 @@ checkIP middleware
 
 ### Live Dashboard Metrics (Main Master)
 
-| Metric | Description |
-|---|---|
-| Today's Batches | Count of production batches created today (UTC) |
-| Pending Purchase Orders | POs with `status: PENDING` |
-| Awaiting Lab Testing | GRNs with no `lab_rm_test` row |
-| Awaiting Production QC | Batches with `status: COMPLETED` |
-| Total Stock In Hand | Count + sum qty of `status: QC_PASSED` batches |
-| QC Failures Today | `lab_production_test.decision = QC_FAILED` records today |
-| Expiry Alerts | `QC_PASSED` batches expiring within 7 days, sorted by urgency |
+| Metric                  | Description                                                   |
+| ----------------------- | ------------------------------------------------------------- |
+| Today's Batches         | Count of production batches created today (UTC)               |
+| Pending Purchase Orders | POs with `status: PENDING`                                    |
+| Awaiting Lab Testing    | GRNs with no `lab_rm_test` row                                |
+| Awaiting Production QC  | Batches with `status: COMPLETED`                              |
+| Total Stock In Hand     | Count + sum qty of `status: QC_PASSED` batches                |
+| QC Failures Today       | `lab_production_test.decision = QC_FAILED` records today      |
+| Expiry Alerts           | `QC_PASSED` batches expiring within 7 days, sorted by urgency |
 
 Dashboard auto-refreshes every 60 seconds via TanStack Query `refetchInterval`.
 
 ### Expiry Colour Coding
 
-| Days Until Expiry | Display |
-|---|---|
-| > 7 days | Green text — stock is fresh |
-| 4–7 days | Amber text + badge `Expiring Soon` |
-| ≤ 3 days | Red text + badge `URGENT` |
-| Expired | Gray text + badge `Expired` |
+| Days Until Expiry | Display                            |
+| ----------------- | ---------------------------------- |
+| > 7 days          | Green text — stock is fresh        |
+| 4–7 days          | Amber text + badge `Expiring Soon` |
+| ≤ 3 days          | Red text + badge `URGENT`          |
+| Expired           | Gray text + badge `Expired`        |
 
 ### Audit Log Viewer
 
@@ -707,19 +713,19 @@ docker-compose logs -f server
 
 ### `docker-compose.prod.yml` Services
 
-| Service | Image | Port | Details |
-|---|---|---|---|
-| `postgres` | `postgres:15-alpine` | Internal | Named volume `erp_pgdata`; healthcheck via `pg_isready` |
-| `server` | `./server` (Node 20) | Internal | Runs migrations then starts app; depends on postgres health |
-| `nginx` | `./client` (multi-stage) | `80:80` | Serves static build; proxies `/api` to server |
+| Service    | Image                    | Port     | Details                                                     |
+| ---------- | ------------------------ | -------- | ----------------------------------------------------------- |
+| `postgres` | `postgres:15-alpine`     | Internal | Named volume `erp_pgdata`; healthcheck via `pg_isready`     |
+| `server`   | `./server` (Node 20)     | Internal | Runs migrations then starts app; depends on postgres health |
+| `nginx`    | `./client` (multi-stage) | `80:80`  | Serves static build; proxies `/api` to server               |
 
 ### Recommended VPS Sizing
 
-| Provider | Spec | Cost | Notes |
-|---|---|---|---|
-| Hetzner CX22 | 2 vCPU, 4GB RAM | ~$5/month | Best value for EU |
+| Provider           | Spec            | Cost       | Notes                   |
+| ------------------ | --------------- | ---------- | ----------------------- |
+| Hetzner CX22       | 2 vCPU, 4GB RAM | ~$5/month  | Best value for EU       |
 | DigitalOcean Basic | 2 vCPU, 4GB RAM | ~$12/month | Good global CDN options |
-| SSL | Let's Encrypt | FREE | Auto-renew with certbot |
+| SSL                | Let's Encrypt   | FREE       | Auto-renew with certbot |
 
 ---
 
@@ -727,18 +733,18 @@ docker-compose logs -f server
 
 ### Implemented Measures
 
-| Layer | Measure |
-|---|---|
-| **Transport** | HTTPS enforced via nginx; HSTS header (`max-age=31536000`) |
-| **Authentication** | JWT HS256; 15-minute access token expiry; algorithm explicitly verified |
-| **IP Binding** | Per-user IP restriction enforced on every authenticated request |
+| Layer                | Measure                                                                           |
+| -------------------- | --------------------------------------------------------------------------------- |
+| **Transport**        | HTTPS enforced via nginx; HSTS header (`max-age=31536000`)                        |
+| **Authentication**   | JWT HS256; 15-minute access token expiry; algorithm explicitly verified           |
+| **IP Binding**       | Per-user IP restriction enforced on every authenticated request                   |
 | **Input Validation** | Zod schema validation on all API inputs; `.trim()` transform on all string fields |
-| **Rate Limiting** | `/api/auth/login`: 10 req/15min per IP; General API: 200 req/15min per IP |
-| **Headers** | `helmet()` middleware: `X-Frame-Options: DENY`, CSP headers, no-sniff |
-| **CORS** | Restricted to `FRONTEND_URL` env variable only; explicit method list |
-| **Audit Logging** | Every POST/PATCH/DELETE writes to `audit_log` with old/new values and IP |
-| **Database** | Prisma ORM only — no raw SQL; parameterised queries prevent injection |
-| **Passwords** | `bcrypt` with `saltRounds=12` |
+| **Rate Limiting**    | `/api/auth/login`: 10 req/15min per IP; General API: 200 req/15min per IP         |
+| **Headers**          | `helmet()` middleware: `X-Frame-Options: DENY`, CSP headers, no-sniff             |
+| **CORS**             | Restricted to `FRONTEND_URL` env variable only; explicit method list              |
+| **Audit Logging**    | Every POST/PATCH/DELETE writes to `audit_log` with old/new values and IP          |
+| **Database**         | Prisma ORM only — no raw SQL; parameterised queries prevent injection             |
+| **Passwords**        | `bcrypt` with `saltRounds=12`                                                     |
 
 ### Security Checklist for Production
 
@@ -755,6 +761,7 @@ docker-compose logs -f server
 ## 🗺 Development Roadmap
 
 ### v1.0 — Core Manufacturing Module ✅
+
 - [x] Role-based authentication with JWT + IP binding
 - [x] Purchase Order management with RM ID registry
 - [x] Goods Receipt Note (GRN) workflow
@@ -769,6 +776,7 @@ docker-compose logs -f server
 - [x] Docker production deployment
 
 ### v1.5 — Advanced Features 🔄
+
 - [ ] Distribution domain module
 - [ ] Retail / Sales domain module
 - [ ] File attachments on GRN and lab records (S3-compatible)
@@ -779,6 +787,7 @@ docker-compose logs -f server
 - [ ] Batch cost calculation and profitability reports
 
 ### v2.0 — Enterprise Features 📋
+
 - [ ] Multi-tenancy support
 - [ ] ERP integration API (SAP/Tally webhooks)
 - [ ] Advanced analytics with Chart.js dashboards
@@ -808,7 +817,7 @@ Internal development only. Please follow the established code conventions:
 ---
 
 <div align="center">
-  <strong>MANUFACTURE ERP SYSTEM</strong><br>
+  <strong>ERP SYSTEM</strong><br>
   Built for precision manufacturing operations<br>
   React · Node.js · PostgreSQL · Docker
 </div>

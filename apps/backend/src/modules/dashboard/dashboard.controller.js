@@ -122,12 +122,35 @@ class DashboardController {
         where: { deletedAt: null }
       });
 
-      // Production efficiency
-      const [completedBatches, inProgressBatches, totalBatches] = await Promise.all([
-        prisma.productionBatchNew.count({ where: { status: 'qc_passed', deletedAt: null } }),
-        prisma.productionBatchNew.count({ where: { status: 'In Progress', deletedAt: null } }),
-        prisma.productionBatchNew.count({ where: { deletedAt: null } })
-      ]);
+      // Production batches and OEE stats
+      const batchStatusCounts = await prisma.productionBatchNew.groupBy({
+        by: ['status'], _count: true, where: { deletedAt: null }
+      });
+      const statusMap = {};
+      batchStatusCounts.forEach(s => { statusMap[s.status] = s._count; });
+
+      const completedBatches = (statusMap['Completed'] || 0) + (statusMap['qc_passed'] || 0);
+      const inProgressBatches = statusMap['In Progress'] || 0;
+      const totalBatches = Object.values(statusMap).reduce((a, b) => a + b, 0);
+
+      // Production quantity summary
+      const productionAgg = await prisma.productionBatchNew.aggregate({
+        _sum: { quantity: true, partiallyDoneQty: true },
+        where: { deletedAt: null }
+      });
+
+      // QC pass/fail rates
+      const qcPassed = await prisma.labProductionTestNew.count({ where: { result: { in: ['Pass', 'pass'] } } });
+      const qcFailed = await prisma.labProductionTestNew.count({ where: { result: { in: ['Fail', 'fail'] } } });
+      const totalQc = qcPassed + qcFailed;
+      const qcPassRate = totalQc > 0 ? ((qcPassed / totalQc) * 100).toFixed(1) : 0;
+
+      // OEE Component Breakdown
+      const availability = totalBatches > 0 ? Math.min(100, (completedBatches + inProgressBatches) / totalBatches * 100) : 0;
+      const performance = fmtNum(productionAgg._sum.partiallyDoneQty) > 0 && fmtNum(productionAgg._sum.quantity) > 0
+        ? Math.min(100, (fmtNum(productionAgg._sum.partiallyDoneQty) / fmtNum(productionAgg._sum.quantity)) * 100) : 0;
+      const quality = parseFloat(qcPassRate);
+      const oeeScore = totalBatches > 0 ? Math.round((availability / 100) * (performance / 100) * (quality / 100) * 100) : 0;
 
       // Inventory value (raw materials)
       const rawMaterials = await prisma.rawMaterial.findMany({ select: { currentStock: true, ratePerUnit: true } });
@@ -192,8 +215,6 @@ class DashboardController {
       const orderPipeline = {};
       orderCounts.forEach(o => { orderPipeline[o.status] = o._count; });
 
-      const oeeScore = totalBatches > 0 ? Math.round((completedBatches / totalBatches) * 100) : 87;
-
       const lastMonthRev = fmtNum(lastMonthRevenue._sum.totalSubtotal);
       const currentMonthRev = fmtNum(currentMonthRevenue._sum.totalSubtotal);
       const revenueGrowth = lastMonthRev > 0 ? ((currentMonthRev - lastMonthRev) / lastMonthRev * 100).toFixed(1) : 0;
@@ -207,6 +228,9 @@ class DashboardController {
         totalExpenses: totalExpensesVal,
         orderPipeline,
         oeeScore,
+        availability: parseFloat(availability.toFixed(1)),
+        performance: parseFloat(performance.toFixed(1)),
+        quality: parseFloat(quality.toFixed(1)),
         inventoryValue: rmInventoryValue + fpInventoryValue,
         rmInventoryValue,
         fpInventoryValue,
@@ -347,16 +371,16 @@ class DashboardController {
       const qcPassed = await prisma.labProductionTestNew.count({ where: { result: { in: ['Pass', 'pass'] } } });
       const qcFailed = await prisma.labProductionTestNew.count({ where: { result: { in: ['Fail', 'fail'] } } });
       const totalQc = qcPassed + qcFailed;
-      const qcPassRate = totalQc > 0 ? ((qcPassed / totalQc) * 100).toFixed(1) : 95;
+      const qcPassRate = totalQc > 0 ? ((qcPassed / totalQc) * 100).toFixed(1) : 0;
 
       // OEE calculation: QC pass rate × availability × performance (simplified)
       const totalBatches = Object.values(statusMap).reduce((a, b) => a + b, 0);
       const completedBatches = (statusMap['Completed'] || 0) + (statusMap['qc_passed'] || 0);
-      const availability = totalBatches > 0 ? Math.min(100, (completedBatches + (statusMap['In Progress'] || 0)) / totalBatches * 100) : 92;
+      const availability = totalBatches > 0 ? Math.min(100, (completedBatches + (statusMap['In Progress'] || 0)) / totalBatches * 100) : 0;
       const performance = fmtNum(productionAgg._sum.partiallyDoneQty) > 0 && fmtNum(productionAgg._sum.quantity) > 0
-        ? Math.min(100, (fmtNum(productionAgg._sum.partiallyDoneQty) / fmtNum(productionAgg._sum.quantity)) * 100) : 88;
+        ? Math.min(100, (fmtNum(productionAgg._sum.partiallyDoneQty) / fmtNum(productionAgg._sum.quantity)) * 100) : 0;
       const quality = parseFloat(qcPassRate);
-      const oee = ((availability / 100) * (performance / 100) * (quality / 100) * 100).toFixed(1);
+      const oee = totalBatches > 0 ? ((availability / 100) * (performance / 100) * (quality / 100) * 100).toFixed(1) : 0;
 
       // Production losses this month
       const losses = await prisma.productionLoss.findMany({
@@ -400,7 +424,7 @@ class DashboardController {
 
       // Scrap / rejection rate
       const totalProductionQty = fmtNum(productionAgg._sum.quantity);
-      const scrapRate = totalProductionQty > 0 ? ((totalLossKg / totalProductionQty) * 100).toFixed(1) : 2.5;
+      const scrapRate = totalProductionQty > 0 ? ((totalLossKg / totalProductionQty) * 100).toFixed(1) : 0;
 
       res.json({
         statusCounts: statusMap,
