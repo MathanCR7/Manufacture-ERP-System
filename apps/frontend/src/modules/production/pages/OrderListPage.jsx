@@ -718,7 +718,7 @@ export default function OrderListPage() {
 
     return (
       <div className="p-6 max-w-5xl mx-auto space-y-6 animate__animated animate__fadeIn print:p-0 print:bg-white">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-205 dark:border-slate-850 print:hidden">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800 print:hidden">
           <div className="space-y-1">
             <button 
               onClick={handleCloseInvoiceView}
@@ -753,7 +753,7 @@ export default function OrderListPage() {
             <div className="text-left sm:text-right">
               <h3 className="text-base font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-3.5 py-1.5 rounded-xl inline-block">TAX INVOICE</h3>
               <p className="text-sm font-mono font-black text-indigo-650 dark:text-indigo-400 mt-2">{selectedOrder.referenceNo}</p>
-              <p className="text-xs text-slate-455 mt-1">Date: {new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Date: {new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}</p>
             </div>
           </div>
 
@@ -766,10 +766,10 @@ export default function OrderListPage() {
             </div>
             <div className="text-left sm:text-right space-y-1">
               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Order Parameters</span>
-              <p className="text-slate-700 dark:text-slate-350">Order Type: <strong className="text-slate-900 dark:text-white">{selectedOrder.type}</strong></p>
-              <p className="text-slate-700 dark:text-slate-350">Payment Status: <strong className="text-indigo-600 dark:text-indigo-400">{selectedOrder.paymentTerms || 'Not Paid'}</strong></p>
-              <p className="text-slate-700 dark:text-slate-350">Delivery Date: <strong className="text-slate-900 dark:text-white">{new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB')}</strong></p>
-              <p className="text-slate-700 dark:text-slate-350">Status: <strong className="text-emerald-600 uppercase">{selectedOrder.status}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Order Type: <strong className="text-slate-900 dark:text-white">{selectedOrder.type}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Payment Status: <strong className="text-indigo-600 dark:text-indigo-400">{selectedOrder.paymentTerms || 'Not Paid'}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Delivery Date: <strong className="text-slate-900 dark:text-white">{new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB')}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Status: <strong className="text-emerald-600 uppercase">{selectedOrder.status}</strong></p>
             </div>
           </div>
 
@@ -777,7 +777,7 @@ export default function OrderListPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left min-w-[700px]">
               <thead>
-                <tr className="bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-205 dark:border-slate-800">
+                <tr className="bg-slate-100 dark:bg-slate-950 text-slate-650 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-200 dark:border-slate-800">
                   <th className="px-4 py-3 text-center w-12 font-bold">SN</th>
                   <th className="px-4 py-3">Item Details</th>
                   <th className="px-4 py-3 text-right w-16">Qty</th>
@@ -791,9 +791,9 @@ export default function OrderListPage() {
                   const sub = (Number(item.unitPrice) - Number(item.discount)) * Number(item.quantity);
                   return (
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10">
-                      <td className="px-4 py-3 text-center text-slate-405 font-bold">{idx + 1}</td>
+                      <td className="px-4 py-3 text-center text-slate-400 font-bold">{idx + 1}</td>
                       <td className="px-4 py-3 font-bold text-slate-800 dark:text-slate-200">
-                        {item.product?.name} <span className="text-[10px] text-slate-455 font-mono">({item.product?.code})</span>
+                        {item.product?.name} <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">({item.product?.code})</span>
                       </td>
                       <td className="px-4 py-3 text-right font-mono">{item.quantity}</td>
                       <td className="px-4 py-3 text-right font-mono">₹{Number(item.unitPrice).toFixed(2)}</td>
@@ -808,12 +808,12 @@ export default function OrderListPage() {
             </table>
           </div>
 
-          <div className="flex flex-col md:flex-row justify-between pt-6 border-t border-slate-205 dark:border-slate-800 gap-6">
+          <div className="flex flex-col md:flex-row justify-between pt-6 border-t border-slate-200 dark:border-slate-800 gap-6">
             {/* Left side: GST & Terms Info */}
             <div className="flex-1 space-y-4">
               <div className="bg-slate-50 dark:bg-slate-900 p-4.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-slate-800 dark:text-slate-200">
                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">GST Applicability</span>
-                <div className="text-xs space-y-1.5 text-slate-650 dark:text-slate-300">
+                <div className="text-xs space-y-1.5 text-slate-600 dark:text-slate-400">
                   <div className="flex justify-between">
                     <span>Tax Collection:</span>
                     <span className="font-bold">{selectedOrder.collectTax ? 'Apply GST (CGST + SGST / IGST)' : 'No Tax'}</span>
@@ -934,10 +934,10 @@ export default function OrderListPage() {
       <div className="bg-slate-50/50 dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row gap-4 justify-between items-center text-xs">
         <div className="flex items-center gap-2 w-full md:w-auto flex-1">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-450" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input
               placeholder="Search by order reference no or customer name..."
-              className="pl-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-750 text-slate-800 dark:text-white rounded-xl focus:ring-indigo-500 text-xs"
+              className="pl-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white rounded-xl focus:ring-indigo-500 text-xs"
               value={searchTerm}
               onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
             />
@@ -950,7 +950,7 @@ export default function OrderListPage() {
             <select
               value={statusFilter}
               onChange={e => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-805 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9"
+              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9"
             >
               <option value="All">All Statuses</option>
               {Object.keys(STATUS_CONFIG).map(st => (
@@ -963,7 +963,7 @@ export default function OrderListPage() {
             variant="outline"
             size="sm"
             onClick={fetchOrders}
-            className="flex items-center gap-1.5 border-slate-205 dark:border-slate-700 rounded-xl h-9 text-xs font-bold bg-white dark:bg-slate-950 cursor-pointer"
+            className="flex items-center gap-1.5 border-slate-200 dark:border-slate-700 rounded-xl h-9 text-xs font-bold bg-white dark:bg-slate-950 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -972,7 +972,7 @@ export default function OrderListPage() {
       </div>
 
       {/* Orders Grid/Table Listing */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto text-xs">
           <table className="w-full text-left">
             <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase font-semibold border-b dark:border-slate-800">
@@ -1006,10 +1006,10 @@ export default function OrderListPage() {
                       <td className="px-6 py-4 font-bold text-slate-800 dark:text-slate-200">{order.customer?.name}</td>
                       <td className="px-6 py-4 text-center text-slate-500">{order.type}</td>
                       <td className="px-6 py-4 text-right font-mono">{itemsCount}</td>
-                      <td className="px-6 py-4 text-right font-mono font-bold text-slate-855 dark:text-white">
+                      <td className="px-6 py-4 text-right font-mono font-bold text-slate-800 dark:text-white">
                         ₹{Number(order.totalSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-4 text-center text-slate-505">
+                      <td className="px-6 py-4 text-center text-slate-500">
                         {new Date(order.deliveryDate).toLocaleDateString('en-GB')}
                       </td>
                       <td className="px-6 py-4 text-center">
@@ -1058,7 +1058,7 @@ export default function OrderListPage() {
 
         {/* Pagination control */}
         {totalPages > 1 && (
-          <div className="p-4 bg-slate-50/20 dark:bg-slate-900 border-t border-slate-205 dark:border-slate-800 flex justify-between items-center gap-4 text-xs text-slate-455">
+          <div className="p-4 bg-slate-50/20 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex justify-between items-center gap-4 text-xs text-slate-500">
             <div>
               Showing {Math.min((currentPage - 1) * PAGE_SIZE + 1, filtered.length)} to {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} entries
             </div>
@@ -1066,7 +1066,7 @@ export default function OrderListPage() {
               <button 
                 onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
                 disabled={currentPage === 1} 
-                className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-105 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-350"
+                className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-300"
               >
                 Previous
               </button>
@@ -1074,7 +1074,7 @@ export default function OrderListPage() {
                 <button 
                   key={i} 
                   onClick={() => setCurrentPage(i + 1)} 
-                  className={`px-3 py-1 border rounded-lg transition-all font-bold cursor-pointer ${currentPage === i + 1 ? 'bg-indigo-650 dark:bg-indigo-500 text-white border-indigo-650' : 'bg-white dark:bg-slate-900 dark:border-slate-700 text-slate-700 dark:text-slate-350 hover:bg-slate-105 dark:hover:bg-slate-800'}`}
+                  className={`px-3 py-1 border rounded-lg transition-all font-bold cursor-pointer ${currentPage === i + 1 ? 'bg-indigo-650 dark:bg-indigo-500 text-white border-indigo-650' : 'bg-white dark:bg-slate-900 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                 >
                   {i + 1}
                 </button>
@@ -1082,7 +1082,7 @@ export default function OrderListPage() {
               <button 
                 onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
                 disabled={currentPage === totalPages} 
-                className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-105 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-350"
+                className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-all cursor-pointer text-slate-700 dark:text-slate-300"
               >
                 Next
               </button>
@@ -1172,14 +1172,14 @@ export default function OrderListPage() {
                       a.click();
                     }} 
                     variant="outline" 
-                    className="w-full border-slate-850 hover:border-slate-800 text-slate-350 hover:bg-slate-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full border-slate-200 dark:border-slate-850 hover:border-slate-300 dark:hover:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Download className="w-4 h-4" /> Download PDF
                   </Button>
                 </div>
 
-                <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-850 space-y-2 text-3xs text-slate-400">
-                  <span className="font-extrabold text-slate-350 block uppercase">Terms & Instructions:</span>
+                <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-800 space-y-2 text-3xs text-slate-400">
+                  <span className="font-extrabold text-slate-700 dark:text-slate-300 block uppercase">Terms & Instructions:</span>
                   <p>1. Ensure your thermal or laser print spooler is active.</p>
                   <p>2. Select <strong>A4 Invoice</strong> to include full terms and conditions on a dedicated page.</p>
                   <p>3. Select <strong>Thermal POS</strong> for a compact bill receipt excluding terms to conserve paper.</p>
@@ -1205,8 +1205,8 @@ export default function OrderListPage() {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950 flex justify-end">
-              <Button onClick={() => setShowInvoiceModal(false)} variant="outline" className="border-slate-800 text-slate-350 px-6 py-2 rounded-xl text-xs font-bold cursor-pointer">
+            <div className="p-4 border-t border-slate-800 bg-slate-955 flex justify-end">
+              <Button onClick={() => setShowInvoiceModal(false)} variant="outline" className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 px-6 py-2 rounded-xl text-xs font-bold cursor-pointer">
                 Close
               </Button>
             </div>

@@ -1081,18 +1081,18 @@ export default function AddOrderPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-955 text-slate-100 p-4 md:p-6 space-y-6 animate__animated animate__fadeIn max-w-full w-full mx-auto">
+    <div className="space-y-6 animate__animated animate__fadeIn max-w-7xl mx-auto p-4 md:p-6 text-slate-800 dark:text-slate-100">
       {/* Header */}
-      <div className="bg-[#0d1527]/90 border border-slate-800 p-6 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative shadow-sm">
         <div className="flex items-center space-x-3.5">
           <div className="p-3 bg-indigo-650 text-white rounded-2xl">
             <ShoppingCart className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-lg font-extrabold tracking-tight text-white">
+            <h1 className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
               {isEditMode ? `Edit Customer Order Spec: ${createdOrderRef}` : 'Configure Customer Sales Order & POS Creator'}
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Double-sided workflow billing: add recipe items using POS product click grids and compile GST invoices instantly.
             </p>
           </div>
@@ -1101,7 +1101,7 @@ export default function AddOrderPage() {
           type="button"
           variant="outline"
           onClick={() => navigate('/orders/list')}
-          className="border-slate-800 text-slate-300 rounded-xl text-xs py-2 px-4 hover:bg-slate-900 cursor-pointer"
+          className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 rounded-xl text-xs py-2 px-4 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
         >
           Cancel
         </Button>
@@ -1114,12 +1114,12 @@ export default function AddOrderPage() {
           <div className="lg:col-span-7 space-y-6">
             
             {/* Catalog search and category selection */}
-            <Card className="bg-[#0d1527]/90 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
-              <CardHeader className="pb-3 border-b border-slate-800 flex flex-row items-center justify-between">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-350 flex items-center gap-1.5">
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-750 dark:text-slate-300 flex items-center gap-1.5">
                   <Layers className="w-4 h-4 text-indigo-500" /> POS Product Catalog Selection
                 </h3>
-                <span className="text-[10px] bg-indigo-950 text-indigo-400 px-2 py-0.5 rounded font-black border border-indigo-900">
+                <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-750 dark:text-indigo-400 px-2 py-0.5 rounded font-black border border-indigo-100 dark:border-indigo-900">
                   {filteredProducts.length} Products Found
                 </span>
               </CardHeader>
@@ -1130,7 +1130,7 @@ export default function AddOrderPage() {
                     placeholder="Search by product name or stock code (e.g. FP-000006)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 h-10 text-xs rounded-xl bg-slate-950 border-slate-800 text-white focus:ring-indigo-500"
+                    className="pl-10 h-10 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:ring-indigo-500"
                   />
                 </div>
 
@@ -1143,7 +1143,7 @@ export default function AddOrderPage() {
                       className={`px-3.5 py-1.5 text-2xs font-extrabold rounded-xl transition-all cursor-pointer border ${
                         selectedCategory === cat
                           ? 'bg-indigo-650 border-indigo-650 text-white shadow-lg'
-                          : 'bg-slate-950 hover:bg-slate-900 text-slate-350 border-slate-800'
+                          : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
                       }`}
                     >
                       {cat}
@@ -1159,28 +1159,30 @@ export default function AddOrderPage() {
                       <div
                         key={p.id}
                         onClick={() => handleAddProductClick(p)}
-                        className="bg-slate-950 hover:bg-indigo-950/20 rounded-2xl border border-slate-800 cursor-pointer overflow-hidden transition-all hover:scale-[1.02] hover:border-indigo-500/70 shadow-lg flex flex-col justify-between"
+                        className="bg-slate-50 dark:bg-slate-950 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-2xl border border-slate-200 dark:border-slate-800 cursor-pointer overflow-hidden transition-all hover:scale-[1.02] hover:border-indigo-500/50 dark:hover:border-indigo-500/70 shadow-sm dark:shadow-lg flex flex-col justify-between"
                       >
-                        <div className="h-24 bg-gradient-to-br from-indigo-950 to-slate-900 flex items-center justify-center text-4xl rounded-t-2xl relative overflow-hidden border-b border-slate-900">
+                        <div className="h-24 bg-gradient-to-br from-indigo-50 to-slate-100 dark:from-indigo-950 dark:to-slate-900 flex items-center justify-center text-4xl rounded-t-2xl relative overflow-hidden border-b border-slate-200 dark:border-slate-900">
                           {p.imageUrl ? (
                             <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
                           ) : (
                             <div className="flex flex-col items-center gap-1">
                               <span>{getProductEmoji(p.name)}</span>
-                              <span className="text-[8px] text-slate-500 uppercase tracking-widest font-black">Leonex Flavor</span>
+                              <span className="text-[8px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-black">Leonex Flavor</span>
                             </div>
                           )}
                         </div>
 
                         <div className="p-3 flex flex-col justify-between flex-1">
                           <div>
-                            <span className="text-[9px] font-mono font-bold text-slate-500 block tracking-wider">{p.code}</span>
-                            <h4 className="text-xs font-black text-slate-200 line-clamp-1 mt-0.5">{p.name}</h4>
+                            <span className="text-[9px] font-mono font-bold text-slate-500 dark:text-slate-400 block tracking-wider">{p.code}</span>
+                            <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 line-clamp-1 mt-0.5">{p.name}</h4>
                           </div>
-                          <div className="flex items-center justify-between mt-3.5 pt-2 border-t border-slate-900">
-                            <span className="font-mono font-black text-xs text-indigo-400">₹{Math.round(Number(p.salePrice || 0))}</span>
+                          <div className="flex items-center justify-between mt-3.5 pt-2 border-t border-slate-100 dark:border-slate-900">
+                            <span className="font-mono font-black text-xs text-indigo-650 dark:text-indigo-404">₹{Math.round(Number(p.salePrice || 0))}</span>
                             <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded ${
-                              avail > 0 ? 'bg-emerald-950 text-emerald-400 border border-emerald-900/50' : 'bg-rose-955 text-rose-450 border border-rose-900/50'
+                              avail > 0 
+                                ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-404 border border-emerald-200 dark:border-emerald-900/50' 
+                                : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-404 border border-rose-200 dark:border-rose-900/50'
                             }`}>
                               Qty: {avail}
                             </span>
@@ -1194,18 +1196,18 @@ export default function AddOrderPage() {
             </Card>
 
             {/* Selected item lines cart */}
-            <Card className="bg-[#0d1527]/90 border border-slate-800 rounded-2xl overflow-visible shadow-xl">
-              <CardHeader className="pb-3 border-b border-slate-800 flex flex-row justify-between items-center">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-350 flex items-center gap-1.5">
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-visible shadow-sm dark:shadow-xl">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row justify-between items-center">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <ShoppingCart className="w-4 h-4 text-indigo-500" /> Selected Order Item Lines
                 </h3>
-                <span className="text-[10px] bg-slate-950 px-2 py-0.5 rounded font-black text-slate-300 border border-slate-800">
+                <span className="text-[10px] bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded font-black text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
                   {items.length} Lines Added
                 </span>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
                 {items.length === 0 ? (
-                  <div className="py-12 text-center text-slate-500 italic text-xs border-2 border-dashed border-slate-900 rounded-2xl bg-slate-950/40">
+                  <div className="py-12 text-center text-slate-500 italic text-xs border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-950/40">
                     No items selected yet. Click any card from the catalog above to add products.
                   </div>
                 ) : (
@@ -1222,23 +1224,23 @@ export default function AddOrderPage() {
                       const sufficiency = stockSufficiency[item.productId];
 
                       return (
-                        <div key={idx} className="relative p-4 bg-slate-950/80 rounded-2xl border border-slate-800 space-y-3">
+                        <div key={idx} className="relative p-4 bg-slate-50 dark:bg-slate-950/80 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
                           <div className="flex justify-between items-center gap-3">
                             <div className="flex items-center gap-2.5 flex-1">
-                              <span className="flex items-center justify-center w-5.5 h-5.5 rounded-lg bg-indigo-950 text-indigo-400 font-extrabold text-2xs border border-indigo-900">
+                              <span className="flex items-center justify-center w-5.5 h-5.5 rounded-lg bg-indigo-550/10 dark:bg-indigo-950 text-indigo-650 dark:text-indigo-400 font-extrabold text-2xs border border-indigo-200 dark:border-indigo-900">
                                 {idx + 1}
                               </span>
                               <div>
-                                <h4 className="text-xs font-extrabold text-slate-200">
+                                <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
                                   {prod?.name || 'Loading...'} 
-                                  <span className="text-[10px] text-slate-500 font-normal font-sans ml-1">({prod?.code})</span>
+                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal font-sans ml-1">({prod?.code})</span>
                                 </h4>
                               </div>
                             </div>
                             <Button
                               type="button"
                               variant="ghost"
-                              className="text-rose-500 hover:text-rose-450 hover:bg-rose-950/30 rounded-lg p-1 h-7 cursor-pointer shrink-0"
+                              className="text-rose-650 dark:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg p-1 h-7 cursor-pointer shrink-0"
                               onClick={() => handleRemoveItem(idx)}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1255,32 +1257,32 @@ export default function AddOrderPage() {
                               />
                             </div>
                             <div className="space-y-1">
-                              <label className="text-[9px] font-bold text-slate-400 uppercase block">Unit Price (₹)</label>
+                              <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Unit Price (₹)</label>
                               <Input
                                 type="number"
                                 step="1"
                                 min="0"
                                 value={item.unitPrice}
                                 onChange={(e) => handleItemChange(idx, 'unitPrice', e.target.value)}
-                                className="font-mono font-bold text-xs bg-slate-900 border-slate-800 h-9.5 rounded-xl text-white"
+                                className="font-mono font-bold text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-9.5 rounded-xl text-slate-900 dark:text-white"
                                 required
                               />
                             </div>
                             <div className="space-y-1">
-                              <label className="text-[9px] font-bold text-slate-400 uppercase block">Discount (₹)</label>
+                              <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Discount (₹)</label>
                               <Input
                                 type="number"
                                 step="1"
                                 min="0"
                                 value={item.discount}
                                 onChange={(e) => handleItemChange(idx, 'discount', e.target.value)}
-                                className="font-mono font-bold text-xs bg-slate-900 border-slate-800 h-9.5 rounded-xl text-white"
+                                className="font-mono font-bold text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-9.5 rounded-xl text-slate-900 dark:text-white"
                               />
                             </div>
                           </div>
 
                           {/* Line Status and calculations summary */}
-                          <div className="flex flex-wrap items-center justify-between pt-2 border-t border-slate-900 gap-2 text-[10px] font-mono">
+                          <div className="flex flex-wrap items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-900 gap-2 text-[10px] font-mono">
                             <div className="flex items-center gap-1.5">
                               <DatePicker
                                 value={item.deliveryDate ? new Date(item.deliveryDate) : null}
@@ -1288,13 +1290,13 @@ export default function AddOrderPage() {
                                 modalTitle="Line Delivery Date"
                                 placeholder="Select Date"
                                 className="space-y-0"
-                                triggerClassName="h-7 text-[10px] p-2 rounded-lg border border-slate-800 bg-slate-900 text-slate-200"
+                                triggerClassName="h-7 text-[10px] p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
                               />
                               {sufficiency ? (
                                 <span className={`px-2 py-0.5 text-[8px] font-black rounded uppercase border ${
                                   sufficiency.status === 'Sufficient'
-                                    ? 'bg-emerald-950 text-emerald-400 border-emerald-900'
-                                    : 'bg-rose-955 text-rose-450 border-rose-900'
+                                    ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-404 border border-emerald-200 dark:border-emerald-900/50'
+                                    : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-404 border border-rose-200 dark:border-rose-900/50'
                                 }`}>
                                   {sufficiency.status === 'Sufficient' ? 'In Stock' : `Short: ${sufficiency.shortage} (Backorder Allowed)`}
                                 </span>
@@ -1305,11 +1307,11 @@ export default function AddOrderPage() {
                             <div className="flex gap-4">
                               <div>
                                 <span className="text-slate-500 text-[8px] uppercase block text-right">Subtotal</span>
-                                <span className="font-bold text-slate-200">₹{lineSubtotal}</span>
+                                <span className="font-bold text-slate-800 dark:text-slate-200">₹{lineSubtotal}</span>
                               </div>
                               <div>
                                 <span className="text-slate-500 text-[8px] uppercase block text-right">Est. Profit</span>
-                                <span className={`font-bold ${lineProfit >= 0 ? 'text-emerald-400' : 'text-rose-450'}`}>
+                                <span className={`font-bold ${lineProfit >= 0 ? 'text-emerald-650 dark:text-emerald-400' : 'text-rose-650 dark:text-rose-450'}`}>
                                   ₹{lineProfit.toFixed(0)}
                                 </span>
                               </div>
@@ -1328,9 +1330,9 @@ export default function AddOrderPage() {
           <div className="lg:col-span-5 space-y-6">
             
             {/* Customer Credentials */}
-            <Card className="bg-[#0d1527]/90 border border-slate-800 shadow-xl rounded-2xl overflow-visible">
-              <CardHeader className="pb-3 border-b border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-355 flex items-center gap-1.5">
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-xl rounded-2xl overflow-visible">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <Compass className="w-4 h-4 text-indigo-500" /> Order Parameters & Customer Info
                 </h3>
               </CardHeader>
@@ -1359,7 +1361,7 @@ export default function AddOrderPage() {
                     placeholder="Select Customer..."
                     searchPlaceholder="Search by name/phone..."
                     required
-                    triggerClassName="h-10 text-xs font-semibold bg-slate-950 border border-slate-800 rounded-xl text-white"
+                    triggerClassName="h-10 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1377,7 +1379,7 @@ export default function AddOrderPage() {
                       showSearch={false}
                       placeholder="Select Type..."
                       required
-                      triggerClassName="h-10 text-xs font-semibold bg-slate-950 border border-slate-800 rounded-xl text-white"
+                      triggerClassName="h-10 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
                     />
                   </div>
 
@@ -1396,10 +1398,10 @@ export default function AddOrderPage() {
                       required
                       triggerClassName={`h-10 text-xs font-bold border rounded-xl transition-all ${
                         paymentTerms === 'Paid'
-                          ? 'bg-emerald-955 text-emerald-400 border-emerald-900'
+                          ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
                           : paymentTerms === 'Advance Payment'
-                          ? 'bg-amber-955 text-amber-400 border-amber-900'
-                          : 'bg-rose-955 text-rose-450 border-rose-900'
+                          ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-404 border-amber-200 dark:border-amber-900/50'
+                          : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-404 border-rose-200 dark:border-rose-900/50'
                       }`}
                     />
                   </div>
@@ -1414,7 +1416,9 @@ export default function AddOrderPage() {
                         type="button"
                         onClick={() => setIsClockRunning(!isClockRunning)}
                         className={`text-[8px] px-1.5 py-0.5 rounded font-black transition-all ${
-                          isClockRunning ? 'bg-indigo-950 text-indigo-400 border border-indigo-900 animate-pulse' : 'bg-slate-900 text-slate-500'
+                          isClockRunning 
+                            ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900 animate-pulse' 
+                            : 'bg-slate-100 dark:bg-slate-900 text-slate-500'
                         }`}
                         title={isClockRunning ? 'Click to freeze clock' : 'Click to start live timer'}
                       >
@@ -1432,7 +1436,7 @@ export default function AddOrderPage() {
                       modalTitle="Select Order Timestamp"
                       placeholder="Select date"
                       className="space-y-0"
-                      triggerClassName="h-10 text-xs bg-slate-950 border border-slate-800 rounded-xl text-white w-full"
+                      triggerClassName="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white w-full"
                     />
                   </div>
 
@@ -1445,7 +1449,7 @@ export default function AddOrderPage() {
                     placeholder="Select date"
                     className="space-y-1"
                     labelClassName="text-[10px] font-bold text-slate-400 block uppercase"
-                    triggerClassName="h-10 text-xs text-white w-full"
+                    triggerClassName="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white w-full rounded-xl"
                   />
                 </div>
 
@@ -1456,7 +1460,7 @@ export default function AddOrderPage() {
                     placeholder="GSTIN No (Auto-fetched from customer)"
                     value={taxRegNo}
                     onChange={(e) => setTaxRegNo(e.target.value.toUpperCase())}
-                    className="h-10 text-xs font-mono font-bold uppercase tracking-wider bg-slate-950 border-slate-800 text-white"
+                    className="h-10 text-xs font-mono font-bold uppercase tracking-wider bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1466,7 +1470,7 @@ export default function AddOrderPage() {
                     placeholder="Specify destination address if separate..."
                     value={deliveryAddress}
                     onChange={(e) => setDeliveryAddress(e.target.value)}
-                    className="h-10 text-xs bg-slate-950 border-slate-800 text-white"
+                    className="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1476,19 +1480,19 @@ export default function AddOrderPage() {
                     placeholder="Notes for logistics or lab QC check teams..."
                     value={internalNote}
                     onChange={(e) => setInternalNote(e.target.value)}
-                    className="h-10 text-xs bg-slate-950 border-slate-800 text-white"
+                    className="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
 
                 {/* GST Settings Predictor */}
-                <div className="pt-3 border-t border-slate-800 space-y-2">
-                  <div className="flex justify-between items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-850">
-                    <span className="text-[10px] font-extrabold text-slate-400 block uppercase px-1">Collect Tax (GST)</span>
+                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex justify-between items-center gap-2 bg-slate-50 dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 block uppercase px-1">Collect Tax (GST)</span>
                     <button
                       type="button"
                       onClick={() => setCollectTax(!collectTax)}
                       className={`px-3 py-1 text-2xs font-extrabold rounded-lg transition-all cursor-pointer ${
-                        collectTax ? 'bg-indigo-650 text-white shadow-xs' : 'bg-slate-900 text-slate-400'
+                        collectTax ? 'bg-indigo-650 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-405'
                       }`}
                     >
                       {collectTax ? 'ENABLED' : 'DISABLED'}
@@ -1496,20 +1500,20 @@ export default function AddOrderPage() {
                   </div>
 
                   {collectTax && (
-                    <div className="bg-slate-950 p-3 rounded-xl border border-slate-850 text-xs space-y-2">
+                    <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="font-extrabold text-slate-450 uppercase text-[9px]">Supply Target:</span>
-                        <span className="font-extrabold text-indigo-400 text-3xs uppercase">
+                        <span className="font-extrabold text-slate-500 dark:text-slate-400 uppercase text-[9px]">Supply Target:</span>
+                        <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-3xs uppercase">
                           {rates.isInterState ? '🇮🇳 Inter-State (IGST)' : '🏢 Intra-State (CGST + SGST)'}
                         </span>
                       </div>
                       {rates.isInterState ? (
-                        <div className="flex justify-between items-center pt-1.5 border-t border-slate-900">
-                          <span className="text-[9px] text-slate-400 font-bold uppercase">IGST Rate:</span>
+                        <div className="flex justify-between items-center pt-1.5 border-t border-slate-200 dark:border-slate-900">
+                          <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold uppercase">IGST Rate:</span>
                           <select
                             value={interstateGstRate}
                             onChange={(e) => setInterstateGstRate(Number(e.target.value))}
-                            className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 font-bold font-mono text-2xs focus:outline-none text-white"
+                            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 font-bold font-mono text-2xs focus:outline-none text-slate-900 dark:text-white"
                           >
                             <option value={5}>5%</option>
                             <option value={12}>12%</option>
@@ -1518,38 +1522,38 @@ export default function AddOrderPage() {
                           </select>
                         </div>
                       ) : (
-                        <div className="text-[10px] text-slate-400 text-center font-semibold pt-1 border-t border-slate-900">
+                        <div className="text-[10px] text-slate-500 dark:text-slate-400 text-center font-semibold pt-1 border-t border-slate-200 dark:border-slate-900">
                           Tamil Nadu automatic calculation: 9% CGST + 9% SGST
                         </div>
                       )}
                     </div>
                   )}
 
-                  <div className="text-[9px] text-slate-500 text-center font-bold uppercase tracking-wider">
-                    Company GSTIN: <span className="text-slate-350 font-mono ml-0.5">{ourGstin}</span>
+                  <div className="text-[9px] text-slate-500 dark:text-slate-400 text-center font-bold uppercase tracking-wider">
+                    Company GSTIN: <span className="text-slate-700 dark:text-slate-300 font-mono ml-0.5">{ourGstin}</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Calculations Breakdown Sidebar Panel */}
-            <Card className="bg-[#0d1527]/90 border border-slate-800 shadow-xl rounded-2xl overflow-hidden">
-              <CardHeader className="pb-3 border-b border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-350 flex items-center gap-1.5">
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-xl rounded-2xl overflow-hidden">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-305 flex items-center gap-1.5">
                   <Tag className="w-4 h-4 text-emerald-500" /> Quotation Tax & Charges Ledger
                 </h3>
               </CardHeader>
               <CardContent className="pt-4 space-y-4 text-xs">
                 
                 {/* GST Applicability Switch */}
-                <div className="flex justify-between items-center bg-slate-950 p-2.5 rounded-xl border border-slate-850">
-                  <span className="font-bold text-slate-300 text-2xs">GST Applicability</span>
-                  <label className="flex items-center gap-1.5 text-3xs font-extrabold cursor-pointer">
+                <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                  <span className="font-bold text-slate-700 dark:text-slate-300 text-2xs">GST Applicability</span>
+                  <label className="flex items-center gap-1.5 text-3xs font-extrabold cursor-pointer text-slate-700 dark:text-slate-300">
                     <input 
                       type="checkbox" 
                       checked={collectTax} 
                       onChange={() => setCollectTax(!collectTax)}
-                      className="rounded border-slate-800 bg-slate-950 accent-indigo-600 w-3.5 h-3.5"
+                      className="rounded border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 accent-indigo-600 w-3.5 h-3.5"
                     />
                     Apply GST (CGST + SGST)
                   </label>
@@ -1557,14 +1561,14 @@ export default function AddOrderPage() {
 
                 {/* Discount type flat / percent */}
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase block">Discount</label>
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Discount</label>
                   <div className="flex gap-2">
-                    <div className="flex bg-slate-950 rounded-xl border border-slate-800 p-0.5 overflow-hidden shrink-0">
+                    <div className="flex bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 p-0.5 overflow-hidden shrink-0">
                       <button
                         type="button"
                         onClick={() => setDiscountType('Flat')}
                         className={`px-3 py-1.5 text-3xs font-extrabold rounded-lg transition-all ${
-                          discountType === 'Flat' ? 'bg-indigo-650 text-white' : 'text-slate-400'
+                          discountType === 'Flat' ? 'bg-indigo-650 text-white' : 'text-slate-500 dark:text-slate-400'
                         }`}
                       >
                         Flat
@@ -1573,7 +1577,7 @@ export default function AddOrderPage() {
                         type="button"
                         onClick={() => setDiscountType('Percent')}
                         className={`px-3 py-1.5 text-3xs font-extrabold rounded-lg transition-all ${
-                          discountType === 'Percent' ? 'bg-indigo-650 text-white' : 'text-slate-400'
+                          discountType === 'Percent' ? 'bg-indigo-650 text-white' : 'text-slate-500 dark:text-slate-400'
                         }`}
                       >
                         %
@@ -1584,7 +1588,7 @@ export default function AddOrderPage() {
                       min="0"
                       value={discountValue}
                       onChange={(e) => setDiscountValue(Number(e.target.value))}
-                      className="bg-slate-950 border-slate-800 text-white h-9.5 text-xs font-mono"
+                      className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white h-9.5 text-xs font-mono"
                     />
                   </div>
                 </div>
@@ -1594,7 +1598,7 @@ export default function AddOrderPage() {
                   <div className="space-y-1">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Freight (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-550 uppercase flex items-center gap-1 cursor-pointer">
+                      <label className="text-[8px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer">
                         <input type="checkbox" checked={freightGst} onChange={() => setFreightGst(!freightGst)} className="accent-indigo-600 w-3 h-3 rounded" />
                         GST 18%
                       </label>
@@ -1605,7 +1609,7 @@ export default function AddOrderPage() {
                   <div className="space-y-1">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Loading & Unloading (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-550 uppercase flex items-center gap-1 cursor-pointer">
+                      <label className="text-[8px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer">
                         <input type="checkbox" checked={loadingGst} onChange={() => setLoadingGst(!loadingGst)} className="accent-indigo-600 w-3 h-3 rounded" />
                         GST 18%
                       </label>
@@ -1616,7 +1620,7 @@ export default function AddOrderPage() {
                   <div className="space-y-1">
                     <div className="flex justify-between items-center">
                       <label className="text-[10px] font-bold text-slate-400 uppercase">Packing Charges (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-555 uppercase flex items-center gap-1 cursor-pointer">
+                      <label className="text-[8px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer">
                         <input type="checkbox" checked={packingGst} onChange={() => setPackingGst(!packingGst)} className="accent-indigo-600 w-3 h-3 rounded" />
                         GST 18%
                       </label>
@@ -1626,118 +1630,118 @@ export default function AddOrderPage() {
 
                   <div className="space-y-1">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Insurance (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-555 uppercase flex items-center gap-1 cursor-pointer">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Insurance (₹)</label>
+                      <label className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1 cursor-pointer">
                         <input type="checkbox" checked={insuranceGst} onChange={() => setInsuranceGst(!insuranceGst)} className="accent-indigo-600 w-3 h-3 rounded" />
                         GST 18%
                       </label>
                     </div>
-                    <Input type="number" step="1" value={insurance} onChange={(e) => setInsurance(Math.round(Number(e.target.value)))} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
+                    <Input type="number" step="1" value={insurance} onChange={(e) => setInsurance(Math.round(Number(e.target.value)))} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
                   </div>
 
                   <div className="space-y-1 sm:col-span-2">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Other Charges (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-555 uppercase flex items-center gap-1 cursor-pointer">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Other Charges (₹)</label>
+                      <label className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1 cursor-pointer">
                         <input type="checkbox" checked={otherGst} onChange={() => setOtherGst(!otherGst)} className="accent-indigo-600 w-3 h-3 rounded" />
                         GST 18%
                       </label>
                     </div>
-                    <Input type="number" step="1" value={otherCharges} onChange={(e) => setOtherCharges(Math.round(Number(e.target.value)))} className="bg-slate-955 border-slate-800 text-xs text-white h-8.5" />
+                    <Input type="number" step="1" value={otherCharges} onChange={(e) => setOtherCharges(Math.round(Number(e.target.value)))} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3.5 pt-2 border-t border-slate-900">
+                <div className="grid grid-cols-2 gap-3.5 pt-2 border-t border-slate-200 dark:border-slate-900">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase block">TDS Deduction (₹)</label>
-                    <Input type="number" step="1" min="0" value={tdsDeduction} onChange={(e) => setTdsDeduction(Math.round(Number(e.target.value)))} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 block uppercase">TDS Deduction (₹)</label>
+                    <Input type="number" step="1" min="0" value={tdsDeduction} onChange={(e) => setTdsDeduction(Math.round(Number(e.target.value)))} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-450 uppercase block">Round Off (₹)</label>
-                    <div className="h-8.5 flex items-center justify-center font-mono font-bold bg-slate-950 border border-slate-800 rounded-lg text-slate-300">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 block uppercase">Round Off (₹)</label>
+                    <div className="h-8.5 flex items-center justify-center font-mono font-bold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
                       {roundOff.toFixed(0)}
                     </div>
                   </div>
                 </div>
 
                 {/* Right Calculations Panel Box */}
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-850 space-y-2 text-xs font-semibold leading-relaxed">
-                  <div className="flex justify-between text-slate-400">
+                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs font-semibold leading-relaxed">
+                  <div className="flex justify-between text-slate-500 dark:text-slate-400">
                     <span>Taxable Value:</span>
-                    <span className="font-mono">₹{taxableValue}</span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200">₹{taxableValue}</span>
                   </div>
                   {collectTax && (
                     <>
                       {rates.isInterState ? (
-                        <div className="flex justify-between text-slate-400">
+                        <div className="flex justify-between text-slate-500 dark:text-slate-400">
                           <span>IGST @ {interstateGstRate}%:</span>
-                          <span className="font-mono">₹{igstVal.toFixed(0)}</span>
+                          <span className="font-mono text-slate-800 dark:text-slate-200">₹{igstVal.toFixed(0)}</span>
                         </div>
                       ) : (
                         <>
-                          <div className="flex justify-between text-slate-400">
+                          <div className="flex justify-between text-slate-500 dark:text-slate-400">
                             <span>CGST @ 9%:</span>
-                            <span className="font-mono">₹{cgstVal.toFixed(0)}</span>
+                            <span className="font-mono text-slate-800 dark:text-slate-200">₹{cgstVal.toFixed(0)}</span>
                           </div>
-                          <div className="flex justify-between text-slate-400">
+                          <div className="flex justify-between text-slate-500 dark:text-slate-400">
                             <span>SGST @ 9%:</span>
-                            <span className="font-mono">₹{sgstVal.toFixed(0)}</span>
+                            <span className="font-mono text-slate-800 dark:text-slate-200">₹{sgstVal.toFixed(0)}</span>
                           </div>
                         </>
                       )}
                     </>
                   )}
                   {freightVal > 0 && (
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
                       <span>Freight:</span>
-                      <span className="font-mono">₹{freightVal}</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{freightVal}</span>
                     </div>
                   )}
                   {loadingVal > 0 && (
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
                       <span>Loading & Unloading:</span>
-                      <span className="font-mono">₹{loadingVal}</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{loadingVal}</span>
                     </div>
                   )}
                   {packingVal > 0 && (
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
                       <span>Packing Charges:</span>
-                      <span className="font-mono">₹{packingVal}</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{packingVal}</span>
                     </div>
                   )}
                   {insuranceVal > 0 && (
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
                       <span>Insurance:</span>
-                      <span className="font-mono">₹{insuranceVal}</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{insuranceVal}</span>
                     </div>
                   )}
                   {otherVal > 0 && (
-                    <div className="flex justify-between text-slate-400">
+                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
                       <span>Other Charges:</span>
-                      <span className="font-mono">₹{otherVal}</span>
+                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{otherVal}</span>
                     </div>
                   )}
                   {discountAmount > 0 && (
-                    <div className="flex justify-between text-rose-450">
+                    <div className="flex justify-between text-rose-650 dark:text-rose-404">
                       <span>Discount:</span>
-                      <span className="font-mono">-₹{discountAmount}</span>
+                      <span className="font-mono text-rose-650 dark:text-rose-404">-₹{discountAmount}</span>
                     </div>
                   )}
                   {Number(tdsDeduction) > 0 && (
-                    <div className="flex justify-between text-amber-500">
+                    <div className="flex justify-between text-amber-600 dark:text-amber-404">
                       <span>TDS Deduction:</span>
-                      <span className="font-mono">-₹{Math.round(Number(tdsDeduction))}</span>
+                      <span className="font-mono text-amber-650 dark:text-amber-404">-₹{Math.round(Number(tdsDeduction))}</span>
                     </div>
                   )}
                   {Math.abs(roundOff) > 0 && (
                     <div className="flex justify-between text-slate-500">
                       <span>Round Off:</span>
-                      <span className="font-mono">{roundOff >= 0 ? '+' : ''}{roundOff.toFixed(0)}</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">{roundOff >= 0 ? '+' : ''}{roundOff.toFixed(0)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-sm font-extrabold text-indigo-400 border-t border-slate-900 pt-2">
+                  <div className="flex justify-between text-sm font-extrabold text-indigo-650 dark:text-indigo-404 border-t border-slate-200 dark:border-slate-900 pt-2">
                     <span className="uppercase">Quotation Total (Rounded):</span>
-                    <span className="font-mono text-base">₹{roundedGrandTotal}</span>
+                    <span className="font-mono text-base font-black">₹{roundedGrandTotal}</span>
                   </div>
                 </div>
               </CardContent>
@@ -1747,9 +1751,9 @@ export default function AddOrderPage() {
         </div>
 
         {/* GENERAL TERMS & CONDITIONS (GTC) Textarea */}
-        <Card className="bg-[#0d1527]/90 border border-slate-800 shadow-xl rounded-2xl overflow-hidden max-w-full">
-          <CardHeader className="pb-2 border-b border-slate-800">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-350 flex items-center gap-1.5">
+        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-xl rounded-2xl overflow-hidden max-w-full">
+          <CardHeader className="pb-2 border-b border-slate-100 dark:border-slate-800">
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <FileText className="w-4 h-4 text-indigo-500" /> General Terms & Conditions (GTC)
             </h3>
           </CardHeader>
@@ -1757,7 +1761,7 @@ export default function AddOrderPage() {
             <textarea
               value={gtcText}
               onChange={(e) => setGtcText(e.target.value)}
-              className="w-full h-44 bg-slate-950 border border-slate-800 text-slate-300 rounded-xl p-3 text-xs leading-normal font-mono focus:outline-none focus:border-indigo-500"
+              className="w-full h-44 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl p-3 text-xs leading-normal font-mono focus:outline-none focus:border-indigo-500"
               placeholder="Provide quotations general terms conditions here..."
             />
           </CardContent>
@@ -1783,64 +1787,64 @@ export default function AddOrderPage() {
 
       {/* Inline Customer Registration Modal */}
       {showAddCustomer && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
-          <div className="bg-slate-900 text-slate-100 w-full max-w-md rounded-2xl shadow-2xl p-6 relative border border-slate-800">
+        <div className="fixed inset-0 bg-slate-950/60 dark:bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
+          <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-full max-w-md rounded-2xl shadow-md dark:shadow-2xl p-6 relative border border-slate-200 dark:border-slate-800">
             <button
               onClick={() => setShowAddCustomer(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-300 cursor-pointer p-1 rounded-lg"
+              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer p-1 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
-            <h3 className="font-extrabold text-sm text-white uppercase tracking-wider mb-4">Quick Add Customer</h3>
+            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white uppercase tracking-wider mb-4">Quick Add Customer</h3>
             <form onSubmit={handleAddCustomerSubmit} className="space-y-3.5 text-xs">
               <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-400 uppercase">Customer Name *</label>
+                <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Customer Name *</label>
                 <Input
                   required
                   placeholder="Enter name"
                   value={newCustForm.name}
                   onChange={(e) => setNewCustForm({...newCustForm, name: e.target.value})}
-                  className="h-9 text-xs bg-slate-955 border-slate-800 text-white"
+                  className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Phone *</label>
+                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Phone *</label>
                   <Input
                     required
                     placeholder="Enter phone"
                     value={newCustForm.phone}
                     onChange={(e) => setNewCustForm({...newCustForm, phone: e.target.value})}
-                    className="h-9 text-xs bg-slate-955 border-slate-800 text-white"
+                    className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Customer GSTIN</label>
+                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Customer GSTIN</label>
                   <Input
                     placeholder="e.g. 33AABCL0702C1ZG"
                     value={newCustForm.gstin}
                     onChange={(e) => setNewCustForm({...newCustForm, gstin: e.target.value.toUpperCase()})}
-                    className="h-9 text-xs font-mono bg-slate-955 border-slate-800 text-white"
+                    className="h-9 text-xs font-mono bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Email Address</label>
+                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Email Address</label>
                   <Input
                     placeholder="Enter email"
                     type="email"
                     value={newCustForm.email}
                     onChange={(e) => setNewCustForm({...newCustForm, email: e.target.value})}
-                    className="h-9 text-xs bg-slate-955 border-slate-800 text-white"
+                    className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 uppercase">Customer Type</label>
+                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Customer Type</label>
                   <select
                     value={newCustForm.customerType}
                     onChange={(e) => setNewCustForm({...newCustForm, customerType: e.target.value})}
-                    className="w-full h-9 bg-slate-955 border border-slate-800 rounded-lg px-2 text-xs focus:outline-none text-white"
+                    className="w-full h-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 text-xs focus:outline-none text-slate-900 dark:text-white"
                   >
                     <option value="RETAIL">Retail</option>
                     <option value="DISTRIBUTOR">Distributor</option>
@@ -1849,12 +1853,12 @@ export default function AddOrderPage() {
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-400 uppercase">Billing / Delivery Address</label>
+                <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Billing / Delivery Address</label>
                 <Input
                   placeholder="Billing address"
                   value={newCustForm.address}
                   onChange={(e) => setNewCustForm({...newCustForm, address: e.target.value})}
-                  className="h-9 text-xs bg-slate-955 border-slate-800 text-white"
+                  className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
               <Button type="submit" className="w-full bg-indigo-655 hover:bg-indigo-755 text-white font-extrabold h-10 rounded-xl cursor-pointer">
@@ -1865,31 +1869,31 @@ export default function AddOrderPage() {
         </div>
       )}
       {showInvoiceModal && invoiceData && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
-          <div className="bg-slate-900 border border-slate-800 text-slate-100 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh]">
+        <div className="fixed inset-0 bg-slate-950/60 dark:bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 w-full max-w-5xl rounded-3xl shadow-lg dark:shadow-2xl overflow-hidden flex flex-col h-[90vh]">
             {/* Modal Header */}
-            <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
               <div>
-                <h3 className="text-sm font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-indigo-500" /> Premium Tax Invoice Preview
                 </h3>
-                <p className="text-3xs text-slate-500 mt-0.5">Reference: {invoiceData.referenceNo}</p>
+                <p className="text-3xs text-slate-500 dark:text-slate-400 mt-0.5">Reference: {invoiceData.referenceNo}</p>
               </div>
               <button
                 onClick={handleModalClose}
-                className="text-slate-400 hover:text-white cursor-pointer p-1.5 rounded-lg hover:bg-slate-800 transition-colors"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white cursor-pointer p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Modal Body / Iframe View */}
-            <div className="flex-1 bg-slate-950 p-6 flex flex-col md:flex-row gap-6 overflow-y-auto">
+            <div className="flex-1 bg-slate-50 dark:bg-slate-950 p-6 flex flex-col md:flex-row gap-6 overflow-y-auto">
               {/* Left Column: Interactive Actions */}
               <div className="w-full md:w-64 space-y-4 shrink-0">
                 {/* 2. Choose Print Format */}
-                <div className="bg-slate-900 p-4 border border-slate-800 rounded-2xl space-y-2.5">
-                  <span className="text-[9px] font-black text-slate-400 uppercase block tracking-wider">Choose Layout</span>
+                <div className="bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-2.5">
+                  <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase block tracking-wider">Choose Layout</span>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
@@ -1900,7 +1904,7 @@ export default function AddOrderPage() {
                       className={`py-1.5 rounded-lg text-3xs font-extrabold transition-all border cursor-pointer ${
                         previewMode === 'invoice' 
                           ? 'bg-indigo-600 border-indigo-500 text-white' 
-                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                          : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
                       }`}
                     >
                       A4 Invoice
@@ -1914,7 +1918,7 @@ export default function AddOrderPage() {
                       className={`py-1.5 rounded-lg text-3xs font-extrabold transition-all border cursor-pointer ${
                         previewMode === 'bill' 
                           ? 'bg-indigo-600 border-indigo-500 text-white' 
-                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                          : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
                       }`}
                     >
                       Thermal POS
@@ -1922,8 +1926,8 @@ export default function AddOrderPage() {
                   </div>
                 </div>
 
-                <div className="bg-slate-900 p-4.5 rounded-2xl border border-slate-800 space-y-3.5">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Receipt Controls</span>
+                <div className="bg-white dark:bg-slate-900 p-4.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3.5">
+                  <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Receipt Controls</span>
                   
                   <Button 
                     onClick={() => {
@@ -1946,14 +1950,14 @@ export default function AddOrderPage() {
                       a.click();
                     }} 
                     variant="outline" 
-                    className="w-full border-slate-850 hover:border-slate-800 text-slate-350 hover:bg-slate-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Download className="w-4 h-4" /> Download PDF
                   </Button>
                 </div>
 
-                <div className="bg-slate-900/60 p-4 rounded-2xl border border-slate-850 space-y-2 text-3xs text-slate-400">
-                  <span className="font-extrabold text-slate-350 block uppercase">Terms & Instructions:</span>
+                <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-3xs text-slate-500 dark:text-slate-400">
+                  <span className="font-extrabold text-slate-700 dark:text-slate-400 block uppercase">Terms & Instructions:</span>
                   <p>1. Ensure your thermal or laser print spooler is active.</p>
                   <p>2. Select <strong>A4 Invoice</strong> to include full terms and conditions on a dedicated page.</p>
                   <p>3. Select <strong>Thermal POS</strong> for a compact bill receipt excluding terms to conserve paper.</p>
@@ -1961,7 +1965,7 @@ export default function AddOrderPage() {
               </div>
 
               {/* Right Column: PDF Viewer */}
-              <div className="flex-1 min-h-[500px] border border-slate-800 rounded-2xl overflow-hidden bg-slate-900 relative">
+              <div className="flex-1 min-h-[500px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 relative">
                 {pdfUrl ? (
                   <iframe
                     id="invoice-print-frame"
@@ -1979,8 +1983,8 @@ export default function AddOrderPage() {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-950 flex justify-end">
-              <Button onClick={handleModalClose} variant="outline" className="border-slate-800 text-slate-350 px-6 py-2 rounded-xl text-xs font-bold cursor-pointer">
+            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-end">
+              <Button onClick={handleModalClose} variant="outline" className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 px-6 py-2 rounded-xl text-xs font-bold cursor-pointer">
                 Close & Go to Order Registry
               </Button>
             </div>
