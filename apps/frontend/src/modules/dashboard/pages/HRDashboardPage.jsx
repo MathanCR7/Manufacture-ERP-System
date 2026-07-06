@@ -84,29 +84,20 @@ export default function HRDashboardPage() {
   return (
     <div className="space-y-6 bg-[#F4F3FF] dark:bg-slate-950 -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen">
 
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">🧑‍💼 HR & Workforce Dashboard</h1>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Headcount, attendance & workforce analytics · 100% Live</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">User Filter:</span>
-            <select
-              value={selectedUser}
-              onChange={e => setSelectedUser(e.target.value)}
-              className="px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-indigo-400"
-            >
-              <option value="">All Team Overview</option>
-              {users.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role.replace(/_/g, ' ')})</option>
-              ))}
-            </select>
-          </div>
-          <button onClick={() => load(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors shadow-sm">
-            <RefreshCw size={13} className={busy ? 'animate-spin' : ''} />
-            {busy ? 'Refreshing…' : 'Refresh'}
-          </button>
+      {/* Sleek Minimal User Filter Bar */}
+      <div className="flex justify-end items-center">
+        <div className="flex items-center gap-2 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-200/60 dark:border-slate-800/60 transition-all shadow-sm">
+          <span className="text-xs font-semibold text-slate-505 dark:text-slate-400">User Filter:</span>
+          <select
+            value={selectedUser}
+            onChange={e => setSelectedUser(e.target.value)}
+            className="px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-905 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-indigo-400"
+          >
+            <option value="">All Team Overview</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.name} ({u.role.replace(/_/g, ' ')})</option>
+            ))}
+          </select>
         </div>
       </div>
 

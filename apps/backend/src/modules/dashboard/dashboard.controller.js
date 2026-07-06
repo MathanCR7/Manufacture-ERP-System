@@ -100,10 +100,10 @@ class DashboardController {
   async getExecutiveDashboard(req, res, next) {
     try {
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startOfYear = new Date(now.getFullYear(), 0, 1);
-      const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+      const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+      const startOfYear = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
+      const startOfLastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0, 0));
+      const endOfLastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59, 999));
 
       // Revenue from orders (totalSubtotal of delivered orders)
       const [totalOrderRevenue, lastMonthRevenue, currentMonthRevenue] = await Promise.all([
@@ -192,14 +192,15 @@ class DashboardController {
       const monthlyRevenue = [];
       for (let i = 11; i >= 0; i--) {
         const d = new Date();
+        d.setDate(1); // avoid JavaScript setMonth month-length rollover bug
         d.setMonth(d.getMonth() - i);
-        const start = new Date(d.getFullYear(), d.getMonth(), 1);
-        const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0));
+        const nextStart = new Date(Date.UTC(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0));
         const rev = await prisma.customerOrder.aggregate({
-          _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: start, lte: end } }
+          _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: start, lt: nextStart } }
         });
         const exp = await prisma.expense.aggregate({
-          _sum: { amount: true }, where: { date: { gte: start, lte: end } }
+          _sum: { amount: true }, where: { date: { gte: start, lt: nextStart } }
         });
         monthlyRevenue.push({
           month: d.toLocaleString('default', { month: 'short' }),
@@ -226,6 +227,8 @@ class DashboardController {
         netProfit,
         profitMargin: totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : 0,
         totalExpenses: totalExpensesVal,
+        totalGeneralExpenses: fmtNum(totalExpenses._sum.amount),
+        totalDirectCosts: fmtNum(totalPurchases._sum.amount),
         orderPipeline,
         oeeScore,
         availability: parseFloat(availability.toFixed(1)),
@@ -556,8 +559,8 @@ class DashboardController {
   async getFinanceDashboard(req, res, next) {
     try {
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      const startOfYear = new Date(now.getFullYear(), 0, 1);
+      const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+      const startOfYear = new Date(Date.UTC(now.getUTCFullYear(), 0, 1, 0, 0, 0, 0));
 
       // Revenue
       const [totalRevenue, monthRevenue, yearRevenue] = await Promise.all([
@@ -587,12 +590,13 @@ class DashboardController {
       const monthlyFinancials = [];
       for (let i = 11; i >= 0; i--) {
         const d = new Date();
+        d.setDate(1); // avoid JavaScript setMonth month-length rollover bug
         d.setMonth(d.getMonth() - i);
-        const start = new Date(d.getFullYear(), d.getMonth(), 1);
-        const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0));
+        const nextStart = new Date(Date.UTC(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0));
         const [rev, exp] = await Promise.all([
-          prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: start, lte: end } } }),
-          prisma.expense.aggregate({ _sum: { amount: true }, where: { date: { gte: start, lte: end } } })
+          prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: start, lt: nextStart } } }),
+          prisma.expense.aggregate({ _sum: { amount: true }, where: { date: { gte: start, lt: nextStart } } })
         ]);
         monthlyFinancials.push({
           month: d.toLocaleString('default', { month: 'short' }),

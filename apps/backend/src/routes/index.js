@@ -50,6 +50,9 @@ router.use('/sales', authMiddleware, require('../modules/sales/sales.routes'));
 // Asset Management Module
 router.use('/asset-management', authMiddleware, require('../modules/asset-management/asset-management.routes'));
 
+// Finance Module
+router.use('/finance', authMiddleware, require('../modules/finance/finance.routes'));
+
 router.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
 
 module.exports = router;

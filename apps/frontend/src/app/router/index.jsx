@@ -104,6 +104,9 @@ const ForecastByProductPage = lazy(() => import('@/modules/production/pages/Fore
 // Asset Management Module
 const AssetManagementPage = lazy(() => import('@/modules/asset-management/pages/AssetManagementPage'));
 
+// Finance Module
+const ExpensesPage = lazy(() => import('@/modules/finance/pages/ExpensesPage'));
+
 // Placeholder for missing modules
 const PlaceholderPage = ({ title }) => (
   <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
@@ -286,7 +289,7 @@ const AppRouter = () => {
 
             {/* Finance & Accounts */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'PURCHASE_ACCOUNTANT']} />}>
-              <Route path="/finance/expenses" element={<PlaceholderPage title="Expenses" />} />
+              <Route path="/finance/expenses" element={<ExpensesPage />} />
               <Route path="/finance/accounts" element={<PlaceholderPage title="Accounts" />} />
             </Route>
 

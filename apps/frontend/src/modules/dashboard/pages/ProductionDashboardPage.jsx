@@ -87,16 +87,7 @@ export default function ProductionDashboardPage() {
   return (
     <div className="space-y-6 bg-[#F4F3FF] dark:bg-slate-950 -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen">
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-black text-slate-800 dark:text-slate-100">🏭 Production Dashboard</h1>
-          <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Work orders, OEE, quality & batch tracking</p>
-        </div>
-        <button onClick={() => load(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors shadow-sm">
-          <RefreshCw size={13} className={busy ? 'animate-spin' : ''} />
-          {busy ? 'Refreshing…' : 'Refresh'}
-        </button>
-      </div>
+
 
       {error && <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 text-sm">⚠️ {error}</div>}
 
