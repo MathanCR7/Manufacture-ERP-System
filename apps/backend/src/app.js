@@ -25,6 +25,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const contextMiddleware = require('./middlewares/context.middleware');
 app.use(contextMiddleware);
 
+// Root / Health check route
+app.get('/', (req, res) => {
+  res.json({
+    status: 'success',
+    message: 'Manufacturing ERP API is running',
+    version: '1.0.0'
+  });
+});
+
 // Load domain routes
 app.use('/api', routes);
 
