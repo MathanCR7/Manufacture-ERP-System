@@ -2,43 +2,29 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import Swal from 'sweetalert2';
-import { Edit, Trash2, Plus, Search, Tag, CheckCircle2, XCircle, RefreshCw, AlignLeft, ToggleLeft, ArrowLeft, Save, Loader2, AlertCircle, Check } from 'lucide-react';
+import { Edit, Trash2, Plus, Search, Tag, CheckCircle2, XCircle, RefreshCw, AlignLeft, ToggleLeft, ArrowLeft, Save, Loader2, AlertCircle, Check, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/axios';
+import useAuthStore from '@/app/store/authStore';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Pagination } from '@/components/ui/Pagination';
+import { Button } from '@/components/ui/button';
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 function StatusBadge({ status }) {
   const isActive = status !== 'INACTIVE';
   return (
     <span
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-3xs font-bold border uppercase ${
         isActive
-          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
-          : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+          ? 'bg-emerald-500/10 text-emerald-650 border-emerald-500/20'
+          : 'bg-slate-500/10 text-slate-500 border-slate-500/20'
       }`}
     >
-      {isActive ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
       {isActive ? 'Active' : 'Inactive'}
     </span>
-  );
-}
-
-// ─── Input helpers for form ───────────────────────────────────────────────────
-const inputCls =
-  'w-full px-3 py-2.5 border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-shadow text-sm';
-
-const errorInputCls =
-  'w-full px-3 py-2.5 border rounded-lg bg-white dark:bg-slate-900 border-red-400 dark:border-red-500 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-shadow text-sm';
-
-function FieldLabel({ children, required }) {
-  return (
-    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-      {children}
-      {required && <span className="text-red-500 ml-0.5">*</span>}
-    </label>
   );
 }
 
@@ -53,30 +39,21 @@ function TableCheckbox({ checked, onChange, indeterminate }) {
         onChange={onChange}
       />
       <div
-        className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all duration-150 group-hover:scale-105 shadow-sm relative ${
+        className={`w-4 h-4 rounded-lg border flex items-center justify-center transition-all duration-150 group-hover:scale-105 shadow-3xs relative ${
           checked
-            ? 'bg-indigo-600 border-indigo-600'
+            ? 'bg-indigo-650 border-indigo-650'
             : indeterminate
             ? 'bg-indigo-500 border-indigo-500'
             : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-indigo-500'
         }`}
       >
         {checked ? (
-          <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
+          <Check className="w-3 text-white" strokeWidth={4} />
         ) : indeterminate ? (
           <div className="w-2.5 h-0.5 bg-white rounded-full"></div>
         ) : null}
       </div>
     </label>
-  );
-}
-
-function FieldError({ message }) {
-  return (
-    <p className="mt-1 flex items-center gap-1 text-xs text-red-500">
-      <AlertCircle className="w-3 h-3" />
-      {message}
-    </p>
   );
 }
 
@@ -159,7 +136,7 @@ function ProductCategoryForm({ editId, onBack }) {
         background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
         color: isDark ? '#f8fafc' : '#0f172a',
         customClass: {
-          popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-6'
+          popup: 'rounded-2xl border border-amber-100 dark:border-amber-955 shadow-xl backdrop-blur-md p-6'
         }
       });
       if (!result.isConfirmed) {
@@ -204,7 +181,7 @@ function ProductCategoryForm({ editId, onBack }) {
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
         title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Operation Failed</span>`,
-        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.message || 'Failed to save product category configuration.'}</p>`,
+        html: `<p class="text-xs text-slate-550 dark:text-slate-400 mt-1">${err.response?.data?.message || 'Failed to save product category.'}</p>`,
         icon: 'error',
         iconColor: '#ef4444',
         toast: true,
@@ -217,157 +194,113 @@ function ProductCategoryForm({ editId, onBack }) {
         showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
         hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
         customClass: {
-          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
+          popup: 'rounded-2xl border border-red-100 dark:border-red-955 shadow-xl backdrop-blur-md p-4',
           timerProgressBar: 'bg-red-500'
         }
       });
-    }
+    },
   });
 
-  // ── Loading skeleton ────────────────────────────────────────────────────────
-  if (isEditMode && isFetching) {
-    return (
-      <div className="space-y-5">
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-64 w-full rounded-xl" />
-        <Skeleton className="h-10 w-40" />
-      </div>
-    );
-  }
+  if (isEditMode && isFetching) return <div className="space-y-6"><Skeleton className="h-8 w-64" /><Skeleton className="h-[400px] w-full" /></div>;
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      {/* ── Page Header ──────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3">
-        <button
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 text-xs">
+      <div className="flex items-center gap-3 pb-3 border-b border-slate-205 dark:border-slate-800">
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           onClick={onBack}
-          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+          className="p-2 rounded-full border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors h-8 w-8 text-slate-500"
         >
-          <ArrowLeft className="w-4 h-4 text-slate-500" />
-        </button>
+          <ArrowLeft className="w-4 h-4" />
+        </Button>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {isEditMode ? 'Edit Product Category' : 'Add Product Category'}
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            {isEditMode
-              ? 'Update the details for this product category.'
-              : 'Create a new product category to organise your finished goods.'}
+          <p className="text-xs text-slate-555 dark:text-slate-400 mt-0.5 font-medium">
+            Configure categorisations to structure your finished factory products.
           </p>
         </div>
       </div>
-
-      {/* ── Form ─────────────────────────────────────────────────────────── */}
+      
       <form onSubmit={handleSubmit(handleFormSubmit)}>
-        <Card className="dark:bg-[#111827] dark:border-slate-800 shadow-sm relative !overflow-visible">
-          {/* Section header */}
-          <CardHeader className="px-6 pt-5 pb-0">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+        <Card className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-visible text-xs">
+          <CardHeader className="px-5 pt-4 pb-0">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               <Tag className="w-4 h-4 text-indigo-500" />
-              Category Information
+              Category Details
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Define the name, description, and active status for this category.
-            </p>
           </CardHeader>
+          <CardContent className="p-5 space-y-4 text-xs">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5 relative">
+                <label className="text-[10px] font-extrabold text-slate-550 dark:text-slate-400 uppercase">Category Name *</label>
+                <input
+                  {...register('name', { required: 'Category name is required' })}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs"
+                  placeholder="e.g. Sweets, Savouries, Beverages"
+                  maxLength={50}
+                />
+                {errors.name && <span className="text-3xs text-rose-555 font-bold block">{errors.name.message}</span>}
 
-          <CardContent className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 relative !overflow-visible">
-            {/* Name */}
-            <div className="relative">
-              <FieldLabel required>Category Name</FieldLabel>
-              <input
-                {...register('name', { required: 'Category name is required' })}
-                placeholder="e.g. Ice Cream Mix, Cone/Cup Mix"
-                className={errors.name ? errorInputCls : inputCls}
-                autoComplete="off"
-              />
-              {errors.name && <FieldError message={errors.name.message} />}
-              {debouncedName.trim().length >= 1 && nameMatches.length > 0 && (
-                <div className="absolute z-[100] left-0 right-0 mt-1 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 animate__animated animate__fadeIn">
-                  <div className="px-3 py-2 bg-amber-500/10 text-amber-800 dark:text-amber-400 text-2xs font-extrabold tracking-wider uppercase flex items-center gap-1.5">
-                    <AlertCircle className="w-3.5 h-3.5 text-amber-500" /> Similar Categories Exist (Avoid Duplicates)
+                {/* Live duplicate matching panel */}
+                {nameMatches.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900 rounded-xl p-3 shadow-md flex items-start gap-2.5 animate__animated animate__fadeIn">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-[10px] font-bold text-amber-800">Similar categories exist:</p>
+                      <ul className="list-disc pl-4 mt-0.5 space-y-0.5 text-3xs text-amber-700 font-medium">
+                        {nameMatches.slice(0, 3).map(m => (
+                          <li key={m.id}>{m.name}</li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
-                  <div className="max-h-40 overflow-y-auto">
-                    {nameMatches.map(cat => (
-                      <div
-                        key={cat.id}
-                        onClick={() => {
-                          setValue('name', cat.name, { shouldValidate: true });
-                          setNameMatches([]);
-                        }}
-                        className="px-3 py-2.5 flex items-center justify-between text-xs hover:bg-indigo-50/55 dark:hover:bg-indigo-950/30 cursor-pointer transition-colors"
-                      >
-                        <span className="font-semibold text-slate-850 dark:text-slate-300">{cat.name}</span>
-                        <span className="font-mono text-3xs px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-450 rounded border dark:border-slate-700">Existing</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
 
-            {/* Status */}
-            <div>
-              <FieldLabel>Status</FieldLabel>
-              <div className="relative">
-                <ToggleLeft className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-extrabold text-slate-550 dark:text-slate-400 uppercase">Status *</label>
                 <select
-                  {...register('status')}
-                  className={`${inputCls} pl-9`}
+                  {...register('status', { required: true })}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold h-9"
                 >
                   <option value="ACTIVE">Active</option>
                   <option value="INACTIVE">Inactive</option>
                 </select>
               </div>
-              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                Inactive categories cannot be assigned to new products.
-              </p>
-            </div>
 
-            {/* Description — full width */}
-            <div className="md:col-span-2">
-              <FieldLabel>Description</FieldLabel>
-              <div className="relative">
-                <AlignLeft className="absolute left-3 top-3 w-4 h-4 text-slate-400 pointer-events-none" />
-                <textarea
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-extrabold text-slate-550 dark:text-slate-400 uppercase">Description</label>
+                <input
                   {...register('description')}
-                  rows={3}
-                  placeholder="Optional: describe the types of products in this category…"
-                  className={`${inputCls} pl-9 resize-none`}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-slate-50/50 dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs"
+                  placeholder="Describe category cost routing..."
+                  maxLength={150}
                 />
               </div>
             </div>
           </CardContent>
         </Card>
 
-        {/* ── Action Buttons ────────────────────────────────────────────── */}
-        <div className="mt-6 flex items-center gap-3">
-          <button
-            type="submit"
+        <div className="mt-4 flex space-x-3">
+          <Button 
+            type="submit" 
             disabled={mutation.isPending}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm shadow-sm transition-colors"
+            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md font-bold text-xs cursor-pointer h-9"
           >
-            {mutation.isPending ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                {isEditMode ? 'Update Category' : 'Save Category'}
-              </>
-            )}
-          </button>
-          <button
-            type="button"
+            {mutation.isPending ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Save className="w-3.5 h-3.5 mr-1.5" />}
+            Save Category
+          </Button>
+          <Button 
+            type="button" 
             onClick={onBack}
-            className="inline-flex items-center gap-2 px-6 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg font-medium text-sm transition-colors"
+            className="px-6 py-2 bg-rose-600 hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-800 text-white rounded-xl shadow-md font-bold text-xs cursor-pointer h-9 transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
+            Cancel
+          </Button>
         </div>
       </form>
     </div>
@@ -375,114 +308,137 @@ function ProductCategoryForm({ editId, onBack }) {
 }
 
 export default function ProductCategoryListPage() {
-  const queryClient = useQueryClient();
+  const user = useAuthStore(s => s.user);
+  const canEdit = user?.role === 'MAIN_MASTER';
+
+  const [view, setView] = useState('list'); // list | add | edit
+  const [editId, setEditId] = useState(null);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [view, setView] = useState('list'); // 'list' | 'add' | 'edit'
-  const [editId, setEditId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  const { data: categories, isLoading } = useQuery({
+  const queryClient = useQueryClient();
+
+  const { data: categories = [], isLoading } = useQuery({
     queryKey: ['product-categories'],
-    queryFn: async () => (await api.get('/item-setup/product-category')).data,
+    queryFn: async () => {
+      const res = await api.get('/item-setup/product-category');
+      return res.data;
+    }
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id) => await api.delete(`/item-setup/product-category/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['product-categories'] }),
-  });
-
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids) => {
-      await Promise.all(ids.map(id => api.delete(`/item-setup/product-category/${id}`)));
+    mutationFn: async (id) => {
+      await api.delete(`/item-setup/product-category/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['product-categories'] });
-      setSelectedIds([]);
-      const isDark = document.documentElement.classList.contains('dark');
-      Swal.fire({
-        title: '<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Deleted!</span>',
-        html: '<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Selected categories have been deleted successfully.</p>',
-        icon: 'success',
-        iconColor: '#10b981',
-        toast: true,
-        position: 'top-end',
-        showConfirmButton: false,
-        timer: 3500,
-        timerProgressBar: true,
-        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-        color: isDark ? '#f8fafc' : '#0f172a',
-        showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
-        hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
-        customClass: {
-          popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
-          timerProgressBar: 'bg-emerald-500'
-        }
-      });
-    },
-    onError: (err) => {
-      const isDark = document.documentElement.classList.contains('dark');
-      Swal.fire({
-        title: '<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Operation Failed</span>',
-        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.message || 'Failed to delete selected categories.'}</p>`,
-        icon: 'error',
-        iconColor: '#ef4444',
-        toast: true,
-        position: 'top-end',
-        showConfirmButton: false,
-        timer: 3500,
-        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-        color: isDark ? '#f8fafc' : '#0f172a',
-        customClass: {
-          popup: 'rounded-2xl border border-red-100 dark:border-red-950 shadow-xl backdrop-blur-md p-4',
-          timerProgressBar: 'bg-red-500'
-        }
-      });
+      setSelectedIds(prev => prev.filter(x => x !== editId));
     }
   });
 
   const handleDelete = (id) => {
     const isDark = document.documentElement.classList.contains('dark');
     Swal.fire({
-      title: '<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Delete Category?</span>',
-      html: '<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Are you sure you want to delete this product category? This action cannot be undone.</p>',
+      title: 'Are you sure?',
+      text: "You won't be able to revert this! All mapped products will lose their category association.",
       icon: 'warning',
       iconColor: '#f59e0b',
       showCancelButton: true,
+      confirmButtonText: 'Yes, delete it!',
+      cancelButtonText: 'No, cancel!',
       confirmButtonColor: '#ef4444',
       cancelButtonColor: '#64748b',
-      confirmButtonText: 'Yes, delete it!',
-      cancelButtonText: 'Cancel',
-      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+      background: isDark ? '#1e293b' : '#ffffff',
       color: isDark ? '#f8fafc' : '#0f172a',
       customClass: {
-        popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-6'
-      }
+        popup: 'rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 select-none animate__animated animate__fadeInDown animate__faster',
+        confirmButton: 'px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold transition-all mr-2',
+        cancelButton: 'px-6 py-2.5 bg-slate-600 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all'
+      },
+      buttonsStyling: false
     }).then((result) => {
       if (result.isConfirmed) {
-        deleteMutation.mutate(id, {
-          onSuccess: () => {
-            Swal.fire({
-               title: '<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Deleted!</span>',
-               html: '<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">The product category has been deleted.</p>',
-               icon: 'success',
-               iconColor: '#10b981',
-               toast: true,
-               position: 'top-end',
-               showConfirmButton: false,
-               timer: 3505,
-               background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-               color: isDark ? '#f8fafc' : '#0f172a',
-               customClass: {
-                 popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4'
-               }
-            });
+        deleteMutation.mutate(id);
+        
+        Swal.fire({
+          title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Category Deleted</span>`,
+          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Product category has been deleted successfully.</p>`,
+          icon: 'success',
+          iconColor: '#10b981',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3500,
+          timerProgressBar: true,
+          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          color: isDark ? '#f8fafc' : '#0f172a',
+          showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+          hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+          customClass: {
+            popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+            timerProgressBar: 'bg-emerald-500'
           }
         });
       }
     });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    const isDark = document.documentElement.classList.contains('dark');
+    const result = await Swal.fire({
+      title: 'Bulk Delete Categories?',
+      text: `You are about to delete ${selectedIds.length} product categories. This operation is permanent!`,
+      icon: 'warning',
+      iconColor: '#f59e0b',
+      showCancelButton: true,
+      confirmButtonText: `Delete ${selectedIds.length} categories`,
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      background: isDark ? '#1e293b' : '#ffffff',
+      color: isDark ? '#f8fafc' : '#0f172a',
+      customClass: {
+        popup: 'rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-6 select-none animate__animated animate__fadeInDown animate__faster',
+        confirmButton: 'px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-semibold transition-all mr-2',
+        cancelButton: 'px-6 py-2.5 bg-slate-600 hover:bg-slate-700 text-white rounded-xl font-semibold transition-all'
+      },
+      buttonsStyling: false
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await Promise.all(selectedIds.map(id => api.delete(`/item-setup/product-category/${id}`)));
+        setSelectedIds([]);
+        queryClient.invalidateQueries({ queryKey: ['product-categories'] });
+        
+        Swal.fire({
+          title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Bulk Deletion Successful</span>`,
+          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Product categories deleted and associations removed.</p>`,
+          icon: 'success',
+          iconColor: '#10b981',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3500,
+          timerProgressBar: true,
+          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          color: isDark ? '#f8fafc' : '#0f172a',
+          showClass: { popup: 'animate__animated animate__slideInRight animate__faster' },
+          hideClass: { popup: 'animate__animated animate__fadeOutRight animate__faster' },
+          customClass: {
+            popup: 'rounded-2xl border border-emerald-100 dark:border-emerald-950 shadow-xl backdrop-blur-md p-4',
+            timerProgressBar: 'bg-emerald-500'
+          }
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
   const handleSelectRow = (id) => {
@@ -494,133 +450,91 @@ export default function ProductCategoryListPage() {
   const handleSelectAll = (visibleItems) => {
     const visibleIds = visibleItems.map(item => item.id);
     const allSelected = visibleIds.every(id => selectedIds.includes(id));
+
     if (allSelected) {
       setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)));
     } else {
-      setSelectedIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+      setSelectedIds(prev => {
+        const unique = new Set([...prev, ...visibleIds]);
+        return Array.from(unique);
+      });
     }
   };
 
-  const handleBulkDelete = () => {
-    const isDark = document.documentElement.classList.contains('dark');
-    Swal.fire({
-      title: '<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Bulk Delete Categories?</span>',
-      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Are you sure you want to delete the ${selectedIds.length} selected product categories? This action cannot be undone.</p>`,
-      icon: 'warning',
-      iconColor: '#f59e0b',
-      showCancelButton: true,
-      confirmButtonColor: '#ef4444',
-      cancelButtonColor: '#64748b',
-      confirmButtonText: 'Yes, delete selected!',
-      cancelButtonText: 'Cancel',
-      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-      color: isDark ? '#f8fafc' : '#0f172a',
-      customClass: {
-        popup: 'rounded-2xl border border-amber-100 dark:border-amber-950 shadow-xl backdrop-blur-md p-6'
-      }
-    }).then((result) => {
-      if (result.isConfirmed) {
-        bulkDeleteMutation.mutate(selectedIds);
-      }
-    });
-  };
-
-  // Filter + search
-  const filtered = (categories || []).filter((c) => {
+  const filtered = categories.filter(item => {
     const matchesSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (c.description || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'ALL' || (c.status || 'ACTIVE') === statusFilter;
+      item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.description?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus =
+      statusFilter === 'ALL' ||
+      (statusFilter === 'ACTIVE' && item.status !== 'INACTIVE') ||
+      (statusFilter === 'INACTIVE' && item.status === 'INACTIVE');
     return matchesSearch && matchesStatus;
   });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
+  const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const activeCount = (categories || []).filter((c) => (c.status || 'ACTIVE') === 'ACTIVE').length;
-  const inactiveCount = (categories || []).filter((c) => c.status === 'INACTIVE').length;
-
-  const isAllVisibleSelected = paginated.length > 0 && paginated.every(item => selectedIds.includes(item.id));
-  const isSomeVisibleSelected = paginated.some(item => selectedIds.includes(item.id)) && !isAllVisibleSelected;
-
-  if (isLoading) {
-    return (
-      <div className="space-y-5">
-        <Skeleton className="h-8 w-56" />
-        <Skeleton className="h-16 w-full rounded-xl" />
-        <Skeleton className="h-72 w-full rounded-xl" />
-      </div>
-    );
-  }
+  const visibleIds = paginated.map(item => item.id);
+  const isAllVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.includes(id));
+  const isSomeVisibleSelected = visibleIds.some(id => selectedIds.includes(id)) && !isAllVisibleSelected;
 
   if (view !== 'list') {
-    return <ProductCategoryForm editId={editId} onBack={() => setView('list')} />;
+    return <ProductCategoryForm editId={canEdit ? editId : null} onBack={() => { setView('list'); setEditId(null); }} />;
   }
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      {!canEdit && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>You have <strong>Read-Only access</strong> to Product Categories. Modifying category setup is restricted.</span>
+        </div>
+      )}
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-205 dark:border-slate-800">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
+            <Tag className="w-5.5 h-5.5 mr-2 text-indigo-650 shrink-0" />
             Product Categories
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-            Organise finished goods into categories for production and reporting.
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+            Configure finished product categorisations to organise factory productions.
           </p>
         </div>
-        <button
-          onClick={() => { setEditId(null); setView('add'); }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold shadow-sm transition-colors animate-all"
-        >
-          <Plus className="w-4 h-4" />
-          Add Category
-        </button>
-      </div>
-
-      {/* ── Stats ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'Total Categories', value: (categories || []).length, icon: Tag, color: 'text-indigo-500', bg: 'bg-indigo-50 dark:bg-indigo-500/10' },
-          { label: 'Active', value: activeCount, icon: CheckCircle2, color: 'text-emerald-500', bg: 'bg-emerald-50 dark:bg-emerald-500/10' },
-          { label: 'Inactive', value: inactiveCount, icon: XCircle, color: 'text-slate-500', bg: 'bg-slate-100 dark:bg-slate-700' },
-        ].map(({ label, value, icon: Icon, color, bg }) => (
-          <Card key={label} className="dark:bg-[#111827] dark:border-slate-800 shadow-sm">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className={`${bg} p-2.5 rounded-lg`}>
-                <Icon className={`w-5 h-5 ${color}`} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</p>
-                <p className="text-xs text-slate-500 dark:text-slate-400">{label}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+        {canEdit && (
+          <button
+            onClick={() => { setEditId(null); setView('add'); }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors h-9 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            Add Category
+          </button>
+        )}
       </div>
 
       {/* Premium selection banner */}
-      {selectedIds.length > 0 && (
-        <div className="bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-150 dark:border-indigo-900 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate__animated animate__fadeIn">
+      {canEdit && selectedIds.length > 0 && (
+        <div className="bg-indigo-50 dark:bg-indigo-955/20 border border-indigo-150 dark:border-indigo-900 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate__animated animate__fadeIn">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-600 text-white font-bold text-sm shadow-md shadow-indigo-500/20">
               {selectedIds.length}
             </div>
             <div>
-              <p className="text-sm font-bold text-slate-900 dark:text-white">Categories Selected</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Perform bulk actions on the selected product categories.</p>
+              <p className="text-xs font-bold text-slate-900 dark:text-white">Categories Selected</p>
+              <p className="text-3xs text-slate-500 dark:text-slate-400">Perform bulk actions on the selected product categories.</p>
             </div>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               onClick={() => setSelectedIds([])}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700"
+              className="px-3 py-1.5 text-xs font-semibold text-slate-650 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all border border-slate-200 dark:border-slate-700"
             >
               Clear Selection
             </button>
             <button
               onClick={handleBulkDelete}
-              className="flex items-center px-4 py-2 bg-red-600 hover:bg-red-755 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+              className="flex items-center px-3 py-1.5 bg-red-650 hover:bg-red-755 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
             >
               <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete Selected ({selectedIds.length})
             </button>
@@ -628,42 +542,37 @@ export default function ProductCategoryListPage() {
         </div>
       )}
 
-      {/* ── Table Card ─────────────────────────────────────────────────── */}
-      <Card className="dark:bg-[#111827] dark:border-slate-800 shadow-sm">
+      {/* Table Card */}
+      <Card className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-hidden flex flex-col text-xs">
         <CardContent className="p-0">
           {/* Toolbar */}
-          <div className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 border-b dark:border-slate-700">
-            <div className="flex items-center gap-2">
-              {/* Search */}
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search categories…"
-                  value={searchTerm}
-                  onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-                  className="w-full pl-9 pr-4 py-2 border rounded-lg text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white bg-white border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
+          <div className="px-4 py-3 flex flex-wrap items-center justify-between border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20 gap-3">
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search categories…"
+                value={searchTerm}
+                onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-xs dark:bg-slate-950 dark:text-white bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
+              />
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Status filter */}
               <select
                 value={statusFilter}
                 onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-                className="py-2 pl-3 pr-8 border rounded-lg text-sm dark:bg-slate-900 dark:border-slate-700 dark:text-white bg-white border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="py-2 pl-3 pr-8 border border-slate-200 rounded-xl text-xs dark:bg-slate-950 dark:border-slate-700 dark:text-white bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-semibold h-9"
               >
                 <option value="ALL">All Status</option>
                 <option value="ACTIVE">Active</option>
                 <option value="INACTIVE">Inactive</option>
               </select>
 
-              {/* Refresh */}
               <button
                 type="button"
                 onClick={() => queryClient.invalidateQueries({ queryKey: ['product-categories'] })}
-                className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors h-9 flex items-center justify-center cursor-pointer bg-white dark:bg-slate-950"
                 title="Refresh"
               >
                 <RefreshCw className="w-4 h-4 text-slate-500" />
@@ -671,91 +580,91 @@ export default function ProductCategoryListPage() {
             </div>
           </div>
 
-          {/* Table */}
           <div className="overflow-x-auto">
-            <Table>
-              <TableHeader className="bg-slate-50 dark:bg-slate-800/50">
-                <TableRow className="dark:border-slate-700">
-                  <TableHead className="w-[50px] text-center">
-                    <TableCheckbox
-                      checked={isAllVisibleSelected}
-                      indeterminate={isSomeVisibleSelected}
-                      onChange={() => handleSelectAll(paginated)}
-                    />
-                  </TableHead>
-                  <TableHead>Category Name</TableHead>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Products</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+            <Table className="text-xs">
+              <TableHeader className="bg-slate-50 dark:bg-slate-950 text-slate-505 dark:text-slate-455 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-widest">
+                <TableRow className="dark:border-slate-800">
+                  {canEdit && (
+                    <TableHead className="w-[50px] text-center">
+                      <TableCheckbox
+                        checked={isAllVisibleSelected}
+                        indeterminate={isSomeVisibleSelected}
+                        onChange={() => handleSelectAll(paginated)}
+                      />
+                    </TableHead>
+                  )}
+                  <TableHead className="py-3">Category Name</TableHead>
+                  <TableHead className="py-3">Description</TableHead>
+                  <TableHead className="py-3 text-center">Products</TableHead>
+                  <TableHead className="py-3 text-center">Status</TableHead>
+                  {canEdit && <TableHead className="py-3 text-right w-24">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginated.length === 0 ? (
+                {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-16">
-                      <div className="flex flex-col items-center gap-2 text-slate-400">
-                        <Tag className="w-8 h-8 opacity-40" />
-                        <p className="text-sm font-medium">No categories found</p>
-                        {searchTerm && (
-                          <p className="text-xs">Try clearing the search filter.</p>
-                        )}
-                      </div>
+                    <TableCell colSpan={6} className="text-center py-12 text-slate-400">Loading categories...</TableCell>
+                  </TableRow>
+                ) : paginated.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-12 text-slate-400 bg-slate-50/10 font-semibold">
+                      No categories found. Get started by clicking "Add Category"!
                     </TableCell>
                   </TableRow>
                 ) : (
                   paginated.map((item) => (
-                    <TableRow
-                      key={item.id}
-                      className="dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
-                    >
-                      <TableCell className="text-center">
-                        <TableCheckbox
-                          checked={selectedIds.includes(item.id)}
-                          onChange={() => handleSelectRow(item.id)}
-                        />
-                      </TableCell>
-                      <TableCell>
+                    <TableRow key={item.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-805/20 transition-colors border-b border-slate-105 dark:border-slate-800 last:border-none">
+                      {canEdit && (
+                        <TableCell className="text-center">
+                          <TableCheckbox
+                            checked={selectedIds.includes(item.id)}
+                            onChange={() => handleSelectRow(item.id)}
+                          />
+                        </TableCell>
+                      )}
+                      <TableCell className="py-3.5">
                         <div className="flex items-center gap-2">
                           <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-500/15 flex items-center justify-center">
                             <Tag className="w-3.5 h-3.5 text-indigo-500" />
                           </div>
-                          <span className="font-semibold text-slate-850 dark:text-slate-200">
+                          <span className="font-bold text-slate-900 dark:text-slate-200">
                             {item.name}
                           </span>
                         </div>
                       </TableCell>
-                      <TableCell className="text-slate-500 dark:text-slate-400 text-sm max-w-xs truncate">
-                        {item.description || <span className="italic text-slate-400">—</span>}
+                      <TableCell className="text-slate-550 dark:text-slate-400 max-w-xs truncate font-semibold">
+                        {item.description || <span className="italic text-slate-400 font-medium">—</span>}
                       </TableCell>
-                      <TableCell>
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold animate-pulse-subtle">
+                      <TableCell className="text-center">
+                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-350 text-3xs font-bold font-mono">
                           {item.products?.length ?? 0}
                         </span>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-center">
                         <StatusBadge status={item.status} />
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            onClick={() => { setEditId(item.id); setView('edit'); }}
-                            className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(item.id)}
-                            disabled={deleteMutation.isPending}
-                            className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </TableCell>
+                      {canEdit && (
+                        <TableCell className="text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end space-x-1">
+                            <button
+                              onClick={() => { setEditId(item.id); setView('edit'); }}
+                              className="p-1 rounded-lg text-indigo-550 hover:text-indigo-650 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                              title="Edit"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(item.id)}
+                              disabled={deleteMutation.isPending}
+                              className="p-1 rounded-lg text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors disabled:opacity-50 cursor-pointer"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))
                 )}
@@ -763,46 +672,26 @@ export default function ProductCategoryListPage() {
             </Table>
           </div>
 
-          {/* Pagination */}
-          <div className="px-4 py-3 border-t dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
-            <span>
-              {filtered.length === 0
-                ? 'No results'
-                : `Showing ${(currentPage - 1) * itemsPerPage + 1}–${Math.min(
-                    currentPage * itemsPerPage,
-                    filtered.length
-                  )} of ${filtered.length}`}
-            </span>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-3 py-1.5 border rounded-lg text-xs font-medium bg-white dark:bg-slate-800 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-              >
-                Previous
-              </button>
-              {Array.from({ length: totalPages }).map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => setCurrentPage(i + 1)}
-                  className={`px-3 py-1.5 border rounded-lg text-xs font-medium transition-colors ${
-                    currentPage === i + 1
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700'
-                  }`}
-                >
-                  {i + 1}
-                </button>
-              ))}
-              <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-3 py-1.5 border rounded-lg text-xs font-medium bg-white dark:bg-slate-800 dark:border-slate-700 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
-              >
-                Next
-              </button>
+          {/* Footer info & Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
+              <div className="text-[11px] text-slate-555 dark:text-slate-400 font-medium order-2 sm:order-1">
+                Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length} entries
+              </div>
+
+              <div className="order-1 sm:order-2">
+                <Pagination 
+                  currentPage={currentPage} 
+                  totalPages={totalPages} 
+                  onPageChange={setCurrentPage} 
+                />
+              </div>
+
+              <div className="text-xs text-slate-404 font-medium order-3">
+                Total entries: {filtered.length} records
+              </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

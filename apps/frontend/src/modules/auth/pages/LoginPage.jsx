@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLogin } from '../hooks/useLogin';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Lock, Mail, ChevronRight, LayoutDashboard, Factory, ShieldCheck, Sparkles, Activity, Eye, EyeOff } from 'lucide-react';
+import { getRedirectPathByRole } from '@/app/store/authStore';
 
 const LoginPage = () => {
   const [email, setEmail] = useState('');
@@ -17,13 +18,14 @@ const LoginPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await mutateAsync({ email, password });
+      const data = await mutateAsync({ email, password });
       setIsExiting(true);
       // Wait for exit animation to complete before navigating
       setTimeout(() => {
-        navigate('/dashboard');
+        const dest = getRedirectPathByRole(data?.user?.role);
+        navigate(dest);
       }, 600);
-    } catch (err) {
+    } catch {
       // Error is handled by hook
     }
   };

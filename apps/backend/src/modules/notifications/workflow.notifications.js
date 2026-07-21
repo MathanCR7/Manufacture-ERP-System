@@ -1,4 +1,5 @@
 const notificationService = require('./notifications.service');
+const { NOTIFICATION_ROLE_MAP } = require('./notifications.config');
 
 const formatLocalTime = (dateStr, includeSeconds = false) => {
   const date = new Date(dateStr);
@@ -14,7 +15,7 @@ const triggerPOCreated = async ({ rmId, rmName, quantity, uom, amount, expectedD
 
   await notificationService.createNotification({
     type: 'PO_CREATED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PO_CREATED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'PO',
@@ -41,7 +42,7 @@ const triggerPOAmended = async ({ poId, changeSummary, actorName, actorId, actor
 
   await notificationService.createNotification({
     type: 'PO_AMENDED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PO_AMENDED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'PO',
@@ -66,7 +67,7 @@ const triggerPOCancelled = async ({ poId, rmId, rmName, cancelReason, actorName,
 
   await notificationService.createNotification({
     type: 'PO_CANCELLED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PO_CANCELLED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'PO',
@@ -91,7 +92,7 @@ const triggerGRNSubmitted = async ({ rmId, rmName, receivedQty, uom, receivedAmo
 
   await notificationService.createNotification({
     type: 'GRN_SUBMITTED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.GRN_SUBMITTED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'GRN',
@@ -119,7 +120,7 @@ const triggerLabRMApproved = async ({ rmId, rmName, labTestId, fat, protein, moi
 
   await notificationService.createNotification({
     type: 'LAB_RM_APPROVED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.LAB_RM_APPROVED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'LAB_RM',
@@ -148,7 +149,7 @@ const triggerLabRMRejected = async ({ rmId, rmName, labTestId, notes, actorName,
 
   await notificationService.createNotification({
     type: 'LAB_RM_REJECTED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.LAB_RM_REJECTED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'LAB_RM',
@@ -173,7 +174,7 @@ const triggerLabRMResample = async ({ rmId, rmName, labTestId, notes, grnId, act
 
   await notificationService.createNotification({
     type: 'LAB_RM_RESAMPLE',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.LAB_RM_RESAMPLE,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'LAB_RM',
@@ -199,7 +200,7 @@ const triggerFinalQtySubmitted = async ({ rmId, rmName, finalApprovedQty, uom, g
 
   await notificationService.createNotification({
     type: 'FINAL_QTY_SUBMITTED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.FINAL_QTY_SUBMITTED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'GRN',
@@ -223,7 +224,7 @@ const triggerProductionStarted = async ({ batchId, rmId, rmName, estimatedQty, a
 
   await notificationService.createNotification({
     type: 'PRODUCTION_STARTED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PRODUCTION_STARTED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'BATCH',
@@ -249,7 +250,7 @@ const triggerProductionOnHold = async ({ batchId, rmId, rmName, holdReason, acto
 
   await notificationService.createNotification({
     type: 'PRODUCTION_ON_HOLD',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF', 'LAB_ASSISTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PRODUCTION_ON_HOLD,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'BATCH',
@@ -274,7 +275,7 @@ const triggerProductionCompleted = async ({ batchId, rmId, rmName, actualRmUsed,
 
   await notificationService.createNotification({
     type: 'PRODUCTION_COMPLETED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PRODUCTION_COMPLETED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'BATCH',
@@ -301,7 +302,7 @@ const triggerProductionQCPassed = async ({ batchId, productName, approvedQty, ex
 
   await notificationService.createNotification({
     type: 'PRODUCTION_QC_PASSED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF', 'SALES_TEAM'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PRODUCTION_QC_PASSED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'LAB_PRODUCTION',
@@ -327,7 +328,7 @@ const triggerProductionQCFailed = async ({ batchId, productName, notes, qcTestId
 
   await notificationService.createNotification({
     type: 'PRODUCTION_QC_FAILED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PRODUCTION_QC_FAILED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'LAB_PRODUCTION',
@@ -352,7 +353,7 @@ const triggerStockLowAlert = async ({ productId, productName, currentStock, reor
 
   await notificationService.createNotification({
     type: 'STOCK_LOW_ALERT',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.STOCK_LOW_ALERT,
     sender_role: 'SYSTEM',
     sender_id: 'system',
     reference_type: 'STOCK',
@@ -376,7 +377,7 @@ const triggerRMLowStockAlert = async ({ rmId, rmName, currentStock, reorderLevel
 
   await notificationService.createNotification({
     type: 'RM_LOW_STOCK_ALERT',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.RM_LOW_STOCK_ALERT,
     sender_role: 'SYSTEM',
     sender_id: 'system',
     reference_type: 'RM_STOCK',
@@ -399,7 +400,7 @@ const triggerStockExpiryAlert = async ({ batchId, productName, approvedQty, expi
 
   await notificationService.createNotification({
     type: 'STOCK_EXPIRY_ALERT',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.STOCK_EXPIRY_ALERT,
     sender_role: 'SYSTEM',
     sender_id: 'system',
     reference_type: 'STOCK',
@@ -423,7 +424,7 @@ const triggerPOUpdated = async ({ poId, referenceNo, rmId, rmName, actorName, ac
 
   await notificationService.createNotification({
     type: 'PO_UPDATED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PO_UPDATED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'PO',
@@ -442,9 +443,7 @@ const triggerPOStatusChanged = async ({ poId, referenceNo, rmName, newStatus, ac
 
   await notificationService.createNotification({
     type: 'PO_STATUS_CHANGED',
-    recipient_roles: newStatus === 'RECEIVED'
-      ? ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']
-      : ['MAIN_MASTER', 'SUPERVISOR'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.PO_STATUS_CHANGED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'PO',
@@ -464,7 +463,7 @@ const triggerAssetPRCreated = async ({ prNo, prId, assetName, department, catego
 
   await notificationService.createNotification({
     type: 'ASSET_PR_CREATED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_PR_CREATED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET_PR',
@@ -492,7 +491,7 @@ const triggerAssetPRApproved = async ({ prNo, prId, assetName, department, estim
 
   await notificationService.createNotification({
     type: 'ASSET_PR_APPROVED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_PR_APPROVED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET_PR',
@@ -518,7 +517,7 @@ const triggerAssetPQCreated = async ({ pqNo, pqId, prNo, vendorName, vendorGstin
 
   await notificationService.createNotification({
     type: 'ASSET_PQ_CREATED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_PQ_CREATED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET_PQ',
@@ -544,7 +543,7 @@ const triggerAssetPOCreated = async ({ poNo, poId, prNo, pqNo, vendorName, vendo
 
   await notificationService.createNotification({
     type: 'ASSET_PO_CREATED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_PO_CREATED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET_PO',
@@ -573,7 +572,7 @@ const triggerAssetGRPOCreated = async ({ grpoNo, grpoId, poNo, vendorName, recei
 
   await notificationService.createNotification({
     type: 'ASSET_GRPO_CREATED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_GRPO_CREATED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET_GRPO',
@@ -599,7 +598,7 @@ const triggerAssetAPInvoiceCreated = async ({ invoiceNo, invoiceId, poNo, grpoNo
 
   await notificationService.createNotification({
     type: 'ASSET_INVOICE_CREATED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_INVOICE_CREATED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET_INVOICE',
@@ -627,7 +626,7 @@ const triggerAssetInvoicePaid = async ({ invoiceNo, invoiceId, vendorName, netPa
 
   await notificationService.createNotification({
     type: 'ASSET_INVOICE_PAID',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_INVOICE_PAID,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET_INVOICE',
@@ -650,7 +649,7 @@ const triggerAssetDecommissioned = async ({ assetId, assetName, category, depart
 
   await notificationService.createNotification({
     type: 'ASSET_DECOMMISSIONED',
-    recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    recipient_roles: NOTIFICATION_ROLE_MAP.ASSET_DECOMMISSIONED,
     sender_role: actorRole,
     sender_id: actorId,
     reference_type: 'ASSET',

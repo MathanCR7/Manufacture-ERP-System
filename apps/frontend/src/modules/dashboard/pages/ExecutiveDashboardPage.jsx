@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/axios';
+import { useNavigate } from 'react-router-dom';
 import {
   AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -37,49 +38,51 @@ const TT_STYLE = {
   labelStyle: { color: '#94a3b8', fontWeight: 'bold' }
 };
 
-function KPICard({ title, value, sub, icon: Icon, gradient, trend, loading }) {
+function KPICard({ title, value, sub, icon: Icon, gradient, trend, loading, onClick }) {
   return (
-    <Card className="relative overflow-hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 group">
-      <div className={`absolute top-0 left-0 w-1.5 h-full bg-gradient-to-b ${gradient}`} />
-      <CardContent className="p-6">
-        <div className="flex justify-between items-start">
-          <div className="space-y-1">
-            <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">{title}</span>
-            <h3 className="text-2xl font-black text-slate-900 dark:text-slate-50 tracking-tight">
-              {loading ? <Skeleton className="h-8 w-24" /> : value}
-            </h3>
-          </div>
-          <div className={`p-3 rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-500 group-hover:scale-110 transition-transform duration-300`}>
-            <Icon className="w-5 h-5" />
-          </div>
+    <div 
+      onClick={onClick}
+      className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 relative overflow-hidden transition-all duration-300 hover:shadow-md group ${
+        onClick ? 'cursor-pointer hover:-translate-y-1 hover:border-indigo-400 dark:hover:border-indigo-900/60 hover:bg-slate-50/20 dark:hover:bg-slate-950/20' : 'hover:-translate-y-0.5'
+      }`}
+    >
+      <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${gradient}`} />
+      <div className="flex justify-between items-start mb-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{title}</span>
+        <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-850 text-slate-500 group-hover:scale-110 transition-transform duration-300">
+          <Icon className="w-4 h-4" />
         </div>
-        {sub && (
-          <div className="mt-4 flex items-center gap-1.5 text-xs">
-            {trend === 'up' && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 font-semibold">
-                <ArrowUpRight size={12} />
-                {sub}
-              </span>
-            )}
-            {trend === 'down' && (
-              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 font-semibold">
-                <ArrowDownRight size={12} />
-                {sub}
-              </span>
-            )}
-            {trend === 'neutral' && (
-              <span className="text-slate-400 dark:text-slate-500 font-medium">
-                {sub}
-              </span>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      </div>
+      <div className="text-2xl font-black text-slate-800 dark:text-slate-100 tracking-tight mb-1">
+        {loading ? <span className="inline-block h-7 w-24 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg" /> : value}
+      </div>
+      {sub && (
+        <div className="text-xs">
+          {trend === 'up' && (
+            <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 rounded-full">
+              <ArrowUpRight size={12} />
+              {sub}
+            </span>
+          )}
+          {trend === 'down' && (
+            <span className="inline-flex items-center gap-0.5 text-rose-600 dark:text-rose-455 font-semibold bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 rounded-full">
+              <ArrowDownRight size={12} />
+              {sub}
+            </span>
+          )}
+          {trend === 'neutral' && (
+            <span className="text-slate-400 dark:text-slate-500 font-medium">
+              {sub}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
 export default function ExecutiveDashboardPage() {
+  const navigate = useNavigate();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -126,7 +129,7 @@ export default function ExecutiveDashboardPage() {
       )}
 
       {/* Primary Financial Metric Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <KPICard 
           title="Total Revenue" 
           value={fmt(d.totalRevenue)} 
@@ -135,6 +138,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-indigo-500 to-indigo-600" 
           trend={growth >= 0 ? 'up' : 'down'} 
           loading={loading} 
+          onClick={() => navigate('/sales/list')}
         />
         <KPICard 
           title="Net Profit" 
@@ -144,6 +148,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-emerald-500 to-emerald-600" 
           trend={d.netProfit >= 0 ? 'up' : 'down'} 
           loading={loading} 
+          onClick={() => navigate('/dashboard/finance')}
         />
         <KPICard 
           title="Monthly Income MTD" 
@@ -153,6 +158,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-violet-500 to-violet-600" 
           trend="neutral" 
           loading={loading} 
+          onClick={() => navigate('/sales/list')}
         />
         <KPICard 
           title="Total Expenses" 
@@ -162,6 +168,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-amber-500 to-amber-600" 
           trend="down" 
           loading={loading} 
+          onClick={() => navigate('/finance/expenses')}
         />
         <KPICard 
           title="Direct Costs" 
@@ -171,6 +178,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-orange-500 to-orange-600" 
           trend="neutral" 
           loading={loading} 
+          onClick={() => navigate('/purchase-orders')}
         />
         <KPICard 
           title="General Expenses" 
@@ -180,11 +188,12 @@ export default function ExecutiveDashboardPage() {
           gradient="from-rose-550 to-rose-600" 
           trend="neutral" 
           loading={loading} 
+          onClick={() => navigate('/finance/expenses')}
         />
       </div>
 
       {/* Operational Highlights Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KPICard 
           title="Inventory Assets" 
           value={fmt(d.inventoryValue)} 
@@ -193,6 +202,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-blue-500 to-blue-600" 
           trend="neutral" 
           loading={loading} 
+          onClick={() => navigate('/rm/stock')}
         />
         <KPICard 
           title="OEE Score" 
@@ -202,6 +212,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-orange-500 to-orange-600" 
           trend="neutral" 
           loading={loading} 
+          onClick={() => navigate('/dashboard/production')}
         />
         <KPICard 
           title="Active Batches" 
@@ -211,6 +222,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-pink-500 to-pink-600" 
           trend="neutral" 
           loading={loading} 
+          onClick={() => navigate('/production/batches')}
         />
         <KPICard 
           title="Top Contributors" 
@@ -220,6 +232,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-cyan-500 to-cyan-600" 
           trend="neutral" 
           loading={loading} 
+          onClick={() => navigate('/parties/customers')}
         />
       </div>
 

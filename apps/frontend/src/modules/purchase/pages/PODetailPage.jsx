@@ -172,7 +172,7 @@ export default function PODetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/purchase-orders')} className="text-slate-500 rounded-full">
+          <Button variant="ghost" size="icon" onClick={() => navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || '/purchase-orders')} className="text-slate-500 rounded-full">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>

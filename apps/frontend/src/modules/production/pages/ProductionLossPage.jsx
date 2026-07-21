@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
-import { Trash2, Plus, FileText, Calendar, User, Save, ListFilter, Percent } from 'lucide-react';
+import { Trash2, Plus, FileText, Calendar, User, Save, ListFilter, Percent, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import DatePicker from '@/components/ui/DatePicker';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import useAuthStore from '@/app/store/authStore';
 
 export default function ProductionLossPage() {
+  const user = useAuthStore(s => s.user);
+  const canEdit = ['MAIN_MASTER', 'PRODUCTION_STAFF'].includes(user?.role);
+
   const [batches, setBatches] = useState([]);
   const [products, setProducts] = useState([]);
   const [materials, setMaterials] = useState([]);
@@ -188,7 +192,13 @@ export default function ProductionLossPage() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      {!canEdit && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium animate-in fade-in slide-in-from-top-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>You have <strong>Read-Only access</strong> to this page. You cannot submit or modify loss reports.</span>
+        </div>
+      )}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
@@ -217,6 +227,7 @@ export default function ProductionLossPage() {
             <DatePicker
               label="Loss Date"
               required
+              disabled={!canEdit}
               value={date ? new Date(date) : null}
               onChange={(d) => setDate(d ? d.toISOString().split('T')[0] : '')}
               modalTitle="Loss Date"
@@ -229,10 +240,11 @@ export default function ProductionLossPage() {
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-500 uppercase">Responsible Person</label>
               <select
+                disabled={!canEdit}
                 value={responsiblePersonId}
                 onChange={(e) => setResponsiblePersonId(e.target.value)}
                 required
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-75 disabled:cursor-not-allowed"
               >
                 <option value="">Select person...</option>
                 {users.map(u => (
@@ -244,10 +256,11 @@ export default function ProductionLossPage() {
             <div className="space-y-1">
               <label className="text-xs font-semibold text-slate-500 uppercase">Production Batch</label>
               <select
+                disabled={!canEdit}
                 value={productionBatchId}
                 onChange={(e) => setProductionBatchId(e.target.value)}
                 required
-                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-75 disabled:cursor-not-allowed"
               >
                 <option value="">Select production batch...</option>
                 {batches.map(b => (
@@ -260,11 +273,12 @@ export default function ProductionLossPage() {
           <div className="space-y-1">
             <label className="text-xs font-semibold text-slate-500 uppercase">Loss Note / Remarks</label>
             <textarea
+              disabled={!canEdit}
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Provide context for raw material wastage, lab failed conditions, or mechanical issues..."
               rows="3"
-              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-75 disabled:cursor-not-allowed"
             />
           </div>
         </div>
@@ -298,22 +312,24 @@ export default function ProductionLossPage() {
                         <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{Number(p.productionQty || 0).toFixed(2)}</td>
                         <td className="px-4 py-3 text-right w-40">
                           <Input
+                            disabled={!canEdit}
                             type="number"
                             min="0"
                             step="any"
                             value={p.lossQty}
                             onChange={(e) => handleProductLossChange(idx, 'lossQty', e.target.value)}
-                            className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
+                            className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl disabled:opacity-75 disabled:cursor-not-allowed"
                           />
                         </td>
                         <td className="px-4 py-3 text-right w-40">
                           <Input
+                            disabled={!canEdit}
                             type="number"
                             min="0"
                             step="any"
                             value={p.lossAmount}
                             onChange={(e) => handleProductLossChange(idx, 'lossAmount', e.target.value)}
-                            className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
+                            className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl disabled:opacity-75 disabled:cursor-not-allowed"
                           />
                         </td>
                       </tr>
@@ -348,22 +364,24 @@ export default function ProductionLossPage() {
                           <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400">{Number(m.productionQty || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-right w-40">
                             <Input
+                              disabled={!canEdit}
                               type="number"
                               min="0"
                               step="any"
                               value={m.lossQty}
                               onChange={(e) => handleMaterialLossChange(idx, 'lossQty', e.target.value)}
-                              className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
+                              className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl disabled:opacity-75 disabled:cursor-not-allowed"
                             />
                           </td>
                           <td className="px-4 py-3 text-right w-40">
                             <Input
+                              disabled={!canEdit}
                               type="number"
                               min="0"
                               step="any"
                               value={m.lossAmount}
                               onChange={(e) => handleMaterialLossChange(idx, 'lossAmount', e.target.value)}
-                              className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl"
+                              className="text-slate-900 dark:text-white bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 focus-visible:ring-indigo-500 rounded-xl disabled:opacity-75 disabled:cursor-not-allowed"
                             />
                           </td>
                         </tr>
@@ -374,13 +392,15 @@ export default function ProductionLossPage() {
               </div>
             )}
 
-            <Button
-              type="submit"
-              disabled={submitting}
-              className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl shadow-md"
-            >
-              {submitting ? 'Recording loss report...' : 'Submit Spoilage & Loss Report'}
-            </Button>
+            {canEdit && (
+              <Button
+                type="submit"
+                disabled={submitting}
+                className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl shadow-md cursor-pointer"
+              >
+                {submitting ? 'Recording loss report...' : 'Submit Spoilage & Loss Report'}
+              </Button>
+            )}
           </div>
         ) : (
           <div className="p-8 text-center text-slate-400 border border-dashed rounded-2xl">

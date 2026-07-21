@@ -830,6 +830,205 @@ class DashboardController {
       });
     } catch (error) { next(error); }
   }
+
+  // ─────────────────────────── LAB ASSISTANT DASHBOARD ───────────────────────────
+  async getLabDashboard(req, res, next) {
+    try {
+      const now = new Date();
+      const last30Days = new Date(); last30Days.setDate(last30Days.getDate() - 30);
+
+      // 1. Lab Inventory Stats
+      const labItems = await prisma.labInventoryItem.findMany();
+      let totalItems = labItems.length;
+      let lowStockCount = 0;
+      let criticalCount = 0;
+      let expiredCount = 0;
+
+      const itemsByCategory = {};
+      const lowStockLabItems = [];
+
+      labItems.forEach(item => {
+        const stock = Number(item.currentStock);
+        const min = Number(item.minimumStockLevel);
+        const isExpired = item.expiryDate && new Date(item.expiryDate) <= now;
+        
+        itemsByCategory[item.itemCategory] = (itemsByCategory[item.itemCategory] || 0) + 1;
+
+        if (isExpired) {
+          expiredCount++;
+        } else if (stock <= 0) {
+          criticalCount++;
+          lowStockLabItems.push(item);
+        } else if (stock <= min) {
+          lowStockCount++;
+          lowStockLabItems.push(item);
+        }
+      });
+
+      // 2. Pending Tests
+      // Raw Material Pending Tests (GRN with status PENDING or IN_PROGRESS)
+      const pendingRmTests = await prisma.gRNLabTest.findMany({
+        where: { status: { in: ['PENDING', 'IN_PROGRESS'] } },
+        include: {
+          grn: {
+            include: {
+              po: {
+                include: { supplier: true }
+              }
+            }
+          },
+          rmLabCategory: true
+        },
+        orderBy: { createdAt: 'asc' }
+      });
+
+      // Production Batches Pending QC (Completed, not yet QC evaluated)
+      const pendingProdBatches = await prisma.productionBatchNew.findMany({
+        where: {
+          status: 'Completed',
+          deletedAt: null
+        },
+        include: {
+          product: { include: { unit: true } }
+        },
+        orderBy: { updatedAt: 'desc' }
+      });
+
+      // 3. Completed Tests stats in last 30 days
+      const rmTestsLast30 = await prisma.gRNLabTest.findMany({
+        where: {
+          status: { in: ['APPROVED', 'REJECTED'] },
+          createdAt: { gte: last30Days }
+        }
+      });
+      let rmApproved = rmTestsLast30.filter(t => t.overallDecision === 'APPROVED').length;
+      let rmRejected = rmTestsLast30.filter(t => t.overallDecision === 'REJECTED').length;
+      let rmResample = rmTestsLast30.filter(t => t.overallDecision === 'NEED_SAMPLE').length;
+
+      const prodTestsLast30 = await prisma.labProductionTestNew.findMany({
+        where: {
+          createdAt: { gte: last30Days }
+        }
+      });
+      let prodPassed = prodTestsLast30.filter(t => t.result.toLowerCase() === 'pass').length;
+      let prodFailed = prodTestsLast30.filter(t => t.result.toLowerCase() === 'fail').length;
+
+      // 4. Recent Test Results (Combined or separate)
+      const recentRmResults = await prisma.gRNLabTest.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: {
+          grn: {
+            include: {
+              po: {
+                include: { supplier: true }
+              }
+            }
+          },
+          tester: { select: { name: true } }
+        }
+      });
+
+      const recentProdResults = await prisma.labProductionTestNew.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: {
+          batch: {
+            include: { product: true }
+          },
+          tester: { select: { name: true } }
+        }
+      });
+
+      // 5. Recent Lab Inventory Usages
+      const recentUsages = await prisma.labInventoryUsage.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: {
+          labItem: true,
+          user: { select: { name: true } },
+          labTest: {
+            include: {
+              grn: {
+                include: { po: true }
+              }
+            }
+          }
+        }
+      });
+
+      // 6. Monthly Testing Volume (Last 6 Months)
+      const monthlyTestingVolume = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date();
+        d.setMonth(d.getMonth() - i);
+        const firstDay = new Date(d.getFullYear(), d.getMonth(), 1);
+        const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+        const monthLabel = d.toLocaleString('default', { month: 'short' });
+
+        const [rmCount, prodCount] = await Promise.all([
+          prisma.gRNLabTest.count({
+            where: { createdAt: { gte: firstDay, lte: lastDay } }
+          }),
+          prisma.labProductionTestNew.count({
+            where: { createdAt: { gte: firstDay, lte: lastDay } }
+          })
+        ]);
+
+        monthlyTestingVolume.push({
+          month: monthLabel,
+          'Raw Materials': rmCount,
+          'Production Batches': prodCount,
+          total: rmCount + prodCount
+        });
+      }
+
+      res.json({
+        inventoryStats: {
+          totalItems,
+          lowStockCount,
+          criticalCount,
+          expiredCount,
+          categoryBreakdown: Object.keys(itemsByCategory).map(cat => ({
+            category: cat,
+            count: itemsByCategory[cat]
+          }))
+        },
+        pendingTests: {
+          rm: pendingRmTests.map(t => ({
+            id: t.id,
+            grnId: t.grnId,
+            referenceNo: t.grn?.referenceNo,
+            materialName: t.grn?.po?.name,
+            supplierName: t.grn?.po?.supplier?.name,
+            createdAt: t.createdAt,
+            status: t.status,
+            itemCount: t.grn?.items?.length || 0
+          })),
+          production: pendingProdBatches.map(b => ({
+            id: b.id,
+            batchNumber: b.referenceNo,
+            productName: b.product?.name,
+            quantity: b.quantity,
+            unit: b.product?.unit?.abbreviation || 'pcs',
+            updatedAt: b.updatedAt
+          }))
+        },
+        testStats: {
+          rm: { approved: rmApproved, rejected: rmRejected, resample: rmResample, total: rmApproved + rmRejected + rmResample },
+          production: { passed: prodPassed, failed: prodFailed, total: prodPassed + prodFailed }
+        },
+        recentRmResults,
+        recentProdResults,
+        recentUsages,
+        lowStockLabItems,
+        monthlyTestingVolume
+      });
+
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 module.exports = new DashboardController();

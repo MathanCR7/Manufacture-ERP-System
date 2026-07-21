@@ -7,6 +7,7 @@ import Swal from 'sweetalert2';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
 
 export default function AddSupplierPage() {
   const { id } = useParams();
@@ -76,7 +77,7 @@ export default function AddSupplierPage() {
         value ? `<tr><td style="color:#6b7280;font-size:11px;padding:5px 0;text-align:left;width:48%;">${label}</td><td style="font-size:12px;font-weight:600;color:#111827;text-align:right;">${value}</td></tr>` : '';
 
       const tableHtml = `
-        <div style="text-align:left">
+        <div style="text-align:left border-radius:12px;">
           ${data.warning ? `<div style="background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;font-size:11px;color:#92400e;margin-bottom:12px;">⚠️ ${data.warning}</div>` : ''}
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
             <code style="font-size:13px;font-weight:700;color:#4f46e5;letter-spacing:1px;">${data.gstin}</code>
@@ -199,7 +200,8 @@ export default function AddSupplierPage() {
         Swal.fire({
           icon: 'error',
           title: 'File Too Large',
-          text: 'File size must be less than 2MB.'
+          text: 'Signature or Seal image must be smaller than 2MB.',
+          confirmButtonColor: '#ef4444'
         });
         return;
       }
@@ -212,11 +214,12 @@ export default function AddSupplierPage() {
   };
 
   const onSubmit = (data) => {
-    mutation.mutate({
+    const payload = {
       ...data,
       signatureImage,
       companySealImage
-    });
+    };
+    mutation.mutate(payload);
   };
 
   if (isEditMode && isFetching) {
@@ -224,65 +227,62 @@ export default function AddSupplierPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
         {isEditMode ? 'Edit Supplier' : 'Add Supplier'}
       </h1>
       
       <form onSubmit={handleSubmit(onSubmit)}>
-        <Card className="dark:bg-[#111827] dark:border-slate-800">
-          <CardContent className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-hidden text-xs">
+          <CardContent className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
             
-            {/* Row 1 */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">GSTIN</label>
+            {/* GSTIN field with verify button */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">GSTIN / GST Number</label>
               <div className="flex gap-2">
                 <input 
-                  {...register('gstin', {
-                    pattern: {
-                      value: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/,
-                      message: 'Invalid GSTIN format. Standard pattern: 27AAAAA0000A1Z5'
-                    }
+                  {...register('gstin', { 
+                    pattern: { value: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/, message: 'Invalid GSTIN format' }
                   })} 
-                  className="flex-1 px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono uppercase text-sm" 
-                  placeholder="22AAAAA0000A1Z5" 
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-mono text-xs font-bold uppercase" 
+                  placeholder="e.g. 33AABCL0702C1ZG" 
                 />
                 {!isEditMode && (
-                  <button
+                  <Button
                     type="button"
                     disabled={isVerifyingGstin}
                     onClick={handleVerifyGSTIN}
-                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-semibold shadow-sm transition-colors disabled:opacity-50"
+                    className="px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition-colors disabled:opacity-50 h-9 cursor-pointer"
                   >
-                    {isVerifyingGstin ? 'Fetching...' : 'Fetch Details'}
-                  </button>
+                    {isVerifyingGstin ? 'Fetching...' : 'Verify'}
+                  </Button>
                 )}
               </div>
-              {errors.gstin && <span className="text-xs text-red-500">{errors.gstin.message}</span>}
+              {errors.gstin && <span className="text-3xs text-red-500 font-bold">{errors.gstin.message}</span>}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Name <span className="text-red-500">*</span></label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-505 dark:text-slate-400 uppercase">Name <span className="text-red-500">*</span></label>
               <input 
                 {...register('name', { required: true })} 
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs" 
                 placeholder="Name" 
               />
-              {errors.name && <span className="text-xs text-red-500">Name is required</span>}
+              {errors.name && <span className="text-3xs text-red-500 font-bold">Name is required</span>}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Contact Person</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-505 dark:text-slate-400 uppercase">Contact Person</label>
               <input 
                 {...register('contactPerson')} 
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs" 
                 placeholder="Contact Person" 
               />
             </div>
 
             {/* Row 2 */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Phone <span className="text-red-500">*</span></label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-505 dark:text-slate-400 uppercase">Phone <span className="text-red-500">*</span></label>
               <input 
                 {...register('phone', { 
                   required: 'Phone is required',
@@ -295,48 +295,48 @@ export default function AddSupplierPage() {
                     return 'Phone must be a valid 10-digit number';
                   }
                 })} 
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs" 
                 placeholder="Phone" 
               />
-              {errors.phone && <span className="text-xs text-red-500">{errors.phone.message}</span>}
+              {errors.phone && <span className="text-3xs text-red-500 font-bold">{errors.phone.message}</span>}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Email <span className="text-red-500">*</span></label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-505 dark:text-slate-400 uppercase">Email <span className="text-red-500">*</span></label>
               <input 
                 {...register('email', { 
                   required: 'Email is required',
                   pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Invalid email format' }
                 })} 
                 type="email"
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs" 
                 placeholder="Email" 
               />
-              {errors.email && <span className="text-xs text-red-500">{errors.email.message}</span>}
+              {errors.email && <span className="text-3xs text-red-500 font-bold">{errors.email.message}</span>}
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">PAN</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-505 dark:text-slate-400 uppercase">PAN</label>
               <input 
                 {...register('pan')} 
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono uppercase" 
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-mono text-xs font-bold uppercase" 
                 placeholder="AAAAA0000A" 
               />
             </div>
 
             {/* Row 3 */}
-            <div className="space-y-2 col-span-1">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Opening Balance</label>
+            <div className="space-y-1 col-span-1">
+              <label className="text-[10px] font-extrabold text-slate-505 dark:text-slate-400 uppercase">Opening Balance</label>
               <div className="flex space-x-2">
                 <input 
                   {...register('openingBalance')} 
                   type="number" step="0.01"
-                  className="flex-1 px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-805 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-mono text-xs font-bold" 
                   placeholder="0.00" 
                 />
                 <select 
                   {...register('balanceType')}
-                  className="w-24 px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-24 px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-805 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs"
                 >
                   <option value="DEBIT">Debit</option>
                   <option value="CREDIT">Credit</option>
@@ -344,57 +344,57 @@ export default function AddSupplierPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Credit Limit</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-505 dark:text-slate-400 uppercase">Credit Limit</label>
               <input 
                 {...register('creditLimit')} 
                 type="number" step="0.01"
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-805 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-mono text-xs font-bold" 
                 placeholder="0.00" 
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1">
               {/* spacer */}
             </div>
 
             {/* Row 4 (Textareas) */}
-            <div className="space-y-2 md:col-span-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Address</label>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-[10px] font-extrabold text-slate-550 dark:text-slate-400 uppercase">Address</label>
               <textarea 
                 {...register('address')} 
-                rows="3"
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                rows="2"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs font-semibold resize-none" 
                 placeholder="Address"
               ></textarea>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Note</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-550 dark:text-slate-400 uppercase">Note</label>
               <textarea 
                 {...register('note')} 
-                rows="3"
-                className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500" 
+                rows="2"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl bg-white dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs font-semibold resize-none" 
                 placeholder="Note"
               ></textarea>
             </div>
 
             {/* Signature Upload */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Signature Image (.png/.jpg)</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">Signature Image (.png/.jpg)</label>
               <input 
                 type="file"
                 accept="image/png, image/jpeg"
                 onChange={(e) => handleFileChange(e, setSignatureImage)}
-                className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-slate-800 dark:file:text-indigo-400"
+                className="w-full text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[11px] file:font-bold file:bg-indigo-55 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-slate-800 dark:file:text-indigo-400"
               />
               {signatureImage && (
-                <div className="mt-2 p-2 border rounded-md dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                <div className="mt-2 p-2 border rounded-xl dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
                   <img src={signatureImage} alt="Signature Preview" className="max-h-20 max-w-full object-contain mx-auto" />
                   <button 
                     type="button" 
                     onClick={() => setSignatureImage(null)} 
-                    className="mt-1 text-xs text-rose-500 hover:underline block text-center w-full"
+                    className="mt-1 text-3xs text-rose-500 font-bold hover:underline block text-center w-full"
                   >
                     Remove
                   </button>
@@ -403,21 +403,21 @@ export default function AddSupplierPage() {
             </div>
 
             {/* Company Seal Upload */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Company Seal Image (.png/.jpg)</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">Company Seal Image (.png/.jpg)</label>
               <input 
                 type="file"
                 accept="image/png, image/jpeg"
                 onChange={(e) => handleFileChange(e, setCompanySealImage)}
-                className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-slate-800 dark:file:text-indigo-400"
+                className="w-full text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[11px] file:font-bold file:bg-indigo-55 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-slate-800 dark:file:text-indigo-400"
               />
               {companySealImage && (
-                <div className="mt-2 p-2 border rounded-md dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+                <div className="mt-2 p-2 border rounded-xl dark:border-slate-800 bg-slate-50 dark:bg-slate-950">
                   <img src={companySealImage} alt="Seal Preview" className="max-h-20 max-w-full object-contain mx-auto" />
                   <button 
                     type="button" 
                     onClick={() => setCompanySealImage(null)} 
-                    className="mt-1 text-xs text-rose-500 hover:underline block text-center w-full"
+                    className="mt-1 text-3xs text-rose-500 font-bold hover:underline block text-center w-full"
                   >
                     Remove
                   </button>
@@ -428,21 +428,21 @@ export default function AddSupplierPage() {
           </CardContent>
         </Card>
 
-        <div className="mt-6 flex space-x-4">
-          <button 
+        <div className="mt-4 flex space-x-3">
+          <Button 
             type="submit" 
             disabled={mutation.isPending}
-            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md shadow-sm font-medium transition-colors"
+            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-md font-bold text-xs cursor-pointer h-9"
           >
             {mutation.isPending ? 'Submitting...' : 'Submit'}
-          </button>
-          <button 
+          </Button>
+          <Button 
             type="button" 
             onClick={() => navigate('/parties/suppliers')}
-            className="px-6 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md shadow-sm font-medium transition-colors"
+            className="px-6 py-2 bg-rose-600 hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-800 text-white rounded-xl shadow-md font-bold text-xs cursor-pointer h-9 transition-colors"
           >
-            Back
-          </button>
+            Cancel
+          </Button>
         </div>
       </form>
     </div>

@@ -205,10 +205,16 @@ export default function GRNViewPage() {
                 <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                   <FlaskConical className="w-5 h-5 text-violet-500" /> Lab Test Results
                 </h3>
-                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border w-fit ${grn.labTest.overallDecision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200' : grn.labTest.overallDecision === 'REJECTED' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
-                  {grn.labTest.overallDecision}
+                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold border w-fit ${grn.labTest.status === 'IN_PROGRESS' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-350 border-slate-200 dark:border-slate-700' : grn.labTest.overallDecision === 'APPROVED' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400 border-emerald-200' : grn.labTest.overallDecision === 'REJECTED' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400 border-red-200' : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+                  {grn.labTest.status === 'IN_PROGRESS' ? 'DRAFT' : grn.labTest.overallDecision}
                 </span>
               </div>
+              {grn.labTest.status === 'IN_PROGRESS' && (
+                <div className="px-4 sm:px-6 py-3 bg-amber-50 dark:bg-amber-500/10 text-xs text-amber-800 dark:text-amber-400 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-405" />
+                  <span><strong>Draft Saved:</strong> These test results are in draft mode and have not been finalized. Material stock has NOT been updated yet.</span>
+                </div>
+              )}
               {grn.labTest.labNotes && (
                 <div className="px-4 sm:px-6 py-3 bg-slate-50 dark:bg-slate-800/30 text-sm text-slate-600 dark:text-slate-400 border-b border-slate-100 dark:border-slate-800">
                   <span className="font-medium">Lab Notes: </span>{grn.labTest.labNotes}
@@ -328,7 +334,8 @@ export default function GRNViewPage() {
                 onClick={() => navigate(`/lab/test/${grn.id}`)} 
                 className="w-full sm:w-auto bg-violet-600 hover:bg-violet-700 text-white gap-2 justify-center"
               >
-                <FlaskConical className="w-4 h-4" /> Enter Lab Results
+                <FlaskConical className="w-4 h-4" /> 
+                {grn.labTest ? 'Edit/Complete Lab Results' : 'Enter Lab Results'}
               </Button>
             </div>
           )}

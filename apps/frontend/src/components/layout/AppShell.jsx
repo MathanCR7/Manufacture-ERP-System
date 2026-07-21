@@ -1,18 +1,102 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, Link, useNavigate, useLocation } from 'react-router-dom';
-import useAuthStore from '@/app/store/authStore';
+import useAuthStore, { getRedirectPathByRole } from '@/app/store/authStore';
 import { 
   LayoutDashboard, ShoppingCart, FlaskConical, Factory, 
   DollarSign, Settings, Moon, Sun, Clock, 
   User, LogOut, ChevronDown, ChevronRight, ChevronLeft, Plus, Minus,
-  Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText, Bell,
+  Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText, Bell, Info, CheckCircle2,
   AlertTriangle, TrendingUp, Layers, Camera, Upload, Image, VideoOff, HardDrive,
-  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench
+  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import useLanguageStore from '@/app/store/languageStore';
 import { Html5Qrcode } from 'html5-qrcode';
 import { api } from '@/lib/axios';
+import Swal from 'sweetalert2';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const ToastItem = ({ toast, onClose }) => {
+  const [progress, setProgress] = useState(100);
+  const navigate = useNavigate();
+  const onCloseRef = useRef(onClose);
+
+  // Keep the ref updated with the latest onClose callback
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, 100 - (elapsed / toast.duration) * 100);
+      setProgress(remaining);
+      if (remaining <= 0) {
+        clearInterval(interval);
+        onCloseRef.current();
+      }
+    }, 30);
+
+    return () => clearInterval(interval);
+  }, [toast.id, toast.duration]);
+
+  const renderIcon = () => {
+    if (toast.icon === 'warning') return <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 animate-bounce" />;
+    if (toast.icon === 'error') return <XCircle className="w-5 h-5 text-rose-500 shrink-0" />;
+    if (toast.icon === 'success') return <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />;
+    return <Info className="w-5 h-5 text-indigo-500 shrink-0 animate-pulse" />;
+  };
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 20, scale: 0.95, filter: 'blur(4px)' }}
+      animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+      exit={{ opacity: 0, scale: 0.9, y: -20, filter: 'blur(4px)', transition: { duration: 0.25 } }}
+      transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+      whileHover={{ scale: 1.015, y: -2 }}
+      className={`pointer-events-auto w-full max-w-sm overflow-hidden rounded-2xl border ${toast.borderColorClass} bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.3)] p-4 flex flex-col relative transition-all group`}
+    >
+      <div className="flex gap-3">
+        {renderIcon()}
+        <div className="flex-1 min-w-0">
+          <h4 className="font-extrabold text-sm text-slate-800 dark:text-slate-100 tracking-tight">{toast.title}</h4>
+          <div 
+            className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed" 
+            dangerouslySetInnerHTML={{ __html: toast.message }} 
+          />
+          {toast.redirectPath && (
+            <button 
+              onClick={() => {
+                navigate(toast.redirectPath);
+                onClose();
+              }}
+              className={`mt-2.5 px-3 py-1.5 font-extrabold text-[10px] rounded-xl transition-all w-fit pointer-events-auto flex items-center gap-1 active:scale-95 border border-transparent hover:shadow-sm ${toast.buttonColorClass}`}
+            >
+              <span>View Details</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <button 
+          onClick={onClose} 
+          className="text-slate-400 hover:text-slate-655 dark:hover:text-slate-200 self-start p-0.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      
+      {/* Progress Bar Container */}
+      <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-slate-100/50 dark:bg-slate-800/20">
+        <div 
+          className={`h-full ${toast.progressBarColorClass} opacity-85 transition-all duration-75`}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </motion.div>
+  );
+};
 
 const GlobalSearch = ({ onClose }) => {
   const [query, setQuery] = useState('');
@@ -393,10 +477,11 @@ const MENU_GROUPS = [
     id: 'dashboards',
     title: 'Dashboards',
     icon: BarChart2,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
     items: [
-      { name: '📊 Overall Dashboard',     path: '/dashboard',             roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '📊 Overall Dashboard',     path: '/dashboard',             roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🏢 Executive / CEO',        path: '/dashboard/executive',   roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '🔬 Lab / Quality Control',  path: '/dashboard/lab',         roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '🧾 Sales',                  path: '/dashboard/sales',       roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
       { name: '🏭 Production',             path: '/dashboard/production',  roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
       { name: '📦 Inventory / Stock',      path: '/dashboard/inventory',   roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
@@ -412,7 +497,7 @@ const MENU_GROUPS = [
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'],
     items: [
       { name: '🛒 Purchase Order', path: '/purchase-orders', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
-      { name: '🚚 Upcoming Deliveries', path: '/grn/upcoming', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '🚚 Upcoming Deliveries', path: '/grn/upcoming', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'], badgeKey: 'upcomingDeliveries' },
       { name: '📥 GRN Records', path: '/grn/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'] },
       { name: '🔄 Purchase Return', path: '/purchase-return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
     ]
@@ -438,13 +523,12 @@ const MENU_GROUPS = [
     icon: FlaskConical,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'],
     items: [
-      { name: '🧪 Pending RM Lab Tests', path: '/lab/pending', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
+      { name: '🧪 Pending RM Lab Tests', path: '/lab/pending', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'], badgeKey: 'pendingRmLab' },
       { name: '🔬 RM Lab Results', path: '/lab/results', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '🏷️ RM Lab Category', path: '/lab/rm-lab-category', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '📦 Lab Inventory', path: '/lab-inventory/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '📝 Log Lab Usage', path: '/lab-inventory/use', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
       { name: '⚖️ QC Queue', path: '/production/qc-queue', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'], badgeKey: 'qcPending' },
-      { name: '📦 Product Stock (Setup)', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'] },
     ]
   },
   {
@@ -454,28 +538,29 @@ const MENU_GROUPS = [
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
     items: [
       { name: '🏬 RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: '⚠️ Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '⚠️ Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'], badgeKey: 'rmLowStock' },
       { name: '🔄 Stock Adjustment', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '🗑️ RM Waste', path: '/waste/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
     ]
   },
   {
     id: 'orders',
     title: 'Orders',
     icon: ShoppingCart,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
     items: [
-      { name: '📋 Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
-      { name: '🚦 Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] }
+      { name: '📋 Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '🚦 Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] }
     ]
   },
   {
     id: 'forecasting',
     title: 'Forecasting',
     icon: TrendingUp,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
     items: [
-      { name: '📈 Forecast by Order', path: '/forecasting/by-order', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
-      { name: '🔮 Forecast by Product', path: '/forecasting/by-product', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] }
+      { name: '📈 Forecast by Order', path: '/forecasting/by-order', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '🔮 Forecast by Product', path: '/forecasting/by-product', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] }
     ]
   },
   {
@@ -484,7 +569,7 @@ const MENU_GROUPS = [
     icon: Factory,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
     items: [
-      { name: '⚙️ Production Batches', path: '/production/batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
+      { name: '⚙️ Production Batches', path: '/production/batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'], badgeKey: 'inProgressBatches' },
       { name: '📉 Production Loss', path: '/production/loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
       { name: '📋 Loss Report', path: '/production/loss-report', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
       { name: '🗑️ Product Wastage', path: '/production/wastage', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
@@ -494,10 +579,10 @@ const MENU_GROUPS = [
     id: 'products',
     title: 'Products',
     icon: Layers,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
     items: [
-      { name: '📦 Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
-      { name: '🚨 Low Stock Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'], badgeKey: 'lowStock' },
+      { name: '📦 Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'], badgeKey: 'lowStock' },
+      { name: '🚨 Reproduction Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'], badgeKey: 'lowStock' },
     ]
   },
   {
@@ -521,15 +606,7 @@ const MENU_GROUPS = [
       { name: '📊 Manager Analytics', path: '/sales/dashboard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
     ]
   },
-  {
-    id: 'waste',
-    title: 'Waste Management',
-    icon: Archive,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'],
-    items: [
-      { name: '🗑️ RM Waste', path: '/waste/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'] },
-    ]
-  },
+
   {
     id: 'parties',
     title: 'Parties',
@@ -538,6 +615,7 @@ const MENU_GROUPS = [
     items: [
       { name: '👥 Customer List', path: '/parties/customers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
       { name: '🤝 Supplier List', path: '/parties/suppliers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '👥 User Management', path: '/admin/users', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
     ]
   },
   {
@@ -559,7 +637,6 @@ const MENU_GROUPS = [
     icon: Settings,
     roles: ['MAIN_MASTER', 'SUPERVISOR'],
     items: [
-      { name: '👥 User Management', path: '/admin/users', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '💸 Tax Settings', path: '/setup/tax', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '📋 Audit Log', path: '/audit-logs', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🔔 Notification Audit', path: '/admin/notifications-audit', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
@@ -580,7 +657,7 @@ const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'products' },
   { type: 'group', id: 'finance' },
   { type: 'group', id: 'sales' },
-  { type: 'group', id: 'waste' },
+
   { type: 'group', id: 'parties' },
   { type: 'group', id: 'itemSetup' },
   { type: 'link', id: 'notifications' },
@@ -606,8 +683,39 @@ const AppShell = () => {
   const { language, setLanguage } = useLanguageStore();
 
   const [lowStockCount, setLowStockCount] = useState(0);
+  const [rmLowStockCount, setRmLowStockCount] = useState(0);
   const [qcPendingCount, setQcPendingCount] = useState(0);
+  const [upcomingDeliveriesCount, setUpcomingDeliveriesCount] = useState(0);
+  const [pendingRmLabCount, setPendingRmLabCount] = useState(0);
+  const [inProgressBatchesCount, setInProgressBatchesCount] = useState(0);
+  const [customToasts, setCustomToasts] = useState([]);
+  const toastedPOsRef = useRef(new Set());
+  const toastedLabTestsRef = useRef(new Set());
+  const toastedRMStockRef = useRef(new Set());
+  const toastedProductStockRef = useRef(new Set());
+  const toastedInProgressRef = useRef(new Set());
+  const lastUserIdRef = useRef(null);
   const [attendanceStatus, setAttendanceStatus] = useState(null);
+
+  // Clear toasted caches only when user ID actually changes (e.g. on logout/login of different user)
+  useEffect(() => {
+    if (user?.id !== lastUserIdRef.current) {
+      lastUserIdRef.current = user?.id || null;
+      toastedPOsRef.current.clear();
+      toastedLabTestsRef.current.clear();
+      toastedRMStockRef.current.clear();
+      toastedProductStockRef.current.clear();
+      toastedInProgressRef.current.clear();
+      setCustomToasts([]);
+    }
+  }, [user?.id]);
+
+  // Track last dashboard path for redirects
+  useEffect(() => {
+    if (location.pathname.startsWith('/dashboard')) {
+      sessionStorage.setItem('lastDashboardPath', location.pathname);
+    }
+  }, [location.pathname]);
 
   // Collapsible and Search States for Sidebar
   const [sidebarSearch, setSidebarSearch] = useState('');
@@ -627,25 +735,266 @@ const AppShell = () => {
     localStorage.setItem('sidebarCollapsed', isSidebarCollapsed);
   }, [isSidebarCollapsed]);
 
+  const triggerToastAlert = ({ 
+    title, 
+    message, 
+    icon = 'info', 
+    key, 
+    toastedSetRef,
+    borderColorClass = 'border-indigo-100 dark:border-indigo-900/40',
+    progressBarColorClass = 'bg-indigo-600',
+    buttonColorClass = 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400',
+    redirectPath = '',
+    delayMs = 0
+  }) => {
+    if (toastedSetRef.current.has(key)) return;
+
+    const addToast = () => {
+      const newToast = {
+        id: key,
+        title,
+        message,
+        icon,
+        borderColorClass,
+        progressBarColorClass,
+        buttonColorClass,
+        redirectPath,
+        duration: 5000,
+      };
+      setCustomToasts(prev => [...prev, newToast]);
+    };
+
+    if (delayMs > 0) {
+      setTimeout(addToast, delayMs);
+    } else {
+      addToast();
+    }
+
+    toastedSetRef.current.add(key);
+  };
+
   // Fetch badge stats every 15s
   useEffect(() => {
     const fetchBadges = async () => {
-      if (!token) return;
-      try {
-        const lowRes = await api.get('/products/low-stock');
-        setLowStockCount(lowRes.data?.length || 0);
-        
-        const qcRes = await api.get('/production/qc-queue');
-        setQcPendingCount(qcRes.data?.length || 0);
-      } catch (e) {
-        console.error('Failed to fetch sidebar badges', e);
+      if (!token || !user) return;
+
+      // 1. Low Stock Stats (Product)
+      if (['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'].includes(user.role)) {
+        try {
+          const lowRes = await api.get('/products/low-stock');
+          const products = lowRes.data || [];
+          setLowStockCount(products.length);
+
+          if (products.length > 0) {
+            const mostRecent = products[0];
+            const extraCount = products.length - 1;
+            
+            let message = `Product <strong>${mostRecent.name}</strong> (${mostRecent.code}) is below its reproduction trigger level! Current: <strong>${mostRecent.currentStock}</strong> ${mostRecent.unit || ''}.`;
+            if (extraCount > 0) {
+              message += `<div class="mt-1.5 pt-1.5 border-t border-rose-200/30 text-[10px] text-rose-600 dark:text-rose-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more products require reproduction</span></div>`;
+            }
+
+            const lastToastTime = localStorage.getItem('last_reproduction_stock_toast_time');
+            const now = Date.now();
+            const fourHoursMs = 4 * 60 * 60 * 1000;
+            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > fourHoursMs;
+
+            if (shouldToast && !toastedProductStockRef.current.has(mostRecent.code)) {
+              triggerToastAlert({
+                title: 'Product Reproduction Required',
+                message,
+                icon: 'warning',
+                key: mostRecent.code,
+                toastedSetRef: toastedProductStockRef,
+                borderColorClass: 'border-rose-100 dark:border-rose-900/40',
+                progressBarColorClass: 'bg-rose-500',
+                buttonColorClass: 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-455',
+                redirectPath: '/products/low-stock',
+                delayMs: 2000
+              });
+
+              localStorage.setItem('last_reproduction_stock_toast_time', String(now));
+              // Mark all currently fetched as toasted to prevent multiple popups
+              products.forEach(p => toastedProductStockRef.current.add(p.code));
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch low stock count badge', e);
+        }
+      }
+
+      // 1b. RM Low Stock Stats
+      if (['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'].includes(user.role)) {
+        try {
+          const rmStockRes = await api.get('/rm-stock');
+          const rawMaterials = rmStockRes.data || [];
+          const rmLowStockItems = rawMaterials.filter(item => Number(item.availableQuantity || 0) <= Number(item.alertLevel || 0));
+          setRmLowStockCount(rmLowStockItems.length);
+
+          if (rmLowStockItems.length > 0) {
+            const mostRecent = rmLowStockItems[0];
+            const extraCount = rmLowStockItems.length - 1;
+            
+            let message = `Raw Material <strong>${mostRecent.name}</strong> (${mostRecent.code}) is below its alert level! Current: <strong>${mostRecent.availableQuantity}</strong> ${mostRecent.unit || ''}.`;
+            if (extraCount > 0) {
+              message += `<div class="mt-1.5 pt-1.5 border-t border-rose-200/30 text-[10px] text-rose-600 dark:text-rose-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more raw materials low</span></div>`;
+            }
+
+            if (!toastedRMStockRef.current.has(mostRecent.code)) {
+              triggerToastAlert({
+                title: 'Low RM Stock Alert',
+                message,
+                icon: 'warning',
+                key: mostRecent.code,
+                toastedSetRef: toastedRMStockRef,
+                borderColorClass: 'border-rose-100 dark:border-rose-900/40',
+                progressBarColorClass: 'bg-rose-500',
+                buttonColorClass: 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-400',
+                redirectPath: '/rm/stock/low',
+                delayMs: 1500
+              });
+
+              // Mark all currently fetched as toasted to prevent multiple popups
+              rmLowStockItems.forEach(rm => toastedRMStockRef.current.add(rm.code));
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch RM low stock count badge', e);
+        }
+      }
+      
+      // 2. QC Queue Stats
+      if (['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'].includes(user.role)) {
+        try {
+          const qcRes = await api.get('/production/qc-queue');
+          setQcPendingCount(qcRes.data?.length || 0);
+        } catch (e) {
+          console.error('Failed to fetch QC queue badge', e);
+        }
+      }
+
+      // 3. Pending Lab Tests & Toast Alerts
+      if (['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER'].includes(user.role)) {
+        try {
+          const labRes = await api.get('/grn/lab-tests');
+          const pendingTests = labRes.data || [];
+          setPendingRmLabCount(pendingTests.length);
+
+          if (pendingTests.length > 0) {
+            const mostRecent = pendingTests[0];
+            const extraCount = pendingTests.length - 1;
+            
+            let message = `GRN <strong>${mostRecent.referenceNo}</strong> is awaiting lab evaluation for material <strong>${mostRecent.po?.name || 'Raw Material'}</strong>.`;
+            if (extraCount > 0) {
+              message += `<div class="mt-1.5 pt-1.5 border-t border-amber-250/20 text-[10px] text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more pending below</span></div>`;
+            }
+
+            if (['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'].includes(user.role) && !toastedLabTestsRef.current.has(mostRecent.referenceNo)) {
+              triggerToastAlert({
+                title: 'Pending RM Lab Test',
+                message,
+                icon: 'warning',
+                key: mostRecent.referenceNo,
+                toastedSetRef: toastedLabTestsRef,
+                borderColorClass: 'border-amber-100 dark:border-amber-900/40',
+                progressBarColorClass: 'bg-amber-500',
+                buttonColorClass: 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400',
+                redirectPath: '/lab/pending',
+                delayMs: 300
+              });
+
+              // Mark all currently fetched pending tests as toasted to prevent multiple popups
+              pendingTests.forEach(t => toastedLabTestsRef.current.add(t.referenceNo));
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch pending lab tests badge/toast', e);
+        }
+      }
+
+      // 4. Upcoming Deliveries & Toast Alerts
+      if (['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'].includes(user.role)) {
+        try {
+          const upRes = await api.get('/grn/upcoming');
+          const awaitingPOs = upRes.data.filter(d => !d.hasGrn);
+          
+          setUpcomingDeliveriesCount(awaitingPOs.length);
+
+          if (awaitingPOs.length > 0) {
+            const mostRecent = awaitingPOs[0];
+            const extraCount = awaitingPOs.length - 1;
+
+            let message = `Material <strong>${mostRecent.name}</strong> (${mostRecent.referenceNo}) is awaiting receipt!`;
+            if (extraCount > 0) {
+              message += `<div class="mt-1.5 pt-1.5 border-t border-indigo-200/30 text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more awaiting receipt</span></div>`;
+            }
+
+            if (!toastedPOsRef.current.has(mostRecent.referenceNo)) {
+              triggerToastAlert({
+                title: 'Upcoming RM Delivery',
+                message,
+                icon: 'info',
+                key: mostRecent.referenceNo,
+                toastedSetRef: toastedPOsRef,
+                borderColorClass: 'border-indigo-100 dark:border-indigo-900/40',
+                progressBarColorClass: 'bg-indigo-600',
+                buttonColorClass: 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400',
+                redirectPath: '/grn/upcoming',
+                delayMs: 2500
+              });
+
+              // Mark all currently fetched POs as toasted to prevent multiple popups
+              awaitingPOs.forEach(po => toastedPOsRef.current.add(po.referenceNo));
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch upcoming deliveries badge/toast', e);
+        }
+      }
+
+      // 5. In Progress Production Batches
+      if (['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'].includes(user.role)) {
+        try {
+          const batchRes = await api.get('/production', { params: { status: 'In Progress' } });
+          const activeBatches = batchRes.data?.batches || [];
+          setInProgressBatchesCount(activeBatches.length);
+
+          if (activeBatches.length > 0) {
+            const mostRecent = activeBatches[0];
+            let message = `Batch <strong>${mostRecent.referenceNo}</strong> for <strong>${mostRecent.product?.name}</strong> is currently active and in progress.`;
+            const extraCount = activeBatches.length - 1;
+            if (extraCount > 0) {
+              message += `<div class="mt-1.5 pt-1.5 border-t border-amber-200/20 text-[10px] text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more batches in progress</span></div>`;
+            }
+
+            if (!toastedInProgressRef.current.has(mostRecent.referenceNo)) {
+              triggerToastAlert({
+                title: 'Production In Progress',
+                message,
+                icon: 'warning',
+                key: mostRecent.referenceNo,
+                toastedSetRef: toastedInProgressRef,
+                borderColorClass: 'border-amber-100 dark:border-amber-900/40',
+                progressBarColorClass: 'bg-amber-500',
+                buttonColorClass: 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400',
+                redirectPath: '/production/batches',
+                delayMs: 1000
+              });
+
+              // Mark all currently fetched active batches as toasted
+              activeBatches.forEach(b => toastedInProgressRef.current.add(b.referenceNo));
+            }
+          }
+        } catch (e) {
+          console.error('Failed to fetch in progress batches count', e);
+        }
       }
     };
     
     fetchBadges();
     const interval = setInterval(fetchBadges, 15000);
     return () => clearInterval(interval);
-  }, [token]);
+  }, [token, user]);
 
   // Fetch attendance status
   useEffect(() => {
@@ -780,6 +1129,34 @@ const AppShell = () => {
     return null;
   }).filter(Boolean);
 
+  const getGroupBadgeCount = (groupId) => {
+    if (groupId === 'purchases') return upcomingDeliveriesCount;
+    if (groupId === 'lab') return qcPendingCount + pendingRmLabCount;
+    if (groupId === 'products') return lowStockCount;
+    if (groupId === 'rmStock') return rmLowStockCount;
+    if (groupId === 'production') return inProgressBatchesCount;
+    return 0;
+  };
+
+  const getItemBadgeCount = (badgeKey) => {
+    if (badgeKey === 'lowStock') return lowStockCount;
+    if (badgeKey === 'rmLowStock') return rmLowStockCount;
+    if (badgeKey === 'qcPending') return qcPendingCount;
+    if (badgeKey === 'upcomingDeliveries') return upcomingDeliveriesCount;
+    if (badgeKey === 'pendingRmLab') return pendingRmLabCount;
+    if (badgeKey === 'inProgressBatches') return inProgressBatchesCount;
+    return 0;
+  };
+
+  const getItemBadgeColor = (badgeKey) => {
+    if (badgeKey === 'lowStock') return 'bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-400';
+    if (badgeKey === 'rmLowStock') return 'bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-400';
+    if (badgeKey === 'upcomingDeliveries') return 'bg-indigo-600 text-white dark:bg-indigo-500/20 dark:text-indigo-400';
+    if (badgeKey === 'pendingRmLab') return 'bg-amber-500 text-white dark:bg-amber-500/20 dark:text-amber-400';
+    if (badgeKey === 'inProgressBatches') return 'bg-amber-550 text-white dark:bg-amber-500/20 dark:text-amber-400 animate-pulse';
+    return 'bg-amber-550 text-white dark:bg-amber-500/20 dark:text-amber-404';
+  };
+
   return (
     <div className={`flex h-screen overflow-hidden ${isDarkMode ? 'dark bg-slate-900' : 'bg-slate-50'}`}>
       
@@ -873,26 +1250,28 @@ const AppShell = () => {
         <nav className={`flex-1 py-4 scroll-smooth scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 scrollbar-track-transparent ${
           isSidebarCollapsed ? 'md:overflow-visible' : 'overflow-y-auto'
         }`}>
-          
+
           {SIDEBAR_LAYOUT.map((layoutItem) => {
             if (layoutItem.type === 'link') {
               if (layoutItem.id === 'dashboard') {
+                const dashboardPath = getRedirectPathByRole(user?.role);
+                const isDashboardActive = location.pathname === dashboardPath;
                 return showDashboard && (
                   <div key="dashboard" className={`mb-2 w-full flex transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-2' : 'px-4'}`}>
                     <Link 
-                      to="/dashboard" 
+                      to={dashboardPath} 
                       className={`flex items-center rounded-xl transition-all duration-200 group/btn relative ${
                         isSidebarCollapsed ? 'w-12 h-12 justify-center px-0' : 'w-full px-4 py-3 hover:translate-x-1'
                       } ${
-                        location.pathname === '/dashboard' 
+                        isDashboardActive 
                           ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium shadow-sm border border-indigo-100 dark:border-indigo-900/30' 
-                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-205 border border-transparent'
                       }`}
                       title={isSidebarCollapsed ? "Dashboard" : undefined}
                     >
                       <LayoutDashboard className={`w-5 h-5 flex-shrink-0 transition-colors ${
                         isSidebarCollapsed ? '' : 'mr-3'
-                      } ${location.pathname === '/dashboard' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover/btn:text-indigo-500'}`} />
+                      } ${isDashboardActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover/btn:text-indigo-500'}`} />
                       
                       <span className={`transition-all duration-300 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
                         isSidebarCollapsed ? 'w-0 opacity-0' : 'w-full opacity-100'
@@ -901,7 +1280,7 @@ const AppShell = () => {
                       </span>
 
                       {/* Subtle active indicator dot in collapsed mode */}
-                      {isSidebarCollapsed && location.pathname === '/dashboard' && (
+                      {isSidebarCollapsed && isDashboardActive && (
                         <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-650 dark:bg-indigo-400 shadow-sm" />
                       )}
                     </Link>
@@ -987,6 +1366,13 @@ const AppShell = () => {
                     {group.title}
                   </span>
 
+                  {/* Closed Group Alert Count (Uncollapsed sidebar) */}
+                  {!isSidebarCollapsed && !isExpanded && getGroupBadgeCount(group.id) > 0 && (
+                    <span className="ml-auto mr-1.5 px-2 py-0.5 rounded-full text-[9px] font-black bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">
+                      {getGroupBadgeCount(group.id)}
+                    </span>
+                  )}
+
                   {/* Animated Plus/Minus Chevron Toggle */}
                   <div className={`transition-all duration-300 flex items-center justify-center p-1 rounded-md ${
                     isSidebarCollapsed ? 'w-0 opacity-0 overflow-hidden' : 'w-auto opacity-100 ml-2'
@@ -1001,6 +1387,13 @@ const AppShell = () => {
                   {/* Subtle active indicator dot in collapsed mode if has active children */}
                   {isSidebarCollapsed && hasActiveChild && (
                     <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-650 dark:bg-indigo-400 shadow-sm" />
+                  )}
+
+                  {/* Bouncing notification count badge on group icon in collapsed mode */}
+                  {isSidebarCollapsed && getGroupBadgeCount(group.id) > 0 && (
+                    <span className="absolute top-1 right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-indigo-600 text-[8px] font-black text-white ring-2 ring-white dark:ring-slate-900 animate-bounce">
+                      {getGroupBadgeCount(group.id)}
+                    </span>
                   )}
                 </button>
 
@@ -1027,13 +1420,9 @@ const AppShell = () => {
                             )}
                             <span>{item.name}</span>
                           </div>
-                          {item.badgeKey && (
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              item.badgeKey === 'lowStock' 
-                                ? 'bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-404' 
-                                : 'bg-amber-550 text-white dark:bg-amber-500/20 dark:text-amber-404'
-                            }`}>
-                              {item.badgeKey === 'lowStock' ? lowStockCount : qcPendingCount}
+                          {item.badgeKey && getItemBadgeCount(item.badgeKey) > 0 && (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${getItemBadgeColor(item.badgeKey)}`}>
+                              {getItemBadgeCount(item.badgeKey)}
                             </span>
                           )}
                         </Link>
@@ -1063,13 +1452,15 @@ const AppShell = () => {
                             }`}
                           >
                             <span>{item.name}</span>
-                            {item.badgeKey && (
+                            {item.badgeKey && getItemBadgeCount(item.badgeKey) > 0 && (
                               <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold ${
-                                item.badgeKey === 'lowStock'
+                                item.badgeKey === 'lowStock' || item.badgeKey === 'rmLowStock'
                                   ? 'bg-rose-500 text-white'
+                                  : item.badgeKey === 'upcomingDeliveries'
+                                  ? 'bg-indigo-650 text-white'
                                   : 'bg-amber-500 text-white'
                               }`}>
-                                {item.badgeKey === 'lowStock' ? lowStockCount : qcPendingCount}
+                                {getItemBadgeCount(item.badgeKey)}
                               </span>
                             )}
                           </Link>
@@ -1289,6 +1680,19 @@ const AppShell = () => {
           }} 
         />
       )}
+
+      {/* Custom Stacked Toast Container */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 z-[9999] flex flex-col gap-3.5 max-w-sm w-full pointer-events-none px-4 sm:px-0">
+        <AnimatePresence mode="popLayout">
+          {customToasts.map(toast => (
+            <ToastItem 
+              key={toast.id} 
+              toast={toast} 
+              onClose={() => setCustomToasts(prev => prev.filter(t => t.id !== toast.id))} 
+            />
+          ))}
+        </AnimatePresence>
+      </div>
     </div>
   );
 };

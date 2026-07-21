@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/axios';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
@@ -22,13 +23,18 @@ const STATUS_META = {
   'Planned':     { color: '#3b82f6', bg: 'bg-blue-50 dark:bg-blue-950/30', text: 'text-blue-600 dark:text-blue-400' },
 };
 
-function KPICard({ title, value, sub, icon: Icon, accent, loading }) {
+function KPICard({ title, value, sub, icon: Icon, accent, loading, onClick }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 flex flex-col justify-between hover:shadow-md transition-all hover:-translate-y-0.5 relative overflow-hidden">
+    <div 
+      onClick={onClick}
+      className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden group ${
+        onClick ? 'cursor-pointer hover:-translate-y-1 hover:border-indigo-400 dark:hover:border-indigo-900/60 hover:bg-slate-50/20 dark:hover:bg-slate-950/20' : 'hover:-translate-y-0.5'
+      }`}
+    >
       <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: accent }} />
       <div className="flex justify-between items-start mb-3">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{title}</span>
-        <div className="p-2 rounded-xl" style={{ background: accent + '22' }}>
+        <div className="p-2 rounded-xl group-hover:scale-110 transition-transform duration-300" style={{ background: accent + '22' }}>
           <Icon size={15} style={{ color: accent }} />
         </div>
       </div>
@@ -68,6 +74,7 @@ function OeeRing({ value, color, label }) {
 }
 
 export default function ProductionDashboardPage() {
+  const navigate = useNavigate();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -93,12 +100,12 @@ export default function ProductionDashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KPICard title="OEE Score"       value={`${d.oee || 0}%`}                sub="Overall Equipment Effectiveness" icon={Zap}          accent="#f59e0b" loading={loading} />
-        <KPICard title="Batches (Month)" value={d.totalBatchesMonth || 0}         sub={`${Object.values(statusCounts).reduce((a,b)=>a+b,0)} all time`} icon={Factory} accent="#8b5cf6" loading={loading} />
-        <KPICard title="Planned Qty"     value={`${Math.round(d.plannedQtyMonth || 0)} units`} sub="Target" icon={BarChart2} accent="#3b82f6" loading={loading} />
-        <KPICard title="Actual Qty"      value={`${Math.round(d.actualQtyMonth || 0)} units`}  sub={`${d.plannedQtyMonth > 0 ? Math.round((d.actualQtyMonth/d.plannedQtyMonth)*100) : 0}% of plan`} icon={Activity} accent="#10b981" loading={loading} />
-        <KPICard title="QC Pass Rate"    value={`${d.qcPassRate || 0}%`}          sub={`${d.qcPassed || 0} pass / ${d.qcFailed || 0} fail`} icon={CheckCircle2} accent="#22c55e" loading={loading} />
-        <KPICard title="Scrap Rate"      value={`${d.scrapRate || 0}%`}           sub={`${Number(d.totalLossKg || 0).toFixed(1)} kg loss`}  icon={AlertTriangle} accent="#ef4444" loading={loading} />
+        <KPICard title="OEE Score"       value={`${d.oee || 0}%`}                sub="Overall Equipment Effectiveness" icon={Zap}          accent="#f59e0b" loading={loading} onClick={() => navigate('/production/batches')} />
+        <KPICard title="Batches (Month)" value={d.totalBatchesMonth || 0}         sub={`${Object.values(statusCounts).reduce((a,b)=>a+b,0)} all time`} icon={Factory} accent="#8b5cf6" loading={loading} onClick={() => navigate('/production/batches')} />
+        <KPICard title="Planned Qty"     value={`${Math.round(d.plannedQtyMonth || 0)} units`} sub="Target" icon={BarChart2} accent="#3b82f6" loading={loading} onClick={() => navigate('/production/batches')} />
+        <KPICard title="Actual Qty"      value={`${Math.round(d.actualQtyMonth || 0)} units`}  sub={`${d.plannedQtyMonth > 0 ? Math.round((d.actualQtyMonth/d.plannedQtyMonth)*100) : 0}% of plan`} icon={Activity} accent="#10b981" loading={loading} onClick={() => navigate('/production/batches')} />
+        <KPICard title="QC Pass Rate"    value={`${d.qcPassRate || 0}%`}          sub={`${d.qcPassed || 0} pass / ${d.qcFailed || 0} fail`} icon={CheckCircle2} accent="#22c55e" loading={loading} onClick={() => navigate('/production/qc-queue')} />
+        <KPICard title="Scrap Rate"      value={`${d.scrapRate || 0}%`}           sub={`${Number(d.totalLossKg || 0).toFixed(1)} kg loss`}  icon={AlertTriangle} accent="#ef4444" loading={loading} onClick={() => navigate('/production/wastage')} />
       </div>
 
       {/* OEE Rings + Work Order Status */}

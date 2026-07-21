@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import {
   CalendarIcon,
@@ -243,9 +243,10 @@ export default function EditPOPage({ id: propId, onBack }) {
   const { id: paramId } = useParams();
   const id = propId || paramId;
   const navigate = useNavigate();
+  const location = useLocation();
   const handleBack = () => {
     if (onBack) onBack();
-    else navigate(`/purchase-orders/${id}`);
+    else navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || `/purchase-orders/${id}`);
   };
   const queryClient = useQueryClient();
 

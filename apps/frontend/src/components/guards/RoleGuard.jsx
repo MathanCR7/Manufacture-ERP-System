@@ -1,5 +1,5 @@
 import { Navigate, Outlet } from 'react-router-dom';
-import useAuthStore from '@/app/store/authStore';
+import useAuthStore, { getRedirectPathByRole } from '@/app/store/authStore';
 
 const RoleGuard = ({ allowedRoles }) => {
   const user = useAuthStore((state) => state.user);
@@ -9,7 +9,7 @@ const RoleGuard = ({ allowedRoles }) => {
   }
 
   if (!allowedRoles.includes(user.role)) {
-    return <Navigate to="/dashboard" replace />; // or an unauthorized page
+    return <Navigate to={getRedirectPathByRole(user.role)} replace />;
   }
 
   return <Outlet />;

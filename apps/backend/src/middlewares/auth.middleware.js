@@ -18,8 +18,24 @@ const authMiddleware = async (req, res, next) => {
     const decoded = jwt.verify(token, env.JWT_SECRET);
     req.user = decoded;
     
-    // Perform IP Lock Check
+    // Read-only check for SUPERVISOR
     const { id, role } = decoded;
+    if (role === 'SUPERVISOR' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method)) {
+      const path = req.originalUrl.split('?')[0];
+      const allowedSupervisorMutations = [
+        /^\/api\/auth\/logout$/,
+        /^\/api\/attendance\/check-in$/,
+        /^\/api\/attendance\/check-out$/,
+        /^\/api\/users\/profile$/,
+        /^\/api\/users\/request-password-change$/,
+        /^\/api\/notifications\/seen-all$/,
+        /^\/api\/notifications\/[^/]+\/seen$/
+      ];
+      const isAllowed = allowedSupervisorMutations.some(regex => regex.test(path));
+      if (!isAllowed) {
+        return res.status(403).json({ error: 'View-only Mode: Supervisors are not allowed to make edits.' });
+      }
+    }
 
     // MAIN_MASTER and SUPERVISOR bypass IP Lock entirely
     if (role !== 'MAIN_MASTER' && role !== 'SUPERVISOR') {

@@ -22,40 +22,44 @@ import {
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
 import useAuthStore from '@/app/store/authStore';
+import { Pagination } from '@/components/ui/Pagination';
+import { isVisibleToRole } from '@/config/notifications.config';
 
 const PhaseColors = {
-  PO_CREATED: 'bg-indigo-55 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
-  PO_UPDATED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
-  PO_AMENDED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
-  PO_CANCELLED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
-  PO_STATUS_CHANGED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+  PO_CREATED: 'bg-indigo-55 text-indigo-700 dark:bg-indigo-955/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+  PO_UPDATED: 'bg-sky-50 text-sky-700 dark:bg-sky-955/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  PO_AMENDED: 'bg-sky-50 text-sky-700 dark:bg-sky-955/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  PO_CANCELLED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  PO_STATUS_CHANGED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-955/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
   
-  GRN_SUBMITTED: 'bg-cyan-55 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/30',
+  GRN_SUBMITTED: 'bg-cyan-55 text-cyan-700 dark:bg-cyan-955/40 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/30',
   
-  LAB_RM_APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
-  LAB_RM_REJECTED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
-  LAB_RM_RESAMPLE: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  LAB_RM_APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-955/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  LAB_RM_REJECTED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  LAB_RM_RESAMPLE: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
   
-  FINAL_QTY_SUBMITTED: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border-blue-200 dark:border-blue-800/30',
+  FINAL_QTY_SUBMITTED: 'bg-blue-50 text-blue-700 dark:bg-blue-955/40 dark:text-blue-300 border-blue-200 dark:border-blue-800/30',
   
-  PRODUCTION_STARTED: 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-200 dark:border-purple-800/30',
-  PRODUCTION_ON_HOLD: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
-  PRODUCTION_COMPLETED: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-800/30',
-  PRODUCTION_QC_PASSED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
-  PRODUCTION_QC_FAILED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  PRODUCTION_STARTED: 'bg-purple-50 text-purple-700 dark:bg-purple-955/40 dark:text-purple-300 border-purple-200 dark:border-purple-800/30',
+  PRODUCTION_ON_HOLD: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  PRODUCTION_COMPLETED: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-955/40 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-800/30',
+  PRODUCTION_QC_PASSED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-955/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  PRODUCTION_QC_FAILED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   
-  STOCK_LOW_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
-  RM_LOW_STOCK_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
-  STOCK_EXPIRY_ALERT: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
-  STOCK_CRITICAL: 'bg-rose-55 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
-  STOCK_REORDER: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  STOCK_LOW_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  RM_LOW_STOCK_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  STOCK_EXPIRY_ALERT: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  STOCK_CRITICAL: 'bg-rose-55 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  STOCK_REORDER: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  UPCOMING_DELIVERY: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
 };
 
 const getCategoryIcon = (type) => {
-  if (type.startsWith('PO_')) return <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />;
-  if (type.startsWith('GRN_')) return <Truck className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />;
+  if (type === 'UPCOMING_DELIVERY') return <Truck className="w-4 h-4 text-indigo-650 dark:text-indigo-400" />;
+  if (type.startsWith('PO_')) return <FileText className="w-4 h-4 text-indigo-650 dark:text-indigo-400" />;
+  if (type.startsWith('GRN_')) return <Truck className="w-4 h-4 text-cyan-650 dark:text-cyan-400" />;
   if (type.startsWith('LAB_')) return <FlaskConical className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />;
-  if (type.startsWith('PRODUCTION_')) return <Activity className="w-4 h-4 text-purple-600 dark:text-purple-400" />;
+  if (type.startsWith('PRODUCTION_')) return <Activity className="w-4 h-4 text-purple-650 dark:text-purple-400" />;
   if (type.includes('STOCK_') || type.includes('LOW_STOCK') || type.includes('REORDER')) return <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />;
   return <Bell className="w-4 h-4 text-slate-500" />;
 };
@@ -202,106 +206,98 @@ const NotificationsListPage = () => {
     }
   };
 
-  // UI Detail Router Mapping
-  const handleNavigateToContext = async (notif) => {
+  const handleNavigateToContext = (notif) => {
     if (!notif.seenAt) {
-      try {
-        await api.patch(`/notifications/${notif.id}/seen`);
-        setNotifications(prev => prev.map(n => 
-          n.id === notif.id ? { ...n, seenAt: new Date().toISOString() } : n
-        ));
-      } catch (err) {
-        console.error("Failed to mark as seen on navigate", err);
-      }
+      handleMarkAsRead(notif.id);
     }
 
-    const { type, referenceId, metadata } = notif;
-    const poId = metadata?.po_id || referenceId;
-    const grnId = metadata?.grn_id || referenceId;
-    const batchId = metadata?.batch_id || referenceId;
-    const navigateOpts = { state: { from: '/notifications' } };
-    
-    if (type.startsWith('PO_')) {
-      navigate(`/purchase-orders/${poId}`, navigateOpts);
-    } else if (type.startsWith('GRN_')) {
-      navigate(`/grn/view/${grnId}`, navigateOpts);
-    } else if (type.startsWith('LAB_RM_')) {
-      navigate(`/lab/test/${grnId}`, navigateOpts);
-    } else if (type.startsWith('FINAL_QTY_')) {
-      navigate(`/grn/view/${grnId}`, navigateOpts);
-    } else if (type.startsWith('PRODUCTION_')) {
-      if (type === 'PRODUCTION_COMPLETED') {
-        navigate(`/production/qc-queue`, navigateOpts);
+    if (notif.type === 'UPCOMING_DELIVERY') {
+      navigate('/grn/upcoming');
+      return;
+    }
+
+    if (notif.type.startsWith('PO_')) {
+      const poId = notif.metadata?.purchaseOrderId || notif.metadata?.poId || notif.metadata?.po_id;
+      if (poId) navigate(`/purchase-orders/${poId}`, { state: { from: '/notifications' } });
+      else navigate('/purchase-orders');
+    } else if (notif.type.startsWith('GRN_')) {
+      const grnId = notif.metadata?.grn_id || notif.metadata?.grnId || notif.referenceId;
+      if (user?.role === 'LAB_ASSISTANT' && !notif.metadata?.is_tested) {
+        navigate(`/lab/test/${grnId}`, { state: { from: '/notifications' } });
+      } else if (grnId) {
+        navigate(`/grn/view/${grnId}`, { state: { from: '/notifications' } });
       } else {
-        navigate(`/production/batches`, navigateOpts);
+        navigate('/grn/list');
       }
-    } else if (type.includes('STOCK_') || type.includes('LOW_STOCK')) {
-      if (type.startsWith('RM_')) {
-        navigate(`/rm/stock/low`, navigateOpts);
+    } else if (notif.type.startsWith('LAB_')) {
+      navigate('/lab/results');
+    } else if (notif.type.startsWith('PRODUCTION_')) {
+      navigate('/production/batches');
+    } else if (notif.type.includes('STOCK_') || notif.type.includes('REORDER') || notif.type.includes('LOW_STOCK')) {
+      if (notif.type.startsWith('RM_')) {
+        navigate('/purchase/rm-low-stock');
       } else {
-        navigate(`/products/low-stock`, navigateOpts);
+        navigate('/production/low-stock-alerts');
       }
+    } else {
+      navigate('/notifications');
     }
   };
 
-  const getFilteredNotifications = () => {
-    return notifications.filter(notif => {
-      // 1. Search Query
-      const matchesSearch = notif.message.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        notif.type.toLowerCase().replace(/_/g, ' ').includes(searchTerm.toLowerCase());
-      
-      // 2. Status
-      const matchesStatus = 
-        statusFilter === 'ALL' ||
-        (statusFilter === 'UNREAD' && !notif.seenAt) ||
-        (statusFilter === 'READ' && notif.seenAt);
+  // Filter local state
+  const filteredNotifications = notifications.filter(notif => {
+    // Role filter
+    if (!isVisibleToRole(notif.type, user?.role)) return false;
 
-      // 3. Type category
-      let matchesType = true;
-      if (typeFilter !== 'ALL') {
-        if (typeFilter === 'PO') matchesType = notif.type.startsWith('PO_');
-        else if (typeFilter === 'GRN') matchesType = notif.type.startsWith('GRN_');
-        else if (typeFilter === 'LAB') matchesType = notif.type.startsWith('LAB_');
-        else if (typeFilter === 'PRODUCTION') matchesType = notif.type.startsWith('PRODUCTION_') || notif.type === 'FINAL_QTY_SUBMITTED';
-        else if (typeFilter === 'ALERTS') matchesType = notif.type.includes('STOCK_') || notif.type.includes('ALERT');
+    // Search filter
+    const matchesSearch = searchTerm ? (
+      notif.message?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      notif.type?.toLowerCase().includes(searchTerm.toLowerCase())
+    ) : true;
+
+    // Status filter
+    let matchesStatus = true;
+    if (statusFilter === 'UNREAD') {
+      matchesStatus = !notif.seenAt;
+    } else if (statusFilter === 'READ') {
+      matchesStatus = !!notif.seenAt;
+    }
+
+    // Category / Type filter
+    let matchesType = true;
+    if (typeFilter !== 'ALL') {
+      if (typeFilter === 'ALERTS') {
+        matchesType = notif.type.includes('STOCK_') || notif.type.includes('LOW_STOCK') || notif.type.includes('REORDER');
+      } else {
+        matchesType = notif.type.startsWith(typeFilter + '_');
       }
+    }
 
-      return matchesSearch && matchesStatus && matchesType;
-    });
-  };
+    return matchesSearch && matchesStatus && matchesType;
+  });
 
-  const filteredNotifications = getFilteredNotifications();
-  const unreadFilteredCount = filteredNotifications.filter(n => !n.seenAt).length;
-  const isAllSelected = unreadFilteredCount > 0 && filteredNotifications.filter(n => !n.seenAt).every(n => selectedIds.includes(n.id));
+  const visibleUnreadNotifs = filteredNotifications.filter(n => !n.seenAt);
+  const isAllSelected = visibleUnreadNotifs.length > 0 && visibleUnreadNotifs.every(n => selectedIds.includes(n.id));
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto p-4 sm:p-6 animate-in fade-in duration-300">
-      
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 text-xs">
       {/* Header section */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-205 dark:border-slate-800">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900 dark:text-slate-50 tracking-tight flex items-center gap-2.5">
-            <Bell className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
-            Notifications Center
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
+            <Bell className="w-5.5 h-5.5 mr-2 text-indigo-650 shrink-0" />
+            Notification Audit Center
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1.5 text-sm">
-            Stay informed with real-time operational alerts, quality controls, and purchase statuses.
+          <p className="text-xs text-slate-500 mt-0.5 font-medium">
+            Monitor background system notifications, inventory stock levels, and quality checks.
           </p>
         </div>
-        
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button 
-            onClick={fetchNotifications}
-            className="p-2.5 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-750 rounded-xl transition duration-200 flex items-center justify-center focus:outline-none"
-            title="Refresh notifications"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
 
+        <div className="flex flex-wrap items-center gap-2">
           {notifications.some(n => !n.seenAt) && (
             <button
               onClick={handleMarkAllAsRead}
-              className="px-4 py-2 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 rounded-xl text-sm font-semibold transition duration-250 focus:outline-none"
+              className="px-4 py-2 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/20 rounded-xl text-xs font-bold transition focus:outline-none cursor-pointer h-9"
             >
               Mark all as read
             </button>
@@ -310,7 +306,7 @@ const NotificationsListPage = () => {
           {selectedIds.length > 0 && (
             <button
               onClick={handleMarkSelectedAsRead}
-              className="px-4 py-2 bg-indigo-650 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold shadow-md transition duration-255 flex items-center gap-1.5 animate-in slide-in-from-right-3 focus:outline-none"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md transition flex items-center gap-1.5 animate-in slide-in-from-right-3 focus:outline-none cursor-pointer h-9"
             >
               <Check className="w-4 h-4" />
               Mark selected ({selectedIds.length})
@@ -320,30 +316,30 @@ const NotificationsListPage = () => {
       </div>
 
       {/* Filter and search controls */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-4">
+      <div className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl p-4 shadow-xs space-y-4">
         <div className="flex flex-col md:flex-row gap-3">
           
           {/* Search bar */}
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-404" />
             <input
               type="text"
               placeholder="Search notifications by message content or type..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-white border border-slate-200 dark:border-slate-200 rounded-xl text-sm text-black dark:text-black focus:outline-none focus:ring-2 focus:ring-indigo-500/25 dark:focus:ring-indigo-400/25 focus:border-indigo-500 transition duration-150"
+              className="w-full pl-10 pr-4 py-2 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-black dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition duration-150 h-9 font-semibold"
             />
           </div>
 
           {/* Status filters */}
-          <div className="flex bg-slate-50 dark:bg-slate-850 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800 shrink-0">
+          <div className="flex bg-slate-50 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800 shrink-0 h-9 items-center">
             {['ALL', 'UNREAD', 'READ'].map((status) => (
               <button
                 key={status}
                 onClick={() => setStatusFilter(status)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition ${
+                className={`px-4 py-1 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition cursor-pointer ${
                   statusFilter === status
-                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/10'
+                    ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-sm border dark:border-slate-700/50'
                     : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
                 }`}
               >
@@ -356,7 +352,7 @@ const NotificationsListPage = () => {
           <div className="relative shrink-0" id="category-dropdown-container">
             <button
               onClick={() => setIsCategoryOpen(!isCategoryOpen)}
-              className="w-full md:w-auto flex items-center justify-between gap-3.5 px-4 py-2.5 bg-slate-950 dark:bg-black hover:bg-slate-900 dark:hover:bg-slate-950 text-white border border-slate-900 dark:border-neutral-900 rounded-xl text-xs font-bold uppercase tracking-wider transition duration-150 focus:outline-none min-w-[200px]"
+              className="w-full md:w-auto flex items-center justify-between gap-3.5 px-4 py-2 bg-slate-950 dark:bg-black hover:bg-slate-900 dark:hover:bg-slate-950 text-white border border-slate-900 dark:border-neutral-900 rounded-xl text-[10px] font-extrabold uppercase tracking-wider transition duration-150 focus:outline-none min-w-[200px] h-9 cursor-pointer"
             >
               <div className="flex items-center gap-2">
                 {(categories.find(c => c.value === typeFilter) || categories[0]).icon}
@@ -375,10 +371,10 @@ const NotificationsListPage = () => {
                       setIsCategoryOpen(false);
                       setPage(1);
                     }}
-                    className={`w-full text-left flex items-center gap-2.5 px-4 py-2 text-xs font-semibold hover:bg-indigo-50/50 dark:hover:bg-slate-800 transition-colors ${
+                    className={`w-full text-left flex items-center gap-2.5 px-4 py-2 text-xs font-semibold hover:bg-indigo-50/50 dark:hover:bg-slate-800 transition-colors cursor-pointer border-none bg-transparent ${
                       typeFilter === cat.value
-                        ? 'text-indigo-650 dark:text-indigo-400 bg-indigo-50/20 dark:bg-indigo-950/10'
-                        : 'text-slate-600 dark:text-slate-350'
+                        ? 'text-indigo-650 dark:text-indigo-400 bg-indigo-50/20 dark:bg-indigo-950/10 font-bold'
+                        : 'text-slate-600 dark:text-slate-350 font-medium'
                     }`}
                   >
                     {cat.icon}
@@ -392,12 +388,12 @@ const NotificationsListPage = () => {
       </div>
 
       {/* Main notifications table card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-hidden flex flex-col text-xs">
         {filteredNotifications.length > 0 && (
-          <div className="px-5 py-3.5 bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
+          <div className="px-5 py-3 bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3">
             <button
               onClick={() => toggleSelectAll(filteredNotifications)}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition focus:outline-none"
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition focus:outline-none cursor-pointer"
               title="Select all unread"
             >
               {isAllSelected ? (
@@ -406,7 +402,7 @@ const NotificationsListPage = () => {
                 <Square className="w-5 h-5" />
               )}
             </button>
-            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+            <span className="text-3xs font-extrabold text-slate-400 uppercase tracking-wider">
               Select all unread in this view
             </span>
           </div>
@@ -415,14 +411,14 @@ const NotificationsListPage = () => {
         <div className="divide-y divide-slate-100 dark:divide-slate-800/40">
           {loading && notifications.length === 0 ? (
             <div className="p-20 text-center flex flex-col items-center justify-center">
-              <RefreshCw className="w-10 h-10 animate-spin text-indigo-600 mb-3" />
-              <p className="text-sm font-medium text-slate-550">Loading notifications...</p>
+              <RefreshCw className="w-8 h-8 animate-spin text-indigo-600 mb-2" />
+              <p className="text-xs font-semibold text-slate-550">Loading notifications...</p>
             </div>
           ) : filteredNotifications.length === 0 ? (
             <div className="p-20 text-center flex flex-col items-center justify-center">
-              <Bell className="w-12 h-12 text-slate-300 dark:text-slate-700 mb-3.5" />
-              <p className="text-base font-semibold text-slate-800 dark:text-slate-200">No notifications match filters</p>
-              <p className="text-xs text-slate-500 dark:text-slate-500 mt-1 max-w-md">
+              <Bell className="w-10 h-10 text-slate-300 dark:text-slate-700 mb-3" />
+              <p className="text-xs font-bold text-slate-800 dark:text-slate-205">No notifications match filters</p>
+              <p className="text-3xs text-slate-400 mt-1 max-w-md font-medium">
                 Try amending your search term, clearing status filters, or selecting "All Categories" from the filter list.
               </p>
             </div>
@@ -435,19 +431,19 @@ const NotificationsListPage = () => {
               return (
                 <div 
                   key={notif.id}
-                  className={`p-5 transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4 relative group ${
+                  className={`p-4 transition-all duration-200 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-850 last:border-none relative group ${
                     isUnread 
-                      ? 'bg-indigo-50/20 dark:bg-indigo-950/10 border-l-[3.5px] border-l-indigo-650 dark:border-l-indigo-500 pl-4' 
-                      : 'pl-5'
+                      ? 'bg-indigo-50/15 dark:bg-indigo-955/5 border-l-[3.5px] border-l-indigo-650 dark:border-l-indigo-500 pl-3.5' 
+                      : 'pl-4'
                   } ${isLabMuted ? 'opacity-55' : ''}`}
                 >
-                  <div className="flex items-start gap-4 flex-1">
+                  <div className="flex items-start gap-3.5 flex-1">
                     
                     {/* Checkbox for unread */}
                     {isUnread ? (
                       <button
                         onClick={() => toggleSelect(notif.id)}
-                        className="mt-1 shrink-0 text-slate-400 hover:text-indigo-650 dark:hover:text-indigo-400 transition focus:outline-none"
+                        className="mt-1 shrink-0 text-slate-400 hover:text-indigo-650 dark:hover:text-indigo-400 transition focus:outline-none cursor-pointer"
                       >
                         {selectedIds.includes(notif.id) ? (
                           <CheckSquare className="w-5 h-5 text-indigo-650 dark:text-indigo-400" />
@@ -460,29 +456,29 @@ const NotificationsListPage = () => {
                     )}
 
                     {/* Icon container */}
-                    <div className="w-9 h-9 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center border border-slate-200/50 dark:border-slate-700 shrink-0">
+                    <div className="w-8 h-8 rounded-xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center border border-slate-200/50 dark:border-slate-700 shrink-0">
                       {getCategoryIcon(notif.type)}
                     </div>
 
                     {/* Message detail */}
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className={`inline-block text-[9.5px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border shrink-0 ${PhaseColors[notif.type] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-250 dark:border-slate-700'}`}>
+                        <span className={`inline-block text-[9px] font-extrabold px-2 py-0.5 rounded-lg border shrink-0 ${PhaseColors[notif.type] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-250 dark:border-slate-700'}`}>
                           {notif.type.replace(/_/g, ' ')}
                         </span>
                         
-                        <span className="text-[11px] text-slate-450 dark:text-slate-500 font-medium" title={new Date(notif.eventAt).toLocaleString()}>
+                        <span className="text-[10px] text-slate-450 dark:text-slate-500 font-bold" title={new Date(notif.eventAt).toLocaleString()}>
                           • {relativeTime(notif.eventAt)}
                         </span>
                       </div>
                       
-                      <p className="text-slate-800 dark:text-slate-200 text-sm leading-relaxed max-w-3xl">
+                      <p className="text-slate-800 dark:text-slate-200 text-xs leading-relaxed max-w-3xl font-medium">
                         {notif.message}
                       </p>
                       
                       {/* Seen receipt log */}
                       {notif.seenAt && notif.userSeenBy && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 pt-1">
+                        <div className="flex items-center gap-1 text-[9px] text-slate-450 dark:text-slate-400 pt-0.5 font-bold">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                           <span>Seen by {notif.userSeenBy.name} ({notif.userSeenBy.role.replace('_', ' ')}) at {new Date(notif.seenAt).toLocaleString()}</span>
                         </div>
@@ -491,13 +487,13 @@ const NotificationsListPage = () => {
                   </div>
 
                   {/* Actions column */}
-                  <div className="flex items-center gap-2 self-end md:self-auto pl-9 md:pl-0 shrink-0">
+                  <div className="flex items-center gap-1.5 self-end md:self-auto pl-9 md:pl-0 shrink-0">
                     
                     {/* Mark as read button */}
                     {isUnread && (
                       <button
                         onClick={() => handleMarkAsRead(notif.id)}
-                        className="px-3 py-1.5 text-xs font-semibold text-slate-650 dark:text-slate-400 hover:text-indigo-650 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-indigo-150 dark:hover:border-indigo-900/40 transition focus:outline-none"
+                        className="px-3 py-1.5 text-xs font-bold text-slate-650 dark:text-slate-400 hover:text-indigo-650 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-indigo-150 dark:hover:border-indigo-900/40 transition focus:outline-none cursor-pointer"
                       >
                         Mark as read
                       </button>
@@ -506,7 +502,7 @@ const NotificationsListPage = () => {
                     {/* Context link (PO, GRN, etc) */}
                     <button
                       onClick={() => handleNavigateToContext(notif)}
-                      className="px-3 py-1.5 text-xs font-bold bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg border border-indigo-100/45 dark:border-indigo-900/20 transition flex items-center gap-1.5 focus:outline-none"
+                      className="px-3 py-1.5 text-xs font-bold bg-indigo-50 dark:bg-indigo-955/20 text-indigo-700 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg border border-indigo-100/45 dark:border-indigo-900/20 transition flex items-center gap-1.5 focus:outline-none cursor-pointer h-8"
                     >
                       View Details
                       <ArrowRight className="w-3.5 h-3.5" />
@@ -519,29 +515,23 @@ const NotificationsListPage = () => {
           )}
         </div>
 
-        {/* Pagination footer */}
+        {/* Reusable Pagination footer */}
         {totalPages > 1 && (
-          <div className="px-5 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/10 flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+          <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div className="text-[11px] text-slate-555 dark:text-slate-400 font-medium order-2 sm:order-1">
               Showing page {page} of {totalPages} ({totalItems} total alerts)
-            </span>
+            </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                disabled={page <= 1 || loading}
-                onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent text-slate-500 transition duration-150 focus:outline-none"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
+            <div className="order-1 sm:order-2">
+              <Pagination 
+                currentPage={page} 
+                totalPages={totalPages} 
+                onPageChange={setPage} 
+              />
+            </div>
 
-              <button
-                disabled={page >= totalPages || loading}
-                onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
-                className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent text-slate-500 transition duration-150 focus:outline-none"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
+            <div className="text-xs text-slate-404 font-medium order-3">
+              Total entries: {totalItems} records
             </div>
           </div>
         )}

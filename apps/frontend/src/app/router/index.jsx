@@ -4,6 +4,7 @@ import ProtectedRoute from '@/components/guards/ProtectedRoute';
 import RoleGuard from '@/components/guards/RoleGuard';
 import AppShell from '@/components/layout/AppShell';
 import { RotateCw } from 'lucide-react';
+import useAuthStore, { getRedirectPathByRole } from '@/app/store/authStore';
 
 const LoginPage = lazy(() => import('@/modules/auth/pages/LoginPage'));
 const UserRolePage = lazy(() => import('@/modules/admin/pages/UserRolePage'));
@@ -28,6 +29,7 @@ const InventoryDashboardPage    = lazy(() => import('@/modules/dashboard/pages/I
 const FinanceDashboardPage      = lazy(() => import('@/modules/dashboard/pages/FinanceDashboardPage'));
 const HRDashboardPage           = lazy(() => import('@/modules/dashboard/pages/HRDashboardPage'));
 const MaintenanceDashboardPage  = lazy(() => import('@/modules/dashboard/pages/MaintenanceDashboardPage'));
+const LabDashboardPage          = lazy(() => import('@/modules/dashboard/pages/LabDashboardPage'));
 
 // Parties Module
 const CustomerListPage = lazy(() => import('@/modules/parties/pages/CustomerListPage'));
@@ -117,6 +119,21 @@ const PlaceholderPage = ({ title }) => (
   </div>
 );
 
+// Dashboard Route Wrapper for role-based redirects
+const DashboardRouteWrapper = ({ children }) => {
+  const { user } = useAuthStore();
+  
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  if (user.role === 'MAIN_MASTER' || user.role === 'SUPERVISOR') {
+    return children;
+  }
+  
+  return <Navigate to={getRedirectPathByRole(user.role)} replace />;
+};
+
 const AppRouter = () => {
   return (
     <Suspense fallback={
@@ -142,7 +159,11 @@ const AppRouter = () => {
             <Route path="/qr-lifecycle/:id" element={<QRLifecyclePage />} />
 
             {/* Dashboard Routes */}
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/dashboard" element={
+              <DashboardRouteWrapper>
+                <DashboardPage />
+              </DashboardRouteWrapper>
+            } />
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
               <Route path="/dashboard/executive"   element={<ExecutiveDashboardPage />} />
               <Route path="/dashboard/hr"          element={<HRDashboardPage />} />
@@ -157,6 +178,9 @@ const AppRouter = () => {
             </Route>
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT']} />}>
               <Route path="/dashboard/inventory" element={<InventoryDashboardPage />} />
+            </Route>
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT']} />}>
+              <Route path="/dashboard/lab" element={<LabDashboardPage />} />
             </Route>
             
             {/* Parties Module */}
@@ -296,12 +320,16 @@ const AppRouter = () => {
             {/* Admin & Setup */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
               <Route path="/setup/items" element={<PlaceholderPage title="Item Setup" />} />
-              <Route path="/waste/raw-material" element={<RMWasteListPage />} />
-              <Route path="/waste/raw-material/add" element={<RMWasteListPage />} />
-              <Route path="/waste/raw-material/edit/:id" element={<RMWasteListPage />} />
               <Route path="/audit-logs" element={<AuditLogListPage />} />
               <Route path="/admin/notifications-audit" element={<NotificationAuditPanel />} />
               <Route path="/admin/backups" element={<BackupListPage />} />
+            </Route>
+
+            {/* Raw Material Waste */}
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']} />}>
+              <Route path="/waste/raw-material" element={<RMWasteListPage />} />
+              <Route path="/waste/raw-material/add" element={<RMWasteListPage />} />
+              <Route path="/waste/raw-material/edit/:id" element={<RMWasteListPage />} />
             </Route>
             
             {/* Notifications (All Roles) */}

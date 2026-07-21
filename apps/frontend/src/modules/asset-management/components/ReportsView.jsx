@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { format } from 'date-fns';
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import Pagination from '@/components/ui/Pagination';
 
 const CATEGORIES = [
   'IT Equipment', 'Machinery & Plant', 'Furniture & Fixtures',
@@ -56,6 +57,11 @@ export default function ReportsView() {
   const [depSort, setDepSort] = useState('recent');
   const [procSearch, setProcSearch] = useState('');
   const [procSort, setProcSort] = useState('recent');
+  const [depPage, setDepPage] = useState(1);
+
+  useEffect(() => {
+    setDepPage(1);
+  }, [depSearch, depSort, activeReport]);
 
   const { data: assets = [], isLoading } = useQuery({
     queryKey: ['asset-register'],
@@ -110,6 +116,10 @@ export default function ReportsView() {
     }
     return 0;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(sortedAssets.length / ITEMS_PER_PAGE);
+  const paginatedAssets = sortedAssets.slice((depPage - 1) * ITEMS_PER_PAGE, depPage * ITEMS_PER_PAGE);
 
   const filteredInvoices = invoices.filter(inv =>
     inv.apInvoiceNo?.toLowerCase().includes(procSearch.toLowerCase()) ||
@@ -294,51 +304,62 @@ export default function ReportsView() {
                 <p className="text-sm">No assets found</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50/80 dark:bg-slate-800/50">
-                    <tr>
-                      {['Asset Code', 'Asset Name', 'Category', 'Purchase Value', 'Method', 'Annual Dep.', 'Acc. Dep.', 'Book Value', 'Age (Yrs)', 'Status'].map(h => (
-                        <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                    {sortedAssets.map(asset => (
-                      <tr key={asset.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
-                        <td className="px-3 py-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs whitespace-nowrap">{asset.assetCode}</td>
-                        <td className="px-3 py-3 max-w-[160px]">
-                          <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">{asset.assetName}</div>
-                          <div className="text-xs text-slate-400">{asset.department}</div>
-                        </td>
-                        <td className="px-3 py-3 text-xs text-slate-500 whitespace-nowrap">{asset.category}</td>
-                        <td className="px-3 py-3 text-slate-700 dark:text-slate-300 font-medium whitespace-nowrap">₹{asset.pv.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-3 py-3 text-xs text-slate-500 max-w-[100px] truncate">{asset.depreciationMethod?.split('(')[0].trim()}</td>
-                        <td className="px-3 py-3 font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">₹{asset.annualDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-3 py-3 font-semibold text-rose-500 whitespace-nowrap">₹{asset.accDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-3 py-3 font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">₹{asset.bookValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-3 py-3 text-slate-500 whitespace-nowrap">{asset.age.toFixed(1)}</td>
-                        <td className="px-3 py-3">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${STATUS_STYLES[asset.status] || STATUS_STYLES.Active}`}>
-                            {asset.status}
-                          </span>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50/80 dark:bg-slate-800/50">
+                      <tr>
+                        {['Asset Code', 'Asset Name', 'Category', 'Purchase Value', 'Method', 'Annual Dep.', 'Acc. Dep.', 'Book Value', 'Age (Yrs)', 'Status'].map(h => (
+                          <th key={h} className="px-3 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">{h}</th>
+                        ))}
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="bg-indigo-50/60 dark:bg-indigo-950/20 border-t-2 border-indigo-100 dark:border-indigo-900/50">
-                    <tr>
-                      <td colSpan={3} className="px-3 py-3 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Total</td>
-                      <td className="px-3 py-3 font-bold text-slate-900 dark:text-white whitespace-nowrap">₹{totalPV.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                      <td />
-                      <td className="px-3 py-3 font-bold text-amber-600 whitespace-nowrap">₹{totalAnnualDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                      <td className="px-3 py-3 font-bold text-rose-500 whitespace-nowrap">₹{totalAccDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                      <td className="px-3 py-3 font-black text-indigo-600 dark:text-indigo-400 whitespace-nowrap">₹{totalBV.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                      <td colSpan={2} />
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {paginatedAssets.map(asset => (
+                        <tr key={asset.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                          <td className="px-3 py-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs whitespace-nowrap">{asset.assetCode}</td>
+                          <td className="px-3 py-3 max-w-[160px]">
+                            <div className="font-semibold text-slate-800 dark:text-slate-200 truncate">{asset.assetName}</div>
+                            <div className="text-xs text-slate-400">{asset.department}</div>
+                          </td>
+                          <td className="px-3 py-3 text-xs text-slate-500 whitespace-nowrap">{asset.category}</td>
+                          <td className="px-3 py-3 text-slate-700 dark:text-slate-300 font-medium whitespace-nowrap">₹{asset.pv.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-3 py-3 text-xs text-slate-500 max-w-[100px] truncate">{asset.depreciationMethod?.split('(')[0].trim()}</td>
+                          <td className="px-3 py-3 font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">₹{asset.annualDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-3 py-3 font-semibold text-rose-500 whitespace-nowrap">₹{asset.accDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-3 py-3 font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">₹{asset.bookValue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-3 py-3 text-slate-500 whitespace-nowrap">{asset.age.toFixed(1)}</td>
+                          <td className="px-3 py-3">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold border whitespace-nowrap ${STATUS_STYLES[asset.status] || STATUS_STYLES.Active}`}>
+                              {asset.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-indigo-50/60 dark:bg-indigo-950/20 border-t-2 border-indigo-100 dark:border-indigo-900/50">
+                      <tr>
+                        <td colSpan={3} className="px-3 py-3 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">Total</td>
+                        <td className="px-3 py-3 font-bold text-slate-900 dark:text-white whitespace-nowrap">₹{totalPV.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td />
+                        <td className="px-3 py-3 font-bold text-amber-600 whitespace-nowrap">₹{totalAnnualDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-3 py-3 font-bold text-rose-500 whitespace-nowrap">₹{totalAccDep.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-3 py-3 font-black text-indigo-600 dark:text-indigo-400 whitespace-nowrap">₹{totalBV.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+                {totalPages > 1 && (
+                  <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+                    <Pagination
+                      currentPage={depPage}
+                      totalPages={totalPages}
+                      onPageChange={setDepPage}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

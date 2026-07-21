@@ -17,6 +17,7 @@ import {
   TrendingUp, Package, Trash2, Edit
 } from 'lucide-react';
 import Swal from 'sweetalert2';
+import Pagination from '@/components/ui/Pagination';
 
 const DEPARTMENTS = ['IT', 'Manufacturing', 'Admin', 'Logistics', 'Finance', 'HR', 'Sales'];
 const CATEGORIES = [
@@ -895,7 +896,12 @@ export default function PurchaseRequestsView() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedPR, setSelectedPR] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const qc = useQueryClient();
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter]);
 
   const { data: prs = [], isLoading } = useQuery({
     queryKey: ['asset-prs'],
@@ -957,6 +963,10 @@ export default function PurchaseRequestsView() {
     const matchStatus = statusFilter === 'ALL' || pr.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
+  const paginatedItems = filtered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   if (view === 'create') {
     return (
@@ -1034,7 +1044,7 @@ export default function PurchaseRequestsView() {
                   </div>
                 </div>
               </td></tr>
-            ) : filtered.map(pr => (
+            ) : paginatedItems.map(pr => (
               <tr key={pr.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
                 <td className="px-4 py-3">
                   <button onClick={() => setSelectedPR(pr)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline">{pr.prNo}</button>
@@ -1046,7 +1056,7 @@ export default function PurchaseRequestsView() {
                 <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{pr.department}</td>
                 <td className="px-4 py-3 text-slate-700 dark:text-slate-300 text-xs">{pr.category}</td>
                 <td className="px-4 py-3">
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${PRIORITY_STYLES[pr.priority] || ''}`}>{pr.priority}</span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${PRIORITY_STYLES[pr.priority] || ''}`}>{pr.priority}</span>
                 </td>
                 <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">₹{Number(pr.estimatedTotalCost).toLocaleString('en-IN')}</td>
                 <td className="px-4 py-3 text-xs text-slate-500">{format(new Date(pr.requiredByDate), 'dd MMM yyyy')}</td>
@@ -1099,6 +1109,15 @@ export default function PurchaseRequestsView() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

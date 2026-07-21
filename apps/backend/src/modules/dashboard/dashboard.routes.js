@@ -14,5 +14,6 @@ router.get('/inventory',   authenticateToken, dashboardController.getInventoryDa
 router.get('/finance',     authenticateToken, dashboardController.getFinanceDashboard);
 router.get('/hr',          authenticateToken, dashboardController.getHRDashboard);
 router.get('/maintenance', authenticateToken, dashboardController.getMaintenanceDashboard);
+router.get('/lab',         authenticateToken, dashboardController.getLabDashboard);
 
 module.exports = router;

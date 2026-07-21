@@ -6,6 +6,29 @@ const execPromise = util.promisify(exec);
 
 const backupsDir = path.join(__dirname, '../../../../backups');
 
+// Encode special characters like '@' in database connection URL passwords
+const getEncodedDbUrl = (urlStr) => {
+    if (!urlStr) return urlStr;
+    const match = urlStr.match(/^(postgresql:\/\/|postgres:\/\/)(.*)$/);
+    if (!match) return urlStr;
+    const protocol = match[1];
+    const rest = match[2];
+    
+    const lastAtIdx = rest.lastIndexOf('@');
+    if (lastAtIdx === -1) return urlStr;
+    
+    const userInfo = rest.substring(0, lastAtIdx);
+    const hostDb = rest.substring(lastAtIdx + 1);
+    
+    const colonIdx = userInfo.indexOf(':');
+    if (colonIdx === -1) return urlStr;
+    
+    const user = userInfo.substring(0, colonIdx);
+    const password = userInfo.substring(colonIdx + 1);
+    
+    return `${protocol}${user}:${encodeURIComponent(password)}@${hostDb}`;
+};
+
 // Ensure backups directory exists
 if (!fs.existsSync(backupsDir)) {
     fs.mkdirSync(backupsDir, { recursive: true });
@@ -69,6 +92,7 @@ const createBackup = async (req, res) => {
         let dbUrl = process.env.DATABASE_URL;
         if (!dbUrl) throw new Error("DATABASE_URL not found");
         dbUrl = dbUrl.split('?')[0]; // Remove query params like ?schema=public
+        dbUrl = getEncodedDbUrl(dbUrl);
         
         const command = `"C:\\Program Files\\PostgreSQL\\17\\bin\\pg_dump.exe" --inserts --on-conflict-do-nothing -d "${dbUrl}" -f "${filepath}"`;
         
@@ -97,6 +121,7 @@ const restoreBackup = async (req, res) => {
         let dbUrl = process.env.DATABASE_URL;
         if (!dbUrl) throw new Error("DATABASE_URL not found");
         dbUrl = dbUrl.split('?')[0]; // Remove query params like ?schema=public
+        dbUrl = getEncodedDbUrl(dbUrl);
         
         const command = `"C:\\Program Files\\PostgreSQL\\17\\bin\\psql.exe" -d "${dbUrl}" -f "${filepath}"`;
         

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/axios';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -8,12 +9,14 @@ import {
   DollarSign, TrendingUp, TrendingDown, CreditCard, Wallet, RefreshCw, BarChart2
 } from 'lucide-react';
 
-const fmt = (n, d = 0) => {
+const fmt = (n) => {
   const num = Number(n || 0);
-  if (num >= 1_00_00_000) return `₹${(num / 1_00_00_000).toFixed(1)}Cr`;
-  if (num >= 1_00_000)    return `₹${(num / 1_00_000).toFixed(1)}L`;
-  if (num >= 1_000)       return `₹${(num / 1_000).toFixed(d)}K`;
-  return `₹${num.toFixed(d)}`;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(num);
 };
 
 const COLORS = ['#6366f1','#10b981','#f59e0b','#ef4444','#3b82f6','#ec4899','#14b8a6','#8b5cf6','#a78bfa','#34d399'];
@@ -22,13 +25,18 @@ const TT = {
   itemStyle: { color: '#e2e8f0' }, labelStyle: { color: '#94a3b8' }
 };
 
-function KPICard({ title, value, sub, icon: Icon, accent, trend, loading }) {
+function KPICard({ title, value, sub, icon: Icon, accent, trend, loading, onClick }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 relative overflow-hidden hover:shadow-md transition-all hover:-translate-y-0.5">
+    <div 
+      onClick={onClick}
+      className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden group ${
+        onClick ? 'cursor-pointer hover:-translate-y-1 hover:border-indigo-400 dark:hover:border-indigo-900/60 hover:bg-slate-50/20 dark:hover:bg-slate-950/20' : 'hover:-translate-y-0.5'
+      }`}
+    >
       <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: accent }} />
       <div className="flex justify-between items-start mb-3">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{title}</span>
-        <div className="p-2 rounded-xl" style={{ background: accent + '22' }}>
+        <div className="p-2 rounded-xl group-hover:scale-110 transition-transform duration-300" style={{ background: accent + '22' }}>
           <Icon size={15} style={{ color: accent }} />
         </div>
       </div>
@@ -53,6 +61,7 @@ function Card({ title, accent = '#6366f1', children }) {
 }
 
 export default function FinanceDashboardPage() {
+  const navigate = useNavigate();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -82,12 +91,12 @@ export default function FinanceDashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KPICard title="Total Revenue"     value={fmt(rev.total)}    sub={`Month: ${fmt(rev.month)}`}      icon={DollarSign}  accent="#10b981" loading={loading} />
-        <KPICard title="Year Revenue"      value={fmt(rev.year)}     sub="Financial year"                  icon={TrendingUp}   accent="#6366f1" loading={loading} />
-        <KPICard title="Total Expenses"    value={fmt(exp.total)}    sub={`Month: ${fmt(exp.month)}`}      icon={TrendingDown} accent="#ef4444" loading={loading} />
-        <KPICard title="Net Profit"        value={fmt(profit.total)} sub={`${profit.margin}% margin`}      icon={BarChart2}    accent={Number(profit.total) >= 0 ? '#10b981' : '#ef4444'} loading={loading} />
-        <KPICard title="Accounts Rec."     value={fmt(ar.total)}     sub={`${ar.count || 0} customers`}   icon={CreditCard}   accent="#f59e0b" loading={loading} />
-        <KPICard title="Accounts Pay."     value={fmt(ap.total)}     sub="Outstanding balances"            icon={Wallet}       accent="#8b5cf6" loading={loading} />
+        <KPICard title="Total Revenue"     value={fmt(rev.total)}    sub={`Month: ${fmt(rev.month)}`}      icon={DollarSign}  accent="#10b981" loading={loading} onClick={() => navigate('/sales/list')} />
+        <KPICard title="Year Revenue"      value={fmt(rev.year)}     sub="Financial year"                  icon={TrendingUp}   accent="#6366f1" loading={loading} onClick={() => navigate('/sales/list')} />
+        <KPICard title="Total Expenses"    value={fmt(exp.total)}    sub={`Month: ${fmt(exp.month)}`}      icon={TrendingDown} accent="#ef4444" loading={loading} onClick={() => navigate('/finance/expenses')} />
+        <KPICard title="Net Profit"        value={fmt(profit.total)} sub={`${profit.margin}% margin`}      icon={BarChart2}    accent={Number(profit.total) >= 0 ? '#10b981' : '#ef4444'} loading={loading} onClick={() => navigate('/finance/expenses')} />
+        <KPICard title="Accounts Rec."     value={fmt(ar.total)}     sub={`${ar.count || 0} customers`}   icon={CreditCard}   accent="#f59e0b" loading={loading} onClick={() => navigate('/parties/customers')} />
+        <KPICard title="Accounts Pay."     value={fmt(ap.total)}     sub="Outstanding balances"            icon={Wallet}       accent="#8b5cf6" loading={loading} onClick={() => navigate('/purchase-orders')} />
       </div>
 
       {/* P&L Chart + Expense Breakdown */}

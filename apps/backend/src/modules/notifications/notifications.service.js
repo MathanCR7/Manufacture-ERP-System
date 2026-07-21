@@ -1,5 +1,6 @@
 const prisma = require('../../database/prisma');
 const sse = require('./notifications.sse');
+const { NOTIFICATION_ROLE_MAP } = require('./notifications.config');
 
 class NotificationService {
   async createNotification(data, prismaClient = prisma) {
@@ -121,7 +122,7 @@ class NotificationService {
     if (currentStock < minLevel) {
       await this.createNotification({
         type: 'STOCK_CRITICAL',
-        recipient_roles: ['MAIN_MASTER', 'PRODUCTION_STAFF'],
+        recipient_roles: NOTIFICATION_ROLE_MAP.STOCK_CRITICAL,
         sender_role: 'SYSTEM',
         sender_id: 'system',
         reference_type: 'PRODUCT_ALERT',
@@ -130,18 +131,31 @@ class NotificationService {
         metadata: { productId, productName: product.name, currentStock, minLevel }
       }, prismaClient);
     }
-    // 4. Trigger Reorder alert (Amber)
+    // 4. Trigger Reproduction alert (Amber) and write warning audit log
     else if (currentStock < reorderPoint) {
       await this.createNotification({
-        type: 'STOCK_REORDER',
-        recipient_roles: ['MAIN_MASTER', 'PRODUCTION_STAFF'],
+        type: 'STOCK_REPRODUCTION',
+        recipient_roles: NOTIFICATION_ROLE_MAP.STOCK_REPRODUCTION,
         sender_role: 'SYSTEM',
         sender_id: 'system',
         reference_type: 'PRODUCT_ALERT',
         reference_id: productId,
-        message: `${product.name} stock at ${currentStock} units — below reorder point of ${reorderPoint}. Schedule production.`,
-        metadata: { productId, productName: product.name, currentStock, reorderPoint }
+        message: `${product.name} stock at ${currentStock} units — below reproduction point of ${reorderPoint}. Schedule reproduction.`,
+        metadata: { productId, productName: product.name, currentStock, reproductionPoint: reorderPoint }
       }, prismaClient);
+
+      // Create Warning Audit Log
+      await prismaClient.auditLog.create({
+        data: {
+          userId: 'system',
+          action: 'STOCK_REPRODUCTION_ALERT',
+          tableName: 'finished_products',
+          recordId: productId,
+          oldValue: {},
+          newValue: { productName: product.name, currentStock, reproductionPoint: reorderPoint },
+          ip: 'system'
+        }
+      });
     }
   }
 }

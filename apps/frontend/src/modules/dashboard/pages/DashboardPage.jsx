@@ -240,9 +240,12 @@ export default function DashboardPage() {
          ---------------------------------------------------- */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
         {/* Active Productions */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <div 
+          onClick={() => navigate('/production/batches')}
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+        >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 rounded-xl">
+            <div className="p-2 sm:p-3 bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 rounded-xl group-hover:bg-violet-100 dark:group-hover:bg-violet-900/40 transition-colors">
               <Factory className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("+2 new")}
@@ -256,9 +259,12 @@ export default function DashboardPage() {
         </div>
 
         {/* POs Pending Approval */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <div 
+          onClick={() => navigate('/purchase-orders')}
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+        >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 rounded-xl">
+            <div className="p-2 sm:p-3 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 rounded-xl group-hover:bg-amber-100 dark:group-hover:bg-amber-900/40 transition-colors">
               <ClipboardList className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("-12%")}
@@ -272,9 +278,12 @@ export default function DashboardPage() {
         </div>
 
         {/* Raw Materials Low Stock */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <div 
+          onClick={() => navigate('/rm/stock/low')}
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+        >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl">
+            <div className="p-2 sm:p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl group-hover:bg-rose-100 dark:group-hover:bg-rose-900/40 transition-colors">
               <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {kpiQuery.isLoading ? renderDelta("Syncing") : kpiQuery.data?.lowStockMaterials > 0 ? renderDelta("Critical", 'danger') : renderDelta("All Good")}
@@ -288,9 +297,12 @@ export default function DashboardPage() {
         </div>
 
         {/* QC Batches Pending */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <div 
+          onClick={() => navigate('/production/qc-queue')}
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+        >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl">
+            <div className="p-2 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/40 transition-colors">
               <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {kpiQuery.isLoading ? renderDelta("Syncing") : kpiQuery.data?.qcBatchesPending > 0 ? renderDelta("Action Required", 'danger') : renderDelta("Queue Clear")}
@@ -304,9 +316,12 @@ export default function DashboardPage() {
         </div>
 
         {/* Orders to Dispatch */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <div 
+          onClick={() => navigate('/orders/status')}
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+        >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl">
+            <div className="p-2 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/40 transition-colors">
               <Truck className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("+8%")}
@@ -320,9 +335,12 @@ export default function DashboardPage() {
         </div>
 
         {/* Active Login Sessions */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <div 
+          onClick={() => navigate('/audit-logs')}
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+        >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl">
+            <div className="p-2 sm:p-3 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl group-hover:bg-teal-100 dark:group-hover:bg-teal-900/40 transition-colors">
               <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
             </div>
             {renderDelta("Live", 'success')}
@@ -336,9 +354,12 @@ export default function DashboardPage() {
         </div>
 
         {/* Employees Checked In */}
-        <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md transition-shadow">
+        <div 
+          onClick={() => navigate('/attendance')}
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+        >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl">
+            <div className="p-2 sm:p-3 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl group-hover:bg-purple-100 dark:group-hover:bg-purple-905/40 transition-colors">
               <Users className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("Today", 'success')}

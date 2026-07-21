@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/axios';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
@@ -8,12 +9,14 @@ import {
   RefreshCw, AlertCircle
 } from 'lucide-react';
 
-const fmt = (n, d = 1) => {
+const fmt = (n) => {
   const num = Number(n || 0);
-  if (num >= 1_00_00_000) return `₹${(num / 1_00_00_000).toFixed(1)}Cr`;
-  if (num >= 1_00_000)    return `₹${(num / 1_00_000).toFixed(1)}L`;
-  if (num >= 1_000)       return `₹${(num / 1_000).toFixed(d)}K`;
-  return `₹${num.toFixed(d)}`;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(num);
 };
 
 const TT = {
@@ -28,18 +31,23 @@ const STATUS = {
   'Out of Stock': { dot: 'bg-red-700', text: 'text-red-700 dark:text-red-400', badge: 'bg-red-50 dark:bg-red-950/30' },
 };
 
-function KPICard({ title, value, sub, icon: Icon, accent, loading }) {
+function KPICard({ title, value, sub, icon: Icon, accent, loading, onClick }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 relative overflow-hidden hover:shadow-md transition-all hover:-translate-y-0.5">
+    <div 
+      onClick={onClick}
+      className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-105 dark:border-slate-800 p-5 relative overflow-hidden transition-all duration-300 hover:shadow-md group ${
+        onClick ? 'cursor-pointer hover:-translate-y-1 hover:border-indigo-400 dark:hover:border-indigo-900/60 hover:bg-slate-50/20 dark:hover:bg-slate-950/20' : 'hover:-translate-y-0.5'
+      }`}
+    >
       <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: accent }} />
       <div className="flex justify-between items-start mb-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{title}</span>
-        <div className="p-2 rounded-xl" style={{ background: accent + '22' }}>
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-405 dark:text-slate-500">{title}</span>
+        <div className="p-2 rounded-xl group-hover:scale-110 transition-transform duration-300" style={{ background: accent + '22' }}>
           <Icon size={15} style={{ color: accent }} />
         </div>
       </div>
       <div className="text-2xl font-black text-slate-800 dark:text-slate-100 mb-1">
-        {loading ? <span className="inline-block h-7 w-24 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg" /> : value}
+        {loading ? <span className="inline-block h-7 w-24 bg-slate-100 dark:bg-slate-850 animate-pulse rounded-lg" /> : value}
       </div>
       {sub && <div className="text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
     </div>
@@ -59,6 +67,7 @@ function Card({ title, accent = '#6366f1', children }) {
 }
 
 export default function InventoryDashboardPage() {
+  const navigate = useNavigate();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -92,12 +101,12 @@ export default function InventoryDashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KPICard title="Total Inv. Value" value={fmt(s.totalInventoryValue)} sub={`RM: ${fmt(s.rmTotalValue)}`}   icon={Package}      accent="#3b82f6" loading={loading} />
-        <KPICard title="FG Stock Value"   value={fmt(s.fpTotalValue)}        sub={`${s.totalFpItems || 0} prods`}  icon={Layers}       accent="#10b981" loading={loading} />
-        <KPICard title="Low Stock"        value={s.lowStockCount || 0}       sub="Below reorder level"              icon={AlertTriangle} accent="#f59e0b" loading={loading} />
-        <KPICard title="Critical Items"   value={s.criticalCount || 0}       sub="Below minimum level"              icon={AlertCircle}  accent="#ef4444" loading={loading} />
-        <KPICard title="Stock In (30d)"   value={`${s.stockInLast30 || 0}`}  sub="Units received"                  icon={TrendingUp}   accent="#6366f1" loading={loading} />
-        <KPICard title="Stock Out (30d)"  value={`${s.stockOutLast30 || 0}`} sub="Units dispatched"                icon={TrendingDown} accent="#ec4899" loading={loading} />
+        <KPICard title="Total Inv. Value" value={fmt(s.totalInventoryValue)} sub={`RM: ${fmt(s.rmTotalValue)}`}   icon={Package}      accent="#3b82f6" loading={loading} onClick={() => navigate('/rm/stock')} />
+        <KPICard title="FG Stock Value"   value={fmt(s.fpTotalValue)}        sub={`${s.totalFpItems || 0} prods`}  icon={Layers}       accent="#10b981" loading={loading} onClick={() => navigate('/products/stock')} />
+        <KPICard title="Low Stock"        value={s.lowStockCount || 0}       sub="Below reorder level"              icon={AlertTriangle} accent="#f59e0b" loading={loading} onClick={() => navigate('/rm/stock/low')} />
+        <KPICard title="Critical Items"   value={s.criticalCount || 0}       sub="Below minimum level"              icon={AlertCircle}  accent="#ef4444" loading={loading} onClick={() => navigate('/rm/stock/low')} />
+        <KPICard title="Stock In (30d)"   value={`${s.stockInLast30 || 0}`}  sub="Units received"                  icon={TrendingUp}   accent="#6366f1" loading={loading} onClick={() => navigate('/grn/list')} />
+        <KPICard title="Stock Out (30d)"  value={`${s.stockOutLast30 || 0}`} sub="Units dispatched"                icon={TrendingDown} accent="#ec4899" loading={loading} onClick={() => navigate('/sales/list')} />
       </div>
 
       {/* Movement Trend + Reorder Alerts */}

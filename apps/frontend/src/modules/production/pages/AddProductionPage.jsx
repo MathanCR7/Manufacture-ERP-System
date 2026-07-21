@@ -138,7 +138,7 @@ export default function AddProductionPage() {
     setCustomerOrderQty(orderQty);
 
     // Suggest quantity = (Order Quantity - Current Stock) + Minimum Hold Stock
-    const suggested = Math.max(1, (orderQty - currentStock) + minHoldStock);
+    const suggested = Math.max(0, (orderQty - currentStock) + minHoldStock);
     setSuggestedQuantity(suggested);
     setQuantity(suggested);
   }, [selectedOrderId, selectedProductId, currentStock, minHoldStock, triggerType, orders]);
@@ -186,6 +186,19 @@ export default function AddProductionPage() {
   const handleSubmit = async (e, immediateStart = false) => {
     if (e) e.preventDefault();
     const isDark = document.documentElement.classList.contains('dark');
+
+    if (quantity <= 0) {
+       Swal.fire({
+         title: '<span class="text-sm font-bold text-rose-600 dark:text-rose-450">Invalid Quantity</span>',
+         html: '<p class="text-xs text-slate-500 mt-1">Production batch yield quantity must be greater than 0.</p>',
+         icon: 'error',
+         confirmButtonText: 'Close',
+         confirmButtonColor: '#ef4444',
+         background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+         color: isDark ? '#f8fafc' : '#0f172a',
+       });
+       return;
+    }
 
     // Enforce shortfall blocks
     const hasInsufficient = bomDetails?.items?.some(item => item.status === 'Insufficient');
@@ -249,10 +262,10 @@ export default function AddProductionPage() {
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6 animate__animated animate__fadeIn">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn">
       {/* Header bar */}
       <div className="flex items-center space-x-3 pb-4 border-b border-slate-205 dark:border-slate-800">
-        <Button variant="ghost" onClick={() => navigate('/production/batches')} className="p-2 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">
+        <Button variant="ghost" onClick={() => navigate(-1)} className="p-2 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">
           <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-slate-350" />
         </Button>
         <div>
@@ -345,7 +358,9 @@ export default function AddProductionPage() {
                     <p className="font-bold text-indigo-700 dark:text-indigo-400">System Suggested Batch Yield</p>
                     <p className="text-[10px] text-slate-450 dark:text-slate-400">Yield = (Order - Current) + Min Buffer</p>
                   </div>
-                  <span className="font-mono font-bold text-base text-indigo-650 dark:text-indigo-400">{suggestedQuantity} pcs</span>
+                  <span className="font-mono font-bold text-base text-indigo-650 dark:text-indigo-400">
+                    {suggestedQuantity > 0 ? `${suggestedQuantity} pcs` : '0 pcs (Sufficient Stock)'}
+                  </span>
                 </div>
               </div>
             )}

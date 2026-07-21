@@ -18,6 +18,7 @@ import {
 import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
+import Pagination from '@/components/ui/Pagination';
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -1893,6 +1894,11 @@ export default function PurchaseOrdersView() {
   const [selectedPO, setSelectedPO] = useState(null);
   const [sortBy, setSortBy] = useState('recent');
   const qc = useQueryClient();
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, sortBy]);
 
   useEffect(() => {
     if (location.state?.openCreate) {
@@ -1967,6 +1973,10 @@ export default function PurchaseOrdersView() {
     if (sortBy === 'alphabetical') return (a.vendorName || '').localeCompare(b.vendorName || '');
     return 0;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(sortedAndFiltered.length / ITEMS_PER_PAGE);
+  const paginatedItems = sortedAndFiltered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   if (view === 'create') return (
     <CreatePOForm
@@ -2058,12 +2068,12 @@ export default function PurchaseOrdersView() {
                   </div>
                 </div>
               </td></tr>
-            ) : sortedAndFiltered.map(po => {
+            ) : paginatedItems.map(po => {
               const total = Number(po.grandTotal || po.items?.reduce((s, i) => s + Number(i.totalWithGst || 0), 0) || 0);
               return (
                 <tr key={po.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-4 py-3">
-                    <button onClick={() => setSelectedPO(po)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline">{po.poNo}</button>
+                    <button onClick={() => setSelectedPO(po)} className="font-mono font-bold text-indigo-650 dark:text-indigo-400 text-xs hover:underline">{po.poNo}</button>
                   </td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-500">{po.prNo || '—'}</td>
                   <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{po.vendorName}</td>
@@ -2112,6 +2122,15 @@ export default function PurchaseOrdersView() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

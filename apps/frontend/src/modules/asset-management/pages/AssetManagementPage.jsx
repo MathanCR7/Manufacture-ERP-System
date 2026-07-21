@@ -71,7 +71,7 @@ export default function AssetManagementPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 space-y-6 w-full max-w-[100%] min-h-screen">
+    <div className="p-0 space-y-6 w-full max-w-[100%] min-h-screen">
       {/* Top Banner indicating read-only mode for Supervisors */}
       {user?.role === 'SUPERVISOR' && (
         <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium animate-in fade-in slide-in-from-top-3">
@@ -115,7 +115,7 @@ export default function AssetManagementPage() {
       </div>
 
       {/* Subview Container */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-3xl p-4 sm:p-6 shadow-sm min-h-[500px] transition-all">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl p-4 sm:p-6 shadow-sm min-h-[500px] transition-all">
         {renderActiveView()}
       </div>
     </div>

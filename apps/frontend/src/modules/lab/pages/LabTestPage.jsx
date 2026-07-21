@@ -34,7 +34,6 @@ export default function LabTestPage() {
   const fromNotifications = location.state?.from === '/notifications';
   const queryClient = useQueryClient();
   const user = useAuthStore(s => s.user);
-  const canEditDecision = ['MAIN_MASTER', 'LAB_ASSISTANT'].includes(user?.role);
 
   const [results, setResults] = useState([]);
   const [overallDecision, setOverallDecision] = useState('APPROVED');
@@ -55,20 +54,41 @@ export default function LabTestPage() {
     queryFn: () => api.get('/rm-lab-category').then(r => r.data),
   });
 
+  const canEditDecision = ['MAIN_MASTER', 'LAB_ASSISTANT'].includes(user?.role) && grn?.status === 'PENDING_LAB';
+
   // Populate results from GRN items once loaded
   useEffect(() => {
     if (grn?.items && results.length === 0) {
-      setResults(grn.items.map(item => ({
-        grnItemId: item.id,
-        rmId: item.rmId,
-        rmName: item.rmName,
-        expiryDate: format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-        testNotes: '',
-        passed: true,
-        needTesting: true,
-        rmLabCategoryId: '',
-        categoryParams: {},
-      })));
+      if (grn.labTest) {
+        setOverallDecision(grn.labTest.overallDecision || 'APPROVED');
+        setLabNotes(grn.labTest.labNotes || '');
+        setResults(grn.items.map(item => {
+          const matchingResult = grn.labTest.testResults?.find(tr => tr.grnItemId === item.id);
+          return {
+            grnItemId: item.id,
+            rmId: item.rmId,
+            rmName: item.rmName,
+            expiryDate: matchingResult ? format(new Date(matchingResult.expiryDate), 'yyyy-MM-dd') : format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+            testNotes: matchingResult?.testNotes || '',
+            passed: matchingResult?.passed ?? true,
+            needTesting: matchingResult?.needTesting ?? true,
+            rmLabCategoryId: matchingResult?.rmLabCategoryId || '',
+            categoryParams: matchingResult?.categoryParams || {},
+          };
+        }));
+      } else {
+        setResults(grn.items.map(item => ({
+          grnItemId: item.id,
+          rmId: item.rmId,
+          rmName: item.rmName,
+          expiryDate: format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+          testNotes: '',
+          passed: true,
+          needTesting: true,
+          rmLabCategoryId: '',
+          categoryParams: {},
+        })));
+      }
     }
   }, [grn]);
 
@@ -123,12 +143,22 @@ export default function LabTestPage() {
     }));
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const handleSave = (isDraft) => {
     setError('');
+
+    if (!isDraft) {
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.needTesting !== false && !r.rmLabCategoryId) {
+          setError(`RM Lab Category is required for material: ${r.rmName}`);
+          return;
+        }
+      }
+    }
     
     mutation.mutate({
       grnId,
+      isDraft,
       testResults: results.map(r => ({
         grnItemId: r.grnItemId,
         rmId: r.rmId,
@@ -155,20 +185,24 @@ export default function LabTestPage() {
           <CheckCircle2 className="w-10 h-10 text-emerald-600 dark:text-emerald-400" />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Lab Test Submitted</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">
+            {mutation.variables?.isDraft ? 'Lab Test Draft Saved' : 'Lab Test Finalized'}
+          </h2>
           <p className="text-slate-500 dark:text-slate-400">
-            {overallDecision === 'APPROVED'
+            {mutation.variables?.isDraft
+              ? 'Your draft lab test results have been successfully saved. You can re-open and edit the data until the test is finalized.'
+              : overallDecision === 'APPROVED'
               ? 'Materials approved — inventory stock has been updated automatically.'
               : overallDecision === 'REJECTED'
                 ? 'Lab test rejected — materials will NOT be added to stock.'
                 : 'Re-sample requested — GRN flagged for retest.'}
           </p>
-          {overallDecision === 'REJECTED' && (
+          {!mutation.variables?.isDraft && overallDecision === 'REJECTED' && (
             <p className="text-sm text-red-500 mt-2">Consider initiating a Purchase Return for rejected materials.</p>
           )}
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={() => navigate(fromNotifications ? '/notifications' : '/lab/pending')}>
+          <Button variant="outline" onClick={() => navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || (fromNotifications ? '/notifications' : '/lab/pending'))}>
             {fromNotifications ? 'Back to Notifications Center' : 'Back to Pending Tests'}
           </Button>
           <Button onClick={() => navigate('/lab/results')} className="bg-indigo-600 hover:bg-indigo-700 text-white">View Lab Results</Button>
@@ -190,7 +224,7 @@ export default function LabTestPage() {
         </Button>
       )}
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/lab/pending')} className="rounded-full text-slate-500">
+        <Button variant="ghost" size="icon" onClick={() => navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || '/lab/pending')} className="rounded-full text-slate-500">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
@@ -204,7 +238,20 @@ export default function LabTestPage() {
       ) : !grn ? (
         <div className="text-center py-16 text-slate-400">GRN not found.</div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={e => e.preventDefault()} className="space-y-6">
+          {!canEditDecision && (
+            <div className="p-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl text-sm text-amber-700 dark:text-amber-400 flex items-start gap-2.5">
+              <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0" />
+              <div>
+                <p className="font-bold">View-Only Mode</p>
+                <p className="text-xs mt-0.5">
+                  {grn.status !== 'PENDING_LAB' 
+                    ? 'This lab test has already been completed and finalized.' 
+                    : 'You do not have the required permissions (Lab Assistant or Admin) to record or edit lab results.'}
+                </p>
+              </div>
+            </div>
+          )}
           {/* GRN Summary */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6">
             <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2 mb-4">
@@ -261,23 +308,25 @@ export default function LabTestPage() {
                     <div className="flex gap-2">
                       <button
                         type="button"
+                        disabled={!canEditDecision}
                         onClick={() => updateResult(idx, 'needTesting', true)}
                         className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
                           results[idx]?.needTesting !== false
                             ? 'bg-indigo-600 text-white border-indigo-605 shadow-sm shadow-indigo-500/10'
-                            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'
-                        }`}
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-805'
+                        } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
                       >
                         <FlaskConical className="w-3.5 h-3.5" /> Lab Test Required
                       </button>
                       <button
                         type="button"
+                        disabled={!canEditDecision}
                         onClick={() => updateResult(idx, 'needTesting', false)}
                         className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
                           results[idx]?.needTesting === false
-                            ? 'bg-slate-655 text-white border-slate-600 shadow-sm'
-                            : 'bg-white dark:bg-slate-955 border-slate-205 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900'
-                        }`}
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/10'
+                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-805'
+                        } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
                       >
                         <XCircle className="w-3.5 h-3.5" /> No Lab Test
                       </button>
@@ -291,9 +340,10 @@ export default function LabTestPage() {
                       <Input
                         type="date"
                         required
+                        disabled={!canEditDecision}
                         value={results[idx]?.expiryDate || ''}
                         onChange={e => updateResult(idx, 'expiryDate', e.target.value)}
-                        className="rounded-xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                        className="rounded-xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 disabled:opacity-75 disabled:cursor-not-allowed"
                       />
                     </div>
 
@@ -303,23 +353,25 @@ export default function LabTestPage() {
                         <div className="flex gap-2">
                           <button
                             type="button"
+                            disabled={!canEditDecision}
                             onClick={() => updateResult(idx, 'passed', true)}
                             className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
                               results[idx]?.passed
                                 ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm shadow-emerald-500/10'
                                 : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
-                            }`}
+                            } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" /> Pass
                           </button>
                           <button
                             type="button"
+                            disabled={!canEditDecision}
                             onClick={() => updateResult(idx, 'passed', false)}
                             className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-all flex items-center justify-center gap-1.5 active:scale-95 ${
                               !results[idx]?.passed
                                 ? 'bg-rose-600 text-white border-rose-600 shadow-sm shadow-rose-500/10'
                                 : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800'
-                            }`}
+                            } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
                           >
                             <XCircle className="w-3.5 h-3.5" /> Fail
                           </button>
@@ -330,10 +382,11 @@ export default function LabTestPage() {
                     <div className={results[idx]?.needTesting !== false ? 'space-y-1.5' : 'space-y-1.5 md:col-span-2'}>
                       <Label className="text-xs font-bold text-slate-600 dark:text-slate-400">Test Notes</Label>
                       <Input
+                        disabled={!canEditDecision}
                         value={results[idx]?.testNotes || ''}
                         onChange={e => updateResult(idx, 'testNotes', e.target.value)}
                         placeholder={results[idx]?.needTesting !== false ? 'Observation details...' : 'Exemption reason or notes...'}
-                        className="rounded-xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                        className="rounded-xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 disabled:opacity-75 disabled:cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -342,14 +395,15 @@ export default function LabTestPage() {
                   {results[idx]?.needTesting !== false && (
                     <div className="space-y-4 border-t border-slate-100 dark:border-slate-800/80 pt-4">
                       <div className="space-y-1.5">
-                        <Label className="text-xs font-bold text-slate-650 dark:text-slate-300">RM Lab Category</Label>
+                        <Label className="text-xs font-bold text-slate-650 dark:text-slate-300">RM Lab Category *</Label>
                         <div className="relative">
                           <select
+                            disabled={!canEditDecision}
                             value={results[idx]?.rmLabCategoryId || ''}
                             onChange={e => handleItemCategoryChange(idx, e.target.value)}
-                            className="w-full border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none pr-10"
+                            className="w-full border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2.5 text-sm bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none pr-10 disabled:opacity-75 disabled:cursor-not-allowed"
                           >
-                            <option value="">— Select RM category (optional) —</option>
+                            <option value="">— Select RM category (required) —</option>
                             {rmLabCategories.map(c => (
                               <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
                             ))}
@@ -487,10 +541,32 @@ export default function LabTestPage() {
           )}
 
           <div className="flex justify-end gap-3">
-            <Button type="button" variant="outline" onClick={() => navigate('/lab/pending')}>Cancel</Button>
-            <Button type="submit" disabled={mutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 min-w-40">
-              {mutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {mutation.isPending ? 'Submitting...' : 'Submit Lab Results'}
+            <Button type="button" variant="outline" onClick={() => navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || '/lab/pending')}>Cancel</Button>
+            <Button
+              type="button"
+              disabled={mutation.isPending || !canEditDecision}
+              onClick={() => handleSave(true)}
+              className="bg-slate-605 hover:bg-slate-700 text-white gap-2"
+            >
+              {mutation.isPending && mutation.variables?.isDraft ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <FlaskConical className="w-4 h-4" />
+              )}
+              {mutation.isPending && mutation.variables?.isDraft ? 'Saving...' : 'Save Draft'}
+            </Button>
+            <Button
+              type="button"
+              disabled={mutation.isPending || !canEditDecision}
+              onClick={() => handleSave(false)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2 min-w-40"
+            >
+              {mutation.isPending && !mutation.variables?.isDraft ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4" />
+              )}
+              {mutation.isPending && !mutation.variables?.isDraft ? 'Finalizing...' : 'Complete & Finalize'}
             </Button>
           </div>
         </form>

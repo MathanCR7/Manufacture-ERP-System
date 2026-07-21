@@ -3,8 +3,10 @@ import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutGrid, RefreshCw, Download, Search, Calendar, IndianRupee,
-  TrendingUp, Package, Clock, ArrowUpDown, ChevronDown, Layers, Eye
+  TrendingUp, Package, Clock, ArrowUpDown, ChevronDown, Layers, Eye,
+  Sparkles, CheckCircle2, AlertTriangle, ShieldAlert
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const COLUMNS = [
   { key: 'Quotation',             label: 'Quotation',              color: 'blue' },
@@ -15,11 +17,46 @@ const COLUMNS = [
 ];
 
 const COLOR_MAP = {
-  blue:   { header: 'bg-blue-50 dark:bg-blue-500/20 border-blue-100 dark:border-blue-500/30', badge: 'bg-blue-600 dark:bg-blue-500 text-white', text: 'text-blue-600 dark:text-blue-400', dot: 'bg-blue-500 dark:bg-blue-400', card_border: 'border-blue-100 dark:border-blue-500/20', glow: 'shadow-blue-500/5 dark:shadow-blue-500/10' },
-  violet: { header: 'bg-violet-50 dark:bg-violet-500/20 border-violet-100 dark:border-violet-500/30', badge: 'bg-violet-600 dark:bg-violet-500 text-white', text: 'text-violet-600 dark:text-violet-400', dot: 'bg-violet-500 dark:bg-violet-400', card_border: 'border-violet-100 dark:border-violet-500/20', glow: 'shadow-violet-500/5 dark:shadow-violet-500/10' },
-  slate:  { header: 'bg-slate-100 dark:bg-slate-600/20 border-slate-200 dark:border-slate-600/30', badge: 'bg-slate-600 text-white', text: 'text-slate-600 dark:text-slate-400', dot: 'bg-slate-500 dark:bg-slate-400', card_border: 'border-slate-200 dark:border-slate-600/20', glow: 'shadow-slate-500/5 dark:shadow-slate-500/10' },
-  amber:  { header: 'bg-amber-50 dark:bg-amber-500/20 border-amber-100 dark:border-amber-500/30', badge: 'bg-amber-600 dark:bg-amber-500 text-white', text: 'text-amber-700 dark:text-amber-400', dot: 'bg-amber-500 dark:bg-amber-400', card_border: 'border-amber-100 dark:border-amber-500/20', glow: 'shadow-amber-500/5 dark:shadow-amber-500/10' },
-  teal:   { header: 'bg-teal-50 dark:bg-teal-500/20 border-teal-100 dark:border-teal-500/30', badge: 'bg-teal-600 dark:bg-teal-500 text-white', text: 'text-teal-600 dark:text-teal-400', dot: 'bg-teal-500 dark:bg-teal-400', card_border: 'border-teal-100 dark:border-teal-500/20', glow: 'shadow-teal-500/5 dark:shadow-teal-500/10' },
+  blue: { 
+    header: 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/30', 
+    badge: 'bg-blue-600 dark:bg-blue-500 text-white shadow-sm shadow-blue-500/20', 
+    text: 'text-blue-600 dark:text-blue-400', 
+    dot: 'bg-blue-500 dark:bg-blue-400 shadow-blue-500/30 shadow-lg', 
+    card_border: 'border-blue-100 dark:border-blue-900/40 hover:border-blue-300 dark:hover:border-blue-700', 
+    glow: 'shadow-blue-500/2 dark:shadow-blue-500/5 hover:shadow-blue-500/10' 
+  },
+  violet: { 
+    header: 'bg-violet-50/50 dark:bg-violet-955/20 border-violet-100 dark:border-violet-900/30', 
+    badge: 'bg-violet-600 dark:bg-violet-500 text-white shadow-sm shadow-violet-500/20', 
+    text: 'text-violet-650 dark:text-violet-400', 
+    dot: 'bg-violet-500 dark:bg-violet-400 shadow-violet-500/30 shadow-lg', 
+    card_border: 'border-violet-100 dark:border-violet-900/40 hover:border-violet-300 dark:hover:border-violet-700', 
+    glow: 'shadow-violet-500/2 dark:shadow-violet-500/5 hover:shadow-violet-500/10' 
+  },
+  slate: { 
+    header: 'bg-slate-100/50 dark:bg-slate-900/20 border-slate-205 dark:border-slate-800/30', 
+    badge: 'bg-slate-600 dark:bg-slate-500 text-white shadow-sm shadow-slate-500/20', 
+    text: 'text-slate-600 dark:text-slate-400', 
+    dot: 'bg-slate-505 dark:bg-slate-400 shadow-slate-500/30 shadow-lg', 
+    card_border: 'border-slate-200 dark:border-slate-800 hover:border-slate-350 dark:hover:border-slate-700', 
+    glow: 'shadow-slate-500/2 dark:shadow-slate-500/5 hover:shadow-slate-500/10' 
+  },
+  amber: { 
+    header: 'bg-amber-50/50 dark:bg-amber-955/20 border-amber-100 dark:border-amber-900/30', 
+    badge: 'bg-amber-600 dark:bg-amber-505 text-white shadow-sm shadow-amber-500/20', 
+    text: 'text-amber-700 dark:text-amber-400', 
+    dot: 'bg-amber-500 dark:bg-amber-405 shadow-amber-500/30 shadow-lg', 
+    card_border: 'border-amber-100 dark:border-amber-900/40 hover:border-amber-300 dark:hover:border-amber-700', 
+    glow: 'shadow-amber-500/2 dark:shadow-amber-500/5 hover:shadow-amber-500/10' 
+  },
+  teal: { 
+    header: 'bg-teal-50/50 dark:bg-teal-950/20 border-teal-100 dark:border-teal-900/30', 
+    badge: 'bg-teal-600 dark:bg-teal-505 text-white shadow-sm shadow-teal-500/20', 
+    text: 'text-teal-600 dark:text-teal-400', 
+    dot: 'bg-teal-505 dark:bg-teal-400 shadow-teal-500/30 shadow-lg', 
+    card_border: 'border-teal-100 dark:border-teal-900/40 hover:border-teal-300 dark:hover:border-teal-700', 
+    glow: 'shadow-teal-500/2 dark:shadow-teal-500/5 hover:shadow-teal-500/10' 
+  },
 };
 
 export default function OrderStatusPage() {
@@ -41,11 +78,16 @@ export default function OrderStatusPage() {
         );
       });
       setData(sorted);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    } catch (e) { 
+      console.error(e); 
+    } finally { 
+      setLoading(false); 
+    }
   };
 
-  useEffect(() => { fetchKanban(); }, []);
+  useEffect(() => { 
+    fetchKanban(); 
+  }, []);
 
   const handleExport = () => {
     const headers = ['Column','Order Ref','Customer','Products','Total','Profit','Delivery'];
@@ -64,10 +106,10 @@ export default function OrderStatusPage() {
     const link = document.createElement('a');
     link.setAttribute('href', encodeURI(csv));
     link.setAttribute('download', `kanban_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    document.body.appendChild(link); 
+    link.click(); 
+    document.body.removeChild(link);
   };
-
-  const totalOrders = COLUMNS.reduce((s, c) => s + (data[c.key]?.length || 0), 0);
 
   const getFiltered = (colKey) => {
     const list = data[colKey] || [];
@@ -80,171 +122,205 @@ export default function OrderStatusPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-55 via-white to-slate-100/50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 flex flex-col text-slate-800 dark:text-slate-100">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-5 mx-auto transition-all duration-300">
+      {/* Header bar */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-205 dark:border-slate-800">
         <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-500/20 border border-violet-100 dark:border-violet-500/30 flex items-center justify-center">
-              <LayoutGrid className="w-5 h-5 text-violet-600 dark:text-violet-400" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-800 dark:text-white tracking-tight">Order Status Board</h1>
-          </div>
-          <p className="text-slate-500 dark:text-slate-400 text-sm pl-1">Visual pipeline from Quotation to Shipment</p>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2.5">
+            <LayoutGrid className="w-6 h-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            Order Status Board
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">
+            Real-time track and manage pipeline stages from quotation receipt to shipment release.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button onClick={handleExport}
-            className="flex items-center gap-2 px-3 py-2.5 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-sm font-medium rounded-xl transition-all">
-            <Download className="w-4 h-4" /> Export
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <button 
+            onClick={handleExport}
+            className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-205 text-xs font-bold rounded-xl transition-all shadow-2xs h-9.5 cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Export Pipeline
           </button>
-          <button onClick={fetchKanban} disabled={loading}
-            className="p-2.5 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 rounded-xl transition-all">
+          <button 
+            onClick={fetchKanban} 
+            disabled={loading}
+            className="p-2.5 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-505 dark:text-slate-400 rounded-xl transition-all h-9.5 cursor-pointer"
+          >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-5">
+      {/* Pipeline Stages Counters Overview */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3.5">
         {COLUMNS.map(col => {
           const c = COLOR_MAP[col.color];
           const count = data[col.key]?.length || 0;
           return (
-            <div key={col.key} className={`bg-white dark:bg-slate-800/60 border rounded-xl p-3 ${c.card_border}`}>
-              <div className={`flex items-center gap-1.5 mb-1`}>
-                <span className={`w-2 h-2 rounded-full ${c.dot}`} />
-                <span className="text-xs text-slate-500 dark:text-slate-400">{col.label}</span>
+            <div key={col.key} className={`bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-2xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xs ${c.card_border}`}>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${c.dot} animate-pulse`} />
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-450 dark:text-slate-400">{col.label}</span>
+                </div>
               </div>
-              <p className={`text-2xl font-bold ${c.text}`}>{count}</p>
+              <p className={`text-2xl font-black tracking-tight ${c.text}`}>{count}</p>
             </div>
           );
         })}
       </div>
 
-      {/* Search */}
-      <div className="relative mb-5">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
-        <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
-          placeholder="Search by order ID or customer name..."
-          className="w-full bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-violet-500 transition-colors" />
+      {/* Search Filter Panel */}
+      <div className="relative shadow-2xs rounded-xl overflow-hidden">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-405" />
+        <input 
+          value={searchTerm} 
+          onChange={e => setSearchTerm(e.target.value)}
+          placeholder="Filter pipeline by order ID ref or customer name..."
+          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-205 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all h-10" 
+        />
       </div>
 
       {loading ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-20 text-slate-500 dark:text-slate-400 gap-3">
-          <RefreshCw className="w-8 h-8 animate-spin text-violet-400" />
-          <span>Loading pipeline...</span>
+        <div className="flex-1 flex flex-col items-center justify-center py-24 text-slate-405 gap-3">
+          <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
+          <span className="text-xs font-semibold">Loading orders pipeline...</span>
         </div>
       ) : (
-        /* Kanban Columns */
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 items-start">
+        /* Kanban Columns Grid */
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 items-start pb-6">
           {COLUMNS.map(col => {
             const c = COLOR_MAP[col.color];
             const items = getFiltered(col.key);
             const totalAmt = items.reduce((s, o) => s + Number(o.total || 0), 0);
 
             return (
-              <div key={col.key} className="bg-white/80 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/50 rounded-2xl flex flex-col overflow-hidden">
+              <div key={col.key} className="bg-white/90 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-2xs">
                 {/* Column Header */}
-                <div className={`px-4 py-3 border-b border-slate-200 dark:border-slate-700/50 ${c.header} border flex items-center justify-between`}>
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2.5 h-2.5 rounded-full ${c.dot}`} />
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200 tracking-wide">{col.label}</span>
+                <div className={`px-3 py-2.5 border-b border-slate-200 dark:border-slate-800 ${c.header} border flex items-center justify-between`}>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+                    <span className="text-[10px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">{col.label}</span>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${c.badge}`}>
+                  <span className={`px-2 py-0.5 rounded-lg text-[9px] font-black ${c.badge}`}>
                     {items.length}
                   </span>
                 </div>
 
-                {/* Total Row */}
+                {/* Total Value Summary Row */}
                 {items.length > 0 && (
-                  <div className="px-4 py-2 border-b border-slate-200 dark:border-slate-700/30 bg-slate-50/50 dark:bg-transparent flex items-center justify-between">
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">Total Value</span>
-                    <span className={`text-xs font-bold ${c.text}`}>
+                  <div className="px-3.5 py-2 border-b border-slate-200 dark:border-slate-800/40 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
+                    <span className="text-[9px] text-slate-400 uppercase tracking-wider font-extrabold">Value</span>
+                    <span className={`text-xs font-black ${c.text}`}>
                       ₹{totalAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                     </span>
                   </div>
                 )}
 
-                {/* Cards */}
-                <div className="flex flex-col gap-2.5 p-3 overflow-y-auto max-h-[65vh] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 scrollbar-track-transparent">
+                {/* Cards Column List */}
+                <div className="flex flex-col gap-3 p-3 overflow-y-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 scrollbar-track-transparent">
                   {items.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-10 text-slate-400 dark:text-slate-600 gap-2">
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-650 gap-2">
                       <Package className="w-8 h-8 opacity-30" />
-                      <span className="text-xs">No orders</span>
+                      <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">No active orders</span>
                     </div>
-                  ) : items.map(order => {
-                    const profit = Number(order.profit || 0);
-                    const isExpanded = expandedCard === order.id;
-                    return (
-                      <div key={order.id}
-                        className={`bg-white dark:bg-slate-900/80 border ${c.card_border} rounded-xl overflow-hidden transition-all duration-200 hover:shadow-lg ${c.glow} cursor-pointer`}
-                        onClick={() => setExpandedCard(isExpanded ? null : order.id)}>
-                        {/* Card Top */}
-                        <div className="p-3 space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className={`font-mono text-[11px] font-bold ${c.text} bg-slate-50 dark:bg-slate-800 px-2 py-0.5 rounded-md border border-slate-100 dark:border-transparent`}>
-                              #{order.referenceNo}
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  navigate('/orders/list', { state: { orderId: order.id } });
-                                }}
-                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-md text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-                                title="View Details"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                  ) : (
+                    items.map(order => {
+                      const profit = Number(order.profit || 0);
+                      const isExpanded = expandedCard === order.id;
+                      return (
+                        <div 
+                          key={order.id}
+                          className={`bg-white dark:bg-slate-955 border ${c.card_border} rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-0.5 ${c.glow} cursor-pointer relative shadow-sm`}
+                          onClick={() => setExpandedCard(isExpanded ? null : order.id)}
+                        >
+                          {/* Card Content Top */}
+                          <div className="p-3.5 space-y-2.5 text-xs">
+                            <div className="flex justify-between items-center">
+                              <span className={`font-mono text-[9px] font-extrabold ${c.text} bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 px-2 py-0.5 rounded-md`}>
+                                #{order.referenceNo}
+                              </span>
+                              <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    navigate('/orders/list', { state: { orderId: order.id } });
+                                  }}
+                                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-650 transition-colors cursor-pointer"
+                                  title="View Order Details"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </button>
+                                <ChevronDown 
+                                  className={`w-4 h-4 text-slate-400 dark:text-slate-505 transition-transform duration-200 cursor-pointer`} 
+                                  onClick={() => setExpandedCard(isExpanded ? null : order.id)}
+                                />
+                              </div>
                             </div>
-                          </div>
-                          <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 leading-tight">{order.customerName}</p>
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                              ₹{Number(order.total).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                            </span>
-                            <span className={`text-[10px] font-semibold ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
-                              {profit >= 0 ? '+' : ''}₹{profit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-                            </span>
-                          </div>
-                        </div>
+                            
+                            <h4 className="font-extrabold text-slate-800 dark:text-slate-200 leading-tight text-xs tracking-tight line-clamp-2">
+                              {order.customerName}
+                            </h4>
 
-                        {/* Expanded Details */}
-                        {isExpanded && (
-                          <div className="border-t border-slate-150 dark:border-slate-700/50 bg-slate-50 dark:bg-slate-800/50 p-3 space-y-2">
-                            {(order.products || []).length > 0 && (
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-850">
                               <div>
-                                <p className="text-[9px] uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Products</p>
-                                <ul className="space-y-0.5">
-                                  {order.products.map((p, i) => (
-                                    <li key={i} className="text-[10px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                                      <span className={`w-1 h-1 rounded-full ${c.dot} flex-shrink-0`} />
-                                      <span className="truncate">{p}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                            <div className="grid grid-cols-2 gap-2 pt-1">
-                              <div>
-                                <p className="text-[9px] uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-0.5">Cost</p>
-                                <p className="text-[10px] font-semibold text-slate-700 dark:text-slate-300">₹{Number(order.cost || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                                <span className="text-slate-400 block uppercase font-bold text-[8px]">Subtotal</span>
+                                <span className="font-extrabold text-slate-800 dark:text-slate-100 font-mono">
+                                  ₹{Number(order.total).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                </span>
                               </div>
                               <div>
-                                <p className="text-[9px] uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-0.5">Delivery</p>
-                                <p className="text-[10px] font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                  <Calendar className="w-2.5 h-2.5" />
-                                  {new Date(order.deliveryDate).toLocaleDateString('en-GB')}
-                                </p>
+                                <span className="text-slate-400 block uppercase font-bold text-[8px]">Profit</span>
+                                <span className={`text-[10px] font-extrabold font-mono ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-455'}`}>
+                                  {profit >= 0 ? '+' : ''}₹{profit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                </span>
                               </div>
                             </div>
                           </div>
-                        )}
-                      </div>
-                    );
-                  })}
+
+                          {/* Expanded Details Panel */}
+                          <AnimatePresence>
+                            {isExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.2 }}
+                                className="border-t border-slate-100 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/40 p-3.5 space-y-3 text-[10px]"
+                              >
+                                {(order.products || []).length > 0 && (
+                                  <div>
+                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 mb-1.5 font-bold">Ordered Products</p>
+                                    <ul className="space-y-1">
+                                      {order.products.map((p, i) => (
+                                        <li key={i} className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5 font-medium leading-relaxed">
+                                          <span className={`w-1.5 h-1.5 rounded-full ${c.dot} shrink-0`} />
+                                          <span className="truncate">{p}</span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                                <div className="grid grid-cols-2 gap-3 pt-1">
+                                  <div>
+                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 mb-1 font-bold">Raw Mat. Cost</p>
+                                    <p className="font-extrabold text-slate-700 dark:text-slate-300 font-mono">₹{Number(order.cost || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 mb-1 font-bold">Delivery Date</p>
+                                    <p className="font-extrabold text-slate-700 dark:text-slate-350 flex items-center gap-1">
+                                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                      {new Date(order.deliveryDate).toLocaleDateString('en-GB')}
+                                    </p>
+                                  </div>
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             );

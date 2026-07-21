@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { 
@@ -34,6 +34,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import Pagination from '@/components/ui/Pagination';
 
 export default function UserManagementPage() {
   const queryClient = useQueryClient();
@@ -45,6 +46,14 @@ export default function UserManagementPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRole, setSelectedRole] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedRole, selectedStatus]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -335,7 +344,13 @@ export default function UserManagementPage() {
       (selectedStatus === 'INACTIVE' && !user.isActive);
       
     return matchesSearch && matchesRole && matchesStatus;
-  });
+  }) || [];
+
+  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   // Helper for generating custom lettered avatars with nice premium gradients
   const getAvatarGradient = (name) => {
@@ -391,7 +406,7 @@ export default function UserManagementPage() {
   };
 
   return (
-    <div className="p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
       {/* Top Header Section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 dark:border-slate-800 pb-6">
         <div>
@@ -569,10 +584,11 @@ export default function UserManagementPage() {
                   <Input 
                     required 
                     type="email" 
+                    autoComplete="off"
                     value={formData.email} 
                     onChange={e => setFormData({...formData, email: e.target.value})} 
                     placeholder="john@leonex.com" 
-                    className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-11"
+                    className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-11 autofill:shadow-[0_0_0_1000px_#f8fafc_inset] dark:autofill:shadow-[0_0_0_1000px_#020617_inset] autofill:text-slate-900 dark:autofill:text-white"
                   />
                 </div>
               </div>
@@ -586,10 +602,11 @@ export default function UserManagementPage() {
                   <Input 
                     required={!editingUser} 
                     type={showPassword ? "text" : "password"} 
+                    autoComplete="new-password"
                     value={formData.password} 
                     onChange={e => setFormData({...formData, password: e.target.value})} 
                     placeholder={editingUser ? "•••••••• (Leave blank to keep unchanged)" : "••••••••"} 
-                    className="pl-9 pr-10 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-11" 
+                    className="pl-9 pr-10 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-11 autofill:shadow-[0_0_0_1000px_#f8fafc_inset] dark:autofill:shadow-[0_0_0_1000px_#020617_inset] autofill:text-slate-900 dark:autofill:text-white" 
                   />
                   <button
                     type="button"
@@ -653,13 +670,17 @@ export default function UserManagementPage() {
             </div>
 
             <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-              <Button type="button" variant="ghost" onClick={handleCancel} className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl">
+              <Button 
+                type="button" 
+                onClick={handleCancel} 
+                className="bg-rose-600 hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-800 text-white rounded-xl shadow-md font-semibold w-36 h-11 transition-colors flex items-center justify-center"
+              >
                 Cancel
               </Button>
               <Button 
                 type="submit" 
                 disabled={createMutation.isPending || updateMutation.isPending} 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5 rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold w-36 h-11 rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all flex items-center justify-center"
               >
                 {editingUser ? (
                   updateMutation.isPending ? (
@@ -751,11 +772,11 @@ export default function UserManagementPage() {
             <TableHeader className="bg-slate-50/60 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800/85">
               <TableRow>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">User Identity</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Employee ID</TableHead>
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12 hidden sm:table-cell">Employee ID</TableHead>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Designation Role</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">IP Security Lock</TableHead>
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12 hidden md:table-cell">IP Security Lock</TableHead>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Status Flag</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Registered Date</TableHead>
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12 hidden lg:table-cell">Registered Date</TableHead>
                 <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs text-right h-12 pr-6">Access Control & Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -772,14 +793,15 @@ export default function UserManagementPage() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell><Skeleton className="h-6 w-24 rounded-lg bg-slate-200 dark:bg-slate-800" /></TableCell>
+                    <TableCell className="hidden sm:table-cell"><Skeleton className="h-6 w-24 rounded-lg bg-slate-200 dark:bg-slate-800" /></TableCell>
                     <TableCell><Skeleton className="h-6 w-28 rounded-lg bg-slate-200 dark:bg-slate-800" /></TableCell>
-                    <TableCell><Skeleton className="h-6 w-16 rounded-lg bg-slate-200 dark:bg-slate-800" /></TableCell>
+                    <TableCell className="hidden md:table-cell"><Skeleton className="h-6 w-16 rounded-lg bg-slate-200 dark:bg-slate-800" /></TableCell>
                     <TableCell><Skeleton className="h-4 w-24 bg-slate-200 dark:bg-slate-800" /></TableCell>
+                    <TableCell className="hidden lg:table-cell"><Skeleton className="h-4 w-24 bg-slate-200 dark:bg-slate-800" /></TableCell>
                     <TableCell><Skeleton className="h-9 w-24 rounded-xl bg-slate-200 dark:bg-slate-800 ml-auto" /></TableCell>
                   </TableRow>
                 ))
-              ) : filteredUsers?.length === 0 ? (
+              ) : paginatedUsers.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 gap-3">
@@ -802,7 +824,7 @@ export default function UserManagementPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredUsers?.map((user) => (
+                paginatedUsers.map((user) => (
                   <TableRow key={user.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/35 transition-colors border-b border-slate-100 dark:border-slate-800/80">
                     <TableCell>
                       <div className="flex items-center gap-3">
@@ -815,13 +837,13 @@ export default function UserManagementPage() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell className="font-mono text-xs text-slate-650 dark:text-slate-300 font-semibold">{user.empId || '—'}</TableCell>
+                    <TableCell className="font-mono text-xs text-slate-650 dark:text-slate-300 font-semibold hidden sm:table-cell">{user.empId || '—'}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${getRoleBadgeStyle(user.role)}`}>
                         {user.role.replace('_', ' ')}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       {user.ipAddress ? (
                         <div className="flex items-center gap-1.5">
                           <Lock className="w-3.5 h-3.5 text-amber-500" />
@@ -852,7 +874,7 @@ export default function UserManagementPage() {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden lg:table-cell">
                       <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
                         <Calendar className="w-3.5 h-3.5 text-indigo-500/60 dark:text-indigo-400/60" />
                         <span>{format(new Date(user.createdAt), 'MMM d, yyyy')}</span>
@@ -865,12 +887,12 @@ export default function UserManagementPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleEditClick(user)}
-                          className="rounded-xl h-9 px-3 border text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border-indigo-200 dark:border-indigo-500/20 hover:border-indigo-300 dark:hover:border-indigo-500/30 transition-all font-medium flex items-center gap-1.5"
+                          className="rounded-xl h-9 px-3 border text-indigo-650 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 border-indigo-200 dark:border-indigo-500/20 hover:border-indigo-300 dark:hover:border-indigo-500/30 transition-all font-medium flex items-center gap-1.5"
                         >
                           <Edit className="w-3.5 h-3.5" />
                           <span>Edit</span>
                         </Button>
-
+ 
                         {/* Status Toggle Button */}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
@@ -918,7 +940,7 @@ export default function UserManagementPage() {
                             </AlertDialogHeader>
                             <AlertDialogFooter className="gap-2 pt-4 border-t border-slate-100 dark:border-slate-800">
                               <AlertDialogCancel className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-transparent dark:border-slate-700 rounded-xl hover:text-slate-900 dark:hover:text-white">
-                                Cancel
+                                  Cancel
                               </AlertDialogCancel>
                               <AlertDialogAction 
                                 onClick={() => toggleStatusMutation.mutate({ id: user.id, isActive: user.isActive })}
@@ -933,14 +955,14 @@ export default function UserManagementPage() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-
+ 
                         {/* Delete Button */}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="rounded-xl h-9 px-3 border text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 hover:border-rose-300 dark:hover:border-rose-500/30 transition-all font-medium flex items-center gap-1.5"
+                              className="rounded-xl h-9 px-3 border text-rose-600 dark:text-rose-455 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 hover:border-rose-300 dark:hover:border-rose-500/30 transition-all font-medium flex items-center gap-1.5"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                               <span>Delete</span>
@@ -984,6 +1006,23 @@ export default function UserManagementPage() {
             </TableBody>
           </Table>
         </div>
+        {totalPages > 1 && (
+          <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
+              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length} users
+            </div>
+            <div className="order-1 sm:order-2">
+              <Pagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={setCurrentPage}
+              />
+            </div>
+            <div className="text-xs text-slate-400 font-medium order-3">
+              Matched entries: {filteredUsers.length} users
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

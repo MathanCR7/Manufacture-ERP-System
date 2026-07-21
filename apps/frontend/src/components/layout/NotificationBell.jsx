@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, CheckCircle2, Circle, ExternalLink, Activity, Package, AlertTriangle, XCircle, FlaskConical } from 'lucide-react';
+import { Bell, CheckCircle2, Circle, ExternalLink, Activity, Package, AlertTriangle, XCircle, FlaskConical, Eye, Truck } from 'lucide-react';
 import useAuthStore from '@/app/store/authStore';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
+import { isVisibleToRole } from '@/config/notifications.config';
 
 const PhaseColors = {
   PO_CREATED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
-  PO_UPDATED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
-  PO_AMENDED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
-  PO_CANCELLED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  PO_UPDATED: 'bg-sky-50 text-sky-700 dark:bg-sky-955/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  PO_AMENDED: 'bg-sky-50 text-sky-700 dark:bg-sky-955/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  PO_CANCELLED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   PO_STATUS_CHANGED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
   
   GRN_SUBMITTED: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/30',
@@ -21,25 +22,26 @@ const PhaseColors = {
   
   PRODUCTION_STARTED: 'bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border-purple-200 dark:border-purple-800/30',
   PRODUCTION_ON_HOLD: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
-  PRODUCTION_COMPLETED: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-800/30',
-  PRODUCTION_QC_PASSED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
-  PRODUCTION_QC_FAILED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  PRODUCTION_COMPLETED: 'bg-fuchsia-50 text-fuchsia-700 dark:bg-fuchsia-950/40 dark:text-fuchsia-305 border-fuchsia-200 dark:border-fuchsia-800/30',
+  PRODUCTION_QC_PASSED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-303 border-emerald-200 dark:border-emerald-800/30',
+  PRODUCTION_QC_FAILED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   
-  STOCK_LOW_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
-  RM_LOW_STOCK_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
-  STOCK_EXPIRY_ALERT: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
-  STOCK_CRITICAL: 'bg-rose-50 text-rose-705 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
-  STOCK_REORDER: 'bg-amber-50 text-amber-707 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  STOCK_LOW_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-303 border-amber-200 dark:border-amber-800/30',
+  RM_LOW_STOCK_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-303 border-amber-200 dark:border-amber-800/30',
+  STOCK_EXPIRY_ALERT: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-303 border-rose-200 dark:border-rose-800/30',
+  STOCK_CRITICAL: 'bg-rose-50 text-rose-707 dark:bg-rose-955/40 dark:text-rose-303 border-rose-200 dark:border-rose-800/30',
+  STOCK_REPRODUCTION: 'bg-amber-50 text-amber-707 dark:bg-amber-950/40 dark:text-amber-303 border-amber-200 dark:border-amber-800/30',
 
   // Asset Management
   ASSET_PR_CREATED: 'bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300 border-violet-200 dark:border-violet-800/30',
-  ASSET_PR_APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
-  ASSET_PQ_CREATED: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
-  ASSET_PO_CREATED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
-  ASSET_GRPO_CREATED: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/30',
-  ASSET_INVOICE_CREATED: 'bg-orange-50 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300 border-orange-200 dark:border-orange-800/30',
-  ASSET_INVOICE_PAID: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
-  ASSET_DECOMMISSIONED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
+  ASSET_PR_APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-303 border-emerald-200 dark:border-emerald-800/30',
+  ASSET_PQ_CREATED: 'bg-sky-50 text-sky-700 dark:bg-sky-955/40 dark:text-sky-303 border-sky-200 dark:border-sky-800/30',
+  ASSET_PO_CREATED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-955/40 dark:text-indigo-303 border-indigo-200 dark:border-indigo-800/30',
+  ASSET_GRPO_CREATED: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-303 border-cyan-200 dark:border-cyan-800/30',
+  ASSET_INVOICE_CREATED: 'bg-orange-50 text-orange-700 dark:bg-orange-955/40 dark:text-orange-300 border-orange-200 dark:border-orange-800/30',
+  ASSET_INVOICE_PAID: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-303 border-emerald-200 dark:border-emerald-800/30',
+  ASSET_DECOMMISSIONED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-303 border-rose-200 dark:border-rose-800/30',
+  UPCOMING_DELIVERY: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
 };
 
 const relativeTime = (dateStr) => {
@@ -97,7 +99,7 @@ const NotificationBell = () => {
       'LAB_RM_RESAMPLE', 'FINAL_QTY_SUBMITTED', 'PRODUCTION_STARTED', 
       'PRODUCTION_ON_HOLD', 'PRODUCTION_COMPLETED', 'PRODUCTION_QC_PASSED', 
       'PRODUCTION_QC_FAILED', 'STOCK_LOW_ALERT', 'STOCK_EXPIRY_ALERT',
-      'STOCK_CRITICAL', 'STOCK_REORDER', 'RM_LOW_STOCK_ALERT',
+      'STOCK_CRITICAL', 'STOCK_REPRODUCTION', 'RM_LOW_STOCK_ALERT',
       // Asset Management
       'ASSET_PR_CREATED', 'ASSET_PR_APPROVED', 'ASSET_PQ_CREATED',
       'ASSET_PO_CREATED', 'ASSET_GRPO_CREATED', 'ASSET_INVOICE_CREATED',
@@ -131,6 +133,9 @@ const NotificationBell = () => {
       return `/purchase-orders/${poId}`;
     }
     if (type.startsWith('GRN_')) {
+      if (user?.role === 'LAB_ASSISTANT' && !metadata?.is_tested) {
+        return `/lab/test/${grnId}`;
+      }
       return `/grn/view/${grnId}`;
     }
     if (type.startsWith('LAB_RM_')) {
@@ -188,7 +193,7 @@ const NotificationBell = () => {
 
     const targetUrl = getNotificationUrl(notif);
     if (targetUrl) {
-      navigate(targetUrl);
+      navigate(targetUrl, { state: { from: '/notifications' } });
       setIsOpen(false);
     }
   };
@@ -211,11 +216,33 @@ const NotificationBell = () => {
     setIsOpen(false);
   };
 
-  const unreadCount = notifications.filter(n => !n.seenAt).length;
+  const visibleNotifications = notifications.filter(n => isVisibleToRole(n.type, user?.role));
+  const unreadCount = visibleNotifications.filter(n => !n.seenAt).length;
 
   const renderNotificationContent = (notif) => {
     const { type, metadata, message, eventAt } = notif;
     const role = user.role;
+
+    if (type === 'UPCOMING_DELIVERY') {
+      return (
+        <div 
+          className="bg-indigo-50 dark:bg-indigo-950/20 p-3 rounded-md border border-indigo-200 dark:border-indigo-900 cursor-pointer hover:bg-indigo-100/50 dark:hover:bg-indigo-950/40" 
+          onClick={(e) => handleActionClick(e, '/grn/upcoming')}
+        >
+          <div className="flex items-center gap-2 mb-1.5">
+            <Truck className="w-4 h-4 text-indigo-650 dark:text-indigo-400" />
+            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">Upcoming RM Delivery</span>
+          </div>
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-200 mb-2">{message}</p>
+          <button 
+            onClick={(e) => handleActionClick(e, '/grn/upcoming')}
+            className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 font-bold flex items-center shadow-sm"
+          >
+            Go to Deliveries
+          </button>
+        </div>
+      );
+    }
 
     // Phase 1: PO CREATED
     if (type === 'PO_CREATED' || type === 'PO_UPDATED' || type === 'PO_STATUS_CHANGED') {
@@ -268,12 +295,35 @@ const NotificationBell = () => {
               <p className="text-sm">RM #{metadata.rm_id} returned to supplier — no testing required</p>
             </div>
           );
+        } else if (metadata.is_tested) {
+          const decisionColor = 
+            metadata.grn_status === 'APPROVED' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' :
+            metadata.grn_status === 'REJECTED' ? 'text-rose-700 bg-rose-50 border-rose-200' :
+            'text-amber-700 bg-amber-50 border-amber-200';
+          const decisionLabel = 
+            metadata.grn_status === 'APPROVED' ? 'Passed / Approved' :
+            metadata.grn_status === 'REJECTED' ? 'Failed / Rejected' : 'Re-sample Requested';
+
+          return (
+            <div className={`p-3 rounded-md border ${decisionColor}`}>
+              <p className="text-sm font-medium mb-1">RM #{metadata.rm_id} — Lab Test Completed</p>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-xs font-bold uppercase">{decisionLabel}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleOpen(notif); }}
+                  className="text-[10px] bg-slate-800 text-white px-2 py-1 rounded hover:bg-slate-900 transition flex items-center shadow-sm"
+                >
+                  <Eye className="w-2.5 h-2.5 mr-0.5" /> View Report
+                </button>
+              </div>
+            </div>
+          );
         } else {
           return (
             <div className="bg-blue-50 p-3 rounded-md border border-blue-200">
               <p className="text-sm font-medium text-blue-900 mb-2">RM #{metadata.rm_id} has arrived — ready for testing</p>
               <button 
-                onClick={(e) => handleActionClick(e, `/lab/rm-test/${metadata.grn_id}`)}
+                onClick={(e) => { e.stopPropagation(); handleOpen(notif); }}
                 className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-md hover:bg-indigo-700 flex items-center shadow-sm"
               >
                 <FlaskConical className="w-3 h-3 mr-1" /> Start Test
@@ -594,14 +644,14 @@ const NotificationBell = () => {
           </div>
           
           <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 max-h-[50vh]">
-            {notifications.length === 0 ? (
+            {visibleNotifications.length === 0 ? (
               <div className="p-10 text-center text-slate-400 dark:text-slate-500 flex flex-col items-center justify-center">
                 <Bell className="w-10 h-10 mb-3 opacity-20 text-indigo-500" />
                 <p className="text-sm font-medium">All caught up!</p>
                 <p className="text-xs mt-1 text-slate-500 dark:text-slate-500">No notifications available</p>
               </div>
             ) : (
-              notifications.map((notif) => {
+              visibleNotifications.map((notif) => {
                 const isReturned = notif.type === 'GRN_SUBMITTED' && (notif.metadata.confirmation_status === 'Returned' || notif.metadata.confirmation_status === 'RETURNED');
                 const isLabMuted = isReturned && user.role === 'LAB_ASSISTANT';
                 const isUnread = !notif.seenAt && !isLabMuted;
@@ -654,7 +704,7 @@ const NotificationBell = () => {
 
       {/* Toast Overlay */}
       <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
-        {toastNotifs.map(t => (
+        {toastNotifs.filter(t => isVisibleToRole(t.type, user?.role)).map(t => (
           <div key={t.toastId} className={`pointer-events-auto w-85 shadow-2xl rounded-xl border p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-all duration-300 animate-in slide-in-from-right-5 ${PhaseColors[t.type]?.split(' ')[3] || 'border-slate-200 dark:border-slate-800'}`}>
             <div className="flex justify-between items-start mb-2.5">
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border ${PhaseColors[t.type] || 'bg-slate-100 text-slate-650 dark:bg-slate-800 dark:text-slate-400'}`}>

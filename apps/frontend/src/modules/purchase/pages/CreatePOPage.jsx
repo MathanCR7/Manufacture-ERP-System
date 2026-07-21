@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import { CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown, Plus, AlertTriangle, FileText, CheckCircle2, Package, Tag, Calculator, Info } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
@@ -235,9 +235,11 @@ function RawMaterialSelect({ rawMaterials, value, onChange, error, lowStockIds =
 
 export default function CreatePOPage({ onBack }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const queryClient = useQueryClient();
   const handleBack = () => {
     if (onBack) onBack();
-    else navigate('/purchase-orders');
+    else navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || '/purchase-orders');
   };
   
   const [formData, setFormData] = useState({
@@ -414,6 +416,7 @@ export default function CreatePOPage({ onBack }) {
       return response.data;
     },
     onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
       Swal.fire({
         icon: 'success',
         title: 'PO Created Successfully!',

@@ -200,7 +200,7 @@ const LabInventoryAddPage = () => {
 
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={() => navigate('/lab-inventory/list')}>Cancel</Button>
-          <Button type="submit" disabled={mutation.isPending} className="bg-purple-600 hover:bg-purple-700 text-white">
+          <Button type="submit" disabled={mutation.isPending} className="bg-indigo-600 hover:bg-indigo-700 text-white">
             {mutation.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Plus className="w-4 h-4 mr-2" />}
             Add to Lab Inventory
           </Button>

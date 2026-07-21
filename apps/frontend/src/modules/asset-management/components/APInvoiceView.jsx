@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -19,6 +19,7 @@ import { jsPDF } from 'jspdf';
 import HsnSelect from '@/components/forms/HsnSelect';
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
+import Pagination from '@/components/ui/Pagination';
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -3561,6 +3562,12 @@ export default function APInvoiceView() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [editInvoiceId, setEditInvoiceId] = useState(null);
+  const [sortBy, setSortBy] = useState('recent');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, sortBy]);
 
   const { data: invoices = [], isLoading } = useQuery({
     queryKey: ['asset-ap-invoices'],
@@ -3620,7 +3627,7 @@ export default function APInvoiceView() {
     });
   };
 
-  const [sortBy, setSortBy] = useState('recent');
+
 
   const filtered = invoices.filter(inv => {
     const matchSearch = inv.apInvoiceNo?.toLowerCase().includes(search.toLowerCase()) ||
@@ -3648,6 +3655,10 @@ export default function APInvoiceView() {
     }
     return 0;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(sortedAndFiltered.length / ITEMS_PER_PAGE);
+  const paginatedItems = sortedAndFiltered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   if (view === 'create') return <CreateAPInvoiceForm onBack={() => { setView('list'); setEditInvoiceId(null); }} isReadOnly={isReadOnly} invoicesCount={invoices.length} editInvoiceId={editInvoiceId} taxSettings={taxSettings} />;
 
@@ -3738,23 +3749,23 @@ export default function APInvoiceView() {
                   </div>
                 </div>
               </td></tr>
-            ) : sortedAndFiltered.map(inv => {
+            ) : paginatedItems.map(inv => {
               const isOverdue = inv.dueDate && new Date(inv.dueDate) < new Date() && inv.status !== 'Paid';
               return (
                 <tr key={inv.id} className={`hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors ${isOverdue ? 'bg-rose-50/30 dark:bg-rose-950/10' : ''}`}>
                   <td className="px-4 py-3">
-                    <button onClick={() => setSelectedInvoice(inv)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline">{inv.apInvoiceNo}</button>
+                    <button onClick={() => setSelectedInvoice(inv)} className="font-mono font-bold text-indigo-650 dark:text-indigo-400 text-xs hover:underline">{inv.apInvoiceNo}</button>
                   </td>
                   <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{inv.vendorName}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-500">{inv.vendorInvoiceNo}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-505">{inv.vendorInvoiceNo}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">{format(new Date(inv.invoiceDate), 'dd MMM yyyy')}</td>
                   <td className="px-4 py-3 text-xs">
-                    <span className={isOverdue ? 'text-rose-600 font-bold' : 'text-slate-500'}>
+                    <span className={isOverdue ? 'text-rose-600 font-bold' : 'text-slate-550'}>
                       {inv.dueDate ? format(new Date(inv.dueDate), 'dd MMM yyyy') : '—'}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate-600 dark:text-slate-400">₹{Number(inv.taxableAmount || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-3 text-emerald-600 dark:text-emerald-400">₹{Number(inv.totalCgst + inv.totalSgst + inv.totalIgst || inv.totalGst || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-3 text-emerald-600 dark:emerald-400">₹{Number(inv.totalCgst + inv.totalSgst + inv.totalIgst || inv.totalGst || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">₹{Number(inv.grandTotal || inv.invoiceTotal || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[inv.status] || STATUS_STYLES.Draft}`}>{inv.status}</span>
@@ -3786,7 +3797,7 @@ export default function APInvoiceView() {
                             size="icon"
                             disabled={inv.status === 'Paid'}
                             onClick={() => { setEditInvoiceId(inv.id); setView('create'); }}
-                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-650 disabled:opacity-40 disabled:cursor-not-allowed"
                             title={inv.status === 'Paid' ? "Paid invoice cannot be edited" : "Edit Invoice"}
                           >
                             <Edit className="w-4 h-4" />
@@ -3811,6 +3822,15 @@ export default function APInvoiceView() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

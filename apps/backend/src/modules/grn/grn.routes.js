@@ -335,28 +335,43 @@ const labTestSchema = z.object({
   labNotes: z.string().optional(),
   rmLabCategoryId: z.string().uuid().optional(),
   categoryParams: z.record(z.string(), z.any()).optional(),
+  isDraft: z.boolean().default(false),
 });
 
 router.post('/lab-test',
   authenticateToken,
-  roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR']),
+  roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT']),
   async (req, res, next) => {
     try {
       const data = labTestSchema.parse(req.body);
 
+      if (!data.isDraft) {
+        for (const tr of data.testResults) {
+          if (tr.needTesting !== false && !tr.rmLabCategoryId) {
+            return res.status(400).json({ error: `RM Lab Category is required for material: ${tr.rmName}` });
+          }
+        }
+      }
+
       const grn = await prisma.gRNReceive.findUnique({
         where: { id: data.grnId },
-        include: { items: true, po: { include: { uom: true } } }
+        include: { items: true, po: { include: { uom: true } }, labTest: true }
       });
       if (!grn) return res.status(404).json({ error: 'GRN not found' });
       if (grn.status !== 'PENDING_LAB') return res.status(409).json({ error: 'GRN is not pending lab test' });
-      if (grn.labTest) return res.status(409).json({ error: 'Lab test already submitted for this GRN' });
 
       const labTest = await prisma.$transaction(async (tx) => {
+        if (grn.labTest) {
+          // Delete old results and test record
+          await tx.gRNLabTestResult.deleteMany({ where: { labTestId: grn.labTest.id } });
+          await tx.gRNLabTest.delete({ where: { id: grn.labTest.id } });
+        }
+
         // Create lab test record
         const lt = await tx.gRNLabTest.create({
           data: {
             grnId: data.grnId,
+            status: data.isDraft ? 'IN_PROGRESS' : 'APPROVED',
             overallDecision: data.overallDecision,
             labNotes: data.labNotes || null,
             testedBy: req.user.id,
@@ -379,108 +394,112 @@ router.post('/lab-test',
           include: { testResults: true }
         });
 
-        // Update GRN status
-        const newGrnStatus = data.overallDecision === 'APPROVED' ? 'LAB_APPROVED' : 
-                             data.overallDecision === 'REJECTED' ? 'LAB_REJECTED' : 'LAB_RESAMPLE';
-        await tx.gRNReceive.update({ where: { id: data.grnId }, data: { status: newGrnStatus } });
+        // Update GRN status, stock and PO ONLY if this is NOT a draft
+        if (!data.isDraft) {
+          const newGrnStatus = data.overallDecision === 'APPROVED' ? 'LAB_APPROVED' : 
+                               data.overallDecision === 'REJECTED' ? 'LAB_REJECTED' : 'LAB_RESAMPLE';
+          await tx.gRNReceive.update({ where: { id: data.grnId }, data: { status: newGrnStatus } });
 
-        // If approved, update RM stock for each item
-        if (data.overallDecision === 'APPROVED') {
-          for (const item of grn.items) {
-            // Find test result of this item to see if it passed or did not need testing
-            const trResult = data.testResults.find(tr => tr.grnItemId === item.id);
-            const isPassed = trResult ? (trResult.needTesting === false || trResult.passed === true) : true;
+          // If approved, update RM stock for each item
+          if (data.overallDecision === 'APPROVED') {
+            for (const item of grn.items) {
+              // Find test result of this item to see if it passed or did not need testing
+              const trResult = data.testResults.find(tr => tr.grnItemId === item.id);
+              const isPassed = trResult ? (trResult.needTesting === false || trResult.passed === true) : true;
 
-            if (!isPassed) {
-              console.log(`[LAB APPROVED] Skipping stock update for FAILED raw material: ${item.rmName} (rmId: ${item.rmId})`);
-              continue;
-            }
-
-            // --- Robust lookup: try 3 strategies so stock update never silently fails ---
-            // Strategy 1: RawMaterial.code exactly matches PO registry rmId (e.g. "RM-00001")
-            let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
-
-            // Strategy 2: Match by PO material name (most reliable — name entered at PO creation)
-            if (!rm && grn.po?.name) {
-              rm = await tx.rawMaterial.findFirst({
-                where: { name: { equals: grn.po.name, mode: 'insensitive' } }
-              });
-            }
-
-            // Strategy 3: Match by GRN item rmName as a last resort
-            if (!rm && item.rmName) {
-              rm = await tx.rawMaterial.findFirst({
-                where: { name: { equals: item.rmName, mode: 'insensitive' } }
-              });
-            }
-
-            if (rm) {
-              const netQty = Number(item.actualReceivedQty) - Number(item.returnQty || 0);
-              const updatedRm = await tx.rawMaterial.update({
-                where: { id: rm.id },
-                data: { currentStock: { increment: netQty } }
-              });
-
-              console.log(`[LAB APPROVED] Stock updated for PASSED/EXEMPT item: ${rm.name} +${netQty} → new stock: ${updatedRm.currentStock}`);
-
-              // Check if still at or below alert level → trigger notification
-              if (Number(updatedRm.currentStock) <= Number(updatedRm.alertLevel)) {
-                try {
-                  await workflowNotifications.triggerRMLowStockAlert({
-                    rmId: rm.id,
-                    rmName: rm.name,
-                    currentStock: updatedRm.currentStock,
-                    reorderLevel: updatedRm.alertLevel,
-                  });
-                } catch (e) {
-                  console.error('Low stock notification error:', e.message);
-                }
+              if (!isPassed) {
+                console.log(`[LAB APPROVED] Skipping stock update for FAILED raw material: ${item.rmName} (rmId: ${item.rmId})`);
+                continue;
               }
-            } else {
-              // Log warning — stock NOT updated (no matching RawMaterial found)
-              console.warn(
-                `[LAB APPROVED] WARNING: Could not find RawMaterial to update stock.`,
-                `GRN item rmId="${item.rmId}", rmName="${item.rmName}", PO name="${grn.po?.name}".`,
-                `Ensure RawMaterial.code or RawMaterial.name matches the PO material.`
-              );
-            }
-          }
 
-          // Update PO status to APPROVED
-          await tx.rawMaterialPO.update({ where: { id: grn.poId }, data: { status: 'APPROVED' } });
+              // --- Robust lookup: try 3 strategies so stock update never silently fails ---
+              // Strategy 1: RawMaterial.code exactly matches PO registry rmId (e.g. "RM-00001")
+              let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+
+              // Strategy 2: Match by PO material name (most reliable — name entered at PO creation)
+              if (!rm && grn.po?.name) {
+                rm = await tx.rawMaterial.findFirst({
+                  where: { name: { equals: grn.po.name, mode: 'insensitive' } }
+                });
+              }
+
+              // Strategy 3: Match by GRN item rmName as a last resort
+              if (!rm && item.rmName) {
+                rm = await tx.rawMaterial.findFirst({
+                  where: { name: { equals: item.rmName, mode: 'insensitive' } }
+                });
+              }
+
+              if (rm) {
+                const netQty = Number(item.actualReceivedQty) - Number(item.returnQty || 0);
+                const updatedRm = await tx.rawMaterial.update({
+                  where: { id: rm.id },
+                  data: { currentStock: { increment: netQty } }
+                });
+
+                console.log(`[LAB APPROVED] Stock updated for PASSED/EXEMPT item: ${rm.name} +${netQty} → new stock: ${updatedRm.currentStock}`);
+
+                // Check if still at or below alert level → trigger notification
+                if (Number(updatedRm.currentStock) <= Number(updatedRm.alertLevel)) {
+                  try {
+                    await workflowNotifications.triggerRMLowStockAlert({
+                      rmId: rm.id,
+                      rmName: rm.name,
+                      currentStock: updatedRm.currentStock,
+                      reorderLevel: updatedRm.alertLevel,
+                    });
+                  } catch (e) {
+                    console.error('Low stock notification error:', e.message);
+                  }
+                }
+              } else {
+                // Log warning — stock NOT updated (no matching RawMaterial found)
+                console.warn(
+                  `[LAB APPROVED] WARNING: Could not find RawMaterial to update stock.`,
+                  `GRN item rmId="${item.rmId}", rmName="${item.rmName}", PO name="${grn.po?.name}".`,
+                  `Ensure RawMaterial.code or RawMaterial.name matches the PO material.`
+                );
+              }
+            }
+
+            // Update PO status to APPROVED
+            await tx.rawMaterialPO.update({ where: { id: grn.poId }, data: { status: 'APPROVED' } });
+          }
         }
 
         return lt;
       });
 
-      // Notify lab result
-      try {
-        const firstItem = grn.items[0];
-        if (data.overallDecision === 'APPROVED') {
-          await workflowNotifications.triggerLabRMApproved({
-            rmId: grn.po?.rmId || firstItem?.rmId,
-            rmName: grn.po?.name || firstItem?.rmName,
-            labTestId: labTest.id,
-            fat: 0, protein: 0, moisture: 0, acidity: 0,
-            notes: data.labNotes || '',
-            grnId: data.grnId,
-            actorName: req.user.name || req.user.email,
-            actorId: req.user.id,
-            actorRole: req.user.role,
-          });
-        } else if (data.overallDecision === 'REJECTED') {
-          await workflowNotifications.triggerLabRMRejected({
-            rmId: grn.po?.rmId || firstItem?.rmId,
-            rmName: grn.po?.name || firstItem?.rmName,
-            labTestId: labTest.id,
-            notes: data.labNotes || '',
-            actorName: req.user.name || req.user.email,
-            actorId: req.user.id,
-            actorRole: req.user.role,
-          });
+      // Notify lab result only if finalized
+      if (!data.isDraft) {
+        try {
+          const firstItem = grn.items[0];
+          if (data.overallDecision === 'APPROVED') {
+            await workflowNotifications.triggerLabRMApproved({
+              rmId: grn.po?.rmId || firstItem?.rmId,
+              rmName: grn.po?.name || firstItem?.rmName,
+              labTestId: labTest.id,
+              fat: 0, protein: 0, moisture: 0, acidity: 0,
+              notes: data.labNotes || '',
+              grnId: data.grnId,
+              actorName: req.user.name || req.user.email,
+              actorId: req.user.id,
+              actorRole: req.user.role,
+            });
+          } else if (data.overallDecision === 'REJECTED') {
+            await workflowNotifications.triggerLabRMRejected({
+              rmId: grn.po?.rmId || firstItem?.rmId,
+              rmName: grn.po?.name || firstItem?.rmName,
+              labTestId: labTest.id,
+              notes: data.labNotes || '',
+              actorName: req.user.name || req.user.email,
+              actorId: req.user.id,
+              actorRole: req.user.role,
+            });
+          }
+        } catch (e) {
+          console.error('Lab notification error:', e.message);
         }
-      } catch (e) {
-        console.error('Lab notification error:', e.message);
       }
 
       res.status(201).json(labTest);

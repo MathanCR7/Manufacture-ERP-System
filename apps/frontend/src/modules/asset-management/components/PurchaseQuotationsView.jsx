@@ -16,6 +16,7 @@ import {
   ShoppingCart, Info
 } from 'lucide-react';
 import Swal from 'sweetalert2';
+import Pagination from '@/components/ui/Pagination';
 
 const GST_RATES = [0, 5, 12, 18, 28];
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
@@ -1937,6 +1938,11 @@ export default function PurchaseQuotationsView() {
   const [editPQId, setEditPQId] = useState(null);
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search]);
 
   const deleteMutation = useMutation({
     mutationFn: id => api.delete(`/asset-management/quotations/${id}`).then(r => r.data),
@@ -2010,6 +2016,11 @@ export default function PurchaseQuotationsView() {
     return groups;
   }, {});
 
+  const ITEMS_PER_PAGE = 10;
+  const groupedEntries = Object.entries(groupedPqs);
+  const totalPages = Math.ceil(groupedEntries.length / ITEMS_PER_PAGE);
+  const paginatedEntries = groupedEntries.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
   return (
     <div className="space-y-6">
       {selectedPQ && <PQDetailModal pq={selectedPQ} onClose={() => setSelectedPQ(null)} />}
@@ -2079,7 +2090,7 @@ export default function PurchaseQuotationsView() {
                   </div>
                 </div>
               </td></tr>
-            ) : Object.entries(groupedPqs).map(([prNo, items]) => (
+            ) : paginatedEntries.map(([prNo, items]) => (
               <React.Fragment key={prNo}>
                 <tr className="bg-indigo-50/40 dark:bg-indigo-950/20">
                   <td colSpan={10} className="px-4 py-2 text-xs font-black text-indigo-700 dark:text-indigo-400 uppercase tracking-wider">
@@ -2154,6 +2165,15 @@ export default function PurchaseQuotationsView() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

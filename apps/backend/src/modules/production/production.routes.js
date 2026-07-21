@@ -131,7 +131,7 @@ const checkAndNotifyStockAlerts = async (productId, tx) => {
 };
 
 // GET /api/production/qc-queue - Batches pending QC
-router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR']), cacheMiddleware, async (req, res, next) => {
+router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR', 'PRODUCTION_STAFF']), cacheMiddleware, async (req, res, next) => {
   try {
     const batches = await prisma.productionBatchNew.findMany({
       where: {
@@ -260,9 +260,6 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
         }
       }, tx);
 
-      // Check stock levels
-      await checkAndNotifyStockAlerts(batch.productId, tx);
-
       // Write Audit Log
       const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
       await tx.auditLog.create({
@@ -276,6 +273,9 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
           ip: clientIp
         }
       });
+    }, {
+      maxWait: 15000,
+      timeout: 20000
     });
 
     res.json({ message: 'Production QC approved and released to stock' });
@@ -780,7 +780,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
       prisma.productionBatchNew.findMany({
         where: whereClause,
         include: {
-          product: { include: { unit: true } },
+          product: { include: { unit: true, category: true } },
           currentStage: true
         },
         orderBy: { createdAt: 'desc' },
@@ -808,7 +808,7 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     const batch = await prisma.productionBatchNew.findFirst({
       where: { id: req.params.id, deletedAt: null },
       include: {
-        product: { include: { unit: true } },
+        product: { include: { unit: true, category: true } },
         currentStage: true,
         rmUsages: { include: { rawMaterial: true } },
         order: { include: { customer: true } },
@@ -995,6 +995,21 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
         if (shortMaterials.length > 0) {
           throw new Error(`Cannot start production. Shortfall in raw materials: ${shortMaterials.map(m => m.rawMaterial.name).join(', ')}`);
         }
+
+        await notificationService.createNotification({
+          type: 'PRODUCTION_STARTED',
+          recipient_roles: ['SUPERVISOR', 'MAIN_MASTER', 'PRODUCTION_STAFF'],
+          sender_role: req.user.role,
+          sender_id: req.user.id,
+          reference_type: 'PRODUCTION_BATCH',
+          reference_id: id,
+          message: `Production started: Batch #${batch.referenceNo} for ${batch.product.name} is now IN PROGRESS.`,
+          metadata: {
+            batchId: id,
+            referenceNo: batch.referenceNo,
+            productName: batch.product.name
+          }
+        }, tx);
       }
 
       // Update status

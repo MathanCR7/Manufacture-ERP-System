@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -15,6 +15,7 @@ import {
   Cpu, QrCode, BarChart2, Shield, Hash, Building2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
+import Pagination from '@/components/ui/Pagination';
 
 const DEPARTMENTS = ['IT', 'Manufacturing', 'Admin', 'Logistics', 'Finance', 'HR', 'Sales'];
 const CATEGORIES = [
@@ -546,7 +547,13 @@ export default function AssetRegisterView() {
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedAsset, setSelectedAsset] = useState(null);
+  const [sortBy, setSortBy] = useState('recent');
+  const [currentPage, setCurrentPage] = useState(1);
   const qc = useQueryClient();
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, categoryFilter, statusFilter, sortBy]);
 
   const { data: assets = [], isLoading } = useQuery({
     queryKey: ['asset-register'],
@@ -562,7 +569,7 @@ export default function AssetRegisterView() {
     onError: err => Swal.fire({ icon: 'error', title: 'Error', text: err.response?.data?.error || 'Failed', confirmButtonColor: '#4f46e5' })
   });
 
-  const [sortBy, setSortBy] = useState('recent');
+
 
   const filtered = assets.filter(a => {
     const matchSearch =
@@ -594,6 +601,10 @@ export default function AssetRegisterView() {
     }
     return 0;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(sortedAndFiltered.length / ITEMS_PER_PAGE);
+  const paginatedItems = sortedAndFiltered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   if (view === 'capitalize') return <CapitalizeAssetForm onBack={() => setView('list')} isReadOnly={isReadOnly} />;
 
@@ -723,7 +734,7 @@ export default function AssetRegisterView() {
                   </div>
                 </div>
               </td></tr>
-            ) : sortedAndFiltered.map(asset => {
+            ) : paginatedItems.map(asset => {
               const pv = Number(asset.purchaseValue || 0);
               const rate = Number(asset.depreciationRate || 0);
               const age = asset.purchaseDate
@@ -779,6 +790,15 @@ export default function AssetRegisterView() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -60,7 +60,7 @@ function RawMaterialSelect({ rawMaterials, value, onChange, error }) {
       <button
         type="button"
         onClick={() => setOpen(prev => !prev)}
-        className={`w-full px-3 py-2 border rounded-md text-left flex items-center justify-between bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 ${error ? 'border-red-400' : 'border-slate-300 dark:border-slate-700'}`}
+        className={`w-full px-3 py-2 border rounded-xl text-left flex items-center justify-between bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs font-semibold h-9 ${error ? 'border-red-400' : 'border-slate-200 dark:border-slate-700'}`}
       >
         <span className={value ? 'text-slate-900 dark:text-white truncate' : 'text-slate-400'}>
           {value ? `${value.code} - ${value.name}` : 'Select Raw Material...'}
@@ -79,7 +79,7 @@ function RawMaterialSelect({ rawMaterials, value, onChange, error }) {
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-md shadow-lg">
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg">
           <div className="p-2 border-b border-slate-100 dark:border-slate-700">
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
@@ -89,7 +89,7 @@ function RawMaterialSelect({ rawMaterials, value, onChange, error }) {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search RM Name or Code..."
-                className="w-full pl-7 pr-7 py-1.5 text-sm border rounded border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full pl-7 pr-7 py-1.5 text-xs border rounded-xl border-slate-200 dark:border-slate-650 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
               />
               {search && (
                 <button
@@ -105,20 +105,20 @@ function RawMaterialSelect({ rawMaterials, value, onChange, error }) {
 
           <ul className="max-h-52 overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <li className="px-3 py-2 text-sm text-slate-400 text-center">No results found</li>
+              <li className="px-3 py-2 text-xs text-slate-400 text-center">No results found</li>
             ) : (
               filtered.map(rm => (
                 <li
                   key={rm.id}
                   onMouseDown={() => handleSelect(rm)}
-                  className={`px-3 py-2 text-sm cursor-pointer select-none flex justify-between items-center ${
+                  className={`px-3 py-2 text-xs cursor-pointer select-none flex justify-between items-center ${
                     value?.id === rm.id
-                      ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-medium'
-                      : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold'
+                      : 'text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800'
                   }`}
                 >
                   <span>{rm.name}</span>
-                  <span className="text-xs text-slate-400">{rm.code}</span>
+                  <span className="text-xs text-slate-400 font-mono">{rm.code}</span>
                 </li>
               ))
             )}
@@ -148,77 +148,78 @@ export default function CreateRMWastePage() {
   const [isDataLoaded, setIsDataLoaded] = useState(!isEditMode);
 
   const { data: refData, refetch: rotateRef, isFetching: isRotating } = useQuery({
-    queryKey: ['generateRmWasteRef'],
+    queryKey: ['rm-waste-next-ref'],
     queryFn: async () => {
-      const response = await api.get('/rm-waste/reference/generate');
+      const response = await api.get('/rm-waste/candidate-id');
       return response.data;
     },
-    refetchOnWindowFocus: false,
     enabled: !isEditMode,
   });
 
-  const { data: rawMaterials = [], isLoading: isLoadingRMs } = useQuery({
-    queryKey: ['raw-materials-setup'],
-    queryFn: async () => {
-      const response = await api.get('/item-setup/raw-material');
-      return response.data;
-    }
-  });
-
   const { data: users = [] } = useQuery({
-    queryKey: ['users'],
+    queryKey: ['system-users'],
     queryFn: async () => {
       const response = await api.get('/users');
       return response.data;
     }
   });
 
-  // Fetch Existing Data if Edit Mode
-  const { data: existingWasteData } = useQuery({
-    queryKey: ['rm-waste', id],
+  const { data: rawMaterials = [], isLoading: isLoadingRMs } = useQuery({
+    queryKey: ['active-raw-materials'],
     queryFn: async () => {
-      const response = await api.get(`/rm-waste/${id}`);
+      const response = await api.get('/raw-materials');
       return response.data;
-    },
-    refetchOnWindowFocus: false,
-    enabled: isEditMode,
+    }
   });
 
+  // Prefill in edit mode
   useEffect(() => {
-    if (isEditMode && existingWasteData && !isDataLoaded) {
-      setFormData({
-        referenceNo: existingWasteData.referenceNo,
-        date: new Date(existingWasteData.date),
-        note: existingWasteData.note || '',
-        responsibleId: existingWasteData.responsibleId || '',
-      });
-      setWasteItems(existingWasteData.items.map(item => ({
-        id: crypto.randomUUID(),
-        rm: item.rawMaterial,
-        quantity: item.quantity,
-        uomId: item.uomId,
-        lossAmount: item.lossAmount,
-      })));
-      setIsDataLoaded(true);
+    if (isEditMode) {
+      api.get(`/rm-waste/${id}`)
+        .then(res => {
+          const waste = res.data;
+          setFormData({
+            date: new Date(waste.date),
+            note: waste.note || '',
+            responsibleId: waste.responsibleId || '',
+            referenceNo: waste.referenceNo || '',
+          });
+          
+          if (waste.items) {
+            setWasteItems(waste.items.map(item => ({
+              id: item.id,
+              rm: item.rawMaterial,
+              quantity: item.quantity,
+              uomId: item.uomId,
+              lossAmount: item.lossAmount,
+            })));
+          }
+          setIsDataLoaded(true);
+        })
+        .catch(err => {
+          console.error(err);
+          setErrorMsg('Failed to load raw material waste entry.');
+          setIsDataLoaded(true);
+        });
     }
-  }, [existingWasteData, isEditMode, isDataLoaded]);
+  }, [id, isEditMode]);
 
   const createMutation = useMutation({
-    mutationFn: async (data) => {
-      const response = await api.post('/rm-waste', data);
+    mutationFn: async (payload) => {
+      const response = await api.post('/rm-waste', payload);
       return response.data;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
-        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Logged Successfully!</span>`,
-        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">RM Waste has been logged under Reference: ${data.referenceNo}</p>`,
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Waste Logged</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Raw material waste docket created successfully.</p>`,
         icon: 'success',
         iconColor: '#10b981',
         toast: true,
         position: 'top-end',
         showConfirmButton: false,
-        timer: 3500,
+        timer: 3000,
         timerProgressBar: true,
         background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
         color: isDark ? '#f8fafc' : '#0f172a',
@@ -232,11 +233,10 @@ export default function CreateRMWastePage() {
       navigate('/waste/raw-material');
     },
     onError: (err) => {
-      setErrorMsg(err.response?.data?.error || 'Failed to log RM waste');
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
-        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Logging Failed</span>`,
-        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.error || 'Failed to log RM waste'}</p>`,
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Operation Failed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.error || 'Failed to submit wastage.'}</p>`,
         icon: 'error',
         iconColor: '#ef4444',
         toast: true,
@@ -257,21 +257,21 @@ export default function CreateRMWastePage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (data) => {
-      const response = await api.put(`/rm-waste/${id}`, data);
+    mutationFn: async (payload) => {
+      const response = await api.put(`/rm-waste/${id}`, payload);
       return response.data;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
-        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Updated Successfully!</span>`,
-        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">RM Waste Reference ${data.referenceNo} has been updated.</p>`,
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Waste Updated</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Raw material waste docket updated successfully.</p>`,
         icon: 'success',
         iconColor: '#10b981',
         toast: true,
         position: 'top-end',
         showConfirmButton: false,
-        timer: 3500,
+        timer: 3000,
         timerProgressBar: true,
         background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
         color: isDark ? '#f8fafc' : '#0f172a',
@@ -285,11 +285,10 @@ export default function CreateRMWastePage() {
       navigate('/waste/raw-material');
     },
     onError: (err) => {
-      setErrorMsg(err.response?.data?.error || 'Failed to update RM waste');
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
-        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Update Failed</span>`,
-        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.error || 'Failed to update RM waste'}</p>`,
+        title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Operation Failed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">${err.response?.data?.error || 'Failed to update wastage.'}</p>`,
         icon: 'error',
         iconColor: '#ef4444',
         toast: true,
@@ -410,7 +409,7 @@ export default function CreateRMWastePage() {
   if (!isDataLoaded) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-650" />
       </div>
     );
   }
@@ -418,33 +417,34 @@ export default function CreateRMWastePage() {
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div className="flex items-center space-x-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/waste/raw-material')} className="text-slate-500 rounded-full">
-          <ArrowLeft className="w-5 h-5" />
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      {/* Header with back navigation */}
+      <div className="flex items-center space-x-3 pb-3 border-b border-slate-205 dark:border-slate-800">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/waste/raw-material')} className="text-slate-500 rounded-full h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-850">
+          <ArrowLeft className="w-4 h-4" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             {isEditMode ? 'Edit RM Waste' : 'Add RM Waste'}
           </h1>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
             {isEditMode ? 'Update raw material wastage and associated loss.' : 'Log raw material wastage and associated loss.'}
           </p>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-hidden text-xs">
         <form onSubmit={handleSubmit}>
           {/* Top Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 border-b border-slate-200 dark:border-slate-800">
-            <div className="space-y-2">
-              <Label className="text-red-500">Reference No *</Label>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 border-b border-slate-200 dark:border-slate-800">
+            <div className="space-y-1.5">
+              <Label className="text-red-500 font-extrabold uppercase text-[10px]">Reference No *</Label>
               {isEditMode ? (
-                <Input value={formData.referenceNo || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-800/50 font-mono text-indigo-600 dark:text-indigo-400" />
+                <Input value={formData.referenceNo || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-950 font-mono text-indigo-600 dark:text-indigo-400 h-9 text-xs font-bold" />
               ) : (
                 <div className="flex">
-                  <Input value={isRotating ? '------' : refData?.candidateId || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-800/50 rounded-r-none font-mono text-indigo-600 dark:text-indigo-400" />
-                  <Button type="button" variant="outline" size="icon" className="rounded-l-none border-l-0" onClick={(e) => { e.preventDefault(); rotateRef(); }} disabled={isRotating}>
+                  <Input value={isRotating ? '------' : refData?.candidateId || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-955 rounded-r-none font-mono text-indigo-600 dark:text-indigo-400 h-9 text-xs font-bold rounded-l-xl" />
+                  <Button type="button" variant="outline" size="icon" className="rounded-l-none border-l-0 h-9 rounded-r-xl border-slate-200" onClick={(e) => { e.preventDefault(); rotateRef(); }} disabled={isRotating}>
                     <RefreshCw className={twMerge("w-4 h-4 text-slate-500", isRotating && "animate-spin")} />
                   </Button>
                 </div>
@@ -458,17 +458,18 @@ export default function CreateRMWastePage() {
               onChange={(date) => setFormData({ ...formData, date })}
               modalTitle="Waste Log Date"
               placeholder="Select Date"
+              triggerClassName="h-9 rounded-xl text-xs font-semibold"
             />
 
-            <div className="space-y-2">
-              <Label className="text-red-500">Responsible Person *</Label>
+            <div className="space-y-1.5">
+              <Label className="text-red-500 font-extrabold uppercase text-[10px]">Responsible Person *</Label>
               <Select value={formData.responsibleId} onValueChange={(val) => setFormData({...formData, responsibleId: val})} required>
-                <SelectTrigger>
+                <SelectTrigger className="h-9 rounded-xl text-xs font-semibold border-slate-200 dark:bg-slate-950">
                   <SelectValue placeholder="Select" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="rounded-xl">
                   {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id}>{u.name} ({u.role})</SelectItem>
+                    <SelectItem key={u.id} value={u.id} className="text-xs font-semibold">{u.name} ({u.role})</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -476,11 +477,11 @@ export default function CreateRMWastePage() {
           </div>
 
           {/* Details Section */}
-          <div className="p-6 space-y-6">
-            <div className="space-y-2 max-w-md">
-              <Label className="text-slate-700 dark:text-slate-300">Raw Material (Only Stock available are listed)</Label>
+          <div className="p-5 space-y-4">
+            <div className="space-y-1.5 max-w-md text-xs">
+              <Label className="text-slate-700 dark:text-slate-300 font-bold">Raw Material (Only Stock available are listed)</Label>
               {isLoadingRMs ? (
-                <div className="w-full px-3 py-2 border rounded-md text-slate-400 flex items-center"><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading...</div>
+                <div className="w-full px-3 py-2 border rounded-xl text-slate-400 flex items-center text-xs h-9 bg-slate-50/50"><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading...</div>
               ) : (
                 <RawMaterialSelect 
                   rawMaterials={rawMaterials}
@@ -490,45 +491,45 @@ export default function CreateRMWastePage() {
               )}
             </div>
 
-            <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-x-auto">
-              <table className="w-full text-sm text-left min-w-[800px]">
-                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-medium">
+            <div className="border border-slate-205 dark:border-slate-805 rounded-xl overflow-x-auto">
+              <table className="w-full text-xs text-left min-w-[800px]">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-505 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-widest">
                   <tr>
-                    <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 w-12">SN</th>
-                    <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 w-64">Raw Material(Code)</th>
-                    <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 w-48">Stock Info</th>
-                    <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 w-48">Quantity *</th>
-                    <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 w-48">Loss Amount *</th>
-                    <th className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 w-16 text-center">Actions</th>
+                    <th className="px-4 py-2.5 w-12 text-center">SN</th>
+                    <th className="px-4 py-2.5 w-64">Raw Material(Code)</th>
+                    <th className="px-4 py-2.5 w-48">Stock Info</th>
+                    <th className="px-4 py-2.5 w-48">Quantity *</th>
+                    <th className="px-4 py-2.5 w-48">Loss Amount *</th>
+                    <th className="px-4 py-2.5 w-16 text-center">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {wasteItems.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-slate-500 bg-white dark:bg-slate-900">
+                      <td colSpan={6} className="px-4 py-8 text-center text-slate-400 bg-white dark:bg-slate-900 font-semibold">
                         No raw materials added yet. Select a raw material from the dropdown above.
                       </td>
                     </tr>
                   ) : (
                     wasteItems.map((item, idx) => (
-                      <tr key={item.id} className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-                        <td className="px-4 py-4 text-center">{idx + 1}</td>
-                        <td className="px-4 py-4 font-medium">{item.rm.name} ({item.rm.code})</td>
-                        <td className="px-4 py-4 text-xs text-slate-500">
-                          <div>Current Stock: {item.rm.currentStock || 0} {item.rm.unitId}</div>
-                          <div>Total Floating Stock: 0 {item.rm.unitId}</div>
+                      <tr key={item.id} className="bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/30">
+                        <td className="px-4 py-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                        <td className="px-4 py-3 font-bold text-slate-855 dark:text-white">{item.rm.name} ({item.rm.code})</td>
+                        <td className="px-4 py-3 text-3xs text-slate-500 font-bold space-y-0.5">
+                          <div className="bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-650 px-2 py-0.5 rounded w-fit">Current Stock: {item.rm.currentStock || 0} {item.rm.unitId}</div>
+                          <div className="text-slate-400 px-2">Total Floating Stock: 0 {item.rm.unitId}</div>
                         </td>
-                        <td className="px-4 py-4 relative">
-                          <Input type="number" step="0.01" min="0" placeholder="0.00" className="h-9 pr-16" value={item.quantity} onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value)} required />
-                          <span className="absolute right-7 top-1/2 -translate-y-1/2 text-slate-400 text-xs uppercase">{item.rm.unitId}</span>
+                        <td className="px-4 py-3 relative">
+                          <Input type="number" step="0.01" min="0" placeholder="0.00" className="h-8 pr-14 text-xs font-bold rounded-lg border-slate-200 dark:bg-slate-950" value={item.quantity} onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value)} required />
+                          <span className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 text-3xs uppercase font-extrabold">{item.rm.unitId}</span>
                         </td>
-                        <td className="px-4 py-4 relative">
-                          <Input type="number" step="0.01" min="0" placeholder="0.00" className="h-9 pr-16" value={item.lossAmount} onChange={(e) => handleItemChange(item.id, 'lossAmount', e.target.value)} required />
-                          <span className="absolute right-7 top-1/2 -translate-y-1/2 text-slate-400 text-xs">INR</span>
+                        <td className="px-4 py-3 relative">
+                          <Input type="number" step="0.01" min="0" placeholder="0.00" className="h-8 pr-14 text-xs font-bold rounded-lg border-slate-200 dark:bg-slate-950 font-mono" value={item.lossAmount} onChange={(e) => handleItemChange(item.id, 'lossAmount', e.target.value)} required />
+                          <span className="absolute right-6 top-1/2 -translate-y-1/2 text-slate-400 text-3xs font-extrabold">INR</span>
                         </td>
-                        <td className="px-4 py-4 text-center">
-                          <button type="button" onClick={() => handleRemoveRm(item.id)} className="text-red-500 hover:text-red-700 p-1">
-                            <X className="w-5 h-5" />
+                        <td className="px-4 py-3 text-center">
+                          <button type="button" onClick={() => handleRemoveRm(item.id)} className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg">
+                            <X className="w-4 h-4 mx-auto" />
                           </button>
                         </td>
                       </tr>
@@ -538,11 +539,11 @@ export default function CreateRMWastePage() {
               </table>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pt-4">
-              <div className="space-y-2">
-                <Label>Note</Label>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+              <div className="space-y-1.5">
+                <Label className="text-[10px] font-extrabold text-slate-500 uppercase">Note / Remarks</Label>
                 <textarea 
-                  className="w-full px-3 py-2 border rounded-md dark:bg-slate-900 dark:border-slate-700 dark:text-white border-slate-200 min-h-[120px]" 
+                  className="w-full px-3 py-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white border-slate-200 min-h-[90px] text-xs resize-none font-medium" 
                   placeholder="Note"
                   value={formData.note}
                   onChange={(e) => setFormData({...formData, note: e.target.value})}
@@ -550,11 +551,11 @@ export default function CreateRMWastePage() {
               </div>
               
               <div className="flex flex-col justify-start items-end space-y-4">
-                <div className="flex flex-col space-y-1 w-full max-w-xs pt-8">
-                  <Label className="text-slate-900 dark:text-white font-medium">G.Total *</Label>
+                <div className="flex flex-col space-y-1 w-full max-w-xs pt-4">
+                  <Label className="text-slate-900 dark:text-white font-bold text-xs uppercase">Grand Total Loss *</Label>
                   <div className="relative w-full">
-                    <Input readOnly value={totalLoss.toFixed(2)} className="pr-12 bg-slate-50 dark:bg-slate-800" />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">INR</span>
+                    <Input readOnly value={totalLoss.toFixed(2)} className="pr-12 bg-slate-50 dark:bg-slate-950 h-10 text-base font-black font-mono text-rose-600 dark:text-rose-455 border-slate-200 rounded-xl" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">INR</span>
                   </div>
                 </div>
               </div>
@@ -562,17 +563,17 @@ export default function CreateRMWastePage() {
           </div>
 
           {errorMsg && (
-            <div className="m-6 mt-0 p-3 bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400 rounded-md text-sm font-medium border border-red-200 dark:border-red-800">
+            <div className="m-5 mt-0 p-3 bg-red-50 text-red-650 dark:bg-red-950/30 dark:text-red-400 rounded-xl text-xs font-bold border border-red-200 dark:border-red-900">
               {errorMsg}
             </div>
           )}
 
-          <div className="p-6 border-t border-slate-200 dark:border-slate-800 flex space-x-4 bg-slate-50 dark:bg-slate-900/50">
-            <Button type="submit" disabled={isPending} className="bg-indigo-600 hover:bg-indigo-700 min-w-28 text-white">
-              {isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+          <div className="p-5 border-t border-slate-200 dark:border-slate-800 flex space-x-3 bg-slate-50 dark:bg-slate-900/50">
+            <Button type="submit" disabled={isPending} className="bg-indigo-600 hover:bg-indigo-700 min-w-28 text-white text-xs font-bold h-9 rounded-xl shadow-md cursor-pointer">
+              {isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
               {isPending ? (isEditMode ? 'Updating...' : 'Submitting...') : (isEditMode ? 'Update' : 'Submit')}
             </Button>
-            <Button type="button" variant="outline" onClick={() => navigate('/waste/raw-material')} className="min-w-28">
+            <Button type="button" variant="outline" onClick={() => navigate('/waste/raw-material')} className="min-w-28 text-xs font-bold h-9 rounded-xl border-slate-200">
               Back
             </Button>
           </div>

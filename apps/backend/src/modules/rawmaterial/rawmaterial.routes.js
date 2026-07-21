@@ -20,11 +20,11 @@ router.get('/uom', authenticateToken, rmController.getUOMs);
 router.post('/uom', authenticateToken, roleMiddleware(['MAIN_MASTER']), rmController.createUOM);
 
 // --- RM Waste Routes (/api/rm-waste) ---
-router.get('/rm-waste/reference/generate', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), rmController.generateWasteReference);
-router.get('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), rmController.getWastes);
-router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), rmController.createWaste);
-router.get('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), rmController.getWasteById);
-router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), rmController.updateWaste);
+router.get('/rm-waste/reference/generate', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), rmController.generateWasteReference);
+router.get('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), rmController.getWastes);
+router.post('/rm-waste', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), rmController.createWaste);
+router.get('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), rmController.getWasteById);
+router.put('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), rmController.updateWaste);
 router.delete('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), rmController.deleteWaste);
 
 // --- RM Stock Routes (/api/rm-stock) ---

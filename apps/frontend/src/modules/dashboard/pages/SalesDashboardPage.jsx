@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/axios';
+import { useNavigate } from 'react-router-dom';
 import {
   AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
@@ -9,12 +10,14 @@ import {
   RefreshCw, ArrowUpRight, ArrowDownRight
 } from 'lucide-react';
 
-const fmt = (n, d = 0) => {
+const fmt = (n) => {
   const num = Number(n || 0);
-  if (num >= 1_00_00_000) return `₹${(num / 1_00_00_000).toFixed(1)}Cr`;
-  if (num >= 1_00_000)    return `₹${(num / 1_00_000).toFixed(1)}L`;
-  if (num >= 1_000)       return `₹${(num / 1_000).toFixed(d)}K`;
-  return `₹${num.toFixed(d)}`;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(num);
 };
 
 const STATUS_COLORS = {
@@ -28,13 +31,18 @@ const TT = {
   itemStyle: { color: '#e2e8f0' }, labelStyle: { color: '#94a3b8' }
 };
 
-function KPICard({ title, value, sub, icon: Icon, accent, trend, loading }) {
+function KPICard({ title, value, sub, icon: Icon, accent, trend, loading, onClick }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 flex flex-col justify-between hover:shadow-md transition-all hover:-translate-y-0.5 relative overflow-hidden">
+    <div 
+      onClick={onClick}
+      className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden group ${
+        onClick ? 'cursor-pointer hover:-translate-y-1 hover:border-indigo-400 dark:hover:border-indigo-900/60 hover:bg-slate-50/20 dark:hover:bg-slate-950/20' : 'hover:-translate-y-0.5'
+      }`}
+    >
       <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: accent }} />
       <div className="flex justify-between items-start mb-3">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{title}</span>
-        <div className="p-2 rounded-xl" style={{ background: accent + '22' }}>
+        <div className="p-2 rounded-xl group-hover:scale-110 transition-transform duration-300" style={{ background: accent + '22' }}>
           <Icon size={15} style={{ color: accent }} />
         </div>
       </div>
@@ -72,6 +80,7 @@ function StatusBadge({ status }) {
 }
 
 export default function SalesDashboardPage() {
+  const navigate = useNavigate();
   const [data, setData]       = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -96,11 +105,11 @@ export default function SalesDashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <KPICard title="Today's Revenue"   value={fmt(d.todaySales?.revenue)}  sub={`${d.todaySales?.orders || 0} orders`}           icon={DollarSign} accent="#10b981" loading={loading} />
-        <KPICard title="Month Revenue"     value={fmt(d.monthSales?.revenue)}  sub={`${d.monthSales?.orders || 0} orders`}            icon={TrendingUp}  accent="#6366f1" loading={loading} />
-        <KPICard title="Year Revenue"      value={fmt(d.yearSales?.revenue)}   sub={`${d.yearSales?.orders || 0} total`}              icon={ShoppingBag} accent="#8b5cf6" loading={loading} />
-        <KPICard title="Conversion Rate"   value={`${d.conversionRate || 0}%`} sub="Quote → Confirmed"                                icon={Star}        accent="#f59e0b" loading={loading} />
-        <KPICard title="New Customers"     value={d.newCustomers || 0}         sub={`of ${d.totalCustomers || 0} total`}              icon={Users}       accent="#ec4899" loading={loading} />
+        <KPICard title="Today's Revenue"   value={fmt(d.todaySales?.revenue)}  sub={`${d.todaySales?.orders || 0} orders`}           icon={DollarSign} accent="#10b981" loading={loading} onClick={() => navigate('/sales/list')} />
+        <KPICard title="Month Revenue"     value={fmt(d.monthSales?.revenue)}  sub={`${d.monthSales?.orders || 0} orders`}            icon={TrendingUp}  accent="#6366f1" loading={loading} onClick={() => navigate('/sales/list')} />
+        <KPICard title="Year Revenue"      value={fmt(d.yearSales?.revenue)}   sub={`${d.yearSales?.orders || 0} total`}              icon={ShoppingBag} accent="#8b5cf6" loading={loading} onClick={() => navigate('/sales/list')} />
+        <KPICard title="Conversion Rate"   value={`${d.conversionRate || 0}%`} sub="Quote → Confirmed"                                icon={Star}        accent="#f59e0b" loading={loading} onClick={() => navigate('/sales/list')} />
+        <KPICard title="New Customers"     value={d.newCustomers || 0}         sub={`of ${d.totalCustomers || 0} total`}              icon={Users}       accent="#ec4899" loading={loading} onClick={() => navigate('/parties/customers')} />
       </div>
 
       {/* Daily Chart + Status Pie */}

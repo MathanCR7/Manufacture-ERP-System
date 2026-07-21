@@ -57,6 +57,8 @@ const QuantitySelector = ({ value, onChange }) => {
   );
 };
 
+import useAuthStore from '@/app/store/authStore';
+
 export default function AddOrderPage() {
   const { id } = useParams();
   const isEditMode = !!id;
@@ -64,6 +66,22 @@ export default function AddOrderPage() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  const user = useAuthStore(s => s.user);
+  const canEdit = user?.role !== 'SUPERVISOR';
+
+  if (!canEdit) {
+    return (
+      <div className="p-6 max-w-4xl mx-auto text-center space-y-4">
+        <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto animate-bounce" />
+        <h2 className="text-lg font-bold text-slate-800 dark:text-white">View-Only Access</h2>
+        <p className="text-sm text-slate-550">As a Supervisor, you have read-only access and cannot place or modify sales orders.</p>
+        <Button onClick={() => navigate('/orders/list')} className="bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl cursor-pointer">
+          Back to Order List
+        </Button>
+      </div>
+    );
+  }
 
   // Search & Catalog Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -1081,7 +1099,7 @@ export default function AddOrderPage() {
   };
 
   return (
-    <div className="space-y-6 animate__animated animate__fadeIn max-w-7xl mx-auto p-4 md:p-6 text-slate-800 dark:text-slate-100">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn text-slate-800 dark:text-slate-100">
       {/* Header */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative shadow-sm">
         <div className="flex items-center space-x-3.5">

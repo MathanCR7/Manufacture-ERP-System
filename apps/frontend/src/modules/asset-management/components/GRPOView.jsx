@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -14,6 +14,7 @@ import {
   Hash, ClipboardCheck, FileText, AlertOctagon, BarChart2, Edit, Trash2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
+import Pagination from '@/components/ui/Pagination';
 
 const STATUS_STYLES = {
   Draft: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
@@ -524,6 +525,12 @@ export default function GRPOView() {
   const [search, setSearch] = useState('');
   const [selectedGRPO, setSelectedGRPO] = useState(null);
   const [editGRPOId, setEditGRPOId] = useState(null);
+  const [sortBy, setSortBy] = useState('recent');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, sortBy]);
 
   const { data: grpos = [], isLoading } = useQuery({
     queryKey: ['asset-grpos'],
@@ -574,7 +581,7 @@ export default function GRPOView() {
     });
   };
 
-  const [sortBy, setSortBy] = useState('recent');
+
 
   const filtered = grpos.filter(g =>
     g.grpoNo?.toLowerCase().includes(search.toLowerCase()) ||
@@ -604,6 +611,10 @@ export default function GRPOView() {
     }
     return 0;
   });
+
+  const ITEMS_PER_PAGE = 10;
+  const totalPages = Math.ceil(sortedAndFiltered.length / ITEMS_PER_PAGE);
+  const paginatedItems = sortedAndFiltered.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
 
   if (view === 'create') return <CreateGRPOForm onBack={() => { setView('list'); setEditGRPOId(null); }} isReadOnly={isReadOnly} editGRPOId={editGRPOId} />;
 
@@ -688,14 +699,14 @@ export default function GRPOView() {
                   </div>
                 </div>
               </td></tr>
-            ) : sortedAndFiltered.map(grpo => {
+            ) : paginatedItems.map(grpo => {
               const accepted = grpo.items?.reduce((s, i) => s + Number(i.acceptedQuantity || 0), 0) || 0;
               const rejected = grpo.items?.reduce((s, i) => s + Number(i.rejectedQuantity || 0), 0) || 0;
               const hasInvoice = invoices.some(inv => inv.grpoNo === grpo.grpoNo);
               return (
                 <tr key={grpo.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-4 py-3">
-                    <button onClick={() => setSelectedGRPO(grpo)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline">{grpo.grpoNo}</button>
+                    <button onClick={() => setSelectedGRPO(grpo)} className="font-mono font-bold text-indigo-650 dark:text-indigo-400 text-xs hover:underline">{grpo.grpoNo}</button>
                   </td>
                   <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{grpo.vendorName}</td>
                   <td className="px-4 py-3 text-xs text-slate-500">{format(new Date(grpo.receivedDate), 'dd MMM yyyy')}</td>
@@ -744,6 +755,15 @@ export default function GRPOView() {
           </tbody>
         </table>
       </div>
+      {totalPages > 1 && (
+        <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   );
 }

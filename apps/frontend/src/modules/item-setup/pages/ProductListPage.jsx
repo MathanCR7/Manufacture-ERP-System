@@ -6,9 +6,10 @@ import {
   ArrowLeft, Save, Loader2, AlertCircle, Info, Check, Percent, Clock, 
   X, Layers, Image as ImageIcon, Sparkles, ChevronRight, Eye, RefreshCw,
   PlusCircle, Sliders, ShieldAlert, TrendingUp, Grid, List as ListIcon,
-  ChevronLeft, Award, HelpCircle, FileText
+  ChevronLeft, Award, HelpCircle, FileText, AlertTriangle
 } from 'lucide-react';
 import { api } from '@/lib/axios';
+import useAuthStore from '@/app/store/authStore';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -568,7 +569,7 @@ function ProductForm({ editId, onBack }) {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto p-4 animate__animated animate__fadeIn">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn">
       {/* Header bar */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-850">
         <div className="flex items-center space-x-3">
@@ -592,7 +593,7 @@ function ProductForm({ editId, onBack }) {
         <Button
           onClick={handleSubmit}
           disabled={saving}
-          className="bg-indigo-600 dark:bg-indigo-500 hover:bg-indigo-700 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-5 shadow-md hover:shadow-lg transition-all"
+          className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-bold rounded-xl text-xs py-2.5 px-5 shadow-md hover:shadow-lg transition-all"
         >
           {saving ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Saving...</> : <><Save className="w-3.5 h-3.5 mr-1.5" /> Save Specs</>}
         </Button>
@@ -1096,10 +1097,10 @@ function ProductForm({ editId, onBack }) {
 
         {/* Real-time Pricing Summary Sidebar */}
         <div className="space-y-6">
-          <div className="bg-slate-50 dark:bg-slate-905 border border-slate-200 dark:border-slate-800 p-5 rounded-2xl space-y-4 sticky top-6 shadow-md transition-all">
+          <div className="bg-indigo-50/20 dark:bg-indigo-950/10 border border-indigo-100 dark:border-indigo-900/40 p-5 rounded-2xl space-y-4 sticky top-6 shadow-md transition-all">
             <div>
               <h4 className="font-extrabold text-sm text-slate-855 dark:text-white flex items-center">
-                <Sparkles className="w-4 h-4 mr-1.5 text-indigo-505 dark:text-indigo-400 animate-pulse" /> Cost Summary Matrix
+                <Sparkles className="w-4 h-4 mr-1.5 text-indigo-600 dark:text-indigo-405 animate-pulse" /> Cost Summary Matrix
               </h4>
               <p className="text-[10px] text-slate-455 dark:text-slate-400 mt-0.5">Live estimates per unit/piece.</p>
             </div>
@@ -1123,7 +1124,7 @@ function ProductForm({ editId, onBack }) {
               type="button"
               onClick={handleSubmit}
               disabled={saving}
-              className="w-full bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Save className="w-4 h-4" /> Save Formulation Specs
             </Button>
@@ -1135,6 +1136,9 @@ function ProductForm({ editId, onBack }) {
 }
 
 export default function ProductListPage() {
+  const user = useAuthStore(s => s.user);
+  const canEdit = user?.role === 'MAIN_MASTER';
+
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -1239,11 +1243,17 @@ export default function ProductListPage() {
   if (isLoading) return <div className="p-8"><Skeleton className="h-[400px] w-full bg-slate-200 dark:bg-slate-850" /></div>;
 
   if (view !== 'list') {
-    return <ProductForm editId={editId} onBack={() => setView('list')} />;
+    return <ProductForm editId={canEdit ? editId : null} onBack={() => { setView('list'); setEditId(null); }} />;
   }
 
   return (
-    <div className="space-y-6 animate__animated animate__fadeIn">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      {!canEdit && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>You have <strong>Read-Only access</strong> to Finished Product Master Setup. Modifying specs is restricted.</span>
+        </div>
+      )}
       {/* Premium Glassmorphic Header */}
       <div className="relative bg-gradient-to-r from-slate-50 to-slate-100/50 dark:from-slate-900 dark:to-slate-950/40 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div className="absolute inset-0 bg-grid-slate-200/50 dark:bg-grid-slate-800/10 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] rounded-3xl" />
@@ -1279,17 +1289,19 @@ export default function ProductListPage() {
             </button>
           </div>
 
-          <Button 
-            onClick={() => { setEditId(null); setView('add'); }}
-            className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg hover:-translate-y-[1px] transition-all px-5 h-10 flex items-center cursor-pointer"
-          >
-            <Plus className="w-4 h-4 mr-1.5" /> Add New Spec
-          </Button>
+          {canEdit && (
+            <Button 
+              onClick={() => { setEditId(null); setView('add'); }}
+              className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg hover:-translate-y-[1px] transition-all px-5 h-10 flex items-center cursor-pointer"
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Add New Spec
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Bulk actions banner */}
-      {selectedIds.length > 0 && (
+      {canEdit && selectedIds.length > 0 && (
         <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/60 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate__animated animate__fadeIn">
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-indigo-600 text-white font-bold text-xs shadow-md">
@@ -1359,12 +1371,14 @@ export default function ProductListPage() {
                     </div>
                   )}
                   {/* Select Checkbox bubble overlay */}
-                  <div className="absolute top-2.5 left-2.5 z-10">
-                    <TableCheckbox
-                      checked={selectedIds.includes(item.id)}
-                      onChange={() => handleSelectRow(item.id)}
-                    />
-                  </div>
+                  {canEdit && (
+                    <div className="absolute top-2.5 left-2.5 z-10">
+                      <TableCheckbox
+                        checked={selectedIds.includes(item.id)}
+                        onChange={() => handleSelectRow(item.id)}
+                      />
+                    </div>
+                  )}
                   {/* Code Badge overlay */}
                   <div className="absolute top-2.5 right-2.5 px-2 py-0.5 bg-slate-900/80 backdrop-blur-md rounded-md text-[10px] font-bold font-mono text-white tracking-wider">
                     {item.code}
@@ -1409,23 +1423,25 @@ export default function ProductListPage() {
                   </div>
 
                   {/* Quick Action buttons */}
-                  <div className="flex items-center gap-2 pt-1 shrink-0">
-                    <Button
-                      size="sm"
-                      onClick={() => { setEditId(item.id); setView('edit'); }}
-                      className="flex-1 bg-slate-50 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 hover:text-indigo-600 hover:border-indigo-200/50 rounded-xl text-xs py-1.5 font-bold transition-all border border-slate-200 dark:border-slate-750 cursor-pointer"
-                    >
-                      <Edit className="w-3.5 h-3.5 mr-1" /> Edit Specs
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => handleDelete(item.id)}
-                      className="p-2 text-rose-500 hover:text-rose-650 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-2 pt-1 shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={() => { setEditId(item.id); setView('edit'); }}
+                        className="flex-1 bg-slate-50 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 hover:text-indigo-600 hover:border-indigo-200/50 rounded-xl text-xs py-1.5 font-bold transition-all border border-slate-200 dark:border-slate-750 cursor-pointer"
+                      >
+                        <Edit className="w-3.5 h-3.5 mr-1" /> Edit Specs
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDelete(item.id)}
+                        className="p-2 text-rose-500 hover:text-rose-655 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))
@@ -1441,13 +1457,15 @@ export default function ProductListPage() {
               <Table>
                 <TableHeader className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase font-semibold">
                   <TableRow className="dark:border-slate-800">
-                    <TableHead className="w-[50px] text-center">
-                      <TableCheckbox
-                        checked={isAllVisibleSelected}
-                        indeterminate={isSomeVisibleSelected}
-                        onChange={() => handleSelectAll(paginated)}
-                      />
-                    </TableHead>
+                    {canEdit && (
+                      <TableHead className="w-[50px] text-center">
+                        <TableCheckbox
+                          checked={isAllVisibleSelected}
+                          indeterminate={isSomeVisibleSelected}
+                          onChange={() => handleSelectAll(paginated)}
+                        />
+                      </TableHead>
+                    )}
                     <TableHead className="w-24">Code</TableHead>
                     <TableHead>Specification Name</TableHead>
                     <TableHead>Category</TableHead>
@@ -1455,7 +1473,7 @@ export default function ProductListPage() {
                     <TableHead className="text-right">Overheads</TableHead>
                     <TableHead className="text-right">Total Unit Cost</TableHead>
                     <TableHead className="text-right text-indigo-600 dark:text-indigo-400">Selling Price</TableHead>
-                    <TableHead className="text-center w-24">Actions</TableHead>
+                    {canEdit && <TableHead className="text-center w-24">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1468,12 +1486,14 @@ export default function ProductListPage() {
                   ) : (
                     paginated.map((item) => (
                       <TableRow key={item.id} className="dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
-                        <TableCell className="text-center">
-                          <TableCheckbox
-                            checked={selectedIds.includes(item.id)}
-                            onChange={() => handleSelectRow(item.id)}
-                          />
-                        </TableCell>
+                        {canEdit && (
+                          <TableCell className="text-center">
+                            <TableCheckbox
+                              checked={selectedIds.includes(item.id)}
+                              onChange={() => handleSelectRow(item.id)}
+                            />
+                          </TableCell>
+                        )}
                         <TableCell className="font-mono text-slate-500 font-bold">{item.code}</TableCell>
                         <TableCell className="font-bold text-slate-850 dark:text-slate-100">{item.name}</TableCell>
                         <TableCell>
@@ -1485,24 +1505,26 @@ export default function ProductListPage() {
                         <td className="p-3 text-right font-mono dark:text-slate-355">₹{parseFloat(item.totalNonInventoryCost || 0).toFixed(2)}</td>
                         <td className="p-3 text-right font-mono font-bold dark:text-white">₹{parseFloat(item.totalCost || 0).toFixed(2)}</td>
                         <td className="p-3 text-right font-mono font-extrabold text-indigo-650 dark:text-indigo-400">₹{parseFloat(item.salePrice || 0).toFixed(2)}</td>
-                        <TableCell className="text-center font-bold">
-                          <div className="flex items-center justify-center space-x-1">
-                            <button 
-                              onClick={() => { setEditId(item.id); setView('edit'); }}
-                              className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded transition-colors cursor-pointer"
-                              title="Edit Specification Details"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => handleDelete(item.id)} 
-                              className="p-1.5 text-rose-555 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded transition-colors cursor-pointer"
-                              title="Delete Specification"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </TableCell>
+                        {canEdit && (
+                          <TableCell className="text-center font-bold">
+                            <div className="flex items-center justify-center space-x-1">
+                              <button 
+                                onClick={() => { setEditId(item.id); setView('edit'); }}
+                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded transition-colors cursor-pointer"
+                                title="Edit Specification Details"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => handleDelete(item.id)} 
+                                className="p-1.5 text-rose-555 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded transition-colors cursor-pointer"
+                                title="Delete Specification"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))
                   )}

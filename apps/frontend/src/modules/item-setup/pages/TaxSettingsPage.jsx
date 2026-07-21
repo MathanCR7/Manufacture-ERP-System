@@ -1,11 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, CheckCircle2, Building } from 'lucide-react';
+import { Settings, CheckCircle2, Building, AlertTriangle } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
+import useAuthStore from '@/app/store/authStore';
+
+import React, { useState, useEffect } from 'react';
 
 export default function TaxSettingsPage() {
+  const user = useAuthStore(s => s.user);
+  const canEdit = user?.role === 'MAIN_MASTER';
   // Company profile states
   const [companyName, setCompanyName] = useState('Leonex pvt limited');
   const [companyAddress, setCompanyAddress] = useState('Factory / Registered Office Address');
@@ -89,101 +93,112 @@ export default function TaxSettingsPage() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 text-xs">
+      {!canEdit && (
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
+          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>You have <strong>Read-Only access</strong> to Company Settings. Modifying business parameters is restricted.</span>
+        </div>
+      )}
       {/* Page Title */}
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-800 dark:text-white flex items-center">
-          <Building className="w-5 h-5 mr-2 text-indigo-500" />
+      <div className="pb-3 border-b border-slate-205 dark:border-slate-800">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
+          <Building className="w-5.5 h-5.5 mr-2 text-indigo-650 shrink-0" />
           Company Details Settings
         </h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 pl-7">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
           Configure business profile details, GSTIN, PAN, and contact number. These details are updated across all invoices.
         </p>
       </div>
 
       {success && (
-        <div className="flex items-center gap-2 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400">
-          <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-sm font-semibold">Company details saved successfully and applied across all invoices!</span>
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-650 dark:text-emerald-400 font-bold">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <span className="text-xs">Company details saved successfully and applied across all invoices!</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-4">
         
         {/* Company Settings Card */}
-        <Card className="bg-white dark:bg-slate-800/80 backdrop-blur border border-slate-200 dark:border-slate-700/50 rounded-2xl shadow-sm">
-          <CardContent className="p-6 space-y-5">
-            <div className="border-b border-slate-100 dark:border-slate-700 pb-3">
-              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
+        <Card className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-hidden text-xs">
+          <CardContent className="p-5 space-y-4">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
+              <h2 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5 text-slate-500">
                 <Building className="w-4 h-4 text-indigo-500" />
                 Company Details
               </h2>
             </div>
             
-            <div className="grid grid-cols-1 gap-5">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            <div className="grid grid-cols-1 gap-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Company Name <span className="text-red-500">*</span>
                 </label>
                 <Input
+                  disabled={!canEdit}
                   required
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   placeholder="e.g. Leonex pvt limited"
-                  className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-xl"
+                  className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl h-9 text-xs font-semibold disabled:opacity-75 disabled:cursor-not-allowed"
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              <div className="space-y-1">
+                <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Company Address <span className="text-red-500">*</span>
                 </label>
                 <Input
+                  disabled={!canEdit}
                   required
                   value={companyAddress}
                   onChange={(e) => setCompanyAddress(e.target.value)}
                   placeholder="e.g. Factory / Registered Office Address"
-                  className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-xl"
+                  className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl h-9 text-xs font-semibold disabled:opacity-75 disabled:cursor-not-allowed"
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     GSTIN <span className="text-red-500">*</span>
                   </label>
                   <Input
+                    disabled={!canEdit}
                     required
                     value={companyGstin}
                     onChange={(e) => setCompanyGstin(e.target.value)}
                     placeholder="e.g. 33AABCL0702C1ZG"
-                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-xl font-mono"
+                    className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl font-mono h-9 text-xs font-bold uppercase disabled:opacity-75 disabled:cursor-not-allowed"
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     PAN <span className="text-red-500">*</span>
                   </label>
                   <Input
+                    disabled={!canEdit}
                     required
                     value={companyPan}
                     onChange={(e) => setCompanyPan(e.target.value)}
                     placeholder="e.g. AABCL0702C"
-                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-xl font-mono"
+                    className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl font-mono h-9 text-xs font-bold uppercase disabled:opacity-75 disabled:cursor-not-allowed"
                   />
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     Company Mobile <span className="text-red-500">*</span>
                   </label>
                   <Input
+                    disabled={!canEdit}
                     required
                     value={companyMobile}
                     onChange={(e) => setCompanyMobile(e.target.value)}
                     placeholder="e.g. +91 9360163523"
-                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 rounded-xl"
+                    className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl h-9 text-xs font-bold disabled:opacity-75 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -191,14 +206,23 @@ export default function TaxSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Submit */}
-        <div className="flex justify-end">
+        {/* Action Controls */}
+        <div className="flex justify-end items-center gap-3 pt-2">
           <Button
-            type="submit"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl flex items-center gap-1.5 px-6 py-2.5 shadow-md shadow-indigo-500/15 hover:shadow-indigo-500/25 transition-all"
+            type="button"
+            onClick={() => window.history.back()}
+            className="bg-rose-600 hover:bg-rose-700 dark:bg-rose-700 dark:hover:bg-rose-800 text-white font-bold rounded-xl px-6 py-2.5 shadow-md transition-all text-xs cursor-pointer h-9"
           >
-            Save Configuration
+            Cancel
           </Button>
+          {canEdit && (
+            <Button
+              type="submit"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center gap-1.5 px-6 py-2.5 shadow-md shadow-indigo-500/15 hover:shadow-indigo-500/25 transition-all text-xs cursor-pointer h-9"
+            >
+              Save Configuration
+            </Button>
+          )}
         </div>
       </form>
     </div>
