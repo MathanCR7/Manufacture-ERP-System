@@ -215,6 +215,13 @@ const createQuotation = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'No valid suppliers found' });
     }
 
+    // Fetch materials beforehand to avoid query roundtrips inside the transaction block
+    const materialIds = items.map(i => i.materialId).filter(Boolean);
+    const dbMaterials = await prisma.rawMaterial.findMany({
+      where: { id: { in: materialIds } }
+    });
+    const materialMap = new Map(dbMaterials.map(m => [m.id, m]));
+
     // 1. Create RMQuotation Header & Items in Transaction
     const newQuotation = await prisma.$transaction(async (tx) => {
       const qHeader = await tx.rMQuotation.create({
@@ -234,7 +241,7 @@ const createQuotation = async (req, res, next) => {
         let materialCode = item.materialCode || null;
 
         if (item.materialId) {
-          const rm = await tx.rawMaterial.findUnique({ where: { id: item.materialId } });
+          const rm = materialMap.get(item.materialId);
           if (rm) {
             materialName = rm.name;
             materialCode = rm.code;
@@ -277,8 +284,8 @@ const createQuotation = async (req, res, next) => {
         }
       });
     }, {
-      maxWait: 15000,
-      timeout: 30000
+      maxWait: 8000,
+      timeout: 25000
     });
 
     // 2. Dispatch emails to suppliers asynchronously with their unique link
