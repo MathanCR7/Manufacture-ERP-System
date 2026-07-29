@@ -113,6 +113,7 @@ model User {
   productWastagesCreated ProductWastage[] @relation("ProductWastagesCreated")
   assetRequests      AssetRequest[]   @relation("AssetRequestCreator")
   assetPOs           AssetPO[]        @relation("AssetPOCreator")
+  rmQuotations       RMQuotation[]
 
   @@index([email])
   @@index([role])
@@ -401,6 +402,7 @@ model Supplier {
 
   user User? @relation(fields: [addedBy], references: [id])
   purchaseOrders RawMaterialPO[] // <--- ADDED
+  rmQuotationSuppliers RMQuotationSupplier[]
 }
 
 model Customer {
@@ -481,6 +483,7 @@ model RawMaterial {
   productBOMs ProductBOM[]
   productionBatchRMUsages ProductionBatchRMUsage[]
   productionLossMaterials ProductionLossMaterial[]
+  rmQuotationItems RMQuotationItem[]
 }
 
 model RMStockAdjustment {
@@ -1698,4 +1701,107 @@ model ErrorLog {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("error_logs")
+}
+
+enum RMQuotationStatus {
+  DRAFT
+  SENT
+  PARTIALLY_RESPONDED
+  ALL_RESPONDED
+  EXPIRED
+  CONVERTED
+}
+
+enum RMQuotationSupplierStatus {
+  PENDING
+  RESPONDED
+  RESUBMISSION_REQUESTED
+  EXPIRED
+  EMAIL_FAILED
+}
+
+model RMQuotation {
+  id            String              @id @default(uuid())
+  quotationNo   String              @unique @map("quotation_no")
+  quotationDate DateTime            @default(now()) @map("quotation_date")
+  expiryAt      DateTime            @map("expiry_at")
+  note          String?             @db.Text
+  status        RMQuotationStatus   @default(SENT)
+  createdBy     String              @map("created_by")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  creator       User                @relation(fields: [createdBy], references: [id])
+  items         RMQuotationItem[]
+  suppliers     RMQuotationSupplier[]
+
+  @@map("rm_quotations")
+}
+
+model RMQuotationItem {
+  id            String              @id @default(uuid())
+  quotationId   String              @map("quotation_id")
+  materialId    String              @map("material_id")
+  materialName  String              @map("material_name")
+  materialCode  String?             @map("material_code")
+  quantity      Decimal
+  unit          String
+  gstApplicable Boolean             @default(true) @map("gst_applicable")
+  gstRate       Decimal             @default(18.00) @map("gst_rate")
+
+  quotation     RMQuotation         @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  material      RawMaterial         @relation(fields: [materialId], references: [id])
+  responseItems RMQuotationResponseItem[]
+
+  @@map("rm_quotation_items")
+}
+
+model RMQuotationSupplier {
+  id            String                    @id @default(uuid())
+  quotationId   String                    @map("quotation_id")
+  supplierId    String                    @map("supplier_id")
+  supplierEmail String                    @map("supplier_email")
+  secureToken   String                    @unique @map("secure_token")
+  status        RMQuotationSupplierStatus @default(PENDING)
+  sentAt        DateTime                  @default(now()) @map("sent_at")
+  respondedAt   DateTime?                 @map("responded_at")
+
+  quotation     RMQuotation               @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  supplier      Supplier                  @relation(fields: [supplierId], references: [id])
+  responses     RMQuotationResponse[]
+
+  @@map("rm_quotation_suppliers")
+}
+
+model RMQuotationResponse {
+  id                  String                  @id @default(uuid())
+  quotationSupplierId String                  @map("quotation_supplier_id")
+  discount            Decimal                 @default(0.00)
+  shipping            Decimal                 @default(0.00)
+  otherCharges        Decimal                 @default(0.00) @map("other_charges")
+  supplierNote        String?                 @db.Text @map("supplier_note")
+  subtotal            Decimal                 @default(0.00)
+  taxTotal            Decimal                 @default(0.00) @map("tax_total")
+  grandTotal          Decimal                 @default(0.00) @map("grand_total")
+  submittedAt         DateTime                @default(now()) @map("submitted_at")
+  updatedAt           DateTime                @updatedAt @map("updated_at")
+
+  quotationSupplier   RMQuotationSupplier     @relation(fields: [quotationSupplierId], references: [id], onDelete: Cascade)
+  items               RMQuotationResponseItem[]
+
+  @@map("rm_quotation_responses")
+}
+
+model RMQuotationResponseItem {
+  id              String             @id @default(uuid())
+  responseId      String             @map("response_id")
+  quotationItemId String             @map("quotation_item_id")
+  unitPrice       Decimal            @default(0.00) @map("unit_price")
+  gstRate         Decimal            @default(0.00) @map("gst_rate")
+  lineSubtotal    Decimal            @default(0.00) @map("line_subtotal")
+
+  response        RMQuotationResponse @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  quotationItem   RMQuotationItem     @relation(fields: [quotationItemId], references: [id], onDelete: Cascade)
+
+  @@map("rm_quotation_response_items")
 }

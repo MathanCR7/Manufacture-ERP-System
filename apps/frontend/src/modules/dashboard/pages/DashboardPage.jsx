@@ -33,9 +33,9 @@ const formatDate = (dateStr) => {
 };
 
 const formatTime = (timestamp) => {
-  if (!timestamp) return '--:--:--';
+  if (!timestamp) return '--:--';
   const date = new Date(timestamp);
-  return date.toLocaleTimeString('en-IN', { hour12: false });
+  return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false });
 };
 
 export default function DashboardPage() {
@@ -166,7 +166,7 @@ export default function DashboardPage() {
   const alertsQuery = useQuery({
     queryKey: ['dashboard-alerts'],
     queryFn: async () => {
-      const res = await api.get('/notifications?unread=true&limit=20');
+      const res = await api.get('/notifications?unread=true&limit=8');
       return res.data;
     },
     refetchInterval: 30000,
@@ -184,6 +184,58 @@ export default function DashboardPage() {
       ordersQuery.refetch();
       forecastProductQuery.refetch();
       forecastOrderQuery.refetch();
+    }
+  };
+
+  const handleAlertClick = (alert) => {
+    // Mark as read in the background
+    api.patch(`/notifications/${alert.id}/seen`).catch(e => console.warn(e));
+
+    const type = alert.type || '';
+    const metadata = alert.metadata || {};
+    const refId = alert.referenceId;
+    const refType = alert.referenceType;
+
+    const poId = metadata.po_id || metadata.poId || metadata.purchaseOrderId || (refType === 'PO' ? refId : null) || (type.startsWith('PO_') ? refId : null);
+    const grnId = metadata.grn_id || metadata.grnId || (refType === 'GRN' ? refId : null) || (type.startsWith('GRN_') ? refId : null);
+
+    if (type.startsWith('PO_') || (alert.title && alert.title.includes('PO-'))) {
+      let finalPoId = poId;
+      if (!finalPoId && alert.title) {
+        const match = alert.title.match(/PO-[0-9a-fA-F-]+/i) || alert.title.match(/PO-\d+/);
+        if (match) {
+          finalPoId = match[0];
+        }
+      }
+      if (finalPoId) {
+        navigate(`/purchase-orders/${finalPoId}`, { state: { highlight: true } });
+      } else {
+        navigate('/purchase-orders');
+      }
+    } else if (type.startsWith('GRN_') || (alert.title && alert.title.includes('status changed to RECEIVED')) || (alert.title && alert.title.includes('GRN'))) {
+      if (grnId) {
+        navigate(`/grn/view/${grnId}`, { state: { highlight: true } });
+      } else {
+        navigate('/grn/list');
+      }
+    } else if (type.startsWith('LAB_')) {
+      navigate('/lab/results');
+    } else if (type.startsWith('PRODUCTION_')) {
+      navigate('/production/batches');
+    } else if (type.includes('STOCK_') || type.includes('LOW_STOCK')) {
+      if (type.startsWith('RM_')) {
+        navigate('/purchase/rm-low-stock');
+      } else {
+        navigate('/production/low-stock-alerts');
+      }
+    } else {
+      if (poId) {
+        navigate(`/purchase-orders/${poId}`, { state: { highlight: true } });
+      } else if (grnId) {
+        navigate(`/grn/view/${grnId}`, { state: { highlight: true } });
+      } else {
+        navigate('/notifications');
+      }
     }
   };
 
@@ -787,10 +839,10 @@ export default function DashboardPage() {
           {/* ----------------------------------------------------
               SECTION 9: SYSTEM ALERTS FEED
              ---------------------------------------------------- */}
-          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col max-h-[420px]">
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col h-[380px] max-h-[380px]">
             <SectionHeader title="System Alerts & Logs" queryRef={alertsQuery} />
 
-            <div className="overflow-y-auto space-y-3.5 pr-1 scrollbar-thin scrollbar-thumb-slate-205 dark:scrollbar-thumb-slate-800">
+            <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 mt-2">
               {alertsQuery.isLoading ? (
                 <>
                   <div className="h-14 bg-slate-50 dark:bg-slate-800/40 animate-pulse rounded-xl"></div>
@@ -799,31 +851,39 @@ export default function DashboardPage() {
                 </>
               ) : (
                 <>
-                  {alertsQuery.data?.map((alert) => {
+                  {alertsQuery.data?.slice(0, 8).map((alert) => {
                     let alertIcon = <AlertCircle className="w-4 h-4 text-amber-600" />;
-                    let alertBg = "bg-amber-50 dark:bg-amber-955/20";
+                    let alertBg = "bg-amber-55/65 dark:bg-amber-950/30";
+                    let borderLeftColor = "border-l-amber-550 dark:border-l-amber-500";
                     
                     if (alert.category === 'QC_FAIL') {
                       alertIcon = <XCircle className="w-4 h-4 text-rose-600" />;
-                      alertBg = "bg-rose-50 dark:bg-rose-955/20";
+                      alertBg = "bg-rose-55/65 dark:bg-rose-950/30";
+                      borderLeftColor = "border-l-rose-500";
                     } else if (alert.category === 'PRODUCTION_COMPLETE') {
                       alertIcon = <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
-                      alertBg = "bg-emerald-50 dark:bg-emerald-500/10";
+                      alertBg = "bg-emerald-55/65 dark:bg-emerald-950/30";
+                      borderLeftColor = "border-l-emerald-500";
                     } else if (alert.category === 'PO_PENDING') {
                       alertIcon = <Clock className="w-4 h-4 text-indigo-600" />;
-                      alertBg = "bg-indigo-50 dark:bg-indigo-950/20";
+                      alertBg = "bg-indigo-55/65 dark:bg-indigo-950/30";
+                      borderLeftColor = "border-l-indigo-500";
                     }
 
                     return (
-                      <div key={alert.id} className="flex gap-2.5 p-2 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                        <div className={`p-2 rounded-xl shrink-0 ${alertBg}`}>
+                      <div 
+                        key={alert.id} 
+                        onClick={() => handleAlertClick(alert)}
+                        className={`flex gap-3 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80 bg-slate-50/20 dark:bg-slate-900/10 hover:bg-indigo-50/25 dark:hover:bg-indigo-950/20 transition-all duration-200 cursor-pointer border-l-4 ${borderLeftColor} hover:scale-[1.015] hover:shadow-xs active:scale-[0.99]`}
+                      >
+                        <div className={`p-2 rounded-xl shrink-0 ${alertBg} flex items-center justify-center`}>
                           {alertIcon}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-700 dark:text-slate-300 font-semibold break-words">
+                        <div className="flex-1 min-w-0 flex flex-col justify-center">
+                          <p className="text-xs text-slate-700 dark:text-slate-200 font-semibold leading-relaxed break-words hover:text-indigo-650 dark:hover:text-indigo-400 transition-colors">
                             {alert.title}
                           </p>
-                          <span className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 block">
+                          <span className="text-[9px] text-slate-400 dark:text-slate-500 mt-1 font-bold flex items-center gap-1">
                             {formatDate(alert.timestamp)} • {formatTime(alert.timestamp)}
                           </span>
                         </div>

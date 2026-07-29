@@ -740,7 +740,11 @@ router.get('/notifications', async (req, res, next) => {
         id: n.id,
         category,
         title: n.message,
-        timestamp: n.eventAt
+        timestamp: n.eventAt,
+        type: n.type,
+        referenceType: n.referenceType,
+        referenceId: n.referenceId,
+        metadata: n.metadata
       };
     });
 

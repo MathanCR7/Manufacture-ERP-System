@@ -1774,6 +1774,332 @@ const resendDocument = async (documentType, documentId, pdfBase64 = null) => {
   }
 };
 
+/**
+ * Handle RM Quotation Automated Email Dispatch to Supplier (HTML Templated)
+ */
+const sendRMQuotationRequestEmail = async ({ quotation, supplier, secureToken, linkUrl }) => {
+  const settings = await getTaxSettingsData();
+  const email = supplier?.supplierEmail || supplier?.email;
+  if (!email) {
+    console.log(`[RM Quotation Dispatch] Skip Quotation-${quotation.quotationNo}. No email for supplier ${supplier?.name}`);
+    await logCommunication({
+      documentType: 'RM_QUOTATION',
+      documentNo: quotation.quotationNo,
+      recipient: 'N/A',
+      channel: 'EMAIL',
+      status: 'SKIPPED',
+      subject: `RM Quotation Request [${quotation.quotationNo}]`,
+      content: 'Supplier email missing. Skipped.'
+    });
+    return;
+  }
+
+  const subject = `RM Quotation Request ${quotation.quotationNo} — ${settings.companyName}`;
+  const expiryFormatted = new Date(quotation.expiryAt).toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+
+  const items = Array.isArray(quotation.items) ? quotation.items : [];
+
+  // Plain Text Fallback
+  let itemsRowsText = '';
+  items.forEach((item, index) => {
+    itemsRowsText += `  |  ${index + 1}   | ${item.materialName} (${item.materialCode || 'N/A'}) | ${item.quantity} | ${item.unit} |\n`;
+  });
+
+  const textBody = `Dear ${supplier.name || 'Valued Supplier'},
+
+${settings.companyName} requests your best pricing quotation for the raw materials listed below.
+
+QUOTATION REQUEST DETAILS:
+------------------------------------------
+Quotation Ref  : ${quotation.quotationNo}
+Request Date   : ${new Date(quotation.quotationDate).toLocaleDateString('en-IN')}
+Expiry Deadline: ${expiryFormatted}
+
+MATERIALS REQUESTED:
+S.No | Material Details | Quantity | Unit
+------------------------------------------------------------
+${itemsRowsText}
+${quotation.note ? `\nInstructions from Buyer:\n${quotation.note}\n` : ''}
+SUBMIT YOUR PRICING ONLINE:
+Please click the unique link below to enter your unit prices, tax rates, discount, and shipping terms:
+
+${linkUrl}
+
+Note: This link is valid until ${expiryFormatted}.
+
+Warm Regards,
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
+
+  // HTML Table Rows
+  let tableRowsHtml = '';
+  items.forEach((item, index) => {
+    const isEven = index % 2 === 1;
+    const bg = isEven ? '#f8fafc' : '#ffffff';
+    tableRowsHtml += `
+      <tr style="background-color: ${bg}; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+        <td style="padding: 10px 14px; text-align: center; font-family: monospace; color: #64748b; font-weight: 600;">${index + 1}</td>
+        <td style="padding: 10px 14px; color: #0f172a; font-weight: 700;">
+          ${item.materialName}
+          ${item.materialCode ? `<span style="display: block; font-size: 11px; font-family: monospace; color: #64748b; font-weight: normal;">${item.materialCode}</span>` : ''}
+        </td>
+        <td style="padding: 10px 14px; text-align: right; font-family: monospace; color: #4f46e5; font-weight: 800;">${item.quantity}</td>
+        <td style="padding: 10px 14px; color: #475569; font-weight: 600;">${item.unit}</td>
+      </tr>
+    `;
+  });
+
+  // HTML Email Body
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RM Quotation Request</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 30px 10px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 620px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+          
+          <!-- HEADER BANNER WITH GRADIENT -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 35px 30px; text-align: left;">
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td>
+                    <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; padding: 6px 14px; border-radius: 30px; margin-bottom: 12px;">
+                      RFQ Request
+                    </span>
+                    <h1 style="color: #ffffff; font-size: 24px; font-weight: 800; margin: 0 0 6px 0; letter-spacing: -0.5px;">
+                      Quotation Request
+                    </h1>
+                    <p style="color: #c7d2fe; font-size: 14px; margin: 0;">
+                      Ref: <strong style="color: #ffffff; font-family: monospace; font-size: 15px;">#${quotation.quotationNo}</strong>
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- BODY CONTENT -->
+          <tr>
+            <td style="padding: 30px 30px 20px 30px; color: #334155; font-size: 14px; line-height: 1.6;">
+              <p style="margin-top: 0; font-size: 16px; font-weight: 700; color: #0f172a;">
+                Dear ${supplier.name || 'Valued Supplier'},
+              </p>
+              <p style="color: #475569; margin-bottom: 25px;">
+                <strong style="color: #1e293b;">${settings.companyName}</strong> requests your best pricing quotation for the raw materials listed below. Please review the details and submit your rates online.
+              </p>
+
+              <!-- DETAILS GRID CARD -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; margin-bottom: 25px;">
+                <tr>
+                  <td width="50%" style="padding-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block;">Request Date</span>
+                    <strong style="font-size: 13px; color: #0f172a;">${new Date(quotation.quotationDate).toLocaleDateString('en-IN')}</strong>
+                  </td>
+                  <td width="50%" style="padding-bottom: 6px;">
+                    <span style="font-size: 11px; font-weight: 700; color: #dc2626; text-transform: uppercase; letter-spacing: 0.5px; display: block;">Expiry Deadline</span>
+                    <strong style="font-size: 13px; color: #dc2626;">${expiryFormatted}</strong>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- MATERIALS TABLE -->
+              <h3 style="font-size: 13px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 12px 0;">
+                Materials Requested
+              </h3>
+
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin-bottom: 25px;">
+                <thead>
+                  <tr style="background-color: #0f172a; color: #ffffff; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <th style="padding: 12px 14px; width: 40px; text-align: center;">#</th>
+                    <th style="padding: 12px 14px;">Material Details</th>
+                    <th style="padding: 12px 14px; text-align: right; width: 90px;">Quantity</th>
+                    <th style="padding: 12px 14px; width: 60px;">Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRowsHtml}
+                </tbody>
+              </table>
+
+              ${quotation.note ? `
+              <!-- INSTRUCTIONS BOX -->
+              <div style="background-color: #eef2ff; border-left: 4px solid #6366f1; padding: 14px 18px; border-radius: 12px; margin-bottom: 25px;">
+                <span style="display: block; font-size: 11px; font-weight: 800; color: #4338ca; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Instructions from Buyer:</span>
+                <span style="font-size: 13px; color: #312e81; line-height: 1.5;">${quotation.note}</span>
+              </div>
+              ` : ''}
+
+              <!-- ONLINE CTA BUTTON -->
+              <div style="text-align: center; margin: 35px 0 25px 0;">
+                <a href="${linkUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; text-decoration: none; padding: 16px 36px; border-radius: 14px; font-weight: 800; font-size: 15px; text-align: center; box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35);">
+                  Submit Your Pricing Online &rarr;
+                </a>
+                <p style="font-size: 11px; color: #94a3b8; margin-top: 12px;">
+                  Note: This secure link is valid until <strong>${expiryFormatted}</strong>.
+                </p>
+              </div>
+
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 25px 30px; text-align: center; color: #64748b; font-size: 12px; line-height: 1.5;">
+              <strong style="color: #1e293b; font-size: 13px; display: block; margin-bottom: 4px;">${settings.companyName}</strong>
+              <span>${settings.companyAddress}</span><br />
+              <span style="display: inline-block; margin-top: 6px; font-weight: 600; color: #475569;">GSTIN: ${settings.companyGstin} | Phone: ${settings.companyMobile}</span>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  try {
+    await transporter.sendMail({
+      from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+      to: email,
+      subject,
+      text: textBody,
+      html: htmlBody
+    });
+
+    await logCommunication({
+      documentType: 'RM_QUOTATION',
+      documentNo: quotation.quotationNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'SENT',
+      subject,
+      content: textBody
+    });
+    console.log(`[RM Quotation Dispatch] Sent HTML Quotation-${quotation.quotationNo} link to ${email}`);
+  } catch (err) {
+    console.error(`[RM Quotation Dispatch] Failed to send email:`, err.message);
+    await logCommunication({
+      documentType: 'RM_QUOTATION',
+      documentNo: quotation.quotationNo,
+      recipient: email,
+      channel: 'EMAIL',
+      status: 'FAILED',
+      subject,
+      content: textBody,
+      errorMessage: err.message
+    });
+  }
+};
+
+/**
+ * Send alert to internal team and confirmation copy to supplier on response submission (HTML Templated)
+ */
+const sendRMQuotationResponseAlert = async ({ quotation, supplierName, supplierEmail, grandTotal, expiryAt }) => {
+  const settings = await getTaxSettingsData();
+  const expiryFormatted = new Date(expiryAt).toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+
+  // 1. Supplier Confirmation Email (HTML)
+  if (supplierEmail) {
+    const subject = `Confirmation: Quotation ${quotation.quotationNo} Submitted — ${settings.companyName}`;
+    const textBody = `Dear ${supplierName},
+
+Thank you for submitting your quotation response for Request ${quotation.quotationNo}.
+
+SUBMISSION SUMMARY:
+------------------------------------------
+Quotation Ref : ${quotation.quotationNo}
+Submitted Total: Rs. ${Number(grandTotal).toFixed(2)}
+Deadline      : ${expiryFormatted}
+
+You can update or resubmit your response anytime before ${expiryFormatted} using your existing access link.
+
+Warm Regards,
+${settings.companyName}`;
+
+    const htmlBody = `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="padding: 30px 10px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 580px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+          <tr>
+            <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; text-align: left;">
+              <h2 style="color: #ffffff; font-size: 22px; font-weight: 800; margin: 0;">Quotation Submitted Successfully</h2>
+              <p style="color: #d1fae5; font-size: 13px; margin: 4px 0 0 0;">Request #${quotation.quotationNo}</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 25px 30px; color: #334155; font-size: 14px; line-height: 1.6;">
+              <p style="margin-top: 0;">Dear <strong>${supplierName}</strong>,</p>
+              <p>Thank you for submitting your quotation response for Request <strong>#${quotation.quotationNo}</strong>. Your pricing details have been securely recorded.</p>
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
+                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
+                  <span style="color: #64748b;">Submitted Total:</span>
+                  <strong style="color: #059669; font-family: monospace; font-size: 15px;">Rs. ${Number(grandTotal).toFixed(2)}</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 12px;">
+                  <span style="color: #64748b;">Deadline:</span>
+                  <span style="color: #334155;">${expiryFormatted}</span>
+                </div>
+              </div>
+              <p style="font-size: 12px; color: #64748b;">You can update or resubmit your response anytime before ${expiryFormatted} using your original link.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 30px; text-align: center; color: #64748b; font-size: 12px;">
+              <strong>${settings.companyName}</strong>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+    try {
+      await transporter.sendMail({
+        from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
+        to: supplierEmail,
+        subject,
+        text: textBody,
+        html: htmlBody
+      });
+    } catch (e) {
+      console.error('[RM Quotation Confirmation Email Error]', e.message);
+    }
+  }
+
+  // 2. Internal Team Notification Log
+  await logCommunication({
+    documentType: 'RM_QUOTATION_RESPONSE',
+    documentNo: quotation.quotationNo,
+    recipient: settings.companyName,
+    channel: 'SYSTEM_NOTIFICATION',
+    status: 'RECEIVED',
+    subject: `Supplier ${supplierName} responded to Quotation #${quotation.quotationNo}`,
+    content: `Supplier ${supplierName} submitted quote with Grand Total Rs. ${Number(grandTotal).toFixed(2)} for ${quotation.quotationNo}.`
+  });
+};
+
+
 module.exports = {
   logCommunication,
   checkWhatsAppEligibility,
@@ -1785,5 +2111,8 @@ module.exports = {
   sendSalesInvoiceDual,
   resendDocument,
   formatPhoneNumber,
-  sendPOUpdateDeleteNotice
+  sendPOUpdateDeleteNotice,
+  sendRMQuotationRequestEmail,
+  sendRMQuotationResponseAlert
 };
+

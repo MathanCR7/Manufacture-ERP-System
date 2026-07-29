@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -45,6 +45,16 @@ export default function GRNViewPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const fromNotifications = location.state?.from === '/notifications';
+  const [highlightActive, setHighlightActive] = useState(!!location.state?.highlight);
+
+  useEffect(() => {
+    if (highlightActive) {
+      const timer = setTimeout(() => {
+        setHighlightActive(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightActive]);
 
   const { data: grn, isLoading } = useQuery({
     queryKey: ['grn-detail', grnId],
@@ -84,7 +94,7 @@ export default function GRNViewPage() {
         <div className="space-y-4 sm:space-y-6">
           {/* Header Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-            <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6">
+            <div className={`lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6 transition-all duration-1000 ${highlightActive ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 shadow-md shadow-indigo-200 dark:shadow-indigo-900 bg-indigo-50/10 dark:bg-indigo-950/15 animate-pulse' : ''}`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
                 <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                   <Package className="w-5 h-5 text-indigo-500" /> GRN Information

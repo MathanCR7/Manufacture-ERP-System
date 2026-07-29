@@ -24,6 +24,7 @@ router.use('/backups', require('../modules/backup/backup.routes'));
 router.use('/', rmRoutes);
 
 router.use('/po', require('../modules/purchase/po.routes'));
+router.use('/rm-quotations', require('../modules/purchase/rm-quotation.routes'));
 router.use('/grn', require('../modules/grn/grn.routes'));
 
 // ERP modules

@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
+import { Pagination } from '@/components/ui/Pagination';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import {
   Package, AlertTriangle, TrendingUp, TrendingDown, Layers,
-  RefreshCw, AlertCircle
+  RefreshCw, AlertCircle, Search
 } from 'lucide-react';
 
 const fmt = (n) => {
@@ -26,9 +27,9 @@ const TT = {
 
 const STATUS = {
   OK: { dot: 'bg-emerald-400', text: 'text-emerald-600 dark:text-emerald-400', badge: 'bg-emerald-50 dark:bg-emerald-950/30' },
-  Low: { dot: 'bg-amber-400', text: 'text-amber-600 dark:text-amber-400', badge: 'bg-amber-50 dark:bg-amber-950/30' },
-  Critical: { dot: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400', badge: 'bg-rose-50 dark:bg-rose-950/30' },
-  'Out of Stock': { dot: 'bg-red-700', text: 'text-red-700 dark:text-red-400', badge: 'bg-red-50 dark:bg-red-950/30' },
+  Low: { dot: 'bg-amber-400', text: 'text-amber-600 dark:text-amber-400', badge: 'bg-amber-50 dark:bg-amber-950/30', label: 'Low Stock' },
+  Critical: { dot: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400', badge: 'bg-rose-50 dark:bg-rose-955/30' },
+  'Out of Stock': { dot: 'bg-red-700', text: 'text-red-700 dark:text-red-400', badge: 'bg-red-50 dark:bg-red-955/30' },
 };
 
 function KPICard({ title, value, sub, icon: Icon, accent, loading, onClick }) {
@@ -73,6 +74,20 @@ export default function InventoryDashboardPage() {
   const [error, setError]     = useState(null);
   const [busy, setBusy]       = useState(false);
   const [tab, setTab]         = useState('rm');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage]       = useState(1);
+  const itemsPerPage          = 10;
+
+  const handleTabChange = (key) => {
+    setTab(key);
+    setSearchQuery('');
+    setPage(1);
+  };
+
+  const handleSearchChange = (val) => {
+    setSearchQuery(val);
+    setPage(1);
+  };
 
   const load = async (refresh = false) => {
     refresh ? setBusy(true) : setLoading(true);
@@ -88,9 +103,24 @@ export default function InventoryDashboardPage() {
   const TABS = [
     { key: 'rm',   label: '🧪 Raw Materials' },
     { key: 'fp',   label: '📦 Finished Goods' },
-    { key: 'dead', label: '💤 Dead Stock'     },
+    { key: 'dead', label: '💤 Low & Dead Stock' },
   ];
   const tableData = tab === 'rm' ? (d.rmStockList || []) : tab === 'fp' ? (d.fpStockList || []) : (d.deadStock || []);
+
+  const filteredTableData = tableData.filter(item => {
+    if (!searchQuery) return true;
+    const term = searchQuery.toLowerCase();
+    return (
+      item.name?.toLowerCase().includes(term) ||
+      item.code?.toLowerCase().includes(term) ||
+      item.category?.toLowerCase().includes(term) ||
+      item.status?.toLowerCase().includes(term)
+    );
+  });
+
+  const totalItems = filteredTableData.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const paginatedData = filteredTableData.slice((page - 1) * itemsPerPage, page * itemsPerPage);
 
   return (
     <div className="space-y-6 bg-[#F4F3FF] dark:bg-slate-950 -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen">
@@ -131,17 +161,17 @@ export default function InventoryDashboardPage() {
           {(d.reorderAlerts || []).length === 0 && !loading
             ? <p className="text-xs text-emerald-500 text-center py-6">✅ All stock levels healthy</p>
             : (
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                {(d.reorderAlerts || []).map(rm => {
+              <div className="space-y-2">
+                {(d.reorderAlerts || []).slice(0, 4).map(rm => {
                   const m = STATUS[rm.status] || STATUS.OK;
                   return (
                     <div key={rm.id} className="flex items-center gap-2 py-2 border-b border-slate-50 dark:border-slate-800/50">
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${m.dot}`} />
                       <div className="flex-1 min-w-0">
                         <div className="text-xs text-slate-700 dark:text-slate-300 truncate">{rm.name}</div>
-                        <div className="text-[10px] text-slate-400">Stock: {rm.currentStock} · Min: {rm.alertLevel}</div>
+                        <div className="text-[10px] text-slate-400">Stock: {rm.currentStock} · Reorder Level: {rm.alertLevel}</div>
                       </div>
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${m.badge} ${m.text}`}>{rm.status}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${m.badge} ${m.text}`}>{m.label || rm.status}</span>
                     </div>
                   );
                 })}
@@ -153,13 +183,34 @@ export default function InventoryDashboardPage() {
 
       {/* Stock Table */}
       <Card title="Stock Inventory" accent="#6366f1">
-        <div className="flex gap-2 mb-4 flex-wrap">
-          {TABS.map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${tab === t.key ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/30'}`}>
-              {t.label}
-            </button>
-          ))}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-5 border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex gap-2 flex-wrap">
+            {TABS.map(t => (
+              <button key={t.key} onClick={() => handleTabChange(t.key)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${tab === t.key ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-200 dark:shadow-indigo-900/20' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-650 dark:text-slate-300 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20'}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              placeholder={`Search ${tab === 'rm' ? 'raw materials' : tab === 'fp' ? 'finished goods' : 'low & dead stock'}...`}
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 transition font-semibold text-slate-700 dark:text-slate-200"
+            />
+            {searchQuery && (
+              <button 
+                onClick={() => handleSearchChange('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-bold text-slate-400 hover:text-slate-655 dark:hover:text-slate-300 cursor-pointer"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -171,7 +222,7 @@ export default function InventoryDashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {tableData.map(item => {
+              {paginatedData.map(item => {
                 const m = STATUS[item.status] || STATUS.OK;
                 return (
                   <tr key={item.id} className="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -180,20 +231,37 @@ export default function InventoryDashboardPage() {
                     <td className="py-2 px-3 text-slate-500 dark:text-slate-400 text-xs">{item.category}</td>
                     <td className="py-2 px-3 text-slate-800 dark:text-slate-200 font-semibold">{Number(item.currentStock || 0).toFixed(1)}</td>
                     <td className="py-2 px-3 text-slate-400 dark:text-slate-500 text-xs">{item.alertLevel}</td>
-                    <td className="py-2 px-3 text-slate-500 dark:text-slate-400 text-xs">₹{Number(tab === 'rm' ? item.ratePerUnit : item.salePrice || 0).toFixed(2)}</td>
+                    <td className="py-2 px-3 text-slate-500 dark:text-slate-400 text-xs">₹{Number(item.ratePerUnit || item.salePrice || 0).toFixed(2)}</td>
                     <td className="py-2 px-3 text-emerald-600 dark:text-emerald-400 font-bold text-xs">{fmt(item.value)}</td>
                     <td className="py-2 px-3">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${m.badge} ${m.text}`}>{item.status}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${m.badge} ${m.text}`}>{m.label || item.status}</span>
                     </td>
                   </tr>
                 );
               })}
-              {!loading && tableData.length === 0 && (
+              {!loading && paginatedData.length === 0 && (
                 <tr><td colSpan={8} className="py-6 text-center text-slate-400 text-xs">No data found</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3 mt-4 rounded-xl">
+            <div className="text-[11px] text-slate-555 dark:text-slate-400 font-medium order-2 sm:order-1">
+              Showing page {page} of {totalPages} ({totalItems} items)
+            </div>
+            <div className="order-1 sm:order-2">
+              <Pagination 
+                currentPage={page} 
+                totalPages={totalPages} 
+                onPageChange={setPage} 
+              />
+            </div>
+            <div className="text-xs text-slate-404 font-medium order-3">
+              Total entries: {totalItems} records
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );

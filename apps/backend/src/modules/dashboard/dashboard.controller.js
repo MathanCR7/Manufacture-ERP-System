@@ -542,10 +542,10 @@ class DashboardController {
           lowStockCount, criticalCount,
           stockInLast30, stockOutLast30
         },
-        rmStockList: rmStockList.slice(0, 20),
-        fpStockList: fpStockList.slice(0, 20),
+        rmStockList: rmStockList,
+        fpStockList: fpStockList,
         reorderAlerts: reorderAlerts.slice(0, 10),
-        deadStock: deadStock.slice(0, 10),
+        deadStock: [...deadStock, ...reorderAlerts],
         recentMovements: recentMovements.map(m => ({
           id: m.id, productName: m.product?.name || 'N/A', type: m.type,
           quantity: fmtNum(m.quantity), direction: m.direction, createdAt: m.createdAt

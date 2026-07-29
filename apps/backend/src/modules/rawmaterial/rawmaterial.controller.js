@@ -144,6 +144,7 @@ const createPOSchema = z.object({
   igst: z.coerce.number().optional(),
   grandTotal: z.coerce.number().optional(),
   items: z.any().optional(),
+  quotationId: z.string().nullable().optional(),
 });
 
 exports.createPO = async (req, res, next) => {
@@ -192,6 +193,24 @@ exports.createPO = async (req, res, next) => {
           items: parsedData.items || null,
         }
       });
+
+      // If created from an RM Quotation, mark quotation status as CONVERTED and prevent duplicate conversions
+      if (parsedData.quotationId) {
+        const existingQuote = await tx.rMQuotation.findUnique({
+          where: { id: parsedData.quotationId }
+        });
+
+        if (existingQuote && existingQuote.status === 'CONVERTED') {
+          const err = new Error('This quotation has already been converted into a Purchase Order.');
+          err.statusCode = 409;
+          throw err;
+        }
+
+        await tx.rMQuotation.update({
+          where: { id: parsedData.quotationId },
+          data: { status: 'CONVERTED' }
+        });
+      }
 
       return po;
     });

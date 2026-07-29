@@ -39,6 +39,7 @@ class POController {
       const event_at = new Date();
       const event_at_local = event_at.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
       const { rmId, name, quantity, amount, expectedDelivery, uom, user, id: po_id } = newPO;
+      const formattedAmount = Number(amount).toFixed(2);
       const expected_delivery_date = new Date(expectedDelivery).toLocaleDateString();
 
       await notificationService.createNotification({
@@ -49,13 +50,13 @@ class POController {
         reference_type: 'PO',
         reference_id: po_id,
         event_at,
-        message: `📦 New Purchase Order Raised — RM #${rmId} · ${name} · Qty: ${quantity} ${uom.abbreviation} · Amount: ₹${amount} · Expected Delivery: ${expected_delivery_date} · Raised by ${user.name} at ${event_at_local}`,
+        message: `📦 New Purchase Order Raised — RM #${rmId} · ${name} · Qty: ${quantity} ${uom.abbreviation} · Amount: ₹${formattedAmount} · Expected Delivery: ${expected_delivery_date} · Raised by ${user.name} at ${event_at_local}`,
         metadata: {
           rm_id: rmId,
           rm_name: name,
           quantity: quantity,
           uom: uom.abbreviation,
-          amount: amount,
+          amount: Number(formattedAmount),
           expected_delivery_date,
           po_id
         }

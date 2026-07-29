@@ -496,7 +496,16 @@ const MENU_GROUPS = [
     icon: ShoppingCart,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'],
     items: [
-      { name: '🛒 Purchase Order', path: '/purchase-orders', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
+      {
+        id: 'rmOrder',
+        name: '📦 RM Order',
+        isNested: true,
+        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'],
+        children: [
+          { name: '🛒 Direct Order', path: '/purchase-orders', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
+          { name: '📝 RM Quotation', path: '/purchase-quotations', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER'] },
+        ]
+      },
       { name: '🚚 Upcoming Deliveries', path: '/grn/upcoming', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'], badgeKey: 'upcomingDeliveries' },
       { name: '📥 GRN Records', path: '/grn/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT'] },
       { name: '🔄 Purchase Return', path: '/purchase-return/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT'] },
@@ -672,6 +681,8 @@ const AppShell = () => {
   const location = useLocation();
 
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [expandedNestedItems, setExpandedNestedItems] = useState({});
+  const [hoveredNestedItems, setHoveredNestedItems] = useState({});
   const [isDarkMode, setIsDarkMode] = useState(() => {
     return localStorage.getItem('darkMode') === 'true';
   });
@@ -1041,6 +1052,28 @@ const AppShell = () => {
     if (!token || !user) {
       clearAuth();
       navigate('/login');
+      return;
+    }
+
+    try {
+      const base64Url = token.split('.')[1];
+      if (base64Url) {
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const { exp } = JSON.parse(jsonPayload);
+        if (exp && Date.now() >= exp * 1000) {
+          clearAuth();
+          navigate('/login');
+        }
+      }
+    } catch {
+      clearAuth();
+      navigate('/login');
     }
   }, [token, user, clearAuth, navigate]);
 
@@ -1072,14 +1105,17 @@ const AppShell = () => {
     }));
   };
 
-  const activeItemPath = MENU_GROUPS
-    .flatMap(group => group.items)
-    .filter(item => location.pathname.startsWith(item.path))
+  const allLeafItems = MENU_GROUPS.flatMap(group => 
+    group.items.flatMap(item => item.isNested ? item.children : item)
+  );
+
+  const activeItemPath = allLeafItems
+    .filter(item => item.path && location.pathname.startsWith(item.path))
     .reduce((longest, current) => 
-      current.path.length > (longest?.path.length || 0) ? current : longest
+      (current.path?.length || 0) > (longest?.path?.length || 0) ? current : longest
     , null)?.path;
 
-  const isItemActive = (path) => path === activeItemPath;
+  const isItemActive = (path) => path && path === activeItemPath;
 
   // Auto-expand group if it contains the active route (accordion mode)
   useEffect(() => {
@@ -1088,10 +1124,13 @@ const AppShell = () => {
 
     MENU_GROUPS.forEach(group => {
       group.items.forEach(item => {
-        if (location.pathname.startsWith(item.path) && item.path.length > maxLength) {
-          maxLength = item.path.length;
-          bestGroup = group;
-        }
+        const subList = item.isNested ? item.children : [item];
+        subList.forEach(sub => {
+          if (sub.path && location.pathname.startsWith(sub.path) && sub.path.length > maxLength) {
+            maxLength = sub.path.length;
+            bestGroup = group;
+          }
+        });
       });
     });
 
@@ -1403,6 +1442,65 @@ const AppShell = () => {
                 }`}>
                   <div className="ml-6 pl-4 border-l-2 border-slate-100 dark:border-slate-800 space-y-1 py-1">
                     {visibleItems.map((item) => {
+                      if (item.isNested) {
+                        const isChildActive = item.children.some(child => isItemActive(child.path) || location.pathname.startsWith(child.path));
+                        const isRmExpanded = Boolean(expandedNestedItems[item.id]);
+
+                        return (
+                          <div 
+                            key={item.id || item.name} 
+                            className="relative my-1.5 rounded-xl transition-all"
+                            onMouseEnter={() => setHoveredNestedItems(prev => ({ ...prev, [item.id]: true }))}
+                            onMouseLeave={() => setHoveredNestedItems(prev => ({ ...prev, [item.id]: false }))}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setExpandedNestedItems(prev => ({ ...prev, [item.id]: !isRmExpanded }))}
+                              className={`w-full flex items-center justify-between px-3.5 py-2 text-xs font-bold rounded-xl transition-all duration-200 ${
+                                isChildActive 
+                                  ? 'bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-700 dark:from-indigo-950/60 dark:to-purple-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-sm' 
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span>{item.name}</span>
+                                {isChildActive && (
+                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-ping" />
+                                )}
+                              </div>
+                              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${
+                                (isRmExpanded || hoveredNestedItems[item.id] || isChildActive) ? 'rotate-180 text-indigo-500' : ''
+                              }`} />
+                            </button>
+
+                            {/* Submenu links (Opens when user clicks or if active route) */}
+                            <div className={`overflow-hidden transition-all duration-300 ease-in-out ml-3 pl-3 border-l-2 border-indigo-200 dark:border-indigo-800/80 space-y-1 ${
+                              (isRmExpanded || isChildActive) 
+                                ? 'max-h-40 opacity-100 mt-1 py-1' 
+                                : 'max-h-0 opacity-0 mt-0 pointer-events-none'
+                            }`}>
+                              {item.children.map(child => {
+                                const childActive = isItemActive(child.path);
+                                return (
+                                  <Link
+                                    key={child.path}
+                                    to={child.path}
+                                    className={`flex items-center justify-between px-3 py-2 text-xs rounded-lg transition-all duration-200 ${
+                                      childActive 
+                                        ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100/70 dark:bg-indigo-900/40 font-extrabold shadow-sm translate-x-1' 
+                                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 hover:translate-x-1'
+                                    }`}
+                                  >
+                                    <span>{child.name}</span>
+                                    {childActive && <ChevronRight className="w-3 h-3 text-indigo-500" />}
+                                  </Link>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      }
+
                       const active = isItemActive(item.path);
                       return (
                         <Link
@@ -1440,6 +1538,25 @@ const AppShell = () => {
                     </div>
                     <div className="max-h-80 overflow-y-auto py-1 px-2 space-y-1 scrollbar-thin">
                       {visibleItems.map((item) => {
+                        if (item.isNested) {
+                          return item.children.map(child => {
+                            const active = isItemActive(child.path);
+                            return (
+                              <Link
+                                key={child.path}
+                                to={child.path}
+                                className={`flex items-center justify-between px-3 py-2 text-sm rounded-lg transition-all duration-150 ${
+                                  active
+                                    ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 font-semibold shadow-sm'
+                                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                }`}
+                              >
+                                <span>{child.name}</span>
+                              </Link>
+                            );
+                          });
+                        }
+
                         const active = isItemActive(item.path);
                         return (
                           <Link

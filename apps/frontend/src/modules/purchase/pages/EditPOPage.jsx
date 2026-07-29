@@ -246,7 +246,7 @@ export default function EditPOPage({ id: propId, onBack }) {
   const location = useLocation();
   const handleBack = () => {
     if (onBack) onBack();
-    else navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || `/purchase-orders/${id}`);
+    else navigate(location.state?.from || '/purchase-orders');
   };
   const queryClient = useQueryClient();
 

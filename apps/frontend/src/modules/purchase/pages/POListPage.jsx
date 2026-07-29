@@ -111,21 +111,26 @@ function StatCard({ icon: Icon, label, value, borderClass, bgClass, iconColorCla
 }
 
 function exportToCSV(rows) {
-  const headers = ['SN','Date','Reference No','Raw Material','RM Code','UOM','Supplier','Status','Grand Total','Payment Status'];
+  const headers = ['SN','Date','Reference No','Raw Materials','RM Code','UOM','Supplier','Status','Grand Total','Payment Status'];
   const csvRows = [
     headers.join(','),
-    ...rows.map((po, i) => [
-      i + 1,
-      format(new Date(po.createdAt), 'dd-MM-yyyy'),
-      po.referenceNo,
-      `"${po.name}"`,
-      po.rmId,
-      po.uomLabel || '-',
-      `"${po.supplierName || '-'}"`,
-      po.status,
-      Number(po.amount).toFixed(2),
-      'Unpaid'
-    ].join(','))
+    ...rows.map((po, i) => {
+      const rmNames = po.items && Array.isArray(po.items) && po.items.length > 0
+        ? po.items.map(it => it.name || it.materialName).join(' + ')
+        : po.name;
+      return [
+        i + 1,
+        format(new Date(po.createdAt), 'dd-MM-yyyy'),
+        po.referenceNo,
+        `"${rmNames}"`,
+        po.rmId,
+        po.uomLabel || po.uom || '-',
+        `"${po.supplierName || '-'}"`,
+        po.status,
+        Number(po.amount).toFixed(2),
+        'Unpaid'
+      ].join(',');
+    })
   ];
   const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
@@ -456,14 +461,35 @@ export default function POListPage() {
                         {po.referenceNo}
                       </button>
                     </TableCell>
-                    <TableCell className="py-2.5">
-                      <div className="font-bold text-slate-900 dark:text-slate-200 text-xs">{po.name}</div>
-                      <div className="text-[9px] text-slate-450 dark:text-slate-500 font-mono">{po.rmId}</div>
+                    <TableCell className="py-2.5 min-w-[220px]">
+                      {po.items && Array.isArray(po.items) && po.items.length > 1 ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-slate-900 dark:text-slate-100 text-xs">
+                            {po.items[0].name || po.items[0].materialName || po.name}
+                          </span>
+                          <span className="font-bold text-xs bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-800 shrink-0">
+                            +{po.items.length - 1} items
+                          </span>
+                        </div>
+                      ) : (
+                        <div>
+                          <div className="font-bold text-slate-900 dark:text-slate-200 text-xs">
+                            {po.items && po.items.length === 1 ? (po.items[0].name || po.items[0].materialName) : po.name}
+                          </div>
+                          <div className="text-[9px] text-slate-450 dark:text-slate-500 font-mono">{po.rmId}</div>
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="py-2.5">
-                      <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-450 px-2 py-0.5 rounded border border-slate-200/50">
-                        {po.uomLabel || '-'}
-                      </span>
+                      {po.items && Array.isArray(po.items) && po.items.length > 1 ? (
+                        <span className="text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                          Multi-UOM
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-450 px-2 py-0.5 rounded border border-slate-200/50">
+                          {po.uomLabel || po.uom || '-'}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs text-slate-700 dark:text-slate-350 font-semibold py-2.5">{po.supplierName || '-'}</TableCell>
                     <TableCell className="py-2.5">
@@ -598,17 +624,25 @@ export default function POListPage() {
                     <span className="block text-[8px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold mb-0.5">
                       Raw Material
                     </span>
-                    <div className="font-bold text-slate-800 dark:text-slate-200 truncate" title={po.name}>
-                      {po.name}
-                    </div>
-                    <div className="text-[9px] text-slate-450 font-mono">
-                      {po.rmId}
-                    </div>
-                    <div className="mt-1">
-                      <span className="text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 px-1.5 py-0.5 rounded border border-slate-200/10">
-                        {po.uomLabel || '-'}
-                      </span>
-                    </div>
+                    {po.items && Array.isArray(po.items) && po.items.length > 1 ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-xs truncate">
+                          {po.items[0].name || po.items[0].materialName || po.name}
+                        </span>
+                        <span className="font-bold text-xs bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-800 shrink-0">
+                          +{po.items.length - 1} items
+                        </span>
+                      </div>
+                    ) : (
+                      <div>
+                        <div className="font-bold text-slate-800 dark:text-slate-200 truncate" title={po.name}>
+                          {po.items && po.items.length === 1 ? (po.items[0].name || po.items[0].materialName) : po.name}
+                        </div>
+                        <div className="text-[9px] text-slate-450 font-mono">
+                          {po.rmId}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div>

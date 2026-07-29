@@ -12,6 +12,7 @@ const formatLocalTime = (dateStr, includeSeconds = false) => {
 const triggerPOCreated = async ({ rmId, rmName, quantity, uom, amount, expectedDeliveryDate, poId, referenceNo, actorName, actorId, actorRole }) => {
   const event_at = new Date();
   const event_at_local = formatLocalTime(event_at);
+  const formattedAmount = Number(amount).toFixed(2);
 
   await notificationService.createNotification({
     type: 'PO_CREATED',
@@ -21,13 +22,13 @@ const triggerPOCreated = async ({ rmId, rmName, quantity, uom, amount, expectedD
     reference_type: 'PO',
     reference_id: poId,
     event_at,
-    message: `📦 New Purchase Order Raised — ${referenceNo || poId} · ${rmName} · Qty: ${quantity} ${uom} · Amount: ₹${amount} · Expected Delivery: ${expectedDeliveryDate} · Raised by ${actorName} at ${event_at_local}`,
+    message: `📦 New Purchase Order Raised — ${referenceNo || poId} · ${rmName} · Qty: ${quantity} ${uom} · Amount: ₹${formattedAmount} · Expected Delivery: ${expectedDeliveryDate} · Raised by ${actorName} at ${event_at_local}`,
     metadata: {
       rm_id: rmId,
       rm_name: rmName,
       quantity,
       uom,
-      amount,
+      amount: Number(formattedAmount),
       expected_delivery_date: expectedDeliveryDate,
       po_id: poId,
       reference_no: referenceNo
@@ -89,6 +90,7 @@ const triggerPOCancelled = async ({ poId, rmId, rmName, cancelReason, actorName,
 const triggerGRNSubmitted = async ({ rmId, rmName, receivedQty, uom, receivedAmount, healthCondition, confirmationStatus, grnId, poId, actorName, actorId, actorRole }) => {
   const event_at = new Date();
   const event_at_local = formatLocalTime(event_at);
+  const formattedAmount = Number(receivedAmount).toFixed(2);
 
   await notificationService.createNotification({
     type: 'GRN_SUBMITTED',
@@ -98,13 +100,13 @@ const triggerGRNSubmitted = async ({ rmId, rmName, receivedQty, uom, receivedAmo
     reference_type: 'GRN',
     reference_id: grnId,
     event_at,
-    message: `🏭 GRN Logged — RM #${rmId} · ${rmName} · Received Qty: ${receivedQty} ${uom} · Amount: ₹${receivedAmount} · Health: ${healthCondition} · Status: ${confirmationStatus} · Received by ${actorName} at ${event_at_local}`,
+    message: `🏭 GRN Logged — RM #${rmId} · ${rmName} · Received Qty: ${receivedQty} ${uom} · Amount: ₹${formattedAmount} · Health: ${healthCondition} · Status: ${confirmationStatus} · Received by ${actorName} at ${event_at_local}`,
     metadata: {
       rm_id: rmId,
       rm_name: rmName,
       received_qty: receivedQty,
       uom,
-      received_amount: receivedAmount,
+      received_amount: Number(formattedAmount),
       health_condition: healthCondition,
       confirmation_status: confirmationStatus,
       grn_id: grnId,

@@ -14,6 +14,8 @@ const POListPage = lazy(() => import('@/modules/purchase/pages/POListPage'));
 const CreatePOPage = lazy(() => import('@/modules/purchase/pages/CreatePOPage'));
 const EditPOPage = lazy(() => import('@/modules/purchase/pages/EditPOPage'));
 const PODetailPage = lazy(() => import('@/modules/purchase/pages/PODetailPage'));
+const RMQuotationPage = lazy(() => import('@/modules/purchase/pages/RMQuotationPage'));
+const SupplierQuotationPublicPage = lazy(() => import('@/modules/purchase/pages/SupplierQuotationPublicPage'));
 const RMStockPage = lazy(() => import('@/modules/purchase/pages/RMStockPage'));
 const RMLowStockPage = lazy(() => import('@/modules/purchase/pages/RMLowStockPage'));
 const PurchaseReturnAddPage = lazy(() => import('@/modules/purchase/pages/PurchaseReturnAddPage'));
@@ -146,6 +148,7 @@ const AppRouter = () => {
     }>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/quote/:quotationId/:token" element={<SupplierQuotationPublicPage />} />
         
         {/* Protected Routes */}
         <Route element={<ProtectedRoute />}>
@@ -209,6 +212,7 @@ const AppRouter = () => {
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']} />}>
               <Route path="/purchase-orders" element={<POListPage />} />
               <Route path="/purchase-orders/:id" element={<PODetailPage />} />
+              <Route path="/purchase-quotations" element={<RMQuotationPage />} />
             </Route>
             
             {/* Create PO — must come BEFORE /purchase-orders/:id to avoid conflict */}

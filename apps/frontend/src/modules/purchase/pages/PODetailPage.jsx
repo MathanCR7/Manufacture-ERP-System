@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -60,6 +60,16 @@ export default function PODetailPage() {
   const fromNotifications = location.state?.from === '/notifications';
   const queryClient = useQueryClient();
   const [showQR, setShowQR] = useState(true);
+  const [highlightActive, setHighlightActive] = useState(!!location.state?.highlight);
+
+  useEffect(() => {
+    if (highlightActive) {
+      const timer = setTimeout(() => {
+        setHighlightActive(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightActive]);
 
   // Fetch PO
   const { data: po, isLoading, error } = useQuery({
@@ -172,7 +182,7 @@ export default function PODetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || '/purchase-orders')} className="text-slate-500 rounded-full">
+          <Button variant="ghost" size="icon" onClick={() => navigate(location.state?.from || '/purchase-orders')} className="text-slate-500 rounded-full">
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -240,7 +250,7 @@ export default function PODetailPage() {
         {/* Left: Details */}
         <div className="md:col-span-2 space-y-6">
           {/* Material Details */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+          <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm transition-all duration-1000 ${highlightActive ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 shadow-md shadow-indigo-200 dark:shadow-indigo-900 bg-indigo-50/10 dark:bg-indigo-950/15 animate-pulse' : ''}`}>
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
               <Package className="w-4 h-4 text-indigo-500" /> Material Details
             </h3>

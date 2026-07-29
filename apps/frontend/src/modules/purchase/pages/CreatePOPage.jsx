@@ -239,7 +239,7 @@ export default function CreatePOPage({ onBack }) {
   const queryClient = useQueryClient();
   const handleBack = () => {
     if (onBack) onBack();
-    else navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || '/purchase-orders');
+    else navigate(location.state?.from || '/purchase-orders');
   };
   
   const [formData, setFormData] = useState({
@@ -258,6 +258,36 @@ export default function CreatePOPage({ onBack }) {
   
   const [errorMsg, setErrorMsg] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
+  const isFromQuotation = !!location.state?.prefillFromQuotation;
+
+  // Prefill from RM Quotation if navigated via "Turn into Direct Order"
+  useEffect(() => {
+    if (location.state?.prefillFromQuotation) {
+      const q = location.state.prefillFromQuotation;
+      setFormData(prev => ({
+        ...prev,
+        selectedSupplier: q.supplier || prev.selectedSupplier,
+        discount: String(q.discount || 0),
+        shipping: String(q.shipping || 0),
+        otherCharges: String(q.otherCharges || 0)
+      }));
+
+      if (q.items && Array.isArray(q.items)) {
+        const prefilled = q.items.map(it => ({
+          id: it.materialId || Math.random().toString(),
+          rmId: it.materialCode || 'RM-ITEM',
+          name: it.materialName || 'Raw Material',
+          quantity: Number(it.quantity) || 1,
+          unitPrice: Number(it.unitPrice) || 0,
+          uomLabel: it.unit || 'Kg',
+          uomId: '',
+          gstApplicable: it.gstApplicable ?? true,
+          gstPercentage: Number(it.gstRate) || 18
+        }));
+        setItems(prefilled);
+      }
+    }
+  }, [location.state]);
 
   const { data: rmIdData, refetch: rotateId, isFetching: isRotating } = useQuery({
     queryKey: ['generateRmId'],
@@ -428,7 +458,7 @@ export default function CreatePOPage({ onBack }) {
           htmlContainer: 'text-slate-600 dark:text-slate-300'
         }
       }).then(() => {
-        handleBack();
+        navigate('/purchase-orders', { replace: true });
       });
     },
     onError: (err) => {
@@ -475,6 +505,7 @@ export default function CreatePOPage({ onBack }) {
       igst: igstAmount,
       grandTotal: grandTotal,
       items: items,
+      quotationId: location.state?.prefillFromQuotation?.quotationId || null,
     });
   };
 
@@ -601,26 +632,40 @@ export default function CreatePOPage({ onBack }) {
           </div>          {/* Items Section */}
           <div className="p-6 md:p-8 bg-slate-50/50 dark:bg-slate-800/10 border-b border-slate-100 dark:border-slate-800/80">
             
-            <div className="mb-6 max-w-3xl">
-              <Label className="text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2 font-bold text-sm uppercase tracking-wider">
-                <Package className="w-4 h-4 text-indigo-500" />
-                Select Raw Material to Add <span className="text-rose-500">*</span>
-              </Label>
-              <div className="relative">
-                {isLoadingRMs ? (
-                  <div className="w-full px-4 py-3 border rounded-xl text-slate-400 border-slate-300 dark:border-slate-700 flex items-center bg-white dark:bg-slate-900 shadow-sm h-[46px]">
-                    <Loader2 className="w-4 h-4 mr-3 animate-spin text-indigo-500" /> Loading raw materials...
+            {isFromQuotation ? (
+              <div className="flex items-center justify-between p-4 bg-purple-500/10 border border-purple-500/20 rounded-2xl text-purple-700 dark:text-purple-300 mb-6">
+                <div className="flex items-center gap-3">
+                  <CheckCircle2 className="w-5 h-5 text-purple-500 shrink-0" />
+                  <div>
+                    <div className="font-bold text-sm">Converted from RM Quotation</div>
+                    <div className="text-xs text-purple-600 dark:text-purple-400 mt-0.5">
+                      Raw materials and pricing are locked and prefilled from quotation {location.state.prefillFromQuotation.referenceNo || ''}. Additional items cannot be added.
+                    </div>
                   </div>
-                ) : (
-                  <RawMaterialSelect 
-                    rawMaterials={rawMaterials}
-                    value={formData.selectedRm}
-                    onChange={handleAddRmItem} 
-                    lowStockIds={lowStockIds}
-                  />
-                )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="mb-6 max-w-3xl">
+                <Label className="text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2 font-bold text-sm uppercase tracking-wider">
+                  <Package className="w-4 h-4 text-indigo-500" />
+                  Select Raw Material to Add <span className="text-rose-500">*</span>
+                </Label>
+                <div className="relative">
+                  {isLoadingRMs ? (
+                    <div className="w-full px-4 py-3 border rounded-xl text-slate-400 border-slate-300 dark:border-slate-700 flex items-center bg-white dark:bg-slate-900 shadow-sm h-[46px]">
+                      <Loader2 className="w-4 h-4 mr-3 animate-spin text-indigo-500" /> Loading raw materials...
+                    </div>
+                  ) : (
+                    <RawMaterialSelect 
+                      rawMaterials={rawMaterials}
+                      value={formData.selectedRm}
+                      onChange={handleAddRmItem} 
+                      lowStockIds={lowStockIds}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Order Items Table */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl shadow-sm overflow-hidden ring-1 ring-slate-100 dark:ring-slate-800/50">
@@ -723,14 +768,20 @@ export default function CreatePOPage({ onBack }) {
                               ₹{itemSubtotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}
                             </td>
                             <td className="px-5 py-4 text-center">
-                              <button 
-                                type="button" 
-                                onClick={() => setItems(prev => prev.filter(it => it.id !== item.id))} 
-                                className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all mx-auto block"
-                                title="Remove item"
-                              >
-                                <X className="w-5 h-5 mx-auto" />
-                              </button>
+                              {isFromQuotation ? (
+                                <span className="text-[11px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-2 py-1 rounded-md border border-purple-200 dark:border-purple-800">
+                                  Quoted
+                                </span>
+                              ) : (
+                                <button 
+                                  type="button" 
+                                  onClick={() => setItems(prev => prev.filter(it => it.id !== item.id))} 
+                                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/30 rounded-lg transition-all mx-auto block"
+                                  title="Remove item"
+                                >
+                                  <X className="w-5 h-5 mx-auto" />
+                                </button>
+                              )}
                             </td>
                           </tr>
                         );
