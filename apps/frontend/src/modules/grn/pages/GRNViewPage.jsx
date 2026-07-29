@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { ArrowLeft, Package, Truck, FlaskConical, CheckCircle2, XCircle, AlertTriangle, Clock, QrCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useRef, useEffect } from 'react';
+import { useRef } from 'react';
 import QRCode from 'qrcode';
 
 function QRDisplay({ text }) {
