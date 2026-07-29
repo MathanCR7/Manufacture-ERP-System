@@ -512,7 +512,7 @@ export default function SupplierQuotationPublicPage() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
+                <table className="hidden md:table w-full text-left text-xs text-slate-300">
                   <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-800">
                     <tr>
                       <th className="px-4 py-3.5 w-12 text-center">#</th>
@@ -544,6 +544,46 @@ export default function SupplierQuotationPublicPage() {
                     })}
                   </tbody>
                 </table>
+
+                {/* Mobile Card View for Read-Only Submitted Items */}
+                <div className="block md:hidden divide-y divide-slate-800/40 p-4 space-y-4">
+                  {itemsData.map((item, idx) => {
+                    const lineSub = calculateLineSubtotal(item);
+                    return (
+                      <div key={item.quotationItemId} className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[10px] text-slate-500 font-mono font-bold block">ITEM #{idx + 1}</span>
+                            <span className="font-extrabold text-slate-100 text-sm">{item.materialName}</span>
+                            {item.materialCode && (
+                              <span className="block text-[11px] font-mono text-slate-500">{item.materialCode}</span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-500 block">QTY</span>
+                            <span className="text-indigo-400 font-extrabold font-mono text-sm">{item.quantity} {item.unit}</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800/40 text-xs">
+                          <div>
+                            <span className="block text-[10px] text-slate-500">UNIT PRICE</span>
+                            <span className="font-mono text-slate-200 font-bold">₹ {Number(item.unitPrice || 0).toFixed(2)}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="block text-[10px] text-slate-500">TAX (GST)</span>
+                            <span className="font-mono text-slate-200 font-bold">{item.gstApplicable ? `${item.gstRate}%` : 'Exempt'}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-800/40 text-xs">
+                          <span className="text-slate-400 font-semibold">Subtotal</span>
+                          <span className="font-extrabold text-slate-100 font-mono">₹ {lineSub.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -594,7 +634,7 @@ export default function SupplierQuotationPublicPage() {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
+                <table className="hidden md:table w-full text-left text-xs text-slate-300">
                   <thead className="bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-800">
                     <tr>
                       <th className="px-4 py-3.5 w-12 text-center">#</th>
@@ -678,6 +718,81 @@ export default function SupplierQuotationPublicPage() {
                     })}
                   </tbody>
                 </table>
+
+                {/* Mobile Card View for Editable Pricing Items */}
+                <div className="block md:hidden divide-y divide-slate-800/40 p-4 space-y-4">
+                  {itemsData.map((item, index) => {
+                    const lineSub = calculateLineSubtotal(item);
+                    return (
+                      <div key={item.quotationItemId} className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[10px] text-slate-500 font-mono font-bold block">ITEM #{index + 1}</span>
+                            <span className="font-extrabold text-slate-100 text-sm">{item.materialName}</span>
+                            {item.materialCode && (
+                              <span className="block text-[11px] font-mono text-slate-500">{item.materialCode}</span>
+                            )}
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-500 block">QTY REQUESTED</span>
+                            <span className="text-indigo-400 font-extrabold font-mono text-sm">{item.quantity} {item.unit}</span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3 pt-2">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-400 mb-1">Unit Price (₹)*</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 font-bold">₹</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                disabled={isReadOnly}
+                                value={item.unitPrice}
+                                onChange={e => updateItemPrice(index, 'unitPrice', e.target.value)}
+                                placeholder="0.00"
+                                className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 rounded-xl pl-7 pr-3 py-2 text-slate-100 font-mono font-bold text-xs transition-all disabled:opacity-50"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block text-[10px] font-semibold text-slate-400 mb-1">GST Rate (%)</label>
+                            {item.gstApplicable ? (
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  max="100"
+                                  disabled={isReadOnly}
+                                  value={item.gstRate}
+                                  onChange={e => updateItemPrice(index, 'gstRate', e.target.value)}
+                                  placeholder="18"
+                                  className="w-full bg-slate-900 border border-slate-800 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 rounded-xl px-3 py-2 text-slate-100 font-mono text-xs text-right transition-all disabled:opacity-50"
+                                />
+                                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs">%</span>
+                              </div>
+                            ) : (
+                              <div className="bg-slate-900 border border-slate-800/50 text-slate-500 rounded-xl px-3 py-2 text-center text-xs font-semibold select-none h-[34px] flex items-center justify-center">
+                                Exempted
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between items-center pt-2 border-t border-slate-800/40 text-xs">
+                          <span className="text-slate-400 font-semibold">Line Subtotal</span>
+                          <span className="font-extrabold text-slate-100 font-mono">
+                            ₹ {lineSub.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
