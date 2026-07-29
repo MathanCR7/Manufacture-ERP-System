@@ -276,6 +276,9 @@ const createQuotation = async (req, res, next) => {
           suppliers: { include: { supplier: true } }
         }
       });
+    }, {
+      maxWait: 15000,
+      timeout: 30000
     });
 
     // 2. Dispatch emails to suppliers asynchronously with their unique link
@@ -486,6 +489,9 @@ const submitPublicQuotation = async (req, res, next) => {
         where: { id: responseHeader.id },
         include: { items: true }
       });
+    }, {
+      maxWait: 15000,
+      timeout: 30000
     });
 
     // Alert internal team & send supplier confirmation email
