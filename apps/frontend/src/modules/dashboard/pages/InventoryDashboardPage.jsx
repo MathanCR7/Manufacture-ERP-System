@@ -200,7 +200,7 @@ export default function InventoryDashboardPage() {
               placeholder={`Search ${tab === 'rm' ? 'raw materials' : tab === 'fp' ? 'finished goods' : 'low & dead stock'}...`}
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 transition font-semibold text-slate-700 dark:text-slate-200"
+              className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 transition font-semibold text-slate-700 dark:text-slate-200"
             />
             {searchQuery && (
               <button 

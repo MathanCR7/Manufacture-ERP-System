@@ -269,7 +269,7 @@ const GRNListPage = () => {
         <select
           value={filterInvStatus}
           onChange={e => setFilterInvStatus(e.target.value)}
-          className="border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-955 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold h-9 pr-8"
+          className="border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold h-9 pr-8"
         >
           <option value="">All Inventory Statuses</option>
           {Object.entries(INV_STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}

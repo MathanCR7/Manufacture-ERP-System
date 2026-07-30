@@ -397,7 +397,7 @@ export default function UpcomingDeliveriesPage() {
               placeholder="Search PO ref, material, supplier..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-10 h-9 w-full text-xs bg-white dark:bg-slate-955 border-slate-205 dark:border-slate-800 focus-visible:ring-indigo-500/20 rounded-xl shadow-sm"
+              className="pl-10 h-9 w-full text-xs bg-white dark:bg-slate-950 border-slate-205 dark:border-slate-800 focus-visible:ring-indigo-500/20 rounded-xl shadow-sm"
             />
           </div>
 

@@ -91,7 +91,7 @@ export default function HRDashboardPage() {
           <select
             value={selectedUser}
             onChange={e => setSelectedUser(e.target.value)}
-            className="px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-905 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-indigo-400"
+            className="px-2 py-1 text-xs rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-indigo-400"
           >
             <option value="">All Team Overview</option>
             {users.map(u => (

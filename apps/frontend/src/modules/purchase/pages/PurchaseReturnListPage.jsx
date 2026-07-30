@@ -342,7 +342,7 @@ const PurchaseReturnListPage = () => {
         <select
           value={filterReason}
           onChange={e => setFilterReason(e.target.value)}
-          className="border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-955 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500/20 font-bold h-9 pr-8"
+          className="border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-orange-500/20 font-bold h-9 pr-8"
         >
           <option value="">All Reasons</option>
           {Object.entries(REASON_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

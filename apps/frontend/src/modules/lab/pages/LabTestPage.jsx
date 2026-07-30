@@ -5,13 +5,47 @@ import { api } from '@/lib/axios';
 import { format } from 'date-fns';
 import {
   ArrowLeft, Loader2, FlaskConical, Package, CheckCircle2, XCircle,
-  AlertTriangle, Send, ChevronDown, Tag, Edit2
+  AlertTriangle, Send, ChevronDown, Tag, Edit2, AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import useAuthStore from '@/app/store/authStore';
+
+const GRN_STATUS_CONFIG = {
+  PENDING_LAB:    { label: 'Pending Lab',    color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20', icon: FlaskConical },
+  LAB_APPROVED:   { label: 'Lab Approved',   color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', icon: CheckCircle2 },
+  LAB_REJECTED:   { label: 'Lab Rejected',   color: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20', icon: XCircle },
+  LAB_RESAMPLE:   { label: 'Re-sample',      color: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20', icon: AlertCircle },
+};
+
+const DECISION_CONFIG = {
+  APPROVED: {
+    label: 'Approve Batch',
+    desc: 'Stock will be updated',
+    bg: 'bg-emerald-50/50 dark:bg-emerald-950/20',
+    border: 'border-emerald-500',
+    text: 'text-emerald-700 dark:text-emerald-400',
+    Icon: CheckCircle2,
+  },
+  REJECTED: {
+    label: 'Reject Batch',
+    desc: 'Stock will NOT update',
+    bg: 'bg-rose-50/50 dark:bg-rose-950/20',
+    border: 'border-rose-500',
+    text: 'text-rose-700 dark:text-rose-400',
+    Icon: XCircle,
+  },
+  NEED_SAMPLE: {
+    label: 'Need Re-sample',
+    desc: 'Flag for retest',
+    bg: 'bg-amber-50/50 dark:bg-amber-950/20',
+    border: 'border-amber-500',
+    text: 'text-amber-700 dark:text-amber-400',
+    Icon: AlertTriangle,
+  },
+};
 
 function DecisionBadge({ decision }) {
   const map = {
@@ -212,7 +246,7 @@ export default function LabTestPage() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6 mx-auto transition-all duration-300">
       {fromNotifications && (
         <Button 
           variant="outline" 
@@ -496,23 +530,27 @@ export default function LabTestPage() {
               )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {[
-                { val: 'APPROVED',    label: 'Approve Batch',   desc: 'Stock will be updated',   color: 'emerald', Icon: CheckCircle2 },
-                { val: 'REJECTED',    label: 'Reject Batch',    desc: 'Stock will NOT update',   color: 'red',     Icon: XCircle },
-                { val: 'NEED_SAMPLE', label: 'Need Re-sample',  desc: 'Flag for retest',         color: 'amber',   Icon: AlertTriangle },
-              ].map(({ val, label, desc, color, Icon }) => (
-                <button
-                  key={val}
-                  type="button"
-                  onClick={() => setOverallDecision(val)}
-                  className={`p-4 rounded-xl border-2 text-left transition-all ${overallDecision === val ? `border-${color}-500 bg-${color}-50 dark:bg-${color}-500/10` : 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}`}
-                >
-                  <div className={`flex items-center gap-2 font-semibold ${overallDecision === val ? `text-${color}-700 dark:text-${color}-400` : 'text-slate-700 dark:text-slate-300'}`}>
-                    <Icon className="w-4 h-4" /> {label}
-                  </div>
-                  <p className={`text-xs mt-1 ${overallDecision === val ? `text-${color}-600 dark:text-${color}-400` : 'text-slate-400'}`}>{desc}</p>
-                </button>
-              ))}
+              {Object.entries(DECISION_CONFIG).map(([val, cfg]) => {
+                const isSelected = overallDecision === val;
+                const Icon = cfg.Icon;
+                return (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setOverallDecision(val)}
+                    className={`p-4 rounded-xl border-2 text-left transition-all ${
+                      isSelected
+                        ? `${cfg.border} ${cfg.bg}`
+                        : 'border-slate-205 dark:border-slate-700 hover:border-slate-350 dark:hover:border-slate-600 bg-white dark:bg-slate-900'
+                    }`}
+                  >
+                    <div className={`flex items-center gap-2 font-semibold ${isSelected ? cfg.text : 'text-slate-700 dark:text-slate-300'}`}>
+                      <Icon className="w-4 h-4" /> {cfg.label}
+                    </div>
+                    <p className={`text-xs mt-1 ${isSelected ? cfg.text : 'text-slate-400'}`}>{cfg.desc}</p>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="space-y-1.5">
