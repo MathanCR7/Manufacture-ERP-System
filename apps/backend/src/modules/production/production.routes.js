@@ -131,7 +131,7 @@ const checkAndNotifyStockAlerts = async (productId, tx) => {
 };
 
 // GET /api/production/qc-queue - Batches pending QC
-router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR', 'PRODUCTION_STAFF']), cacheMiddleware, async (req, res, next) => {
+router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_ASSISTANT', 'SUPERVISOR', 'PRODUCTION_STAFF']), async (req, res, next) => {
   try {
     const batches = await prisma.productionBatchNew.findMany({
       where: {
@@ -1013,9 +1013,14 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
       }
 
       // Update status
+      const updateData = { status: data.status };
+      if (data.status === 'Completed') {
+        updateData.partiallyDoneQty = batch.quantity;
+        updateData.remainingQty = 0;
+      }
       const record = await tx.productionBatchNew.update({
         where: { id },
-        data: { status: data.status }
+        data: updateData
       });
 
       // Write Audit Log
@@ -1147,12 +1152,15 @@ router.post('/:id/complete', authenticateToken, roleMiddleware(['MAIN_MASTER', '
       }
 
       // Update production batch
+      const completedQty = data.actualOutput !== null && data.actualOutput !== undefined ? data.actualOutput : batch.quantity;
       const updatedBatch = await tx.productionBatchNew.update({
         where: { id },
         data: {
           status: 'Completed',
           completeDate: new Date(),
           actualOutput: data.actualOutput,
+          partiallyDoneQty: completedQty,
+          remainingQty: 0,
           rmVariance: rmVariances,
           note: data.note || batch.note
         }

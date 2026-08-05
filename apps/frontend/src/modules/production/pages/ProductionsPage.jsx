@@ -17,6 +17,7 @@ import useAuthStore from '@/app/store/authStore';
 
 import AddProductionPage from './AddProductionPage';
 import DatePicker from '@/components/ui/DatePicker';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 const PIPELINE_COLUMNS = [
   { key: 'Planned', label: 'Planned', color: 'blue' },
@@ -472,10 +473,16 @@ export default function ProductionsPage() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-205 dark:border-slate-850">
           <div className="space-y-0.5">
             <button 
-              onClick={handleCloseDetailModal}
+              onClick={() => {
+                if (searchParams.get('from') === 'production') {
+                  navigate('/dashboard/production');
+                } else {
+                  handleCloseDetailModal();
+                }
+              }}
               className="inline-flex items-center gap-1 text-xs font-bold text-indigo-650 dark:text-indigo-400 hover:underline mb-1"
             >
-              <ChevronLeft className="w-4 h-4" /> Back to Batch Execution Center
+              <ChevronLeft className="w-4 h-4" /> {searchParams.get('from') === 'production' ? 'Back to Production Dashboard' : 'Back to Batch Execution Center'}
             </button>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               Batch Execution Dashboard
@@ -755,6 +762,7 @@ export default function ProductionsPage() {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      <DashboardBackButton />
       {!canEdit && (
         <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium animate-in fade-in slide-in-from-top-3">
           <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />

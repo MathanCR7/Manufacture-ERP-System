@@ -703,18 +703,18 @@ const NotificationBell = () => {
       )}
 
       {/* Toast Overlay */}
-      <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-4 z-[100] flex flex-col items-center sm:items-end gap-2 pointer-events-none px-4 sm:px-0 w-full sm:w-auto">
         {toastNotifs.filter(t => isVisibleToRole(t.type, user?.role)).map(t => (
-          <div key={t.toastId} className={`pointer-events-auto w-85 shadow-2xl rounded-xl border p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-all duration-300 animate-in slide-in-from-right-5 ${PhaseColors[t.type]?.split(' ')[3] || 'border-slate-200 dark:border-slate-800'}`}>
-            <div className="flex justify-between items-start mb-2.5">
-              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border ${PhaseColors[t.type] || 'bg-slate-100 text-slate-650 dark:bg-slate-800 dark:text-slate-400'}`}>
+          <div key={t.toastId} className={`pointer-events-auto w-full max-w-[280px] sm:w-85 shadow-2xl rounded-lg sm:rounded-xl border p-3 sm:p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-all duration-300 animate-in slide-in-from-right-5 ${PhaseColors[t.type]?.split(' ')[3] || 'border-slate-200 dark:border-slate-800'}`}>
+            <div className="flex justify-between items-start mb-2 sm:mb-2.5">
+              <span className={`text-[8px] sm:text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border ${PhaseColors[t.type] || 'bg-slate-100 text-slate-650 dark:bg-slate-800 dark:text-slate-400'}`}>
                 {t.type.replace(/_/g, ' ')}
               </span>
-              <button onClick={() => setToastNotifs(prev => prev.filter(x => x.toastId !== t.toastId))} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-350">
-                <XCircle className="w-4 h-4" />
+              <button onClick={() => setToastNotifs(prev => prev.filter(x => x.toastId !== t.toastId))} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-355">
+                <XCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-700 dark:text-slate-300 leading-snug font-medium">{t.message}</p>
+            <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-300 leading-snug font-medium">{t.message}</p>
           </div>
         ))}
       </div>

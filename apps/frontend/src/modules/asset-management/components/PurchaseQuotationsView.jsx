@@ -13,10 +13,56 @@ import {
   Plus, Search, FileSearch, CheckCircle2, Clock, X, Eye,
   ArrowLeft, Loader2, AlertTriangle, ChevronDown, Building2,
   Percent, Hash, Calendar, Package, BarChart3, Shield, Trash2, Edit,
-  ShoppingCart, Info
+  ShoppingCart, Info, Link2, Mail
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Pagination from '@/components/ui/Pagination';
+
+function QuotationValidityCell({ pq }) {
+  const [timeLeft, setTimeLeft] = useState('');
+  const [isExpired, setIsExpired] = useState(false);
+
+  useEffect(() => {
+    if (!pq.validityDate) return;
+    const calc = () => {
+      const diff = new Date(pq.validityDate).getTime() - new Date().getTime();
+      if (diff <= 0) {
+        setTimeLeft('Expired');
+        setIsExpired(true);
+      } else {
+        const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        if (days > 0) {
+          setTimeLeft(`${days}d ${hours}h`);
+        } else if (hours > 0) {
+          setTimeLeft(`${hours}h ${mins}m`);
+        } else {
+          setTimeLeft(`${mins}m`);
+        }
+      }
+    };
+    calc();
+    const timer = setInterval(calc, 60000);
+    return () => clearInterval(timer);
+  }, [pq.validityDate]);
+
+  if (!pq.validityDate) return <span>—</span>;
+  if (pq.status === 'Received' || pq.status === 'PO Issued') {
+    return <span className="text-slate-500 font-medium">{format(new Date(pq.validityDate), 'dd MMM yyyy')}</span>;
+  }
+
+  return (
+    <div className="flex flex-col">
+      <span className="text-xs">{format(new Date(pq.validityDate), 'dd MMM yyyy')}</span>
+      {pq.status === 'Sent' && (
+        <span className={`text-[10px] font-bold ${isExpired ? 'text-rose-500' : 'text-amber-500 animate-pulse'}`}>
+          ({timeLeft})
+        </span>
+      )}
+    </div>
+  );
+}
 
 const GST_RATES = [0, 5, 12, 18, 28];
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD'];
@@ -29,6 +75,7 @@ const STATUS_STYLES = {
   Evaluated: 'bg-violet-50 text-violet-700 dark:bg-violet-950/30 dark:text-violet-400 border-violet-200 dark:border-violet-900/50',
   'PO Issued': 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50',
   Expired: 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400 border-rose-200 dark:border-rose-900/50',
+  'Resubmission Requested': 'bg-amber-100 text-amber-800 border-amber-300 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50',
 };
 
 const DEFAULT_GTC = `General Terms and Conditions (GTC)
@@ -71,7 +118,7 @@ const buildPQTaxBreakdown = (pq, companyGstin = null) => {
     return isInterState ? 18 : Number(state.rate !== undefined ? state.rate : 18);
   };
 
-  const breakdown = {}; // { rate: { gst, taxable } }
+  const breakdown = {}; // { rate: { rate, gst, taxable, items: [], charges: [] } }
 
   if (applyGst) {
     (pq.items || []).forEach(item => {
@@ -82,42 +129,60 @@ const buildPQTaxBreakdown = (pq, companyGstin = null) => {
       const storedGst = Number(item.gstAmount || 0);
       const gst = storedGst > 0 ? storedGst : (base * (rate / 100));
 
-      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0, items: [], charges: [] };
       breakdown[rate].taxable += base;
       breakdown[rate].gst += gst;
+      breakdown[rate].items.push({
+        description: item.itemDescription || item.description || 'Asset Item',
+        taxable: base,
+        gstRate: rate,
+        gstAmount: gst,
+        total: base + gst
+      });
     });
 
     // Charges with GST
-    const addChargeGst = (val, key) => {
+    const addChargeGst = (val, key, label) => {
       const numVal = Number(val || 0);
       if (numVal <= 0 || !getChargeGstApplied(key)) return;
       const rate = getChargeRate(key);
       const gst = numVal * (rate / 100);
-      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0 };
+      if (!breakdown[rate]) breakdown[rate] = { rate, gst: 0, taxable: 0, items: [], charges: [] };
       breakdown[rate].taxable += numVal;
       breakdown[rate].gst += gst;
+      breakdown[rate].charges.push({
+        label,
+        taxable: numVal,
+        gstRate: rate,
+        gstAmount: gst,
+        total: numVal + gst
+      });
     };
+
     const freight = Number(pq.shippingCharges || 0);
     const loadingCharges = Number(pq.loadingCharges || 0);
+    const unloadingCharges = Number(pq.unloadingCharges || 0);
     const packingCharges = Number(pq.packingCharges || 0);
     const insurance = Number(pq.insurance || 0);
     const otherCharges = Number(pq.otherCharges || 0);
-    addChargeGst(freight, 'shippingCharges');
-    addChargeGst(loadingCharges, 'loadingCharges');
-    addChargeGst(packingCharges, 'packingCharges');
-    addChargeGst(insurance, 'insurance');
-    addChargeGst(otherCharges, 'otherCharges');
+
+    addChargeGst(freight, 'shippingCharges', 'Freight');
+    addChargeGst(loadingCharges, 'loadingCharges', 'Loading & Unloading');
+    addChargeGst(unloadingCharges, 'unloadingCharges', 'Unloading Charges');
+    addChargeGst(packingCharges, 'packingCharges', 'Packing Charges');
+    addChargeGst(insurance, 'insurance', 'Insurance');
+    addChargeGst(otherCharges, 'otherCharges', 'Other Charges');
   }
 
   // Generate rows sorted by rate
   const taxRows = [];
   Object.values(breakdown).sort((a, b) => a.rate - b.rate).forEach(tb => {
     if (isInterState) {
-      taxRows.push({ label: `IGST @ ${tb.rate}%`, value: tb.gst });
+      taxRows.push({ label: `IGST @ ${tb.rate}%`, value: tb.gst, breakdown: tb });
     } else {
       const half = Number((tb.rate / 2).toFixed(2));
-      taxRows.push({ label: `CGST @ ${half}%`, value: tb.gst / 2 });
-      taxRows.push({ label: `SGST @ ${half}%`, value: tb.gst / 2 });
+      taxRows.push({ label: `CGST @ ${half}%`, value: tb.gst / 2, breakdown: tb });
+      taxRows.push({ label: `SGST @ ${half}%`, value: tb.gst / 2, breakdown: tb });
     }
   });
 
@@ -126,214 +191,292 @@ const buildPQTaxBreakdown = (pq, companyGstin = null) => {
   return { taxRows, totalTaxable, totalGst: totalGstFromRows, isInterState, applyGst };
 };
 
-function PQDetailModal({ pq, onClose }) {
+function PQDetailsSection({ pq, onClose, isReadOnly, pos, handleCreatePO }) {
   const { data: taxSettings } = useQuery({
     queryKey: ['tax-settings'],
     queryFn: () => api.get('/setup/tax').then(r => r.data),
   });
 
-  const { taxRows, totalTaxable, applyGst } = buildPQTaxBreakdown(pq, taxSettings?.companyGstin);
+  const { taxRows, totalTaxable, applyGst, isInterState } = buildPQTaxBreakdown(pq, taxSettings?.companyGstin);
   const discount = Number(pq.discount || 0);
   const shippingCharges = Number(pq.shippingCharges || 0);
+  const loadingCharges = Number(pq.loadingCharges || 0);
+  const unloadingCharges = Number(pq.unloadingCharges || 0);
+  const packingCharges = Number(pq.packingCharges || 0);
+  const insurance = Number(pq.insurance || 0);
   const otherCharges = Number(pq.otherCharges || 0);
   const roundOff = Number(pq.roundOff || 0);
   const grandTotal = Number(pq.grandTotal || 0);
 
+  const isPOAlreadyRaised = pos?.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled') || pq.status === 'PO Issued';
+
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200/60 dark:border-slate-800 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between z-10 rounded-t-3xl">
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
+      {/* Header section with back button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800 pb-5">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={onClose} className="h-10 w-10 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-850">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white font-mono">{pq.pqNo}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{pq.vendorName} • {format(new Date(pq.createdAt), 'dd MMM yyyy')}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[pq.status] || STATUS_STYLES.Draft}`}>{pq.status}</span>
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-3">
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white font-mono">{pq.pqNo}</h2>
+              <span className={`px-3 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[pq.status] || STATUS_STYLES.Draft}`}>{pq.status}</span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">{pq.vendorName} • Created on {format(new Date(pq.createdAt), 'dd MMM yyyy HH:mm')}</p>
           </div>
         </div>
 
-        <div className="p-6 space-y-5">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm bg-slate-50/50 dark:bg-slate-800/20 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-            {[
-              { label: 'Vendor Name', value: pq.vendorName },
-              { label: 'GSTIN', value: pq.vendorGstin || '—' },
-              { label: 'Currency', value: pq.currency },
-              { label: 'Payment Terms', value: pq.paymentTerms },
-              { label: 'Payment Mode', value: pq.paymentMode || '—' },
-              { label: 'Validity Date', value: pq.validityDate ? format(new Date(pq.validityDate), 'dd MMM yyyy') : '—' },
-              { label: 'Expected Delivery Date', value: pq.expectedDelivery ? format(new Date(pq.expectedDelivery), 'dd MMM yyyy') : '—' },
-            ].map(({ label, value }) => (
-              <div key={label} className="space-y-1">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-                <p className="font-semibold text-slate-850 dark:text-slate-200 text-xs truncate" title={value}>{value}</p>
-              </div>
-            ))}
+        {/* Action Button inside Details view */}
+        {!isReadOnly && (
+          <Button
+            onClick={() => handleCreatePO(pq)}
+            disabled={isPOAlreadyRaised}
+            className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/10 gap-2 shrink-0 disabled:opacity-50"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            {isPOAlreadyRaised ? 'PO Issued' : 'Convert to PO'}
+          </Button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Main Details and Items */}
+        <div className="lg:col-span-2 space-y-6">
+          
+          {/* Info Card Grid */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-3xl p-6 shadow-sm">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Quotation General Information</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-5 gap-x-4 text-sm">
+              {[
+                { label: 'Vendor Name', value: pq.vendorName },
+                { label: 'Vendor GSTIN', value: pq.vendorGstin || '—', fontClass: 'font-mono' },
+                { label: 'Currency', value: pq.currency },
+                { label: 'Payment Terms', value: pq.paymentTerms },
+                { label: 'Payment Mode', value: pq.paymentMode || '—' },
+                { label: 'Delivery Terms', value: pq.deliveryTerms || '—' },
+                { label: 'Validity Date', value: pq.validityDate ? format(new Date(pq.validityDate), 'dd MMM yyyy') : '—' },
+                { label: 'Lead Time', value: pq.leadTime ? `${pq.leadTime} Days` : '—' },
+                { label: 'Warranty Period', value: pq.warrantyPeriod ? `${pq.warrantyPeriod} Months` : '—' },
+              ].map(({ label, value, fontClass }) => (
+                <div key={label} className="space-y-1">
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
+                  <p className={`font-semibold text-slate-800 dark:text-slate-200 text-xs ${fontClass || ''}`} title={value}>{value}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {pq.items && pq.items.length > 0 && (
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-              <table className="w-full text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800">
-                  <tr>
-                    {['Item Description', 'HSN/SAC', 'Qty', 'Unit', 'Unit Price', 'GST%', 'GST Amt', 'Total'].map(h => (
-                      <th key={h} className="px-3 py-2.5 text-left font-bold text-slate-500 uppercase tracking-wider">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-                  {pq.items.map((item, i) => (
-                    <tr key={i} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30">
-                      <td className="px-3 py-2.5 font-medium text-slate-800 dark:text-slate-200">{item.itemDescription}</td>
-                      <td className="px-3 py-2.5 font-mono text-slate-500">{item.hsnSac}</td>
-                      <td className="px-3 py-2.5">{item.quantity}</td>
-                      <td className="px-3 py-2.5">{item.unit}</td>
-                      <td className="px-3 py-2.5">₹{Number(item.unitPrice).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2.5">{item.gstRate}%</td>
-                      <td className="px-3 py-2.5">₹{Number(item.gstAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className="px-3 py-2.5 font-bold">₹{Number(item.totalWithGst).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-slate-50 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700">
-                  <tr>
-                    <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Taxable Value:</td>
-                    <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  </tr>
-                  {applyGst && taxRows.length > 0 ? taxRows.map((row, ri) => {
-                    const hasBreakdown = row.breakdown && (row.breakdown.items.length > 0 || row.breakdown.charges.length > 0);
-                    return (
-                      <tr key={ri}>
-                        <td colSpan={6} className="px-3 py-2 text-right font-bold text-indigo-600 dark:text-indigo-400 text-xs relative z-10 hover:z-30">
-                          <span className="inline-flex items-center gap-1 justify-end w-full relative group hover:z-50">
-                            <span>{row.label}</span>
-                            {hasBreakdown && (
-                              <span className="inline-block relative">
-                                <Info className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600 cursor-pointer transition-colors" />
-                                <span className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-100 absolute z-50 bottom-full mb-2 right-0 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-4 text-xs text-slate-700 dark:text-slate-300 pointer-events-none text-left font-normal">
-                                  <span className="font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-2 flex justify-between items-center flex-row">
-                                    <span>GST Calculation Details</span>
-                                    <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded text-[10px] font-black">{row.breakdown.rate}% Rate Block</span>
-                                  </span>
-                                  <span className="space-y-2 block max-h-48 overflow-y-auto">
-                                    {row.breakdown.items.length > 0 && (
-                                      <span className="block">
-                                        <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Line Items</span>
-                                        <span className="space-y-1 block">
-                                          {row.breakdown.items.map((it, idx) => (
-                                            <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
-                                              <span className="max-w-[180px] truncate font-medium block" title={it.description}>{it.description}</span>
-                                              <span className="text-right block">
-                                                <span className="font-mono text-slate-800 dark:text-slate-200">₹{it.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                                <span className="text-[10px] text-slate-400 block font-normal">+ {isInterState ? 'IGST' : 'CGST+SGST'}: ₹{it.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                              </span>
-                                            </span>
-                                          ))}
-                                        </span>
-                                      </span>
-                                    )}
-                                    {row.breakdown.charges.length > 0 && (
-                                      <span className="pt-1 block">
-                                        <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Taxable Charges</span>
-                                        <span className="space-y-1 block">
-                                          {row.breakdown.charges.map((ch, idx) => (
-                                            <span key={idx} className="flex justify-between items-start border-b border-slate-50 dark:border-slate-800/40 pb-1">
-                                              <span className="font-medium block">{ch.label}</span>
-                                              <span className="text-right block">
-                                                <span className="font-mono text-slate-800 dark:text-slate-200">₹{ch.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                                <span className="text-[10px] text-slate-400 block font-normal">+ GST: ₹{ch.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                              </span>
-                                            </span>
-                                          ))}
-                                        </span>
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between font-bold text-slate-900 dark:text-white block flex-row">
-                                    <span>Total Taxable ({row.breakdown.rate}%)</span>
-                                    <span className="font-mono">₹{row.breakdown.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                  </span>
-                                  <span className="mt-1 flex justify-between font-bold text-indigo-600 dark:text-indigo-400 block flex-row">
-                                    <span>Total GST ({row.breakdown.rate}%)</span>
-                                    <span className="font-mono">₹{row.breakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                                  </span>
-                                </span>
-                              </span>
-                            )}
-                          </span>
-                        </td>
-                        <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{row.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      </tr>
-                    );
-                  }) : !applyGst && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">GST (Exempted):</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-500 dark:text-slate-400">₹0.00</td>
-                    </tr>
-                  )}
-                  {shippingCharges > 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Freight Charges:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{shippingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  {Number(pq.loadingCharges || 0) > 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Loading Charges:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.loadingCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  {Number(pq.unloadingCharges || 0) > 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Unloading Charges:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.unloadingCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  {Number(pq.packingCharges || 0) > 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Packing Charges:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.packingCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  {Number(pq.insurance || 0) > 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Insurance:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{Number(pq.insurance).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  {otherCharges > 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Other Charges:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">₹{otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  {discount > 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-rose-500 text-xs">Discount:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-rose-600">-₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  {roundOff !== 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-2 text-right font-bold text-slate-550 text-xs">Round Off:</td>
-                      <td colSpan={2} className="px-3 py-2 font-bold text-slate-900 dark:text-white">{(roundOff >= 0 ? '+' : '')}₹{roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  )}
-                  <tr className="border-t-2 border-slate-300 dark:border-slate-600 bg-indigo-50/50 dark:bg-indigo-950/20">
-                    <td colSpan={6} className="px-3 py-3.5 text-right text-xs font-black text-slate-650 dark:text-slate-300 uppercase tracking-wider">Grand Total:</td>
-                    <td colSpan={2} className="px-3 py-3.5 font-black text-base text-indigo-600 dark:text-indigo-400">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  </tr>
-                </tfoot>
-              </table>
+          {/* Bank Account Details Card */}
+          {(pq.bankName || pq.bankAccountNo) && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-3xl p-6 shadow-sm space-y-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Bank Account Details for Payments</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-5 gap-x-4 text-xs">
+                {[
+                  { label: 'Bank Name', value: pq.bankName },
+                  { label: 'Account Holder Name', value: pq.bankAccountHolder },
+                  { label: 'Account Number', value: pq.bankAccountNo },
+                  { label: 'IFSC Code', value: pq.bankIfsc },
+                  { label: 'Branch', value: pq.bankBranch },
+                  { label: 'UPI ID', value: pq.bankUpi },
+                ].map(({ label, value }) => value && (
+                  <div key={label} className="space-y-1">
+                    <p className="font-bold text-slate-400 uppercase text-[9px] tracking-wider">{label}</p>
+                    <p className="font-semibold text-slate-800 dark:text-slate-200 font-mono">{value}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
+          {/* Line Items Table */}
+          {pq.items && pq.items.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-3xl overflow-hidden shadow-sm">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Requested Assets & Specifications</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800/50">
+                    <tr className="border-b border-slate-100 dark:border-slate-800">
+                      {['Item Description', 'HSN/SAC', 'Qty', 'Unit', 'Unit Price', 'GST%', 'GST Amt', 'Total'].map(h => (
+                        <th key={h} className="px-6 py-3.5 text-left font-bold text-slate-400 uppercase tracking-wider">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                    {pq.items.map((item, i) => (
+                      <tr key={i} className="hover:bg-slate-500/10 transition-colors">
+                        <td className="px-6 py-4">
+                          <p className="font-semibold text-slate-800 dark:text-slate-200">{item.itemDescription}</p>
+                          {item.remarks && <p className="text-[10px] text-slate-450 italic mt-0.5">Remarks: {item.remarks}</p>}
+                        </td>
+                        <td className="px-6 py-4 font-mono text-slate-500">{item.hsnSac}</td>
+                        <td className="px-6 py-4 font-mono">{item.quantity}</td>
+                        <td className="px-6 py-4 text-slate-500">{item.unit}</td>
+                        <td className="px-6 py-4 font-mono">₹{Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-6 py-4 font-mono">{item.gstRate}%</td>
+                        <td className="px-6 py-4 font-mono text-slate-500">₹{Number(item.gstAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-6 py-4 font-mono font-bold text-slate-800 dark:text-slate-100">₹{Number(item.totalWithGst || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Pricing Summary Side Card */}
+        <div className="space-y-6">
+          <div className="bg-slate-900/60 border border-slate-800/80 rounded-3xl p-6 backdrop-blur-md sticky top-[80px] space-y-6 shadow-2xl">
+            <h3 className="text-sm font-extrabold uppercase tracking-widest text-slate-400 border-b border-slate-850 pb-3">
+              Quotation Summary
+            </h3>
+            
+            <div className="space-y-3.5 text-xs font-semibold text-slate-400">
+              <div className="flex justify-between">
+                <span>Taxable Value (Base):</span>
+                <span className="font-mono text-slate-200">₹ {totalTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              
+              {applyGst && taxRows.length > 0 && taxRows.map((row, ri) => {
+                const hasBreakdown = row.breakdown && (row.breakdown.items.length > 0 || row.breakdown.charges.length > 0);
+                return (
+                  <div key={ri} className="flex justify-between items-center group relative">
+                    <span className="flex items-center gap-1.5 cursor-pointer hover:text-indigo-400 transition-colors">
+                      {row.label}
+                      {hasBreakdown && <Info className="w-3.5 h-3.5 text-slate-505" />}
+                    </span>
+                    <span className="font-mono text-slate-200">₹ {row.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+
+                    {/* Rich GST calculations tooltip display inline */}
+                    {hasBreakdown && (
+                      <div className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 absolute right-0 bottom-full mb-1 w-80 bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-4 text-xs text-slate-300 pointer-events-auto text-left font-normal z-50">
+                        <div className="font-bold text-slate-100 border-b border-slate-800 pb-1.5 mb-2 flex justify-between items-center">
+                          <span>GST Calculation Details</span>
+                          <span className="bg-indigo-500/25 text-indigo-300 px-1.5 py-0.5 rounded text-[10px] font-black">{row.breakdown.rate}% Rate Block</span>
+                        </div>
+                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1 scrollbar-thin">
+                          {row.breakdown.items.length > 0 && (
+                            <div>
+                              <span className="font-bold text-[10px] uppercase text-indigo-400 tracking-wider mb-1 block">Line Items</span>
+                              <div className="space-y-1">
+                                {row.breakdown.items.map((it, idx) => (
+                                  <div key={idx} className="flex justify-between items-start border-b border-slate-800/40 pb-1">
+                                    <span className="max-w-[180px] truncate font-medium" title={it.description}>{it.description}</span>
+                                    <div className="text-right">
+                                      <span className="font-mono text-slate-200">₹{it.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                      <span className="text-[10px] text-slate-500 block font-normal">+ {isInterState ? 'IGST' : 'CGST+SGST'}: ₹{it.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {row.breakdown.charges.length > 0 && (
+                            <div className="pt-1">
+                              <span className="font-bold text-[10px] uppercase text-indigo-400 tracking-wider mb-1 block">Taxable Charges</span>
+                              <div className="space-y-1">
+                                {row.breakdown.charges.map((ch, idx) => (
+                                  <div key={idx} className="flex justify-between items-start border-b border-slate-800/40 pb-1">
+                                    <span className="font-medium">{ch.label}</span>
+                                    <div className="text-right">
+                                      <span className="font-mono text-slate-200">₹{ch.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                      <span className="text-[10px] text-slate-500 block font-normal">+ GST: ₹{ch.gstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="mt-2.5 pt-2 border-t border-slate-800 flex justify-between font-bold text-slate-100">
+                          <span>Total Taxable ({row.breakdown.rate}%)</span>
+                          <span className="font-mono">₹{row.breakdown.taxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="mt-1 flex justify-between font-bold text-indigo-400">
+                          <span>Total GST ({row.breakdown.rate}%)</span>
+                          <span className="font-mono">₹{row.breakdown.gst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {!applyGst && (
+                <div className="flex justify-between text-slate-500">
+                  <span>GST:</span>
+                  <span>Exempted (₹ 0.00)</span>
+                </div>
+              )}
+
+              {shippingCharges > 0 && (
+                <div className="flex justify-between">
+                  <span>Freight charges:</span>
+                  <span className="font-mono text-slate-300">₹ {shippingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              {loadingCharges > 0 && (
+                <div className="flex justify-between">
+                  <span>Loading charges:</span>
+                  <span className="font-mono text-slate-300">₹ {loadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              {unloadingCharges > 0 && (
+                <div className="flex justify-between">
+                  <span>Unloading charges:</span>
+                  <span className="font-mono text-slate-300">₹ {unloadingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              {packingCharges > 0 && (
+                <div className="flex justify-between">
+                  <span>Packing charges:</span>
+                  <span className="font-mono text-slate-300">₹ {packingCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              {insurance > 0 && (
+                <div className="flex justify-between">
+                  <span>Insurance charges:</span>
+                  <span className="font-mono text-slate-300">₹ {insurance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              {otherCharges > 0 && (
+                <div className="flex justify-between">
+                  <span>Other extra charges:</span>
+                  <span className="font-mono text-slate-300">₹ {otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+
+              {discount > 0 && (
+                <div className="flex justify-between text-rose-500">
+                  <span>Discount Deducted:</span>
+                  <span className="font-mono">- ₹ {discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+
+              {roundOff !== 0 && (
+                <div className="flex justify-between">
+                  <span>Round Off:</span>
+                  <span className="font-mono">{(roundOff >= 0 ? '+' : '')} ₹ {roundOff.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                </div>
+              )}
+
+              <div className="border-t border-slate-800 pt-4 flex justify-between items-center text-slate-100 font-extrabold text-sm uppercase">
+                <span>Grand Total:</span>
+                <span className="font-mono text-2xl text-indigo-400 font-black">
+                  ₹ {grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </div>
+          
           {pq.termsAndConditions && (
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Terms & Conditions</p>
-              <p className="text-sm text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl">{pq.termsAndConditions}</p>
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-3xl p-6 shadow-sm space-y-2">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">General Terms & Conditions</h3>
+              <p className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl whitespace-pre-line font-mono">{pq.termsAndConditions}</p>
             </div>
           )}
         </div>
@@ -1940,6 +2083,28 @@ export default function PurchaseQuotationsView() {
   const qc = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
 
+  const handleCopyLink = (pq) => {
+    const link = `${window.location.origin}/asset-quote/${pq.id}/${pq.secureToken}`;
+    navigator.clipboard.writeText(link);
+    Swal.fire({
+      icon: 'success',
+      title: 'Copied!',
+      text: 'Supplier quotation portal link copied to clipboard.',
+      timer: 1500,
+      showConfirmButton: false
+    });
+  };
+
+  const handleResendLink = async (pq) => {
+    try {
+      await api.post(`/asset-management/quotations/${pq.id}/resend-supplier-link`);
+      Swal.fire('Success', pq.status === 'Resubmission Requested' ? 'Supplier revision request approved and email dispatched.' : 'Quotation link email resent successfully.', 'success');
+      qc.invalidateQueries({ queryKey: ['asset-pqs'] });
+    } catch (err) {
+      Swal.fire('Error', err.response?.data?.error || 'Failed to send link', 'error');
+    }
+  };
+
   useEffect(() => {
     setCurrentPage(1);
   }, [search]);
@@ -2004,6 +2169,18 @@ export default function PurchaseQuotationsView() {
   if (view === 'create') return <CreatePQForm onBack={() => { setView('list'); setEditPQId(null); }} isReadOnly={isReadOnly} editPQId={editPQId} />;
   if (view === 'compare') return <CompareQuotationsView onBack={() => setView('list')} />;
 
+  if (selectedPQ) {
+    return (
+      <PQDetailsSection
+        pq={selectedPQ}
+        onClose={() => setSelectedPQ(null)}
+        isReadOnly={isReadOnly}
+        pos={pos}
+        handleCreatePO={handleCreatePO}
+      />
+    );
+  }
+
   const totalValue = pqs.reduce((s, p) => s + Number(p.grandTotal || p.items?.reduce((a, i) => a + Number(i.totalWithGst), 0) || 0), 0);
 
   // Group PQs by prNo
@@ -2023,7 +2200,6 @@ export default function PurchaseQuotationsView() {
 
   return (
     <div className="space-y-6">
-      {selectedPQ && <PQDetailModal pq={selectedPQ} onClose={() => setSelectedPQ(null)} />}
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -2104,13 +2280,16 @@ export default function PurchaseQuotationsView() {
                       <td className="px-4 py-3">
                         <button onClick={() => setSelectedPQ(pq)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline">{pq.pqNo}</button>
                       </td>
-                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{pq.vendorName}</td>
+                      <td className="px-4 py-3">
+                        <div className="font-semibold text-slate-800 dark:text-slate-200">{pq.vendorName}</div>
+                        {pq.email && <div className="text-[10px] text-slate-400 font-mono mt-0.5">{pq.email}</div>}
+                      </td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-500">{pq.vendorGstin || '—'}</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{pq.items?.length || 0} items</td>
                       <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{pq.currency}</td>
                       <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">₹{total.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                       <td className="px-4 py-3 text-xs text-slate-500">{pq.paymentTerms}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500">{pq.validityDate ? format(new Date(pq.validityDate), 'dd MMM yyyy') : '—'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-500"><QuotationValidityCell pq={pq} /></td>
                       <td className="px-4 py-3">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[pq.status] || STATUS_STYLES.Draft}`}>{pq.status}</span>
                       </td>
@@ -2119,6 +2298,30 @@ export default function PurchaseQuotationsView() {
                           <Button variant="ghost" size="icon" onClick={() => setSelectedPQ(pq)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="View Details">
                             <Eye className="w-4 h-4" />
                           </Button>
+                          {pq.secureToken && !isReadOnly && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleCopyLink(pq)}
+                                className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-650"
+                                title="Copy Supplier Link"
+                              >
+                                <Link2 className="w-4 h-4" />
+                              </Button>
+                              {(pq.status === 'Sent' || pq.status === 'Resubmission Requested') && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleResendLink(pq)}
+                                  className="h-8 w-8 rounded-lg text-slate-400 hover:text-amber-600"
+                                  title={pq.status === 'Resubmission Requested' ? "Approve & Unlock Revision" : "Resend Supplier Request"}
+                                >
+                                  <Mail className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </>
+                          )}
                           {!isReadOnly && (
                             <>
                               <Button
@@ -2141,19 +2344,17 @@ export default function PurchaseQuotationsView() {
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                disabled={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled')}
+                                onClick={() => handleCreatePO(pq)}
+                                className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-650 disabled:opacity-30"
+                                title={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled') ? "PO Already Issued" : "Convert to PO"}
+                              >
+                                <ShoppingCart className="w-4 h-4" />
+                              </Button>
                             </>
-                          )}
-                          {!isReadOnly && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              disabled={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled')}
-                              onClick={() => handleCreatePO(pq)}
-                              className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 disabled:opacity-30"
-                              title={pq.status === 'PO Issued' || pos.some(po => po.prNo === pq.prNo && po.status !== 'Cancelled') ? "PO Already Issued" : "Convert to PO"}
-                            >
-                              <ShoppingCart className="w-4 h-4" />
-                            </Button>
                           )}
                         </div>
                       </td>

@@ -42,10 +42,10 @@ const ToastItem = ({ toast, onClose }) => {
   }, [toast.id, toast.duration]);
 
   const renderIcon = () => {
-    if (toast.icon === 'warning') return <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 animate-bounce" />;
-    if (toast.icon === 'error') return <XCircle className="w-5 h-5 text-rose-500 shrink-0" />;
-    if (toast.icon === 'success') return <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />;
-    return <Info className="w-5 h-5 text-indigo-500 shrink-0 animate-pulse" />;
+    if (toast.icon === 'warning') return <AlertTriangle className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-amber-500 shrink-0 animate-bounce" />;
+    if (toast.icon === 'error') return <XCircle className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-rose-500 shrink-0" />;
+    if (toast.icon === 'success') return <CheckCircle2 className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-emerald-500 shrink-0" />;
+    return <Info className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-indigo-500 shrink-0 animate-pulse" />;
   };
 
   return (
@@ -56,14 +56,14 @@ const ToastItem = ({ toast, onClose }) => {
       exit={{ opacity: 0, scale: 0.9, y: -20, filter: 'blur(4px)', transition: { duration: 0.25 } }}
       transition={{ type: 'spring', stiffness: 350, damping: 28 }}
       whileHover={{ scale: 1.015, y: -2 }}
-      className={`pointer-events-auto w-full max-w-sm overflow-hidden rounded-2xl border ${toast.borderColorClass} bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.3)] p-4 flex flex-col relative transition-all group`}
+      className={`pointer-events-auto w-full max-w-[280px] sm:max-w-sm overflow-hidden rounded-xl sm:rounded-2xl border ${toast.borderColorClass} bg-white/85 dark:bg-slate-900/85 backdrop-blur-xl shadow-[0_10px_30px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.3)] p-3 sm:p-4 flex flex-col relative transition-all group`}
     >
-      <div className="flex gap-3">
+      <div className="flex gap-2.5 sm:gap-3">
         {renderIcon()}
         <div className="flex-1 min-w-0">
-          <h4 className="font-extrabold text-sm text-slate-800 dark:text-slate-100 tracking-tight">{toast.title}</h4>
+          <h4 className="font-extrabold text-xs sm:text-sm text-slate-800 dark:text-slate-100 tracking-tight">{toast.title}</h4>
           <div 
-            className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed" 
+            className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 sm:mt-1 leading-relaxed" 
             dangerouslySetInnerHTML={{ __html: toast.message }} 
           />
           {toast.redirectPath && (
@@ -72,10 +72,10 @@ const ToastItem = ({ toast, onClose }) => {
                 navigate(toast.redirectPath);
                 onClose();
               }}
-              className={`mt-2.5 px-3 py-1.5 font-extrabold text-[10px] rounded-xl transition-all w-fit pointer-events-auto flex items-center gap-1 active:scale-95 border border-transparent hover:shadow-sm ${toast.buttonColorClass}`}
+              className={`mt-2 sm:mt-2.5 px-2.5 py-1 sm:px-3 sm:py-1.5 font-extrabold text-[9px] sm:text-[10px] rounded-xl transition-all w-fit pointer-events-auto flex items-center gap-1 active:scale-95 border border-transparent hover:shadow-sm ${toast.buttonColorClass}`}
             >
               <span>View Details</span>
-              <ChevronRight className="w-3.5 h-3.5" />
+              <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             </button>
           )}
         </div>
@@ -83,7 +83,7 @@ const ToastItem = ({ toast, onClose }) => {
           onClick={onClose} 
           className="text-slate-400 hover:text-slate-655 dark:hover:text-slate-200 self-start p-0.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
         </button>
       </div>
       
@@ -708,16 +708,51 @@ const AppShell = () => {
   const lastUserIdRef = useRef(null);
   const [attendanceStatus, setAttendanceStatus] = useState(null);
 
-  // Clear toasted caches only when user ID actually changes (e.g. on logout/login of different user)
+  const TOAST_COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 hours cooldown for toast alerts
+
+  // Clear toasted caches and initialize login cooldown timers when user logs in
   useEffect(() => {
     if (user?.id !== lastUserIdRef.current) {
+      const oldId = lastUserIdRef.current;
+      const isLogin = user?.id && !oldId;
       lastUserIdRef.current = user?.id || null;
+      
       toastedPOsRef.current.clear();
       toastedLabTestsRef.current.clear();
       toastedRMStockRef.current.clear();
       toastedProductStockRef.current.clear();
       toastedInProgressRef.current.clear();
       setCustomToasts([]);
+
+      if (isLogin) {
+        const now = Date.now();
+        if (!localStorage.getItem(`login_time_${user.id}`)) {
+          localStorage.setItem(`login_time_${user.id}`, String(now));
+        }
+        if (!localStorage.getItem(`last_toast_time_products_${user.id}`)) {
+          localStorage.setItem(`last_toast_time_products_${user.id}`, '0');
+        }
+        if (!localStorage.getItem(`last_toast_time_rm_${user.id}`)) {
+          localStorage.setItem(`last_toast_time_rm_${user.id}`, '0');
+        }
+        if (!localStorage.getItem(`last_toast_time_lab_${user.id}`)) {
+          localStorage.setItem(`last_toast_time_lab_${user.id}`, '0');
+        }
+        if (!localStorage.getItem(`last_toast_time_deliveries_${user.id}`)) {
+          localStorage.setItem(`last_toast_time_deliveries_${user.id}`, '0');
+        }
+        if (!localStorage.getItem(`last_toast_time_production_${user.id}`)) {
+          localStorage.setItem(`last_toast_time_production_${user.id}`, '0');
+        }
+      } else if (!user?.id && oldId) {
+        // User logged out! Clear their specific toast times so the next login starts fresh.
+        localStorage.removeItem(`login_time_${oldId}`);
+        localStorage.removeItem(`last_toast_time_products_${oldId}`);
+        localStorage.removeItem(`last_toast_time_rm_${oldId}`);
+        localStorage.removeItem(`last_toast_time_lab_${oldId}`);
+        localStorage.removeItem(`last_toast_time_deliveries_${oldId}`);
+        localStorage.removeItem(`last_toast_time_production_${oldId}`);
+      }
     }
   }, [user?.id]);
 
@@ -805,10 +840,9 @@ const AppShell = () => {
               message += `<div class="mt-1.5 pt-1.5 border-t border-rose-200/30 text-[10px] text-rose-600 dark:text-rose-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more products require reproduction</span></div>`;
             }
 
-            const lastToastTime = localStorage.getItem('last_reproduction_stock_toast_time');
+            const lastToastTime = localStorage.getItem(`last_toast_time_products_${user.id}`);
             const now = Date.now();
-            const fourHoursMs = 4 * 60 * 60 * 1000;
-            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > fourHoursMs;
+            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
 
             if (shouldToast && !toastedProductStockRef.current.has(mostRecent.code)) {
               triggerToastAlert({
@@ -824,7 +858,7 @@ const AppShell = () => {
                 delayMs: 2000
               });
 
-              localStorage.setItem('last_reproduction_stock_toast_time', String(now));
+              localStorage.setItem(`last_toast_time_products_${user.id}`, String(now));
               // Mark all currently fetched as toasted to prevent multiple popups
               products.forEach(p => toastedProductStockRef.current.add(p.code));
             }
@@ -851,7 +885,11 @@ const AppShell = () => {
               message += `<div class="mt-1.5 pt-1.5 border-t border-rose-200/30 text-[10px] text-rose-600 dark:text-rose-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more raw materials low</span></div>`;
             }
 
-            if (!toastedRMStockRef.current.has(mostRecent.code)) {
+            const lastToastTime = localStorage.getItem(`last_toast_time_rm_${user.id}`);
+            const now = Date.now();
+            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
+
+            if (shouldToast && !toastedRMStockRef.current.has(mostRecent.code)) {
               triggerToastAlert({
                 title: 'Low RM Stock Alert',
                 message,
@@ -865,6 +903,7 @@ const AppShell = () => {
                 delayMs: 1500
               });
 
+              localStorage.setItem(`last_toast_time_rm_${user.id}`, String(now));
               // Mark all currently fetched as toasted to prevent multiple popups
               rmLowStockItems.forEach(rm => toastedRMStockRef.current.add(rm.code));
             }
@@ -900,7 +939,11 @@ const AppShell = () => {
               message += `<div class="mt-1.5 pt-1.5 border-t border-amber-250/20 text-[10px] text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more pending below</span></div>`;
             }
 
-            if (['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'].includes(user.role) && !toastedLabTestsRef.current.has(mostRecent.referenceNo)) {
+            const lastToastTime = localStorage.getItem(`last_toast_time_lab_${user.id}`);
+            const now = Date.now();
+            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
+
+            if (shouldToast && ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'].includes(user.role) && !toastedLabTestsRef.current.has(mostRecent.referenceNo)) {
               triggerToastAlert({
                 title: 'Pending RM Lab Test',
                 message,
@@ -914,6 +957,7 @@ const AppShell = () => {
                 delayMs: 300
               });
 
+              localStorage.setItem(`last_toast_time_lab_${user.id}`, String(now));
               // Mark all currently fetched pending tests as toasted to prevent multiple popups
               pendingTests.forEach(t => toastedLabTestsRef.current.add(t.referenceNo));
             }
@@ -940,7 +984,11 @@ const AppShell = () => {
               message += `<div class="mt-1.5 pt-1.5 border-t border-indigo-200/30 text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more awaiting receipt</span></div>`;
             }
 
-            if (!toastedPOsRef.current.has(mostRecent.referenceNo)) {
+            const lastToastTime = localStorage.getItem(`last_toast_time_deliveries_${user.id}`);
+            const now = Date.now();
+            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
+
+            if (shouldToast && !toastedPOsRef.current.has(mostRecent.referenceNo)) {
               triggerToastAlert({
                 title: 'Upcoming RM Delivery',
                 message,
@@ -954,6 +1002,7 @@ const AppShell = () => {
                 delayMs: 2500
               });
 
+              localStorage.setItem(`last_toast_time_deliveries_${user.id}`, String(now));
               // Mark all currently fetched POs as toasted to prevent multiple popups
               awaitingPOs.forEach(po => toastedPOsRef.current.add(po.referenceNo));
             }
@@ -978,7 +1027,11 @@ const AppShell = () => {
               message += `<div class="mt-1.5 pt-1.5 border-t border-amber-200/20 text-[10px] text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more batches in progress</span></div>`;
             }
 
-            if (!toastedInProgressRef.current.has(mostRecent.referenceNo)) {
+            const lastToastTime = localStorage.getItem(`last_toast_time_production_${user.id}`);
+            const now = Date.now();
+            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
+
+            if (shouldToast && !toastedInProgressRef.current.has(mostRecent.referenceNo)) {
               triggerToastAlert({
                 title: 'Production In Progress',
                 message,
@@ -992,6 +1045,7 @@ const AppShell = () => {
                 delayMs: 1000
               });
 
+              localStorage.setItem(`last_toast_time_production_${user.id}`, String(now));
               // Mark all currently fetched active batches as toasted
               activeBatches.forEach(b => toastedInProgressRef.current.add(b.referenceNo));
             }
@@ -1047,6 +1101,16 @@ const AppShell = () => {
     setTimeout(applyLanguage, 500);
   }, [language]);
 
+  const performLogoutCleanup = (userId) => {
+    if (!userId) return;
+    localStorage.removeItem(`login_time_${userId}`);
+    localStorage.removeItem(`last_toast_time_products_${userId}`);
+    localStorage.removeItem(`last_toast_time_rm_${userId}`);
+    localStorage.removeItem(`last_toast_time_lab_${userId}`);
+    localStorage.removeItem(`last_toast_time_deliveries_${userId}`);
+    localStorage.removeItem(`last_toast_time_production_${userId}`);
+  };
+
   // Session verification
   useEffect(() => {
     if (!token || !user) {
@@ -1067,11 +1131,13 @@ const AppShell = () => {
         );
         const { exp } = JSON.parse(jsonPayload);
         if (exp && Date.now() >= exp * 1000) {
+          performLogoutCleanup(user?.id);
           clearAuth();
           navigate('/login');
         }
       }
     } catch {
+      performLogoutCleanup(user?.id);
       clearAuth();
       navigate('/login');
     }
@@ -1094,6 +1160,7 @@ const AppShell = () => {
   };
 
   const handleLogout = () => {
+    performLogoutCleanup(user?.id);
     clearAuth();
     navigate('/login');
   };
@@ -1799,7 +1866,7 @@ const AppShell = () => {
       )}
 
       {/* Custom Stacked Toast Container */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 z-[9999] flex flex-col gap-3.5 max-w-sm w-full pointer-events-none px-4 sm:px-0">
+      <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[9999] flex flex-col items-end gap-3.5 w-[280px] sm:w-full max-w-sm pointer-events-none">
         <AnimatePresence mode="popLayout">
           {customToasts.map(toast => (
             <ToastItem 

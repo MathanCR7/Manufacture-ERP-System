@@ -4,6 +4,7 @@ import { AlertTriangle, Factory, RefreshCw, ChevronRight, ChevronLeft } from 'lu
 import { Button } from '@/components/ui/button';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Pagination } from '@/components/ui/Pagination';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 export default function LowStockAlertsPage() {
   const [alerts, setAlerts] = useState([]);
@@ -52,6 +53,7 @@ export default function LowStockAlertsPage() {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      <DashboardBackButton />
       {fromNotifications && (
         <Button 
           variant="outline" 

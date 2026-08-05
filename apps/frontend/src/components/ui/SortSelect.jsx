@@ -2,7 +2,15 @@ import React from 'react';
 import { ArrowUpDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export function SortSelect({ value, onChange, options, className = '' }) {
+const DEFAULT_OPTIONS = [
+  { value: 'recent', label: 'Most Recent' },
+  { value: 'oldest', label: 'Oldest' },
+  { value: 'price_desc', label: 'Amount: High to Low' },
+  { value: 'price_asc', label: 'Amount: Low to High' },
+];
+
+export function SortSelect({ value, onChange, options = DEFAULT_OPTIONS, className = '' }) {
+  const opts = options && options.length > 0 ? options : DEFAULT_OPTIONS;
   return (
     <div className={cn("relative flex items-center w-full sm:w-auto", className)}>
       <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400 dark:text-slate-500">
@@ -13,7 +21,7 @@ export function SortSelect({ value, onChange, options, className = '' }) {
         onChange={(e) => onChange(e.target.value)}
         className="h-9 w-full sm:w-48 pl-9 pr-8 text-xs font-semibold border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none cursor-pointer transition-all"
       >
-        {options.map((opt) => (
+        {opts.map((opt) => (
           <option key={opt.value} value={opt.value} className="bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300">
             {opt.label}
           </option>

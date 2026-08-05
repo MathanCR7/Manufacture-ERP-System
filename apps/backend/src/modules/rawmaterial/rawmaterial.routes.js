@@ -13,6 +13,7 @@ router.get('/rm/po', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVIS
 router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.createPO);
 router.get('/rm/po/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']), rmController.getPOById);
 router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.updatePO);
+router.patch('/rm/po/:id/payment', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.updatePOPayment);
 router.delete('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.deletePO);
 
 // --- UOM Routes (/api/uom) ---

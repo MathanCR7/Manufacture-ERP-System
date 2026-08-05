@@ -2,6 +2,34 @@ const assetService = require('./asset-management.service');
 const prisma = require('../../database/prisma');
 const { resendDocument } = require('../../utils/communication');
 
+const emailRateLimiter = {
+  limits: new Map(),
+  check(userId, id, cooldownHours) {
+    const now = Date.now();
+    const COOLDOWN_MS = cooldownHours * 60 * 60 * 1000;
+    const pqKey = `pq_${id}`;
+    if (this.limits.has(pqKey)) {
+      const timeSince = now - this.limits.get(pqKey);
+      if (timeSince < COOLDOWN_MS) {
+        return { allowed: false, remainingMs: COOLDOWN_MS - timeSince };
+      }
+    }
+    const userKey = `user_${userId}_pq_${id}`;
+    if (this.limits.has(userKey)) {
+      const timeSince = now - this.limits.get(userKey);
+      if (timeSince < COOLDOWN_MS) {
+        return { allowed: false, remainingMs: COOLDOWN_MS - timeSince };
+      }
+    }
+    return { allowed: true };
+  },
+  set(userId, id) {
+    const now = Date.now();
+    this.limits.set(`pq_${id}`, now);
+    this.limits.set(`user_${userId}_pq_${id}`, now);
+  }
+};
+
 class AssetManagementController {
   async getAllBudgets(req, res, next) {
     try {
@@ -393,6 +421,71 @@ class AssetManagementController {
       }
       const result = await resendDocument(documentType, documentId, pdfBase64);
       res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async sendQuotationRequests(req, res, next) {
+    try {
+      const results = await assetService.sendQuotationRequests(req.body, req.user.id);
+      res.status(201).json({ success: true, data: results });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async getPublicQuotation(req, res, next) {
+    try {
+      const { pqId, token } = req.params;
+      const result = await assetService.getPublicPQ(pqId, token);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async submitPublicQuotation(req, res, next) {
+    try {
+      const { pqId, token } = req.params;
+      const result = await assetService.submitPublicPQ(pqId, token, req.body);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async requestResubmission(req, res, next) {
+    try {
+      const { pqId, token } = req.params;
+      const result = await assetService.requestResubmission(pqId, token);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  async resendSupplierLink(req, res, next) {
+    try {
+      const { id } = req.params;
+      const userId = req.user?.id || 'system';
+      const checkResult = emailRateLimiter.check(userId, id, 6);
+
+      if (!checkResult.allowed) {
+        const remainingMs = checkResult.remainingMs;
+        const remainingMins = Math.ceil(remainingMs / (60 * 1000));
+        const hours = Math.floor(remainingMins / 60);
+        const mins = remainingMins % 60;
+        const timeStr = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+        return res.status(429).json({
+          success: false,
+          error: `Email send rate limit reached. Please wait ${timeStr} before re-sending for this quotation.`
+        });
+      }
+
+      const result = await assetService.resendSupplierLink(id);
+      emailRateLimiter.set(userId, id);
+      res.json({ success: true, data: result });
     } catch (error) {
       res.status(400).json({ error: error.message });
     }

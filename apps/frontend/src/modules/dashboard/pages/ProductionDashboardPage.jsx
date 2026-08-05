@@ -174,7 +174,14 @@ export default function ProductionDashboardPage() {
                 const qcColor = b.qcStatus === 'Pass' || b.qcStatus === 'pass' ? 'text-emerald-500' : b.qcStatus === 'Fail' ? 'text-rose-500' : 'text-slate-400';
                 return (
                   <tr key={b.id} className="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-2.5 px-3 text-indigo-600 dark:text-indigo-400 font-semibold text-xs">{b.referenceNo || b.id?.substring(0,8)}</td>
+                    <td className="py-2.5 px-3">
+                      <button
+                        onClick={() => navigate(`/production/batches?id=${b.id}&from=production`)}
+                        className="text-indigo-650 dark:text-indigo-400 font-semibold text-xs hover:underline cursor-pointer bg-transparent border-none p-0 text-left focus:outline-none"
+                      >
+                        {b.referenceNo || b.id?.substring(0, 8)}
+                      </button>
+                    </td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300 max-w-[120px] truncate">{b.productName}</td>
                     <td className="py-2.5 px-3">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${m.bg} ${m.text}`}>{b.status}</span>

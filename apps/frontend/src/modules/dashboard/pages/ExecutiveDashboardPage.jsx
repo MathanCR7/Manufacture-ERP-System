@@ -138,7 +138,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-indigo-500 to-indigo-600" 
           trend={growth >= 0 ? 'up' : 'down'} 
           loading={loading} 
-          onClick={() => navigate('/sales/list')}
+          onClick={() => navigate('/sales/list?from=executive')}
         />
         <KPICard 
           title="Net Profit" 
@@ -158,7 +158,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-violet-500 to-violet-600" 
           trend="neutral" 
           loading={loading} 
-          onClick={() => navigate('/sales/list')}
+          onClick={() => navigate('/sales/list?from=executive')}
         />
         <KPICard 
           title="Total Expenses" 
@@ -168,17 +168,17 @@ export default function ExecutiveDashboardPage() {
           gradient="from-amber-500 to-amber-600" 
           trend="down" 
           loading={loading} 
-          onClick={() => navigate('/finance/expenses')}
+          onClick={() => navigate('/finance/expenses?from=executive')}
         />
         <KPICard 
           title="Direct Costs" 
           value={fmt(d.totalDirectCosts)} 
-          sub="Raw Material purchases" 
+          sub="Cost of Goods Sold" 
           icon={Briefcase} 
           gradient="from-orange-500 to-orange-600" 
           trend="neutral" 
           loading={loading} 
-          onClick={() => navigate('/purchase-orders')}
+          onClick={() => navigate('/purchase-orders?from=executive')}
         />
         <KPICard 
           title="General Expenses" 
@@ -188,7 +188,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-rose-550 to-rose-600" 
           trend="neutral" 
           loading={loading} 
-          onClick={() => navigate('/finance/expenses')}
+          onClick={() => navigate('/finance/expenses?from=executive')}
         />
       </div>
 
@@ -202,7 +202,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-blue-500 to-blue-600" 
           trend="neutral" 
           loading={loading} 
-          onClick={() => navigate('/rm/stock')}
+          onClick={() => navigate('/rm/stock?from=executive')}
         />
         <KPICard 
           title="OEE Score" 
@@ -222,7 +222,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-pink-500 to-pink-600" 
           trend="neutral" 
           loading={loading} 
-          onClick={() => navigate('/production/batches')}
+          onClick={() => navigate('/production/batches?from=executive')}
         />
         <KPICard 
           title="Top Contributors" 
@@ -232,7 +232,7 @@ export default function ExecutiveDashboardPage() {
           gradient="from-cyan-500 to-cyan-600" 
           trend="neutral" 
           loading={loading} 
-          onClick={() => navigate('/parties/customers')}
+          onClick={() => navigate('/parties/customers?from=executive')}
         />
       </div>
 

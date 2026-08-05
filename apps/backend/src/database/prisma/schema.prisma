@@ -187,6 +187,10 @@ model RawMaterialPO {
   grandTotal       Decimal             @default(0.00) @map("grand_total")
   items            Json?
   
+  // Payment Details
+  paymentStatus    String?             @default("UNPAID")
+  paidAmount       Decimal             @default(0.00) @map("paid_amount")
+  
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
 
@@ -1275,6 +1279,14 @@ model AssetPQ {
   createdAt            DateTime      @default(now()) @map("created_at")
   updatedAt            DateTime      @updatedAt @map("updated_at")
 
+  secureToken          String?       @unique @map("secure_token")
+  bankName             String?       @map("bank_name")
+  bankAccountHolder    String?       @map("bank_account_holder")
+  bankAccountNo        String?       @map("bank_account_no")
+  bankIfsc             String?       @map("bank_ifsc")
+  bankBranch           String?       @map("bank_branch")
+  bankUpi              String?       @map("bank_upi")
+
   @@map("asset_pqs")
 }
 
@@ -1361,6 +1373,13 @@ model AssetPO {
   updatedAt       DateTime      @updatedAt @map("updated_at")
   createdById     String        @map("created_by_id")
   createdBy       User          @relation("AssetPOCreator", fields: [createdById], references: [id])
+
+  bankName             String?       @map("bank_name")
+  bankAccountHolder    String?       @map("bank_account_holder")
+  bankAccountNo        String?       @map("bank_account_no")
+  bankIfsc             String?       @map("bank_ifsc")
+  bankBranch           String?       @map("bank_branch")
+  bankUpi              String?       @map("bank_upi")
 
   @@map("asset_pos")
 }

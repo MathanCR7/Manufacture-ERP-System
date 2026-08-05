@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
 import { Pagination } from '@/components/ui/Pagination';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 const STATUS_CONFIG = {
   'Quotation':            { bg: 'bg-blue-50 dark:bg-blue-500/10',   text: 'text-blue-600 dark:text-blue-400',   dot: 'bg-blue-500 dark:bg-blue-400',   border: 'border-blue-100 dark:border-blue-500/20' },
@@ -679,7 +680,20 @@ export default function OrderListPage() {
   };
 
   const handleCloseInvoiceView = () => {
-    setSearchParams({});
+    const from = searchParams.get('from');
+    if (from === 'sales') {
+      navigate('/dashboard/sales');
+    } else if (from === 'production') {
+      navigate('/dashboard/production');
+    } else if (from === 'status') {
+      navigate('/orders/status');
+    } else if (from === 'dashboard' || from === 'main') {
+      navigate('/dashboard');
+    } else if (from && typeof from === 'string' && from.startsWith('/')) {
+      navigate(from);
+    } else {
+      setSearchParams({});
+    }
   };
 
   // Reset page when search term or filter changes
@@ -730,9 +744,15 @@ export default function OrderListPage() {
           <div className="space-y-0.5">
             <button 
               onClick={handleCloseInvoiceView}
-              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-650 dark:text-indigo-400 hover:underline mb-1"
+              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline mb-1 cursor-pointer"
             >
-              <ChevronLeft className="w-4 h-4" /> Back to Order Registry
+              <ChevronLeft className="w-4 h-4" /> {
+                searchParams.get('from') === 'sales' ? 'Back to Sales Dashboard' :
+                searchParams.get('from') === 'production' ? 'Back to Production Dashboard' : 
+                searchParams.get('from') === 'status' ? 'Back to Order Status Board' : 
+                (searchParams.get('from') === 'dashboard' || searchParams.get('from') === 'main') ? 'Back to Dashboard' : 
+                'Back to Order Registry'
+              }
             </button>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
               Tax Invoice Details
@@ -740,11 +760,6 @@ export default function OrderListPage() {
             <p className="text-xs text-slate-500 dark:text-slate-400">
               Tax details, customer billings and line item profits for {selectedOrder.referenceNo}.
             </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => handlePrint(selectedOrder)} className="bg-indigo-650 hover:bg-indigo-750 text-white text-xs font-bold rounded-xl shadow-md h-9">
-              <Printer className="w-4 h-4 mr-1.5" /> Print Invoice
-            </Button>
           </div>
         </div>
 
@@ -917,6 +932,7 @@ export default function OrderListPage() {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      <DashboardBackButton />
       {!canEdit && (
         <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
           <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -997,7 +1013,7 @@ export default function OrderListPage() {
                 <th className="px-4 py-2.5">Customer Name</th>
                 <th className="px-4 py-2.5 text-center">Type</th>
                 <th className="px-4 py-2.5 text-right">Items Count</th>
-                <th className="px-4 py-2.5 text-right">Subtotal Value</th>
+                <th className="px-4 py-2.5 text-right">Total Amount</th>
                 <th className="px-4 py-2.5 text-center">Delivery Date</th>
                 <th className="px-4 py-2.5 text-center">Order Status</th>
                 <th className="px-4 py-2.5 text-center">Actions</th>
@@ -1023,7 +1039,7 @@ export default function OrderListPage() {
                       <td className="px-4 py-2.5 text-center text-slate-500 font-semibold">{order.type}</td>
                       <td className="px-4 py-2.5 text-right font-mono font-bold">{itemsCount}</td>
                       <td className="px-4 py-2.5 text-right font-mono font-black text-slate-855 dark:text-white">
-                        ₹{Number(order.totalSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{Number(order.grandTotal || order.totalSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-2.5 text-center text-slate-500 font-semibold">
                         {new Date(order.deliveryDate).toLocaleDateString('en-GB')}

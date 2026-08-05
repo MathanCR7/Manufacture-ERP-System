@@ -7,6 +7,7 @@ import {
   Sparkles, CheckCircle2, AlertTriangle, ShieldAlert
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 const COLUMNS = [
   { key: 'Quotation',             label: 'Quotation',              color: 'blue' },
@@ -18,44 +19,44 @@ const COLUMNS = [
 
 const COLOR_MAP = {
   blue: { 
-    header: 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-100 dark:border-blue-900/30', 
+    header: 'bg-blue-50/80 dark:bg-blue-950/40 border-blue-100 dark:border-blue-900/40', 
     badge: 'bg-blue-600 dark:bg-blue-500 text-white shadow-sm shadow-blue-500/20', 
     text: 'text-blue-600 dark:text-blue-400', 
     dot: 'bg-blue-500 dark:bg-blue-400 shadow-blue-500/30 shadow-lg', 
     card_border: 'border-blue-100 dark:border-blue-900/40 hover:border-blue-300 dark:hover:border-blue-700', 
-    glow: 'shadow-blue-500/2 dark:shadow-blue-500/5 hover:shadow-blue-500/10' 
+    glow: 'shadow-blue-500/5 dark:shadow-blue-500/10 hover:shadow-blue-500/20' 
   },
   violet: { 
-    header: 'bg-violet-50/50 dark:bg-violet-955/20 border-violet-100 dark:border-violet-900/30', 
+    header: 'bg-violet-50/80 dark:bg-violet-950/40 border-violet-100 dark:border-violet-900/40', 
     badge: 'bg-violet-600 dark:bg-violet-500 text-white shadow-sm shadow-violet-500/20', 
-    text: 'text-violet-650 dark:text-violet-400', 
+    text: 'text-violet-600 dark:text-violet-400', 
     dot: 'bg-violet-500 dark:bg-violet-400 shadow-violet-500/30 shadow-lg', 
     card_border: 'border-violet-100 dark:border-violet-900/40 hover:border-violet-300 dark:hover:border-violet-700', 
-    glow: 'shadow-violet-500/2 dark:shadow-violet-500/5 hover:shadow-violet-500/10' 
+    glow: 'shadow-violet-500/5 dark:shadow-violet-500/10 hover:shadow-violet-500/20' 
   },
   slate: { 
-    header: 'bg-slate-100/50 dark:bg-slate-900/20 border-slate-205 dark:border-slate-800/30', 
+    header: 'bg-slate-100/80 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700/50', 
     badge: 'bg-slate-600 dark:bg-slate-500 text-white shadow-sm shadow-slate-500/20', 
-    text: 'text-slate-600 dark:text-slate-400', 
-    dot: 'bg-slate-505 dark:bg-slate-400 shadow-slate-500/30 shadow-lg', 
-    card_border: 'border-slate-200 dark:border-slate-800 hover:border-slate-350 dark:hover:border-slate-700', 
-    glow: 'shadow-slate-500/2 dark:shadow-slate-500/5 hover:shadow-slate-500/10' 
+    text: 'text-slate-700 dark:text-slate-300', 
+    dot: 'bg-slate-500 dark:bg-slate-400 shadow-slate-500/30 shadow-lg', 
+    card_border: 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700', 
+    glow: 'shadow-slate-500/5 dark:shadow-slate-500/10 hover:shadow-slate-500/20' 
   },
   amber: { 
-    header: 'bg-amber-50/50 dark:bg-amber-955/20 border-amber-100 dark:border-amber-900/30', 
-    badge: 'bg-amber-600 dark:bg-amber-505 text-white shadow-sm shadow-amber-500/20', 
+    header: 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-100 dark:border-amber-900/40', 
+    badge: 'bg-amber-600 dark:bg-amber-500 text-white shadow-sm shadow-amber-500/20', 
     text: 'text-amber-700 dark:text-amber-400', 
-    dot: 'bg-amber-500 dark:bg-amber-405 shadow-amber-500/30 shadow-lg', 
+    dot: 'bg-amber-500 dark:bg-amber-400 shadow-amber-500/30 shadow-lg', 
     card_border: 'border-amber-100 dark:border-amber-900/40 hover:border-amber-300 dark:hover:border-amber-700', 
-    glow: 'shadow-amber-500/2 dark:shadow-amber-500/5 hover:shadow-amber-500/10' 
+    glow: 'shadow-amber-500/5 dark:shadow-amber-500/10 hover:shadow-amber-500/20' 
   },
   teal: { 
-    header: 'bg-teal-50/50 dark:bg-teal-950/20 border-teal-100 dark:border-teal-900/30', 
-    badge: 'bg-teal-600 dark:bg-teal-505 text-white shadow-sm shadow-teal-500/20', 
+    header: 'bg-teal-50/80 dark:bg-teal-950/40 border-teal-100 dark:border-teal-900/40', 
+    badge: 'bg-teal-600 dark:bg-teal-500 text-white shadow-sm shadow-teal-500/20', 
     text: 'text-teal-600 dark:text-teal-400', 
-    dot: 'bg-teal-505 dark:bg-teal-400 shadow-teal-500/30 shadow-lg', 
+    dot: 'bg-teal-500 dark:bg-teal-400 shadow-teal-500/30 shadow-lg', 
     card_border: 'border-teal-100 dark:border-teal-900/40 hover:border-teal-300 dark:hover:border-teal-700', 
-    glow: 'shadow-teal-500/2 dark:shadow-teal-500/5 hover:shadow-teal-500/10' 
+    glow: 'shadow-teal-500/5 dark:shadow-teal-500/10 hover:shadow-teal-500/20' 
   },
 };
 
@@ -123,8 +124,9 @@ export default function OrderStatusPage() {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-5 mx-auto transition-all duration-300">
+      <DashboardBackButton />
       {/* Header bar */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-205 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2.5">
             <LayoutGrid className="w-6 h-6 text-indigo-600 dark:text-indigo-400 shrink-0" />
@@ -137,14 +139,14 @@ export default function OrderStatusPage() {
         <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
           <button 
             onClick={handleExport}
-            className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-205 text-xs font-bold rounded-xl transition-all shadow-2xs h-9.5 cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all shadow-xs h-9.5 cursor-pointer"
           >
             <Download className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Export Pipeline
           </button>
           <button 
             onClick={fetchKanban} 
             disabled={loading}
-            className="p-2.5 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-505 dark:text-slate-400 rounded-xl transition-all h-9.5 cursor-pointer"
+            className="p-2.5 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 rounded-xl transition-all h-9.5 cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -157,11 +159,11 @@ export default function OrderStatusPage() {
           const c = COLOR_MAP[col.color];
           const count = data[col.key]?.length || 0;
           return (
-            <div key={col.key} className={`bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-2xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xs ${c.card_border}`}>
+            <div key={col.key} className={`bg-white dark:bg-slate-900 border rounded-2xl p-4 shadow-xs transition-all duration-200 hover:-translate-y-0.5 ${c.card_border}`}>
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-1.5">
                   <span className={`w-2 h-2 rounded-full ${c.dot} animate-pulse`} />
-                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-450 dark:text-slate-400">{col.label}</span>
+                  <span className="text-[10px] uppercase font-black tracking-wider text-slate-500 dark:text-slate-400">{col.label}</span>
                 </div>
               </div>
               <p className={`text-2xl font-black tracking-tight ${c.text}`}>{count}</p>
@@ -171,18 +173,18 @@ export default function OrderStatusPage() {
       </div>
 
       {/* Search Filter Panel */}
-      <div className="relative shadow-2xs rounded-xl overflow-hidden">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-405" />
+      <div className="relative shadow-xs rounded-xl overflow-hidden">
+        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
         <input 
           value={searchTerm} 
           onChange={e => setSearchTerm(e.target.value)}
           placeholder="Filter pipeline by order ID ref or customer name..."
-          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-205 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all h-10" 
+          className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-500 rounded-xl pl-10 pr-4 py-3 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 transition-all h-10 font-medium" 
         />
       </div>
 
       {loading ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-24 text-slate-405 gap-3">
+        <div className="flex-1 flex flex-col items-center justify-center py-24 text-slate-400 gap-3">
           <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
           <span className="text-xs font-semibold">Loading orders pipeline...</span>
         </div>
@@ -195,9 +197,9 @@ export default function OrderStatusPage() {
             const totalAmt = items.reduce((s, o) => s + Number(o.total || 0), 0);
 
             return (
-              <div key={col.key} className="bg-white/90 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-2xs">
+              <div key={col.key} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-xs">
                 {/* Column Header */}
-                <div className={`px-3 py-2.5 border-b border-slate-200 dark:border-slate-800 ${c.header} border flex items-center justify-between`}>
+                <div className={`px-3 py-2.5 border-b border-slate-200 dark:border-slate-800/80 ${c.header} border flex items-center justify-between`}>
                   <div className="flex items-center gap-1.5">
                     <span className={`w-2 h-2 rounded-full ${c.dot}`} />
                     <span className="text-[10px] font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">{col.label}</span>
@@ -209,8 +211,8 @@ export default function OrderStatusPage() {
 
                 {/* Total Value Summary Row */}
                 {items.length > 0 && (
-                  <div className="px-3.5 py-2 border-b border-slate-200 dark:border-slate-800/40 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
-                    <span className="text-[9px] text-slate-400 uppercase tracking-wider font-extrabold">Value</span>
+                  <div className="px-3.5 py-2 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/70 dark:bg-slate-950/40 flex items-center justify-between">
+                    <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider font-extrabold">Value</span>
                     <span className={`text-xs font-black ${c.text}`}>
                       ₹{totalAmt.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                     </span>
@@ -220,7 +222,7 @@ export default function OrderStatusPage() {
                 {/* Cards Column List */}
                 <div className="flex flex-col gap-3 p-3 overflow-y-auto max-h-[60vh] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 scrollbar-track-transparent">
                   {items.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-650 gap-2">
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-600 gap-2">
                       <Package className="w-8 h-8 opacity-30" />
                       <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">No active orders</span>
                     </div>
@@ -231,28 +233,28 @@ export default function OrderStatusPage() {
                       return (
                         <div 
                           key={order.id}
-                          className={`bg-white dark:bg-slate-955 border ${c.card_border} rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-0.5 ${c.glow} cursor-pointer relative shadow-sm`}
+                          className={`bg-white dark:bg-slate-900 border ${c.card_border} rounded-2xl overflow-hidden transition-all duration-300 hover:-translate-y-0.5 ${c.glow} cursor-pointer relative shadow-sm`}
                           onClick={() => setExpandedCard(isExpanded ? null : order.id)}
                         >
                           {/* Card Content Top */}
                           <div className="p-3.5 space-y-2.5 text-xs">
                             <div className="flex justify-between items-center">
-                              <span className={`font-mono text-[9px] font-extrabold ${c.text} bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/50 px-2 py-0.5 rounded-md`}>
+                              <span className={`font-mono text-[9px] font-extrabold ${c.text} bg-slate-100 dark:bg-slate-800 border border-slate-200/60 dark:border-slate-700/60 px-2 py-0.5 rounded-md`}>
                                 #{order.referenceNo}
                               </span>
                               <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                                 <button
                                   type="button"
                                   onClick={() => {
-                                    navigate('/orders/list', { state: { orderId: order.id } });
+                                    navigate(`/orders/list?id=${order.id}&from=status`);
                                   }}
-                                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-650 transition-colors cursor-pointer"
+                                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
                                   title="View Order Details"
                                 >
                                   <Eye className="w-4 h-4" />
                                 </button>
                                 <ChevronDown 
-                                  className={`w-4 h-4 text-slate-400 dark:text-slate-505 transition-transform duration-200 cursor-pointer`} 
+                                  className={`w-4 h-4 text-slate-400 dark:text-slate-500 transition-transform duration-200 cursor-pointer ${isExpanded ? 'rotate-180' : ''}`} 
                                   onClick={() => setExpandedCard(isExpanded ? null : order.id)}
                                 />
                               </div>
@@ -262,16 +264,16 @@ export default function OrderStatusPage() {
                               {order.customerName}
                             </h4>
 
-                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-850">
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                               <div>
-                                <span className="text-slate-400 block uppercase font-bold text-[8px]">Subtotal</span>
+                                <span className="text-slate-400 dark:text-slate-500 block uppercase font-bold text-[8px]">Subtotal</span>
                                 <span className="font-extrabold text-slate-800 dark:text-slate-100 font-mono">
                                   ₹{Number(order.total).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-slate-400 block uppercase font-bold text-[8px]">Profit</span>
-                                <span className={`text-[10px] font-extrabold font-mono ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-455'}`}>
+                                <span className="text-slate-400 dark:text-slate-500 block uppercase font-bold text-[8px]">Profit</span>
+                                <span className={`text-[10px] font-extrabold font-mono ${profit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
                                   {profit >= 0 ? '+' : ''}₹{profit.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                                 </span>
                               </div>
@@ -286,14 +288,14 @@ export default function OrderStatusPage() {
                                 animate={{ height: 'auto', opacity: 1 }}
                                 exit={{ height: 0, opacity: 0 }}
                                 transition={{ duration: 0.2 }}
-                                className="border-t border-slate-100 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-900/40 p-3.5 space-y-3 text-[10px]"
+                                className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 p-3.5 space-y-3 text-[10px]"
                               >
                                 {(order.products || []).length > 0 && (
                                   <div>
-                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 mb-1.5 font-bold">Ordered Products</p>
+                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1.5 font-bold">Ordered Products</p>
                                     <ul className="space-y-1">
                                       {order.products.map((p, i) => (
-                                        <li key={i} className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5 font-medium leading-relaxed">
+                                        <li key={i} className="text-slate-600 dark:text-slate-300 flex items-center gap-1.5 font-medium leading-relaxed">
                                           <span className={`w-1.5 h-1.5 rounded-full ${c.dot} shrink-0`} />
                                           <span className="truncate">{p}</span>
                                         </li>
@@ -303,12 +305,12 @@ export default function OrderStatusPage() {
                                 )}
                                 <div className="grid grid-cols-2 gap-3 pt-1">
                                   <div>
-                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 mb-1 font-bold">Raw Mat. Cost</p>
-                                    <p className="font-extrabold text-slate-700 dark:text-slate-300 font-mono">₹{Number(order.cost || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 font-bold">Raw Mat. Cost</p>
+                                    <p className="font-extrabold text-slate-700 dark:text-slate-200 font-mono">₹{Number(order.cost || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
                                   </div>
                                   <div>
-                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 mb-1 font-bold">Delivery Date</p>
-                                    <p className="font-extrabold text-slate-700 dark:text-slate-350 flex items-center gap-1">
+                                    <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1 font-bold">Delivery Date</p>
+                                    <p className="font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1">
                                       <Calendar className="w-3.5 h-3.5 text-slate-400" />
                                       {new Date(order.deliveryDate).toLocaleDateString('en-GB')}
                                     </p>

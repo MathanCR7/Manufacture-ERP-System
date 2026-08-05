@@ -55,14 +55,17 @@ export default function AddProductionPage() {
   // Get active product details (for SOP steps display)
   const activeProduct = products.find(p => p.id === selectedProductId);
 
-  // Fetch dropdown master options
+  // FetchDropdown master options concurrently to load fast
   useEffect(() => {
     const fetchMasters = async () => {
       try {
-        const prodRes = await api.get('/products');
+        const [prodRes, orderRes] = await Promise.all([
+          api.get('/products'),
+          api.get('/orders')
+        ]);
+        
         setProducts(prodRes.data || []);
-
-        const orderRes = await api.get('/orders');
+        
         // Filter orders waiting for production or confirmed
         const openOrders = (orderRes.data || []).filter(o => 
           o.status === 'Confirmed' || o.status === 'Waiting for Production'
@@ -78,7 +81,7 @@ export default function AddProductionPage() {
           }
         }
       } catch (err) {
-        console.error(err);
+        console.error('Error fetching master lists concurrently', err);
       }
     };
     fetchMasters();
@@ -117,22 +120,22 @@ export default function AddProductionPage() {
     loadProductStats();
   }, [selectedProductId, triggerType, products]);
 
-  // Handle Order Selection in Order-Based
+  // Handle Order Selection in Order-Based and add auto-selection logic
   useEffect(() => {
     if (triggerType !== 'Order-Based' || !selectedOrderId) return;
 
     const ord = orders.find(o => o.id === selectedOrderId);
     if (!ord) return;
 
-    // Sum matching items in the order
     let orderQty = 0;
     if (selectedProductId) {
       const matchItem = ord.items?.find(it => it.productId === selectedProductId);
       if (matchItem) orderQty = Number(matchItem.quantity);
-    } else if (ord.items?.[0]) {
-      // Pick first item if no product is selected
-      setSelectedProductId(ord.items[0].productId);
-      orderQty = Number(ord.items[0].quantity);
+    } else if (ord.items && ord.items.length > 0) {
+      // Pick first item if no product is selected, or if there's only 1 item, auto-select it!
+      const firstItem = ord.items[0];
+      setSelectedProductId(firstItem.productId);
+      orderQty = Number(firstItem.quantity);
     }
 
     setCustomerOrderQty(orderQty);
@@ -140,7 +143,7 @@ export default function AddProductionPage() {
     // Suggest quantity = (Order Quantity - Current Stock) + Minimum Hold Stock
     const suggested = Math.max(0, (orderQty - currentStock) + minHoldStock);
     setSuggestedQuantity(suggested);
-    setQuantity(suggested);
+    setQuantity(suggested > 0 ? suggested : 1);
   }, [selectedOrderId, selectedProductId, currentStock, minHoldStock, triggerType, orders]);
 
   // Adjust suggested quantity based on target stock in Replenishment
@@ -204,7 +207,7 @@ export default function AddProductionPage() {
     const hasInsufficient = bomDetails?.items?.some(item => item.status === 'Insufficient');
     if (hasInsufficient) {
       Swal.fire({
-        title: '<span class="text-sm font-bold text-rose-600 dark:text-rose-400">Start Blocked!</span>',
+        title: '<span class="text-sm font-bold text-rose-600 dark:text-rose-450">Start Blocked!</span>',
         html: '<p class="text-xs text-slate-500 mt-1">Cannot schedule production. One or more raw materials are insufficient. Reorder materials or adjust yield size.</p>',
         icon: 'error',
         confirmButtonText: 'Close',
@@ -265,8 +268,8 @@ export default function AddProductionPage() {
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn">
       {/* Header bar */}
       <div className="flex items-center space-x-3 pb-4 border-b border-slate-205 dark:border-slate-800">
-        <Button variant="ghost" onClick={() => navigate(-1)} className="p-2 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800">
-          <ChevronLeft className="w-5 h-5 text-slate-600 dark:text-slate-350" />
+        <Button variant="ghost" onClick={() => navigate(-1)} className="p-2 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer">
+          <ChevronLeft className="w-5 h-5 text-slate-650 dark:text-slate-350" />
         </Button>
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
@@ -280,7 +283,7 @@ export default function AddProductionPage() {
       </div>
 
       {/* Production Trigger Selection Buttons */}
-      <div className="grid grid-cols-3 gap-3 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-800 max-w-xl shadow-2xs">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 bg-slate-100 dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/50 dark:border-slate-800 max-w-xl shadow-2xs">
         {[
           { type: 'Order-Based', label: 'Order-Based (Type 1)' },
           { type: 'Replenishment', label: 'Replenishment (Type 2)' },
@@ -290,9 +293,9 @@ export default function AddProductionPage() {
             key={node.type}
             type="button"
             onClick={() => { setTriggerType(node.type); setSelectedProductId(''); }}
-            className={`py-2 text-xs font-bold rounded-xl transition-all ${
+            className={`py-2 text-xs font-bold rounded-xl transition-all cursor-pointer ${
               triggerType === node.type
-                ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-sm border border-slate-200/30 dark:border-slate-750'
+                ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-404 shadow-sm border border-slate-200/30 dark:border-slate-750'
                 : 'text-slate-505 dark:text-slate-400 hover:text-slate-800 dark:hover:text-white'
             }`}
           >
@@ -315,7 +318,7 @@ export default function AddProductionPage() {
                     required
                     value={selectedOrderId}
                     onChange={(e) => setSelectedOrderId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-10"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-10 cursor-pointer"
                   >
                     <option value="">Select Customer Order...</option>
                     {orders.map(o => (
@@ -329,7 +332,7 @@ export default function AddProductionPage() {
                     required
                     value={selectedProductId}
                     onChange={(e) => setSelectedProductId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-10"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-10 cursor-pointer"
                   >
                     <option value="">Select product to produce...</option>
                     {selectedOrderId && orders.find(o => o.id === selectedOrderId)?.items?.map(it => (
@@ -368,13 +371,13 @@ export default function AddProductionPage() {
             {/* Conditional Type 2 Fields */}
             {triggerType === 'Replenishment' && (
               <div className="p-4 bg-amber-50/10 dark:bg-amber-950/10 rounded-2xl border border-amber-100/50 dark:border-amber-900/50 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1">
+                <div className="space-y-1 sm:col-span-2">
                   <label className="text-2xs font-extrabold text-amber-705 dark:text-amber-400 uppercase block">Select Product *</label>
                   <select
                     required
                     value={selectedProductId}
                     onChange={(e) => setSelectedProductId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-10"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-10 cursor-pointer"
                   >
                     <option value="">Select product to replenish...</option>
                     {products.map(p => (
@@ -382,7 +385,7 @@ export default function AddProductionPage() {
                     ))}
                   </select>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="grid grid-cols-3 gap-2 text-center text-xs sm:col-span-2">
                   <div className="p-2 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800">
                     <p className="text-[10px] text-slate-400 font-semibold uppercase">Current Stock</p>
                     <p className="font-bold text-slate-800 dark:text-white">{currentStock} pcs</p>
@@ -404,7 +407,7 @@ export default function AddProductionPage() {
                     min={minHoldStock + 1}
                     value={targetStockLevel}
                     onChange={(e) => setTargetStockLevel(Number(e.target.value) || 0)}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-855 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
                   />
                   <p className="text-[10px] text-slate-400">Target stock must be greater than minimum hold stock level.</p>
                 </div>
@@ -413,14 +416,14 @@ export default function AddProductionPage() {
 
             {/* Conditional Type 3 Fields */}
             {triggerType === 'Manual' && (
-              <div className="p-4 bg-slate-50/40 dark:bg-slate-950/20 rounded-2xl border border-slate-205 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="p-4 bg-slate-50/40 dark:bg-slate-955/20 rounded-2xl border border-slate-205 dark:border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1 sm:col-span-2">
                   <label className="text-2xs font-extrabold text-slate-555 dark:text-slate-400 uppercase block">Select Product *</label>
                   <select
                     required
                     value={selectedProductId}
                     onChange={(e) => setSelectedProductId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none h-10 focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 rounded-xl px-3 py-2 text-xs text-slate-850 dark:text-white focus:outline-none h-10 focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="">Select product to produce...</option>
                     {products.map(p => (
@@ -430,28 +433,29 @@ export default function AddProductionPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-2xs font-extrabold text-slate-500 dark:text-slate-400 uppercase block">Reason / Occasion *</label>
+                  <label className="text-2xs font-extrabold text-slate-550 dark:text-slate-400 uppercase block">Reason / Occasion *</label>
                   <Input
                     placeholder="e.g. Festival Pre-stocking"
                     required
                     value={reasonOccasion}
                     onChange={(e) => setReasonOccasion(e.target.value)}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-2xs font-extrabold text-slate-500 dark:text-slate-400 uppercase block">Authorized By (Manager) *</label>
+                  <label className="text-2xs font-extrabold text-slate-550 dark:text-slate-400 uppercase block">Authorized By (Manager) *</label>
                   <Input
                     placeholder="Manager Name"
                     required
                     value={authorizedBy}
                     onChange={(e) => setAuthorizedBy(e.target.value)}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
+                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
                   />
                 </div>
               </div>
             )}
 
+            {/* Common Inputs Grid (Yield, Start Date, Expiry) */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t dark:border-slate-800 pt-4">
               <div className="space-y-1">
                 <label className="text-2xs font-extrabold text-slate-500 uppercase block">Expected Yield Output (Pcs Per Batch) *</label>
@@ -460,22 +464,24 @@ export default function AddProductionPage() {
                   min="1"
                   value={quantity}
                   onChange={(e) => setQuantity(Number(e.target.value) || 0)}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
+                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-855 dark:text-slate-105 rounded-xl h-10 focus:ring-indigo-500 focus:border-indigo-500"
                   required
                 />
               </div>
 
-              <DatePicker
-                label="Start Date *"
-                required
-                value={startDate ? new Date(startDate) : null}
-                onChange={(date) => setStartDate(date ? date.toISOString().split('T')[0] : '')}
-                modalTitle="Select Start Date"
-                placeholder="Select Date"
-                className="space-y-1"
-                labelClassName="text-2xs font-extrabold text-slate-500 uppercase block"
-                triggerClassName="h-10 text-xs border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200"
-              />
+              <div className="space-y-1">
+                <DatePicker
+                  label="Start Date *"
+                  required
+                  value={startDate ? new Date(startDate) : null}
+                  onChange={(date) => setStartDate(date ? date.toISOString().split('T')[0] : '')}
+                  modalTitle="Select Start Date"
+                  placeholder="Select Date"
+                  className="space-y-1"
+                  labelClassName="text-2xs font-extrabold text-slate-500 uppercase block"
+                  triggerClassName="h-10 text-xs border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl bg-white dark:bg-slate-900 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
 
               <div className="space-y-1">
                 <label className="text-2xs font-extrabold text-slate-500 uppercase block">Expiry Buffer (Days)</label>
@@ -484,7 +490,7 @@ export default function AddProductionPage() {
                   min="1"
                   value={expiryDays}
                   onChange={(e) => setExpiryDays(Number(e.target.value) || 365)}
-                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
+                  className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-855 dark:text-slate-105 rounded-xl h-10 focus:ring-indigo-500 focus:border-indigo-500"
                   required
                 />
               </div>
@@ -497,16 +503,16 @@ export default function AddProductionPage() {
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Any special instructions or comments for the production team..."
                 rows="2"
-                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs text-slate-850 dark:text-slate-250 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-3 text-xs text-slate-850 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 leading-normal"
               />
             </div>
 
             {shortfallError && (
-              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start space-x-3 text-rose-800 dark:bg-rose-950/20 dark:border-rose-900 dark:text-rose-450">
-                <ShieldAlert className="w-5 h-5 mt-0.5 shrink-0" />
+              <div className="p-4 bg-rose-50 border border-rose-200 rounded-2xl flex items-start space-x-3 text-rose-800 dark:bg-rose-950/20 dark:border-rose-900 dark:text-rose-450 animate__animated animate__shakeX">
+                <ShieldAlert className="w-5 h-5 mt-0.5 shrink-0 text-rose-500" />
                 <div className="text-xs font-medium">
-                  <p className="font-semibold">BOM SHORTFALL BLOCK</p>
-                  <p>{shortfallError}</p>
+                  <p className="font-semibold uppercase">BOM SHORTFALL BLOCK</p>
+                  <p className="mt-0.5 leading-normal">{shortfallError}</p>
                 </div>
               </div>
             )}
@@ -517,18 +523,18 @@ export default function AddProductionPage() {
                 type="button"
                 onClick={(e) => handleSubmit(e, false)}
                 disabled={submitting || !selectedProductId || quantity <= 0}
-                className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-250 border border-slate-200 dark:border-slate-700 font-bold rounded-xl text-xs py-3 shadow-sm cursor-pointer"
+                className="bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-250 border border-slate-200 dark:border-slate-700 font-bold rounded-xl text-xs py-3 shadow-sm cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <Save className="w-4 h-4 mr-1.5" /> Schedule Planned Batch
+                <Save className="w-4 h-4" /> Schedule Planned Batch
               </Button>
 
               <Button
                 type="button"
                 onClick={(e) => handleSubmit(e, true)}
                 disabled={submitting || !selectedProductId || quantity <= 0 || !!shortfallError}
-                className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-3 shadow-md hover:shadow-lg transition-all cursor-pointer"
+                className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-3 shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
               >
-                <Play className="w-4 h-4 mr-1.5" /> Schedule & Start Batch
+                <Play className="w-4 h-4" /> Schedule & Start Batch
               </Button>
             </div>
           </form>
@@ -542,14 +548,14 @@ export default function AddProductionPage() {
               <button
                 type="button"
                 onClick={() => setSidebarTab('bom')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${sidebarTab === 'bom' ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-sm' : 'text-slate-500'}`}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${sidebarTab === 'bom' ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-sm border border-slate-200/10' : 'text-slate-500'}`}
               >
                 1. Material Stocks (BOM)
               </button>
               <button
                 type="button"
                 onClick={() => setSidebarTab('sop')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${sidebarTab === 'sop' ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-sm' : 'text-slate-500'}`}
+                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${sidebarTab === 'sop' ? 'bg-white dark:bg-slate-800 text-indigo-650 dark:text-indigo-400 shadow-sm border border-slate-200/10' : 'text-slate-500'}`}
               >
                 2. SOP Recipe Steps
               </button>
@@ -557,7 +563,7 @@ export default function AddProductionPage() {
 
             {/* TAB A: BOM CHECKLIST */}
             {sidebarTab === 'bom' && (
-              <div className="space-y-3">
+              <div className="space-y-3 animate__animated animate__fadeIn">
                 <div>
                   <h3 className="font-bold text-slate-800 dark:text-white flex items-center text-xs uppercase tracking-wide">
                     <Layers className="w-4 h-4 mr-1.5 text-indigo-505 dark:text-indigo-400" /> Live Recipe BOM Check
@@ -566,22 +572,25 @@ export default function AddProductionPage() {
                 </div>
 
                 {bomLoading ? (
-                  <div className="text-xs text-slate-400 py-12 text-center animate-pulse">Checking raw material stocks...</div>
+                  <div className="text-xs text-slate-400 py-12 text-center animate-pulse flex flex-col items-center justify-center gap-1.5">
+                    <div className="w-4 h-4 rounded-full border-2 border-indigo-505 border-t-transparent animate-spin"></div>
+                    Checking raw material stocks...
+                  </div>
                 ) : bomDetails ? (
                   <div className="space-y-3 text-xs">
                     <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 rounded-xl flex justify-between items-center font-semibold text-indigo-700 dark:text-indigo-400">
                       <span>Batch Material Cost:</span>
-                      <span>₹{Number(bomDetails.totalRmCost).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-mono">₹{Number(bomDetails.totalRmCost).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
 
                     <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
                       {bomDetails.items.map((item, idx) => {
                         const shortfall = item.requiredQty - item.availableStock;
                         return (
-                          <div key={idx} className="p-3 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl flex flex-col space-y-1 shadow-2xs">
+                          <div key={idx} className="p-3 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl flex flex-col space-y-1 shadow-2xs hover:border-slate-200 dark:hover:border-slate-650 transition-all">
                             <div className="flex justify-between items-center text-xs font-semibold">
                               <span className="text-slate-850 dark:text-slate-200">{item.rawMaterialName}</span>
-                              <span className={`px-2 py-0.5 text-3xs font-bold rounded-full ${
+                              <span className={`px-2 py-0.5 text-[9px] font-bold rounded-full ${
                                 item.status === 'Sufficient'
                                   ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10'
                                   : 'bg-rose-50 text-rose-600 dark:bg-rose-500/10 animate-pulse'
@@ -594,7 +603,7 @@ export default function AddProductionPage() {
                               <span>Available: {item.availableStock.toFixed(2)}</span>
                             </div>
                             {shortfall > 0 && (
-                              <p className="text-[10px] text-rose-500 font-semibold">Shortfall: -{shortfall.toFixed(2)} units</p>
+                              <p className="text-[10px] text-rose-505 font-semibold mt-1">Shortfall: -{shortfall.toFixed(2)} units</p>
                             )}
                           </div>
                         );
@@ -602,7 +611,7 @@ export default function AddProductionPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-xs text-slate-400 py-16 text-center italic">
+                  <div className="text-xs text-slate-405 py-16 text-center italic">
                     Select a product and batch size to check raw material stocks.
                   </div>
                 )}
@@ -611,10 +620,10 @@ export default function AddProductionPage() {
 
             {/* TAB B: RECIPE SOP CHECKLIST */}
             {sidebarTab === 'sop' && (
-              <div className="space-y-3">
+              <div className="space-y-3 animate__animated animate__fadeIn">
                 <div>
                   <h3 className="font-bold text-slate-800 dark:text-white flex items-center text-xs uppercase tracking-wide">
-                    <Flame className="w-4 h-4 mr-1.5 text-orange-500" /> Recipe SOP Workflow Steps
+                    <Flame className="w-4 h-4 mr-1.5 text-orange-505" /> Recipe SOP Workflow Steps
                   </h3>
                   <p className="text-[10px] text-slate-405 mt-0.5">Chronologically ordered processing instructions.</p>
                 </div>
@@ -623,23 +632,23 @@ export default function AddProductionPage() {
                   <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
                     {activeProduct.sopSteps && activeProduct.sopSteps.length > 0 ? (
                       activeProduct.sopSteps.map((step, idx) => (
-                        <div key={idx} className="p-3 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl space-y-1.5 text-xs shadow-2xs">
+                        <div key={idx} className="p-3 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl space-y-1.5 text-xs shadow-2xs hover:border-slate-200 dark:hover:border-slate-650 transition-all">
                           <p className="text-[10px] font-bold text-indigo-650 dark:text-indigo-400">Step #{idx + 1}</p>
                           <p className="font-medium text-slate-700 dark:text-slate-200 leading-normal">{step.instruction}</p>
                           {(step.tempTime || step.safetyNote) && (
-                            <div className="flex justify-between items-center text-[9px] text-slate-400 pt-1.5 border-t dark:border-slate-700 border-dashed">
+                            <div className="flex justify-between items-center text-[9px] text-slate-400 pt-1.5 border-t dark:border-slate-700 border-dashed mt-1.5">
                               {step.tempTime && <span>🕒 {step.tempTime}</span>}
-                              {step.safetyNote && <span className="text-rose-500 font-bold">⚠️ {step.safetyNote}</span>}
+                              {step.safetyNote && <span className="text-rose-505 font-bold">⚠️ {step.safetyNote}</span>}
                             </div>
                           )}
                         </div>
                       ))
                     ) : (
-                      <p className="text-xs text-slate-400 italic py-12 text-center">No SOP steps formulation logged for this finished product.</p>
+                      <p className="text-xs text-slate-404 italic py-12 text-center">No SOP steps formulation logged for this finished product.</p>
                     )}
                   </div>
                 ) : (
-                  <div className="text-xs text-slate-400 py-16 text-center italic">
+                  <div className="text-xs text-slate-404 py-16 text-center italic">
                     Select a product specifications yield to view SOP steps guide.
                   </div>
                 )}

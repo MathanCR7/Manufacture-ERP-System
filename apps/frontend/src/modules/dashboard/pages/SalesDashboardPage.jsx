@@ -207,10 +207,17 @@ export default function SalesDashboardPage() {
             <tbody>
               {(d.recentOrders || []).map(o => (
                 <tr key={o.id} className="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                  <td className="py-2.5 px-3 text-indigo-600 dark:text-indigo-400 font-semibold text-xs">{o.referenceNo || `ORD-${o.id?.substring(0,6)}`}</td>
+                  <td className="py-2.5 px-3">
+                    <button
+                      onClick={() => navigate(`/orders/list?id=${o.id}&from=sales`)}
+                      className="text-indigo-650 dark:text-indigo-400 font-semibold text-xs hover:underline cursor-pointer bg-transparent border-none p-0 text-left focus:outline-none"
+                    >
+                      {o.referenceNo || `ORD-${o.id?.substring(0, 6)}`}
+                    </button>
+                  </td>
                   <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{o.customerName}</td>
                   <td className="py-2.5 px-3 text-slate-400 dark:text-slate-500 max-w-[160px] truncate">{o.productNames}</td>
-                  <td className="py-2.5 px-3 text-emerald-600 dark:text-emerald-400 font-bold">{fmt(o.totalSubtotal)}</td>
+                  <td className="py-2.5 px-3 text-emerald-600 dark:text-emerald-400 font-bold">{fmt(o.grandTotal || o.totalSubtotal)}</td>
                   <td className="py-2.5 px-3"><StatusBadge status={o.status} /></td>
                   <td className="py-2.5 px-3 text-slate-400 dark:text-slate-500 whitespace-nowrap text-xs">{o.createdAt ? new Date(o.createdAt).toLocaleDateString('en-IN') : '—'}</td>
                 </tr>

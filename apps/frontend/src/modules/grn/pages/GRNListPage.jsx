@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { SortSelect } from '@/components/ui/SortSelect';
 import DatePicker from '@/components/ui/DatePicker';
 import { Pagination } from '@/components/ui/Pagination';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 // Safely import QRCode
 import _QRCode from 'react-qr-code';
@@ -193,6 +194,7 @@ const GRNListPage = () => {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      <DashboardBackButton />
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div>

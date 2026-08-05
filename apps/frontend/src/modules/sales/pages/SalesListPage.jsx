@@ -8,6 +8,7 @@ import Swal from 'sweetalert2';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import { Pagination } from '@/components/ui/Pagination';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import useAuthStore from '@/app/store/authStore';
 
 export default function SalesListPage() {
@@ -471,10 +472,25 @@ export default function SalesListPage() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-3 border-b border-slate-205 dark:border-slate-800">
           <div className="space-y-0.5">
             <button 
-              onClick={() => setSearchParams({})}
+              onClick={() => {
+                const from = searchParams.get('from');
+                if (from === 'sales') navigate('/dashboard/sales');
+                else if (from === 'finance') navigate('/dashboard/finance');
+                else if (from === 'executive') navigate('/dashboard/executive');
+                else if (from === 'inventory') navigate('/dashboard/inventory');
+                else if (from === 'dashboard' || from === 'main') navigate('/dashboard');
+                else setSearchParams({});
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-extrabold text-indigo-650 dark:text-indigo-400 hover:underline mb-1 cursor-pointer"
             >
-              <ChevronLeft className="w-4 h-4" /> Back to Sales Log
+              <ChevronLeft className="w-4 h-4" /> {
+                searchParams.get('from') === 'sales' ? 'Back to Sales Dashboard' :
+                searchParams.get('from') === 'finance' ? 'Back to Finance Dashboard' :
+                searchParams.get('from') === 'executive' ? 'Back to Executive Dashboard' :
+                searchParams.get('from') === 'inventory' ? 'Back to Inventory Dashboard' :
+                (searchParams.get('from') === 'dashboard' || searchParams.get('from') === 'main') ? 'Back to Dashboard' :
+                'Back to Sales Log'
+              }
             </button>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               Invoice PDF: {selectedOrder.referenceNo}
@@ -582,6 +598,7 @@ export default function SalesListPage() {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+      <DashboardBackButton />
       {isReadOnly && (
         <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
           <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />

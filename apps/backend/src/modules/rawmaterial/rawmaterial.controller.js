@@ -93,11 +93,58 @@ exports.getPOs = async (req, res, next) => {
       sgst: po.sgst,
       igst: po.igst,
       grandTotal: po.grandTotal,
-      items: po.items
+      items: po.items,
+      paymentStatus: po.paymentStatus || 'UNPAID',
+      paidAmount: parseFloat(po.paidAmount || 0)
     }));
 
     res.json(formattedPos);
   } catch (error) {
+    next(error);
+  }
+};
+
+const updatePOPaymentSchema = z.object({
+  paymentStatus: z.enum(['UNPAID', 'PARTIALLY_PAID', 'PAID']),
+  paidAmount: z.coerce.number().nonnegative().optional()
+});
+
+exports.updatePOPayment = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { paymentStatus, paidAmount } = updatePOPaymentSchema.parse(req.body);
+
+    const po = await prisma.rawMaterialPO.findUnique({ where: { id } });
+    if (!po) {
+      return res.status(404).json({ error: 'Purchase Order not found' });
+    }
+
+    const totalAmount = Number(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount);
+    let finalPaidAmount = paidAmount !== undefined ? Number(paidAmount) : Number(po.paidAmount || 0);
+
+    if (paymentStatus === 'PAID') {
+      finalPaidAmount = totalAmount;
+    } else if (paymentStatus === 'UNPAID') {
+      finalPaidAmount = 0;
+    }
+
+    const updated = await prisma.rawMaterialPO.update({
+      where: { id },
+      data: {
+        paymentStatus,
+        paidAmount: finalPaidAmount
+      },
+      include: {
+        uom: true,
+        supplier: true
+      }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
     next(error);
   }
 };

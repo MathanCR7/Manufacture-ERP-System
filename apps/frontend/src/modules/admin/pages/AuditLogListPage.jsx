@@ -5,6 +5,7 @@ import { api } from '@/lib/axios';
 import { format } from 'date-fns';
 
 import { Card, CardContent } from '@/components/ui/card';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/Pagination';
@@ -143,6 +144,7 @@ export default function AuditLogListPage() {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 text-xs">
+      <DashboardBackButton />
       <div className="flex items-center space-x-3 pb-3 border-b border-slate-205 dark:border-slate-800">
         <div className="p-2 bg-indigo-50 dark:bg-indigo-500/20 rounded-xl shrink-0">
           <ShieldAlert className="w-6 h-6 text-indigo-650 dark:text-indigo-400" />

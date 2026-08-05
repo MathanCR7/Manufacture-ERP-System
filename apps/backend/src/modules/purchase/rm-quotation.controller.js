@@ -2,6 +2,34 @@ const crypto = require('crypto');
 const prisma = require('../../database/prisma');
 const { sendRMQuotationRequestEmail, sendRMQuotationResponseAlert } = require('../../utils/communication');
 
+const emailRateLimiter = {
+  limits: new Map(),
+  check(userId, id, cooldownHours) {
+    const now = Date.now();
+    const COOLDOWN_MS = cooldownHours * 60 * 60 * 1000;
+    const pqKey = `pq_${id}`;
+    if (this.limits.has(pqKey)) {
+      const timeSince = now - this.limits.get(pqKey);
+      if (timeSince < COOLDOWN_MS) {
+        return { allowed: false, remainingMs: COOLDOWN_MS - timeSince };
+      }
+    }
+    const userKey = `user_${userId}_pq_${id}`;
+    if (this.limits.has(userKey)) {
+      const timeSince = now - this.limits.get(userKey);
+      if (timeSince < COOLDOWN_MS) {
+        return { allowed: false, remainingMs: COOLDOWN_MS - timeSince };
+      }
+    }
+    return { allowed: true };
+  },
+  set(userId, id) {
+    const now = Date.now();
+    this.limits.set(`pq_${id}`, now);
+    this.limits.set(`user_${userId}_pq_${id}`, now);
+  }
+};
+
 /**
  * Generate sequential quotation number: RMQ-YYYYMMDD-XXXX
  */
@@ -582,14 +610,20 @@ const resendSupplierLink = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Supplier relation not found' });
     }
 
-    // Rate limit resend link to once per 2 hours to prevent email spamming
-    const COOLDOWN_HOURS = 2;
+    // Rate limit resend link to once per 6 hours to prevent email spamming
+    const COOLDOWN_HOURS = 6;
     const COOLDOWN_MS = COOLDOWN_HOURS * 60 * 60 * 1000;
 
-    if (supplierRelation.sentAt && supplierRelation.status !== 'RESUBMISSION_REQUESTED') {
-      const timeSinceSent = Date.now() - new Date(supplierRelation.sentAt).getTime();
-      if (timeSinceSent < COOLDOWN_MS) {
-        const remainingMs = COOLDOWN_MS - timeSinceSent;
+    const userId = req.user?.id || 'system';
+    const checkResult = emailRateLimiter.check(userId, `${quotationId}_${supplierId}`, COOLDOWN_HOURS);
+
+    if (!checkResult.allowed || (supplierRelation.sentAt && supplierRelation.status !== 'RESUBMISSION_REQUESTED')) {
+      const timeSinceSent = supplierRelation.sentAt ? Date.now() - new Date(supplierRelation.sentAt).getTime() : 0;
+      const memRemaining = checkResult.allowed ? 0 : checkResult.remainingMs;
+      const dbRemaining = timeSinceSent < COOLDOWN_MS ? COOLDOWN_MS - timeSinceSent : 0;
+      const remainingMs = Math.max(memRemaining, dbRemaining);
+
+      if (remainingMs > 0) {
         const remainingMins = Math.ceil(remainingMs / (60 * 1000));
         const hours = Math.floor(remainingMins / 60);
         const mins = remainingMins % 60;
@@ -597,7 +631,7 @@ const resendSupplierLink = async (req, res, next) => {
 
         return res.status(429).json({
           success: false,
-          message: `Access link was recently sent to ${supplierRelation.supplier?.name || 'supplier'}. Please wait ${timeStr} before re-sending again.`
+          message: `Access link send limit reached. Please wait ${timeStr} before re-sending to this supplier.`
         });
       }
     }
@@ -610,6 +644,7 @@ const resendSupplierLink = async (req, res, next) => {
         sentAt: new Date()
       }
     });
+    emailRateLimiter.set(userId, `${quotationId}_${supplierId}`);
 
     const publicAppUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
     const linkUrl = `${publicAppUrl}/quote/${quotation.id}/${supplierRelation.secureToken}`;

@@ -3,6 +3,11 @@ const router = express.Router();
 const assetController = require('./asset-management.controller');
 const authMiddleware = require('../../middlewares/auth.middleware');
 
+// Public supplier endpoints (bypass authentication)
+router.get('/public/quotations/:pqId/:token', assetController.getPublicQuotation);
+router.post('/public/quotations/:pqId/:token/submit', assetController.submitPublicQuotation);
+router.post('/public/quotations/:pqId/:token/request-resubmission', assetController.requestResubmission);
+
 router.use(authMiddleware);
 
 // Budgets
@@ -24,6 +29,8 @@ router.post('/quotations', assetController.createPQ);
 router.put('/quotations/:id', assetController.updatePQ);
 router.delete('/quotations/:id', assetController.deletePQ);
 router.get('/quotations/compare/:prNo', assetController.getPQComparison);
+router.post('/quotations/send-requests', assetController.sendQuotationRequests);
+router.post('/quotations/:id/resend-supplier-link', assetController.resendSupplierLink);
 
 // Purchase Orders (PO) — both /orders and /purchase-orders (frontend alias)
 router.get('/orders', assetController.getAllPOs);

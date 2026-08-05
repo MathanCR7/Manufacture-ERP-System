@@ -91,12 +91,12 @@ export default function FinanceDashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KPICard title="Total Revenue"     value={fmt(rev.total)}    sub={`Month: ${fmt(rev.month)}`}      icon={DollarSign}  accent="#10b981" loading={loading} onClick={() => navigate('/sales/list')} />
-        <KPICard title="Year Revenue"      value={fmt(rev.year)}     sub="Financial year"                  icon={TrendingUp}   accent="#6366f1" loading={loading} onClick={() => navigate('/sales/list')} />
-        <KPICard title="Total Expenses"    value={fmt(exp.total)}    sub={`Month: ${fmt(exp.month)}`}      icon={TrendingDown} accent="#ef4444" loading={loading} onClick={() => navigate('/finance/expenses')} />
-        <KPICard title="Net Profit"        value={fmt(profit.total)} sub={`${profit.margin}% margin`}      icon={BarChart2}    accent={Number(profit.total) >= 0 ? '#10b981' : '#ef4444'} loading={loading} onClick={() => navigate('/finance/expenses')} />
-        <KPICard title="Accounts Rec."     value={fmt(ar.total)}     sub={`${ar.count || 0} customers`}   icon={CreditCard}   accent="#f59e0b" loading={loading} onClick={() => navigate('/parties/customers')} />
-        <KPICard title="Accounts Pay."     value={fmt(ap.total)}     sub="Outstanding balances"            icon={Wallet}       accent="#8b5cf6" loading={loading} onClick={() => navigate('/purchase-orders')} />
+        <KPICard title="Total Revenue"     value={fmt(rev.total)}    sub={`Month: ${fmt(rev.month)}`}      icon={DollarSign}  accent="#10b981" loading={loading} onClick={() => navigate('/sales/list?from=finance')} />
+        <KPICard title="Year Revenue"      value={fmt(rev.year)}     sub="Financial year"                  icon={TrendingUp}   accent="#6366f1" loading={loading} onClick={() => navigate('/sales/list?from=finance')} />
+        <KPICard title="Total Expenses"    value={fmt(exp.total)}    sub={`Month: ${fmt(exp.month)}`}      icon={TrendingDown} accent="#ef4444" loading={loading} onClick={() => navigate('/finance/expenses?from=finance')} />
+        <KPICard title="Net Profit"        value={fmt(profit.total)} sub={`${profit.margin}% margin`}      icon={BarChart2}    accent={Number(profit.total) >= 0 ? '#10b981' : '#ef4444'} loading={loading} onClick={() => navigate('/finance/expenses?from=finance')} />
+        <KPICard title="Accounts Rec."     value={fmt(ar.total)}     sub={`${ar.count || 0} customers`}   icon={CreditCard}   accent="#f59e0b" loading={loading} onClick={() => navigate('/parties/customers?from=finance')} />
+        <KPICard title="Accounts Pay."     value={fmt(ap.total)}     sub="Outstanding balances"            icon={Wallet}       accent="#8b5cf6" loading={loading} onClick={() => navigate('/purchase-orders?from=finance')} />
       </div>
 
       {/* P&L Chart + Expense Breakdown */}

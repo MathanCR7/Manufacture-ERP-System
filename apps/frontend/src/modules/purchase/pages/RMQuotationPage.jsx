@@ -284,7 +284,7 @@ export default function RMQuotationPage() {
   const [showAddSupplierModal, setShowAddSupplierModal] = useState(false);
 
   // Filters State
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('SENT');
   const [searchFilter, setSearchFilter] = useState('');
   const [expandedRowId, setExpandedRowId] = useState(null);
   const [sortAsc, setSortAsc] = useState(true);
@@ -569,13 +569,13 @@ export default function RMQuotationPage() {
 
           {/* Status Filter Tabs */}
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs overflow-x-auto">
-            {['ALL', 'SENT', 'PARTIALLY_RESPONDED', 'ALL_RESPONDED', 'EXPIRED', 'CONVERTED'].map(st => (
+            {['SENT', 'PARTIALLY_RESPONDED', 'CONVERTED', 'ALL_RESPONDED', 'EXPIRED', 'ALL'].map(st => (
               <button
                 key={st}
                 onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-lg font-bold transition-all whitespace-nowrap cursor-pointer ${
                   statusFilter === st 
-                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm' 
+                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-xs' 
                     : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
                 }`}
               >

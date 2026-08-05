@@ -16,6 +16,7 @@ const EditPOPage = lazy(() => import('@/modules/purchase/pages/EditPOPage'));
 const PODetailPage = lazy(() => import('@/modules/purchase/pages/PODetailPage'));
 const RMQuotationPage = lazy(() => import('@/modules/purchase/pages/RMQuotationPage'));
 const SupplierQuotationPublicPage = lazy(() => import('@/modules/purchase/pages/SupplierQuotationPublicPage'));
+const AssetQuotationPublicPage = lazy(() => import('@/modules/asset-management/pages/AssetQuotationPublicPage'));
 const RMStockPage = lazy(() => import('@/modules/purchase/pages/RMStockPage'));
 const RMLowStockPage = lazy(() => import('@/modules/purchase/pages/RMLowStockPage'));
 const PurchaseReturnAddPage = lazy(() => import('@/modules/purchase/pages/PurchaseReturnAddPage'));
@@ -149,6 +150,7 @@ const AppRouter = () => {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/quote/:quotationId/:token" element={<SupplierQuotationPublicPage />} />
+        <Route path="/asset-quote/:pqId/:token" element={<AssetQuotationPublicPage />} />
         
         {/* Protected Routes */}
         <Route element={<ProtectedRoute />}>

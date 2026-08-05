@@ -14,7 +14,7 @@ import {
   Plus, Search, FileText, CheckCircle2, Clock, XCircle,
   AlertTriangle, ChevronDown, X, Eye, ArrowLeft, Loader2,
   Building2, Tag, Calculator, Calendar, User, Briefcase,
-  TrendingUp, Package, Trash2, Edit
+  TrendingUp, Package, Trash2, Edit, Send
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Pagination from '@/components/ui/Pagination';
@@ -64,13 +64,13 @@ const PRIORITY_STYLES = {
 
 function StatCard({ icon: Icon, label, value, bg, iconColor, borderColor }) {
   return (
-    <div className={`bg-white dark:bg-slate-900 border ${borderColor} rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5`}>
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${bg} ${iconColor}`}>
-        <Icon className="w-5 h-5" />
+    <div className={`bg-white dark:bg-slate-900 border ${borderColor} rounded-2xl p-3 sm:p-4 flex items-center gap-2 sm:gap-4 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5 w-full`}>
+      <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0 ${bg} ${iconColor}`}>
+        <Icon className="w-4.5 h-4.5 sm:w-5 h-5" />
       </div>
-      <div>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-        <p className="text-xl font-bold text-slate-900 dark:text-white mt-0.5">{value}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate">{label}</p>
+        <p className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white mt-0.5 truncate">{value}</p>
       </div>
     </div>
   );
@@ -89,34 +89,34 @@ function PRDetailModal({ pr, onClose }) {
   const items = Array.isArray(pr.items) ? pr.items : null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4" onClick={onClose}>
       <div className="bg-white dark:bg-slate-900 w-full max-w-3xl rounded-3xl shadow-2xl border border-slate-200/60 dark:border-slate-800 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-6 py-4 flex items-center justify-between z-10 rounded-t-3xl">
+        <div className="sticky top-0 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 px-4 sm:px-6 py-4 flex items-center justify-between z-10 rounded-t-3xl">
           <div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white font-mono">{pr.prNo}</h2>
-            <p className="text-xs text-slate-500 mt-0.5">{format(new Date(pr.createdAt), 'dd MMM yyyy')}</p>
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-mono">{pr.prNo}</h2>
+            <p className="text-[11px] sm:text-xs text-slate-500 mt-0.5">{format(new Date(pr.createdAt), 'dd MMM yyyy')}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[pr.status] || STATUS_STYLES.Draft}`}>{pr.status}</span>
-            <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className={`px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-bold border ${STATUS_STYLES[pr.status] || STATUS_STYLES.Draft}`}>{pr.status}</span>
+            <button onClick={onClose} className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all active:scale-95" title="Close modal">
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 text-xs sm:text-sm">
             {[
               { label: 'Requester', value: pr.requesterName },
               { label: 'Employee ID', value: pr.requesterEmpId },
               { label: 'Department', value: pr.department },
               { label: 'Cost Center', value: pr.costCenter },
-              { label: 'Priority', value: <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${PRIORITY_STYLES[pr.priority]}`}>{pr.priority}</span> },
+              { label: 'Priority', value: <span className={`px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold ${PRIORITY_STYLES[pr.priority]}`}>{pr.priority}</span> },
               { label: 'Required By', value: format(new Date(pr.requiredByDate), 'dd MMM yyyy') },
             ].map(({ label, value }) => (
               <div key={label} className="space-y-1">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-                <p className="font-semibold text-slate-800 dark:text-slate-200">{value}</p>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 break-words">{value}</p>
               </div>
             ))}
           </div>
@@ -125,30 +125,30 @@ function PRDetailModal({ pr, onClose }) {
             <div className="space-y-2">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Requested Items</p>
               <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                <table className="w-full text-xs">
+                <table className="w-full text-xs min-w-[600px]">
                   <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 font-bold">
                     <tr>
-                      <th className="px-3 py-2 text-left">#</th>
-                      <th className="px-3 py-2 text-left">Asset Name</th>
-                      <th className="px-3 py-2 text-left">Category</th>
-                      <th className="px-3 py-2 text-left">HSN/SAC</th>
-                      <th className="px-3 py-2 text-left">Specifications</th>
-                      <th className="px-3 py-2 text-right">Qty</th>
-                      <th className="px-3 py-2 text-right">Est. Unit Cost</th>
-                      <th className="px-3 py-2 text-right">Est. Total</th>
+                      <th className="px-3 py-2.5 text-left">#</th>
+                      <th className="px-3 py-2.5 text-left">Asset Name</th>
+                      <th className="px-3 py-2.5 text-left">Category</th>
+                      <th className="px-3 py-2.5 text-left">HSN/SAC</th>
+                      <th className="px-3 py-2.5 text-left">Specifications</th>
+                      <th className="px-3 py-2.5 text-right">Qty</th>
+                      <th className="px-3 py-2.5 text-right">Est. Unit Cost</th>
+                      <th className="px-3 py-2.5 text-right">Est. Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-slate-700 dark:text-slate-300">
                     {items.map((item, i) => (
                       <tr key={i} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30">
-                        <td className="px-3 py-2 font-mono">{i + 1}</td>
-                        <td className="px-3 py-2 font-semibold text-slate-800 dark:text-slate-200">{item.assetName}</td>
-                        <td className="px-3 py-2">{item.category}</td>
-                        <td className="px-3 py-2 font-mono">{item.hsnCode || '—'}</td>
-                        <td className="px-3 py-2 max-w-xs truncate" title={item.specifications}>{item.specifications}</td>
-                        <td className="px-3 py-2 text-right">{item.quantity} {item.uom || 'EA'}</td>
-                        <td className="px-3 py-2 text-right">₹{Number(item.estimatedUnitCost).toLocaleString('en-IN')}</td>
-                        <td className="px-3 py-2 text-right font-bold">₹{(item.quantity * Number(item.estimatedUnitCost)).toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2.5 font-mono">{i + 1}</td>
+                        <td className="px-3 py-2.5 font-semibold text-slate-800 dark:text-slate-200">{item.assetName}</td>
+                        <td className="px-3 py-2.5">{item.category}</td>
+                        <td className="px-3 py-2.5 font-mono">{item.hsnCode || '—'}</td>
+                        <td className="px-3 py-2.5 max-w-xs truncate" title={item.specifications}>{item.specifications}</td>
+                        <td className="px-3 py-2.5 text-right">{item.quantity} {item.uom || 'EA'}</td>
+                        <td className="px-3 py-2.5 text-right">₹{Number(item.estimatedUnitCost).toLocaleString('en-IN')}</td>
+                        <td className="px-3 py-2.5 text-right font-bold text-slate-900 dark:text-white">₹{(item.quantity * Number(item.estimatedUnitCost)).toLocaleString('en-IN')}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -156,7 +156,7 @@ function PRDetailModal({ pr, onClose }) {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4 text-sm border-t border-slate-100 dark:border-slate-800 pt-4">
+            <div className="grid grid-cols-2 gap-4 text-xs sm:text-sm border-t border-slate-100 dark:border-slate-800 pt-4">
               {[
                 { label: 'Asset Name', value: pr.assetName },
                 { label: 'Category', value: pr.category },
@@ -167,7 +167,7 @@ function PRDetailModal({ pr, onClose }) {
               ].map(({ label, value }) => (
                 <div key={label} className="space-y-1">
                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
-                  <p className="font-semibold text-slate-800 dark:text-slate-200">{value}</p>
+                  <p className="font-semibold text-slate-800 dark:text-slate-200 break-words">{value}</p>
                 </div>
               ))}
             </div>
@@ -175,10 +175,10 @@ function PRDetailModal({ pr, onClose }) {
 
           <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 space-y-3">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Financial Summary</p>
-            <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs sm:text-sm">
               <div>
                 <p className="text-xs text-slate-500">Total Estimated</p>
-                <p className="font-bold text-indigo-600 dark:text-indigo-400 text-lg">₹{Number(pr.estimatedTotalCost).toLocaleString('en-IN')}</p>
+                <p className="font-bold text-indigo-650 dark:text-indigo-400 text-base sm:text-lg">₹{Number(pr.estimatedTotalCost).toLocaleString('en-IN')}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500">Required Approval Level</p>
@@ -189,13 +189,13 @@ function PRDetailModal({ pr, onClose }) {
 
           <div>
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Business Justification</p>
-            <p className="text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 leading-relaxed">{pr.justification}</p>
+            <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3 leading-relaxed break-words">{pr.justification}</p>
           </div>
 
           {pr.preferredVendor && (
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Preferred Vendor</p>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{pr.preferredVendor}</p>
+              <p className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300">{pr.preferredVendor}</p>
             </div>
           )}
         </div>
@@ -778,7 +778,7 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
                       />
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="space-y-1.5">
                         <Label>Quantity <span className="text-rose-500">*</span></Label>
                         <Input required type="number" min="1" value={item.quantity} onChange={e => updateItem(idx, 'quantity', e.target.value)} className="h-10 rounded-xl" />
@@ -876,14 +876,140 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
           <p className="text-xs text-slate-400 mt-1">{form.justification.length} characters (minimum 20)</p>
         </div>
 
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variant="outline" onClick={onBack} className="rounded-xl px-6 h-11">Cancel</Button>
+        <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2 w-full">
+          <Button type="button" variant="outline" onClick={onBack} className="w-full sm:w-auto rounded-xl px-6 h-11 order-2 sm:order-1">Cancel</Button>
           <Button type="submit" disabled={mutation.isPending || isReadOnly}
-            className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2">
+            className="w-full sm:w-auto rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2 order-1 sm:order-2 flex items-center justify-center">
             {mutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Submitting...</> : <><FileText className="w-4 h-4" /> Submit PR</>}
           </Button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// RFQ Modal for sending quote requests to multiple suppliers
+function SendRFQModal({ pr, onClose, onSuccess }) {
+  const [selectedSupplierIds, setSelectedSupplierIds] = useState([]);
+  const [validityDate, setValidityDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 5);
+    return format(d, 'yyyy-MM-dd');
+  });
+  const [validityTime, setValidityTime] = useState('18:00');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const { data: suppliers = [] } = useQuery({
+    queryKey: ['suppliers'],
+    queryFn: () => api.get('/parties/suppliers').then(r => r.data)
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (selectedSupplierIds.length === 0) {
+      Swal.fire('Warning', 'Please select at least one supplier.', 'warning');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post('/asset-management/quotations/send-requests', {
+        prNo: pr.prNo,
+        supplierIds: selectedSupplierIds,
+        validityDate,
+        validityTime,
+        note
+      });
+      Swal.fire('Success', 'Quotation request sent to selected suppliers.', 'success');
+      onSuccess();
+    } catch (err) {
+      console.error(err);
+      Swal.fire('Error', err.response?.data?.error || 'Failed to send requests', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200/60 dark:border-slate-800 p-6 space-y-6" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-slate-800">
+          <h3 className="text-base font-bold text-slate-900 dark:text-white">Send RFQ to Suppliers</h3>
+          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-850">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 text-sm">
+          <div>
+            <Label className="text-xs font-bold text-slate-400">PR Reference</Label>
+            <Input value={pr.prNo} disabled className="mt-1 bg-slate-50 dark:bg-slate-800" />
+          </div>
+
+          <div>
+            <Label className="text-xs font-bold text-slate-400">Select Suppliers</Label>
+            <div className="mt-1 border border-slate-200 dark:border-slate-800 rounded-xl max-h-48 overflow-y-auto p-2 space-y-1">
+              {suppliers.length === 0 ? (
+                <div className="text-slate-400 text-center py-4 text-xs">No suppliers found</div>
+              ) : (
+                suppliers.map(s => {
+                  const isChecked = selectedSupplierIds.includes(s.id);
+                  return (
+                    <label key={s.id} className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-lg cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          if (isChecked) {
+                            setSelectedSupplierIds(selectedSupplierIds.filter(id => id !== s.id));
+                          } else {
+                            setSelectedSupplierIds([...selectedSupplierIds, s.id]);
+                          }
+                        }}
+                        className="w-4 h-4 rounded text-indigo-650"
+                      />
+                      <div>
+                        <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs">{s.name}</div>
+                        <div className="text-[10px] text-slate-450 text-slate-400 font-mono">{s.email || 'No email registered'}</div>
+                      </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs font-bold text-slate-400">Expiry Date</Label>
+              <Input type="date" value={validityDate} onChange={e => setValidityDate(e.target.value)} required className="mt-1" />
+            </div>
+            <div>
+              <Label className="text-xs font-bold text-slate-400">Expiry Time</Label>
+              <Input type="time" value={validityTime} onChange={e => setValidityTime(e.target.value)} required className="mt-1" />
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-xs font-bold text-slate-400">Buyer Instructions / Notes</Label>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="E.g. Please quote inclusive of delivery..."
+              rows={3}
+              className="w-full mt-1 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 text-xs text-slate-700 dark:text-slate-350"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2.5 pt-4">
+            <Button type="button" variant="outline" onClick={onClose} className="rounded-xl">Cancel</Button>
+            <Button type="submit" disabled={submitting} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl gap-2">
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              <span>Send Requests</span>
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
@@ -896,6 +1022,7 @@ export default function PurchaseRequestsView() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [selectedPR, setSelectedPR] = useState(null);
+  const [rfqPR, setRfqPR] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const qc = useQueryClient();
 
@@ -988,6 +1115,16 @@ export default function PurchaseRequestsView() {
   return (
     <div className="space-y-6">
       {selectedPR && <PRDetailModal pr={selectedPR} onClose={() => setSelectedPR(null)} />}
+      {rfqPR && (
+        <SendRFQModal
+          pr={rfqPR}
+          onClose={() => setRfqPR(null)}
+          onSuccess={() => {
+            setRfqPR(null);
+            qc.invalidateQueries({ queryKey: ['asset-prs'] });
+          }}
+        />
+      )}
 
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -1001,71 +1138,211 @@ export default function PurchaseRequestsView() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <StatCard icon={FileText} label="Total PRs" value={prs.length} bg="bg-indigo-50 dark:bg-indigo-950/30" iconColor="text-indigo-600 dark:text-indigo-400" borderColor="border-slate-200/60 dark:border-slate-800/60" />
         <StatCard icon={Clock} label="Pending" value={pendingCount} bg="bg-amber-50 dark:bg-amber-950/30" iconColor="text-amber-600 dark:text-amber-400" borderColor="border-slate-200/60 dark:border-slate-800/60" />
         <StatCard icon={CheckCircle2} label="Approved" value={approvedCount} bg="bg-emerald-50 dark:bg-emerald-950/30" iconColor="text-emerald-600 dark:text-emerald-400" borderColor="border-slate-200/60 dark:border-slate-800/60" />
         <StatCard icon={TrendingUp} label="Est. Value" value={`₹${(totalValue / 100000).toFixed(1)}L`} bg="bg-violet-50 dark:bg-violet-950/30" iconColor="text-violet-600 dark:text-violet-400" borderColor="border-slate-200/60 dark:border-slate-800/60" />
       </div>
 
-      <div className="bg-slate-50/60 dark:bg-slate-800/20 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-3 flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by PR no., asset name, requester..." className="pl-9 h-9 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700" />
+      <div className="bg-slate-50/60 dark:bg-slate-800/20 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-3 flex flex-col lg:flex-row gap-3 w-full">
+        <div className="relative flex-1 w-full">
+          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by PR no., asset name, requester..." className="w-full pl-10 h-11 rounded-xl bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-sm" />
         </div>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-          className="h-9 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none">
-          <option value="ALL">All Status</option>
-          {['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected'].map(s => <option key={s}>{s}</option>)}
-        </select>
+        <div className="relative w-full lg:w-48">
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            className="w-full h-11 pl-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 appearance-none">
+            <option value="ALL">All Status</option>
+            {['Draft', 'Submitted', 'Under Review', 'Approved', 'Rejected'].map(s => <option key={s}>{s}</option>)}
+          </select>
+          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50/80 dark:bg-slate-800/50">
-            <tr>
-              {['PR No.', 'Asset Name', 'Department', 'Category', 'Priority', 'Est. Total', 'Required By', 'Status', 'Actions'].map(h => (
-                <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
-            {isLoading ? Array.from({ length: 4 }).map((_, i) => (
-              <tr key={i}>{Array.from({ length: 9 }).map((_, j) => <td key={j} className="px-4 py-3"><Skeleton className="h-4 w-full rounded" /></td>)}</tr>
-            )) : filtered.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-16 text-center">
-                <div className="flex flex-col items-center gap-3">
-                  <div className="w-14 h-14 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
-                    <FileText className="w-7 h-7 text-slate-400" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-slate-700 dark:text-slate-300">No purchase requests found</p>
-                    <p className="text-xs text-slate-400 mt-1">Create a new request to begin asset procurement</p>
+      {isLoading ? (
+        <div className="space-y-4">
+          {/* Skeleton for desktop table */}
+          <div className="hidden lg:block overflow-x-auto rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <tr key={i}>
+                    {Array.from({ length: 9 }).map((_, j) => (
+                      <td key={j} className="px-4 py-4">
+                        <Skeleton className="h-4 w-full rounded" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {/* Skeleton for mobile cards */}
+          <div className="block lg:hidden space-y-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-4 space-y-3 animate-pulse">
+                <div className="flex justify-between items-center">
+                  <Skeleton className="h-4 w-24 rounded" />
+                  <Skeleton className="h-5 w-16 rounded-full" />
+                </div>
+                <Skeleton className="h-4 w-3/4 rounded" />
+                <Skeleton className="h-3 w-1/2 rounded" />
+                <div className="border-t border-slate-100 dark:border-slate-800/60 pt-3 flex gap-2">
+                  <Skeleton className="h-8 w-16 rounded-lg" />
+                  <Skeleton className="h-8 w-16 rounded-lg" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="px-4 py-16 text-center border border-slate-200/60 dark:border-slate-800/60 rounded-2xl">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-14 h-14 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center">
+              <FileText className="w-7 h-7 text-slate-400" />
+            </div>
+            <div>
+              <p className="font-medium text-slate-700 dark:text-slate-300">No purchase requests found</p>
+              <p className="text-xs text-slate-400 mt-1">Create a new request to begin asset procurement</p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Desktop Table View */}
+          <div className="hidden lg:block overflow-x-auto rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50/80 dark:bg-slate-800/50">
+                <tr>
+                  {['PR No.', 'Asset Name', 'Department', 'Category', 'Priority', 'Est. Total', 'Required By', 'Status', 'Actions'].map(h => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-bold text-slate-500 uppercase tracking-wider">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                {paginatedItems.map(pr => (
+                  <tr key={pr.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
+                    <td className="px-4 py-3">
+                      <button onClick={() => setSelectedPR(pr)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline">{pr.prNo}</button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-slate-800 dark:text-slate-200">{pr.assetName}</div>
+                      <div className="text-xs text-slate-500">{pr.requesterName}</div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{pr.department}</td>
+                    <td className="px-4 py-3 text-slate-700 dark:text-slate-300 text-xs">{pr.category}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${PRIORITY_STYLES[pr.priority] || ''}`}>{pr.priority}</span>
+                    </td>
+                    <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">₹{Number(pr.estimatedTotalCost).toLocaleString('en-IN')}</td>
+                    <td className="px-4 py-3 text-xs text-slate-500">{format(new Date(pr.requiredByDate), 'dd MMM yyyy')}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[pr.status] || STATUS_STYLES.Draft}`}>{pr.status}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => setSelectedPR(pr)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="View Details">
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                        {!isReadOnly && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setEditPRId(pr.id);
+                                setView('create');
+                              }}
+                              disabled={pqs.some(pq => pq.prNo === pr.prNo)}
+                              className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 disabled:opacity-40 disabled:hover:text-slate-400"
+                              title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot edit: Quotation already raised" : "Edit Request"}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleDeletePR(pr.id)}
+                              disabled={pqs.some(pq => pq.prNo === pr.prNo)}
+                              className="h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 disabled:opacity-40 disabled:hover:text-slate-400"
+                              title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot delete: Quotation already raised" : "Delete Request"}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </>
+                        )}
+                        {!isReadOnly && pr.status === 'Submitted' && (
+                          <Button variant="ghost" size="sm" onClick={() => approveMutation.mutate(pr.id)}
+                            disabled={approveMutation.isPending}
+                            className="h-8 px-3 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg gap-1 font-bold">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Approve
+                          </Button>
+                        )}
+                        {!isReadOnly && pr.status === 'Approved' && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => setRfqPR(pr)}
+                            disabled={pqs.some(pq => pq.prNo === pr.prNo)}
+                            className="h-8 px-3 text-xs text-indigo-600 hover:text-indigo-750 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-lg gap-1 font-bold disabled:opacity-40 disabled:hover:bg-transparent disabled:text-slate-400"
+                            title={pqs.some(pq => pq.prNo === pr.prNo) ? "RFQ already sent for this request" : "Request Quotes"}
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>{pqs.some(pq => pq.prNo === pr.prNo) ? "RFQ Sent" : "Request Quotes"}</span>
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Stacked Card View */}
+          <div className="block lg:hidden space-y-4">
+            {paginatedItems.map(pr => (
+              <div key={pr.id} className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all space-y-3">
+                <div className="flex items-center justify-between">
+                  <button onClick={() => setSelectedPR(pr)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm hover:underline">{pr.prNo}</button>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold border ${STATUS_STYLES[pr.status] || STATUS_STYLES.Draft}`}>{pr.status}</span>
+                </div>
+                
+                <div className="space-y-1">
+                  <div className="font-bold text-slate-800 dark:text-slate-200 text-sm">{pr.assetName}</div>
+                  <div className="text-xs text-slate-500">
+                    <span>Requested by: </span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">{pr.requesterName}</span>
                   </div>
                 </div>
-              </td></tr>
-            ) : paginatedItems.map(pr => (
-              <tr key={pr.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/30 transition-colors">
-                <td className="px-4 py-3">
-                  <button onClick={() => setSelectedPR(pr)} className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline">{pr.prNo}</button>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="font-semibold text-slate-800 dark:text-slate-200">{pr.assetName}</div>
-                  <div className="text-xs text-slate-500">{pr.requesterName}</div>
-                </td>
-                <td className="px-4 py-3 text-slate-700 dark:text-slate-300">{pr.department}</td>
-                <td className="px-4 py-3 text-slate-700 dark:text-slate-300 text-xs">{pr.category}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${PRIORITY_STYLES[pr.priority] || ''}`}>{pr.priority}</span>
-                </td>
-                <td className="px-4 py-3 font-bold text-slate-900 dark:text-white">₹{Number(pr.estimatedTotalCost).toLocaleString('en-IN')}</td>
-                <td className="px-4 py-3 text-xs text-slate-500">{format(new Date(pr.requiredByDate), 'dd MMM yyyy')}</td>
-                <td className="px-4 py-3">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${STATUS_STYLES[pr.status] || STATUS_STYLES.Draft}`}>{pr.status}</span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedPR(pr)} className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600" title="View Details">
+
+                <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-xs py-2.5 border-t border-b border-slate-100 dark:border-slate-800/60">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Department</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">{pr.department}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Category</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300 truncate block" title={pr.category}>{pr.category}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Priority</span>
+                    <span className={`inline-block px-2 py-0.5 mt-0.5 rounded-full text-[10px] font-bold ${PRIORITY_STYLES[pr.priority] || ''}`}>{pr.priority}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Est. Total</span>
+                    <span className="font-bold text-slate-900 dark:text-white">₹{Number(pr.estimatedTotalCost).toLocaleString('en-IN')}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 text-xs">
+                  <div className="text-slate-500">
+                    <span>Required by: </span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">{format(new Date(pr.requiredByDate), 'dd MMM yyyy')}</span>
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5 border-t sm:border-t-0 pt-2 sm:pt-0">
+                    <Button variant="ghost" size="icon" onClick={() => setSelectedPR(pr)} className="h-9 w-9 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800" title="View Details">
                       <Eye className="w-4 h-4" />
                     </Button>
                     {!isReadOnly && (
@@ -1078,7 +1355,7 @@ export default function PurchaseRequestsView() {
                             setView('create');
                           }}
                           disabled={pqs.some(pq => pq.prNo === pr.prNo)}
-                          className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 disabled:opacity-40 disabled:hover:text-slate-400"
+                          className="h-9 w-9 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40"
                           title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot edit: Quotation already raised" : "Edit Request"}
                         >
                           <Edit className="w-4 h-4" />
@@ -1088,7 +1365,7 @@ export default function PurchaseRequestsView() {
                           size="icon"
                           onClick={() => handleDeletePR(pr.id)}
                           disabled={pqs.some(pq => pq.prNo === pr.prNo)}
-                          className="h-8 w-8 rounded-lg text-slate-400 hover:text-rose-600 disabled:opacity-40 disabled:hover:text-slate-400"
+                          className="h-9 w-9 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40"
                           title={pqs.some(pq => pq.prNo === pr.prNo) ? "Cannot delete: Quotation already raised" : "Delete Request"}
                         >
                           <Trash2 className="w-4 h-4" />
@@ -1098,17 +1375,30 @@ export default function PurchaseRequestsView() {
                     {!isReadOnly && pr.status === 'Submitted' && (
                       <Button variant="ghost" size="sm" onClick={() => approveMutation.mutate(pr.id)}
                         disabled={approveMutation.isPending}
-                        className="h-8 px-3 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg gap-1">
+                        className="h-9 px-3 text-xs text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-lg gap-1 border border-emerald-100 dark:border-emerald-900/30 font-bold">
                         <CheckCircle2 className="w-3.5 h-3.5" /> Approve
                       </Button>
                     )}
+                    {!isReadOnly && pr.status === 'Approved' && (
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        onClick={() => setRfqPR(pr)}
+                        disabled={pqs.some(pq => pq.prNo === pr.prNo)}
+                        className="h-9 px-3 text-xs text-indigo-600 hover:text-indigo-750 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 rounded-lg gap-1 border border-indigo-100 dark:border-indigo-900/30 font-bold disabled:opacity-40 disabled:hover:bg-transparent disabled:text-slate-400"
+                        title={pqs.some(pq => pq.prNo === pr.prNo) ? "RFQ already sent for this request" : "Request Quotes"}
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>{pqs.some(pq => pq.prNo === pr.prNo) ? "RFQ Sent" : "Request Quotes"}</span>
+                      </Button>
+                    )}
                   </div>
-                </td>
-              </tr>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </>
+      )}
       {totalPages > 1 && (
         <div className="mt-4 border-t border-slate-100 dark:border-slate-800 pt-4">
           <Pagination

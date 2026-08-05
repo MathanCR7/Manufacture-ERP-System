@@ -48,6 +48,7 @@ export default function DashboardPage() {
 
   const [productionTab, setProductionTab] = useState('active');
   const [chartsMounted, setChartsMounted] = useState(false);
+  const [activePipelineTab, setActivePipelineTab] = useState('PENDING APPROVAL');
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -208,33 +209,33 @@ export default function DashboardPage() {
         }
       }
       if (finalPoId) {
-        navigate(`/purchase-orders/${finalPoId}`, { state: { highlight: true } });
+        navigate(`/purchase-orders/${finalPoId}?from=dashboard`, { state: { highlight: true } });
       } else {
-        navigate('/purchase-orders');
+        navigate('/purchase-orders?from=dashboard');
       }
     } else if (type.startsWith('GRN_') || (alert.title && alert.title.includes('status changed to RECEIVED')) || (alert.title && alert.title.includes('GRN'))) {
       if (grnId) {
-        navigate(`/grn/view/${grnId}`, { state: { highlight: true } });
+        navigate(`/grn/view/${grnId}?from=dashboard`, { state: { highlight: true } });
       } else {
-        navigate('/grn/list');
+        navigate('/grn/list?from=dashboard');
       }
     } else if (type.startsWith('LAB_')) {
-      navigate('/lab/results');
+      navigate('/lab/results?from=dashboard');
     } else if (type.startsWith('PRODUCTION_')) {
-      navigate('/production/batches');
+      navigate('/production/batches?from=dashboard');
     } else if (type.includes('STOCK_') || type.includes('LOW_STOCK')) {
       if (type.startsWith('RM_')) {
-        navigate('/purchase/rm-low-stock');
+        navigate('/purchase/rm-low-stock?from=dashboard');
       } else {
-        navigate('/production/low-stock-alerts');
+        navigate('/production/low-stock-alerts?from=dashboard');
       }
     } else {
       if (poId) {
-        navigate(`/purchase-orders/${poId}`, { state: { highlight: true } });
+        navigate(`/purchase-orders/${poId}?from=dashboard`, { state: { highlight: true } });
       } else if (grnId) {
-        navigate(`/grn/view/${grnId}`, { state: { highlight: true } });
+        navigate(`/grn/view/${grnId}?from=dashboard`, { state: { highlight: true } });
       } else {
-        navigate('/notifications');
+        navigate('/notifications?from=dashboard');
       }
     }
   };
@@ -293,7 +294,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
         {/* Active Productions */}
         <div 
-          onClick={() => navigate('/production/batches')}
+          onClick={() => navigate('/production/batches?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -312,7 +313,7 @@ export default function DashboardPage() {
 
         {/* POs Pending Approval */}
         <div 
-          onClick={() => navigate('/purchase-orders')}
+          onClick={() => navigate('/purchase-orders?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -331,7 +332,7 @@ export default function DashboardPage() {
 
         {/* Raw Materials Low Stock */}
         <div 
-          onClick={() => navigate('/rm/stock/low')}
+          onClick={() => navigate('/rm/stock/low?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -350,7 +351,7 @@ export default function DashboardPage() {
 
         {/* QC Batches Pending */}
         <div 
-          onClick={() => navigate('/production/qc-queue')}
+          onClick={() => navigate('/production/qc-queue?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -369,7 +370,7 @@ export default function DashboardPage() {
 
         {/* Orders to Dispatch */}
         <div 
-          onClick={() => navigate('/orders/status')}
+          onClick={() => navigate('/orders/status?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -388,7 +389,7 @@ export default function DashboardPage() {
 
         {/* Active Login Sessions */}
         <div 
-          onClick={() => navigate('/audit-logs')}
+          onClick={() => navigate('/audit-logs?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -407,7 +408,7 @@ export default function DashboardPage() {
 
         {/* Employees Checked In */}
         <div 
-          onClick={() => navigate('/attendance')}
+          onClick={() => navigate('/attendance?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -437,8 +438,43 @@ export default function DashboardPage() {
           <div className="bg-white dark:bg-slate-900 p-4 sm:p-6 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800">
             <SectionHeader title="Purchase Order Pipeline" queryRef={poQuery} />
 
+            {/* Mobile Tab bar for Kanban columns */}
+            <div className="flex md:hidden border-b border-slate-100 dark:border-slate-800 pb-2 mb-3 gap-1 overflow-x-auto scrollbar-none">
+              {['DRAFT', 'PENDING APPROVAL', 'APPROVED', 'RECEIVED'].map(tabName => {
+                const rawPos = poQuery.data || [];
+                const count = rawPos.filter(po => {
+                  if (tabName === 'PENDING APPROVAL') return po.status === 'PENDING';
+                  if (tabName === 'APPROVED') return po.status === 'APPROVED' || po.status === 'ORDERED';
+                  if (tabName === 'RECEIVED') return po.status === 'RECEIVED';
+                  if (tabName === 'DRAFT') return !['PENDING', 'APPROVED', 'ORDERED', 'RECEIVED'].includes(po.status);
+                  return false;
+                }).length;
+
+                const isActive = activePipelineTab === tabName;
+                return (
+                  <button
+                    key={tabName}
+                    type="button"
+                    onClick={() => setActivePipelineTab(tabName)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-extrabold whitespace-nowrap transition-all border ${
+                      isActive 
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-100 dark:bg-indigo-500/20 dark:text-indigo-400 dark:border-indigo-900/30'
+                        : 'bg-transparent text-slate-500 hover:text-slate-800 border-transparent dark:text-slate-400 dark:hover:text-slate-205'
+                    }`}
+                  >
+                    <span>{tabName}</span>
+                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                      isActive 
+                        ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/30 dark:text-indigo-300'
+                        : 'bg-slate-100 text-slate-550 dark:bg-slate-800 dark:text-slate-400'
+                    }`}>{count}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Kanban Columns */}
-            <div className="flex overflow-x-auto snap-x snap-mandatory gap-4 pb-3 scrollbar-thin md:grid md:grid-cols-4 md:overflow-visible md:pb-0 mt-2">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-2">
               {['DRAFT', 'PENDING APPROVAL', 'APPROVED', 'RECEIVED'].map((colName) => {
                 // Filter POs belonging to this stage
                 const rawPos = poQuery.data || [];
@@ -453,9 +489,10 @@ export default function DashboardPage() {
                 const maxCards = 3;
                 const visiblePos = stagePos.slice(0, maxCards);
                 const remainingCount = stagePos.length - maxCards;
+                const isVisible = activePipelineTab === colName;
 
                 return (
-                  <div key={colName} className="snap-center shrink-0 w-[260px] md:w-auto bg-slate-50 dark:bg-slate-950 p-4 rounded-xl flex flex-col min-h-[220px]">
+                  <div key={colName} className={`${isVisible ? 'flex' : 'hidden md:flex'} w-full bg-slate-50 dark:bg-slate-950 p-4 rounded-xl flex-col min-h-[220px]`}>
                     <div className="flex justify-between items-center mb-3">
                       <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 tracking-wide uppercase">
                         {colName}
@@ -475,7 +512,7 @@ export default function DashboardPage() {
                         visiblePos.map((po) => (
                           <div 
                             key={po.id} 
-                            onClick={() => navigate(`/purchase-orders/${po.id}`)}
+                            onClick={() => navigate(`/purchase-orders/${po.id}?from=dashboard`)}
                             className="bg-white dark:bg-slate-900 p-3 rounded-lg border border-slate-100 dark:border-slate-800/80 shadow-sm cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all"
                           >
                             <div className="flex justify-between items-start">
@@ -504,7 +541,7 @@ export default function DashboardPage() {
                     {remainingCount > 0 && (
                       <button 
                         type="button"
-                        onClick={() => navigate('/purchase-orders')}
+                        onClick={() => navigate('/purchase-orders?from=dashboard')}
                         className="w-full mt-2 text-center py-1.5 rounded-lg text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50/50 dark:bg-indigo-950/20 hover:bg-indigo-100/50 transition-colors"
                       >
                         + {remainingCount} More POs
@@ -573,7 +610,10 @@ export default function DashboardPage() {
                   ) : (
                     <>
                       {productionsQuery.data?.map((p) => {
-                        const donePercent = p.quantity > 0 ? Math.min(100, Math.round((p.partiallyDoneQty / p.quantity) * 100)) : 0;
+                        const doneQty = ['Completed', 'qc_passed', 'qc_failed'].includes(p.status)
+                          ? (p.actualOutput !== null && p.actualOutput !== undefined ? Number(p.actualOutput) : Number(p.quantity))
+                          : Number(p.partiallyDoneQty || 0);
+                        const donePercent = p.quantity > 0 ? Math.min(100, Math.round((doneQty / p.quantity) * 100)) : 0;
                         
                         let barColor = 'bg-rose-500';
                         if (donePercent >= 80) barColor = 'bg-emerald-500';
@@ -590,7 +630,7 @@ export default function DashboardPage() {
                             <td className="p-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">{p.referenceNo}</td>
                             <td className="p-4 font-semibold text-slate-800 dark:text-slate-205">{p.productName}</td>
                             <td className="p-4">{p.quantity}</td>
-                            <td className="p-4">{p.partiallyDoneQty}</td>
+                            <td className="p-4">{doneQty}</td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">
                                 <div className="w-16 bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -608,7 +648,7 @@ export default function DashboardPage() {
                             <td className="p-4 text-right">
                               <button 
                                 type="button"
-                                onClick={() => navigate('/production/batches')}
+                                onClick={() => navigate(`/production/batches?id=${p.id}&from=dashboard`)}
                                 className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:scale-105 active:scale-95 transition-all"
                               >
                                 <ChevronRight className="w-4 h-4" />
@@ -642,7 +682,10 @@ export default function DashboardPage() {
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {productionsQuery.data?.map((p) => {
-                      const donePercent = p.quantity > 0 ? Math.min(100, Math.round((p.partiallyDoneQty / p.quantity) * 100)) : 0;
+                      const doneQty = ['Completed', 'qc_passed', 'qc_failed'].includes(p.status)
+                        ? (p.actualOutput !== null && p.actualOutput !== undefined ? Number(p.actualOutput) : Number(p.quantity))
+                        : Number(p.partiallyDoneQty || 0);
+                      const donePercent = p.quantity > 0 ? Math.min(100, Math.round((doneQty / p.quantity) * 100)) : 0;
                       
                       let barColor = 'bg-rose-500';
                       if (donePercent >= 80) barColor = 'bg-emerald-500';
@@ -657,8 +700,8 @@ export default function DashboardPage() {
                       return (
                         <div 
                           key={p.id} 
-                          onClick={() => navigate('/production/batches')}
-                          className="bg-slate-50 dark:bg-slate-950/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-850 flex flex-col gap-2 cursor-pointer hover:border-indigo-200 transition-colors"
+                          onClick={() => navigate(`/production/batches?id=${p.id}&from=dashboard`)}
+                          className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/60 p-4.5 rounded-2xl space-y-2.5 shadow-xs cursor-pointer hover:border-indigo-200 transition-colors"
                         >
                           <div className="flex justify-between items-center">
                             <span className="font-mono text-[10px] font-bold text-indigo-650 dark:text-indigo-400">{p.referenceNo}</span>
@@ -666,7 +709,7 @@ export default function DashboardPage() {
                           </div>
                           <div className="flex justify-between items-start text-xs gap-2">
                             <span className="font-bold text-slate-800 dark:text-slate-200 truncate">{p.productName}</span>
-                            <span className="text-slate-500 shrink-0">{p.partiallyDoneQty} / {p.quantity} pcs</span>
+                            <span className="text-slate-500 shrink-0">{doneQty} / {p.quantity} pcs</span>
                           </div>
                           <div className="flex items-center gap-2 mt-1">
                             <div className="flex-1 bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
@@ -1227,7 +1270,7 @@ export default function DashboardPage() {
                     return (
                       <div 
                         key={o.id} 
-                        onClick={() => navigate('/orders/list')}
+                        onClick={() => navigate(`/orders/list?id=${o.id}&from=dashboard`)}
                         className="bg-slate-50 dark:bg-slate-950/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-850 flex flex-col gap-2 cursor-pointer hover:border-indigo-200 transition-colors"
                       >
                         <div className="flex justify-between items-center">

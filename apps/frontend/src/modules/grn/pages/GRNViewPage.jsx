@@ -40,6 +40,8 @@ const GRN_STATUS_MAP = {
   LAB_RESAMPLE: { label: 'Need Resample', cls: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400', Icon: AlertTriangle },
 };
 
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
+
 export default function GRNViewPage() {
   const { grnId } = useParams();
   const navigate = useNavigate();
@@ -66,6 +68,7 @@ export default function GRNViewPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
+      <DashboardBackButton defaultBack="/grn/list" />
       {fromNotifications && (
         <Button 
           variant="outline" 

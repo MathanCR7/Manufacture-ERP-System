@@ -145,17 +145,23 @@ class NotificationService {
       }, prismaClient);
 
       // Create Warning Audit Log
-      await prismaClient.auditLog.create({
-        data: {
-          userId: 'system',
-          action: 'STOCK_REPRODUCTION_ALERT',
-          tableName: 'finished_products',
-          recordId: productId,
-          oldValue: {},
-          newValue: { productName: product.name, currentStock, reproductionPoint: reorderPoint },
-          ip: 'system'
-        }
-      });
+      const activeUser = await prismaClient.user.findFirst({
+        where: { role: 'MAIN_MASTER' }
+      }) || await prismaClient.user.findFirst();
+
+      if (activeUser) {
+        await prismaClient.auditLog.create({
+          data: {
+            userId: activeUser.id,
+            action: 'STOCK_REPRODUCTION_ALERT',
+            tableName: 'finished_products',
+            recordId: productId,
+            oldValue: {},
+            newValue: { productName: product.name, currentStock, reproductionPoint: reorderPoint },
+            ip: 'system'
+          }
+        });
+      }
     }
   }
 }

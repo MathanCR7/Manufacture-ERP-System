@@ -8,7 +8,9 @@ const {
   sendPOAutomatedEmail,
   sendAPInvoiceAutomatedEmail,
   sendGRPODiscrepancyNotice,
-  sendPOUpdateDeleteNotice
+  sendPOUpdateDeleteNotice,
+  sendAssetQuotationRequestEmail,
+  sendAssetQuotationResponseAlert
 } = require('../../utils/communication');
 const { getTaxSettingsData } = require('../setup/tax.controller');
 
@@ -1070,6 +1072,453 @@ class AssetManagementService {
     return mapPQToFrontend(pq);
   }
 
+  async sendQuotationRequests(data, userId) {
+    const { prNo, supplierIds, validityDate, validityTime, note } = data;
+    if (!prNo) throw new Error('prNo is required');
+    if (!supplierIds || !Array.isArray(supplierIds) || supplierIds.length === 0) {
+      throw new Error('Please select at least one supplier');
+    }
+
+    const pr = await prisma.assetRequest.findFirst({
+      where: { prNo }
+    });
+    if (!pr) throw new Error(`PR ${prNo} not found`);
+
+    // Parse validity date/time
+    const validityAt = new Date(`${validityDate}T${validityTime || '18:00'}:00`);
+
+    const crypto = require('crypto');
+    const results = [];
+
+    // PR items
+    const prItems = Array.isArray(pr.items) ? pr.items : [];
+
+    for (const supId of supplierIds) {
+      const supplier = await prisma.supplier.findUnique({
+        where: { id: supId }
+      });
+      if (!supplier) continue;
+
+      // Check if they already have a quote request for this supplier/PR (unless cancelled)
+      const existing = await prisma.assetPQ.findFirst({
+        where: {
+          prNo,
+          vendorName: supplier.name,
+          status: { not: 'Cancelled' }
+        }
+      });
+      if (existing) {
+        continue; // skip duplicate requests to the same supplier
+      }
+
+      // Generate a unique token
+      const secureToken = crypto.randomBytes(32).toString('hex');
+      // Generate a sequential PQ number
+      const pqNo = await this.getNextDocNumber('PQ');
+
+      // Create an AssetPQ record for each supplier in "Sent" status
+      const pq = await prisma.assetPQ.create({
+        data: {
+          pqNo,
+          validUntil: validityAt,
+          prNo,
+          vendorCode: supplier.code || `V-${String(Math.floor(Math.random()*9000)+1000)}`,
+          vendorName: supplier.name,
+          vendorGstin: supplier.gstin || 'N/A',
+          vendorPan: supplier.pan || 'N/A',
+          contactPerson: supplier.contactPerson || '',
+          email: supplier.email || '',
+          phone: supplier.phone || '',
+          address: supplier.address || 'N/A',
+          stateCode: supplier.stateCode || (supplier.gstin ? supplier.gstin.substring(0, 2) : '33'),
+          currency: 'INR',
+          exchangeRate: 1.00,
+          paymentTerms: 'Net 30',
+          paymentMode: '',
+          deliveryTerms: 'Door Delivery',
+          leadTime: 7,
+          warrantyPeriod: 12,
+          amcAvailable: false,
+          amcCost: 0,
+          subtotal: 0,
+          discount: 0,
+          cgst: 0,
+          sgst: 0,
+          igst: 0,
+          taxAmount: 0,
+          shippingCharges: 0,
+          loadingCharges: 0,
+          unloadingCharges: 0,
+          packingCharges: 0,
+          insurance: 0,
+          otherCharges: 0,
+          applyGst: true,
+          roundOff: 0,
+          grandTotal: 0,
+          tds: 0,
+          supplierQuoteRef: '',
+          termsBlock: note || '',
+          status: 'Sent',
+          secureToken,
+          items: {
+            create: prItems.map((item, idx) => ({
+              lineNo: idx + 1,
+              itemCode: item.itemCode || `AST-IT-${idx+1}`,
+              description: item.assetName || item.description || '',
+              category: item.category || 'IT Equipment',
+              hsnCode: item.hsnCode || '8471',
+              uom: item.uom || 'Nos',
+              quantity: parseInt(item.quantity, 10) || 1,
+              unitPrice: 0,
+              discountPercent: 0,
+              discountedPrice: 0,
+              baseAmount: 0,
+              gstRate: 18,
+              cgst: 0,
+              sgst: 0,
+              igst: 0,
+              lineTotal: 0,
+              specMatch: 'Yes',
+              remarks: item.specifications || ''
+            }))
+          }
+        },
+        include: { items: true }
+      });
+
+      // Send the email link
+      const publicAppUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+      const linkUrl = `${publicAppUrl}/asset-quote/${pq.id}/${secureToken}`;
+
+      await sendAssetQuotationRequestEmail({
+        quotation: pq,
+        supplier,
+        secureToken,
+        linkUrl
+      });
+
+      results.push(mapPQToFrontend(pq));
+    }
+
+    return results;
+  }
+
+  async getPublicPQ(pqId, token) {
+    const pq = await prisma.assetPQ.findFirst({
+      where: {
+        id: pqId,
+        secureToken: token
+      },
+      include: {
+        items: true
+      }
+    });
+
+    if (!pq) {
+      throw new Error('Invalid or expired quotation link');
+    }
+
+    const now = new Date();
+    const isExpired = new Date(pq.validUntil) < now;
+
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || '33AABCL0702C1ZG';
+
+    return {
+      quotation: mapPQToFrontend(pq),
+      companyGstin,
+      isExpired
+    };
+  }
+
+  async submitPublicPQ(pqId, token, data) {
+    const pq = await prisma.assetPQ.findFirst({
+      where: {
+        id: pqId,
+        secureToken: token
+      },
+      include: {
+        items: true
+      }
+    });
+
+    if (!pq) {
+      throw new Error('Invalid or expired quotation link');
+    }
+
+    const now = new Date();
+    if (new Date(pq.validUntil) < now) {
+      throw new Error('This quotation request has expired. Submissions are closed.');
+    }
+
+    const items = data.items || [];
+    if (items.length === 0) {
+      throw new Error('Price inputs for requested line items are required.');
+    }
+
+    // Recalculate totals
+    let subtotal = 0;
+    let taxAmount = 0;
+    let totalCgst = 0;
+    let totalSgst = 0;
+    let totalIgst = 0;
+    let totalDiscount = 0;
+
+    const taxSettings = await getTaxSettingsData();
+    const companyGstin = taxSettings?.companyGstin || '33AABCL0702C1ZG';
+    const companyStateCode = companyGstin.trim().substring(0, 2) || '33';
+    const stateCode = data.stateCode || pq.stateCode || companyStateCode;
+    const isIntrastate = stateCode === companyStateCode;
+
+    const updatedItems = [];
+
+    for (const item of items) {
+      const dbItem = pq.items.find(i => i.id === item.id);
+      if (!dbItem) continue;
+
+      const quantity = parseInt(dbItem.quantity, 10) || 1;
+      const unitPrice = Number(item.unitPrice) || 0;
+      const discountPercent = Number(item.discountPercent || 0);
+
+      const discountedPrice = unitPrice * (1 - discountPercent / 100);
+      const baseAmount = quantity * discountedPrice;
+      const gstRate = Number(item.gstRate || 18);
+
+      let cgst = 0;
+      let sgst = 0;
+      let igst = 0;
+
+      if (isIntrastate) {
+        cgst = baseAmount * (gstRate / 2 / 100);
+        sgst = baseAmount * (gstRate / 2 / 100);
+      } else {
+        igst = baseAmount * (gstRate / 100);
+      }
+
+      const lineTotal = baseAmount + cgst + sgst + igst;
+
+      subtotal += quantity * unitPrice;
+      totalDiscount += quantity * unitPrice * (discountPercent / 100);
+      taxAmount += cgst + sgst + igst;
+      totalCgst += cgst;
+      totalSgst += sgst;
+      totalIgst += igst;
+
+      updatedItems.push({
+        id: dbItem.id,
+        unitPrice,
+        discountPercent,
+        discountedPrice,
+        baseAmount,
+        gstRate,
+        cgst,
+        sgst,
+        igst,
+        lineTotal,
+        specMatch: item.specMatch || 'Yes',
+        remarks: item.remarks || ''
+      });
+    }
+
+    const shippingCharges = Number(data.shippingCharges || 0);
+    const loadingCharges = Number(data.loadingCharges || 0);
+    const unloadingCharges = Number(data.unloadingCharges || 0);
+    const packingCharges = Number(data.packingCharges || 0);
+    const insurance = Number(data.insurance || 0);
+    const otherCharges = Number(data.otherCharges || 0);
+    const discountVal = Number(data.discount || 0) || totalDiscount;
+    const applyGst = data.applyGst !== false;
+    const isInterState = !isIntrastate;
+
+    const chargeGstStates = data.chargeGstStates || {};
+    const calculateChargeGst = (val, key) => {
+      const state = chargeGstStates[key];
+      if (!state) return 0;
+      const isApplied = (state === true) || (state === 'true') || (state && (state.applied === true || state.applied === 'true'));
+      if (!isApplied) return 0;
+      if (isInterState) {
+        return Number(val) * 0.18; // Force 18% for IGST
+      }
+      const customRate = state && state.rate !== undefined ? Number(state.rate) : 18;
+      return Number(val) * (customRate / 100);
+    };
+
+    const freightGst = calculateChargeGst(shippingCharges, 'shippingCharges');
+    const loadingGst = calculateChargeGst(loadingCharges, 'loadingCharges');
+    const unloadingGst = calculateChargeGst(unloadingCharges, 'unloadingCharges');
+    const packingGst = calculateChargeGst(packingCharges, 'packingCharges');
+    const insuranceGst = calculateChargeGst(insurance, 'insurance');
+    const otherGst = calculateChargeGst(otherCharges, 'otherCharges');
+
+    const totalChargesGst = freightGst + loadingGst + unloadingGst + packingGst + insuranceGst + otherGst;
+
+    let finalCgst = totalCgst;
+    let finalSgst = totalSgst;
+    let finalIgst = totalIgst;
+
+    if (applyGst) {
+      if (isInterState) {
+        finalIgst += totalChargesGst;
+      } else {
+        finalCgst += totalChargesGst / 2;
+        finalSgst += totalChargesGst / 2;
+      }
+    }
+
+    const finalTaxAmount = finalCgst + finalSgst + finalIgst;
+    const tds = Number(data.tds || 0);
+    const supplierQuoteRef = data.supplierQuoteRef || '';
+    const preRoundTotal = subtotal - discountVal + finalTaxAmount + shippingCharges + loadingCharges + unloadingCharges + packingCharges + insurance + otherCharges - tds;
+    const grandTotal = Math.round(preRoundTotal);
+    const roundOff = grandTotal - preRoundTotal;
+
+    // Update the AssetPQ and its items inside a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Update each AssetPQItem
+      for (const item of updatedItems) {
+        await tx.assetPQItem.update({
+          where: { id: item.id },
+          data: {
+            unitPrice: item.unitPrice,
+            discountPercent: item.discountPercent,
+            discountedPrice: item.discountedPrice,
+            baseAmount: item.baseAmount,
+            gstRate: item.gstRate,
+            cgst: item.cgst,
+            sgst: item.sgst,
+            igst: item.igst,
+            lineTotal: item.lineTotal,
+            specMatch: item.specMatch,
+            remarks: item.remarks
+          }
+        });
+      }
+
+      // Update AssetPQ header details
+      return tx.assetPQ.update({
+        where: { id: pq.id },
+        data: {
+          vendorGstin: data.vendorGstin || pq.vendorGstin || 'N/A',
+          vendorPan: data.vendorPan || pq.vendorPan || 'N/A',
+          contactPerson: data.contactPerson || pq.contactPerson || '',
+          email: data.email || pq.email || '',
+          phone: data.phone || pq.phone || '',
+          address: data.address || pq.address || 'N/A',
+          stateCode,
+          currency: data.currency || 'INR',
+          paymentTerms: data.paymentTerms || 'Net 30',
+          paymentMode: data.paymentMode || '',
+          deliveryTerms: data.deliveryTerms || 'Door Delivery',
+          leadTime: parseInt(data.leadTime, 10) || 7,
+          warrantyPeriod: parseInt(data.warrantyPeriod, 10) || 12,
+          amcAvailable: data.amcAvailable === true || data.amcAvailable === 'true',
+          amcCost: Number(data.amcCost || 0),
+          subtotal,
+          discount: discountVal,
+          cgst: finalCgst,
+          sgst: finalSgst,
+          igst: finalIgst,
+          taxAmount: finalTaxAmount,
+          shippingCharges,
+          loadingCharges,
+          unloadingCharges,
+          packingCharges,
+          insurance,
+          otherCharges,
+          chargeGstStates,
+          applyGst,
+          roundOff,
+          grandTotal,
+          tds,
+          supplierQuoteRef,
+          termsBlock: data.termsAndConditions || data.termsBlock || pq.termsBlock || '',
+          bankName: data.bankName || null,
+          bankAccountHolder: data.bankAccountHolder || null,
+          bankAccountNo: data.bankAccountNo || null,
+          bankIfsc: data.bankIfsc || null,
+          bankBranch: data.bankBranch || null,
+          bankUpi: data.bankUpi || null,
+          status: 'Received'
+        },
+        include: { items: true }
+      });
+    });
+
+    // Alert internal team and confirm to supplier
+    await sendAssetQuotationResponseAlert({
+      quotation: result,
+      supplierName: result.vendorName,
+      supplierEmail: result.email,
+      grandTotal: result.grandTotal,
+      expiryAt: result.validUntil
+    });
+
+    return mapPQToFrontend(result);
+  }
+
+  async requestResubmission(pqId, token) {
+    const pq = await prisma.assetPQ.findFirst({
+      where: {
+        id: pqId,
+        secureToken: token
+      }
+    });
+
+    if (!pq) {
+      throw new Error('Invalid quotation link');
+    }
+
+    return prisma.assetPQ.update({
+      where: { id: pq.id },
+      data: { status: 'Resubmission Requested' }
+    });
+  }
+
+  async resendSupplierLink(pqId) {
+    const pq = await prisma.assetPQ.findUnique({
+      where: { id: pqId },
+      include: { items: true }
+    });
+
+    if (!pq) {
+      throw new Error('Quotation not found');
+    }
+
+    if (pq.status === 'PO Issued') {
+      throw new Error('Cannot resend access link for a quotation that has already been converted into a Purchase Order.');
+    }
+
+    // Reset status to 'Sent' so supplier can submit again
+    const updatedPq = await prisma.assetPQ.update({
+      where: { id: pqId },
+      data: {
+        status: 'Sent'
+      },
+      include: { items: true }
+    });
+
+    const supplier = await prisma.supplier.findFirst({
+      where: { name: { equals: pq.vendorName, mode: 'insensitive' } }
+    });
+
+    if (!supplier) {
+      throw new Error(`Supplier profile not found for ${pq.vendorName}`);
+    }
+
+    const publicAppUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+    const linkUrl = `${publicAppUrl}/asset-quote/${updatedPq.id}/${updatedPq.secureToken}`;
+
+    // Send resubmission approval email
+    await sendAssetQuotationRequestEmail({
+      quotation: updatedPq,
+      supplier,
+      secureToken: updatedPq.secureToken,
+      linkUrl
+    });
+
+    return updatedPq;
+  }
+
   async getPQComparison(prNo) {
     const quotations = await prisma.assetPQ.findMany({
       where: { prNo },
@@ -1190,6 +1639,13 @@ class AssetManagementService {
         tds = Number(pq.tds || 0);
         supplierQuoteRef = pq.supplierQuoteRef || '';
         termsBlock = termsBlock || pq.termsBlock;
+        
+        data.bankName = data.bankName || pq.bankName;
+        data.bankAccountHolder = data.bankAccountHolder || pq.bankAccountHolder;
+        data.bankAccountNo = data.bankAccountNo || pq.bankAccountNo;
+        data.bankIfsc = data.bankIfsc || pq.bankIfsc;
+        data.bankBranch = data.bankBranch || pq.bankBranch;
+        data.bankUpi = data.bankUpi || pq.bankUpi;
       }
     }
 
@@ -1404,6 +1860,12 @@ class AssetManagementService {
           grandTotal,
           tds,
           supplierQuoteRef,
+          bankName: data.bankName || null,
+          bankAccountHolder: data.bankAccountHolder || null,
+          bankAccountNo: data.bankAccountNo || null,
+          bankIfsc: data.bankIfsc || null,
+          bankBranch: data.bankBranch || null,
+          bankUpi: data.bankUpi || null,
           createdById: userId,
           items: {
             create: poItems

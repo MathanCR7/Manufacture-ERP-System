@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Clock, LogIn, LogOut, Download, Search, Users, Calendar, Timer, TrendingUp } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 const fmt = (dt) => dt ? new Date(dt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '—';
 const fmtDate = (dt) => dt ? new Date(dt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
@@ -124,6 +125,7 @@ const CheckInOutPage = () => {
 
   return (
     <div className="space-y-6">
+      <DashboardBackButton />
       {/* Toast */}
       {toast && (
         <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-xl shadow-xl text-sm font-medium flex items-center gap-2 transition-all ${toast.type === 'error' ? 'bg-red-100 text-red-800 border border-red-300' : 'bg-emerald-100 text-emerald-800 border border-emerald-300'}`}>

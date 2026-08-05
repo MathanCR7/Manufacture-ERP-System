@@ -105,14 +105,15 @@ class DashboardController {
       const startOfLastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 0, 0, 0, 0));
       const endOfLastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0, 23, 59, 59, 999));
 
-      // Revenue from orders (totalSubtotal of delivered orders)
-      const [totalOrderRevenue, lastMonthRevenue, currentMonthRevenue] = await Promise.all([
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, where: { deletedAt: null } }),
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } } }),
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: startOfMonth } } })
+      // Revenue and Direct Costs from orders
+      const [totalOrderRevenue, lastMonthRevenue, currentMonthRevenue, totalOrderCosts] = await Promise.all([
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true }, where: { deletedAt: null } }),
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true }, where: { deletedAt: null, createdAt: { gte: startOfLastMonth, lte: endOfLastMonth } } }),
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true }, where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
+        prisma.customerOrder.aggregate({ _sum: { totalCost: true }, where: { deletedAt: null } })
       ]);
 
-      // Total expenses
+      // General operational expenses
       const totalExpenses = await prisma.expense.aggregate({ _sum: { amount: true } });
       const totalPurchases = await prisma.rawMaterialPO.aggregate({ _sum: { amount: true } });
 
@@ -134,9 +135,20 @@ class DashboardController {
       const totalBatches = Object.values(statusMap).reduce((a, b) => a + b, 0);
 
       // Production quantity summary
-      const productionAgg = await prisma.productionBatchNew.aggregate({
-        _sum: { quantity: true, partiallyDoneQty: true },
-        where: { deletedAt: null }
+      const batchesForOee = await prisma.productionBatchNew.findMany({
+        where: { deletedAt: null },
+        select: { quantity: true, partiallyDoneQty: true, actualOutput: true, status: true }
+      });
+      let totalPlanned = 0;
+      let totalActual = 0;
+      batchesForOee.forEach(b => {
+        const qty = fmtNum(b.quantity);
+        totalPlanned += qty;
+        if (['Completed', 'qc_passed', 'qc_failed'].includes(b.status)) {
+          totalActual += b.actualOutput !== null && b.actualOutput !== undefined ? fmtNum(b.actualOutput) : qty;
+        } else {
+          totalActual += fmtNum(b.partiallyDoneQty);
+        }
       });
 
       // QC pass/fail rates
@@ -147,8 +159,7 @@ class DashboardController {
 
       // OEE Component Breakdown
       const availability = totalBatches > 0 ? Math.min(100, (completedBatches + inProgressBatches) / totalBatches * 100) : 0;
-      const performance = fmtNum(productionAgg._sum.partiallyDoneQty) > 0 && fmtNum(productionAgg._sum.quantity) > 0
-        ? Math.min(100, (fmtNum(productionAgg._sum.partiallyDoneQty) / fmtNum(productionAgg._sum.quantity)) * 100) : 0;
+      const performance = totalPlanned > 0 ? Math.min(100, (totalActual / totalPlanned) * 100) : 0;
       const quality = parseFloat(qcPassRate);
       const oeeScore = totalBatches > 0 ? Math.round((availability / 100) * (performance / 100) * (quality / 100) * 100) : 0;
 
@@ -178,14 +189,14 @@ class DashboardController {
 
       // Top customers
       const topCustomerOrders = await prisma.customerOrder.groupBy({
-        by: ['customerId'], _sum: { totalSubtotal: true }, orderBy: { _sum: { totalSubtotal: 'desc' } }, take: 5,
+        by: ['customerId'], _sum: { grandTotal: true }, orderBy: { _sum: { grandTotal: 'desc' } }, take: 5,
         where: { deletedAt: null }
       });
       const topCustomerIds = topCustomerOrders.map(x => x.customerId);
       const topCustomerData = await prisma.customer.findMany({ where: { id: { in: topCustomerIds } }, select: { id: true, name: true } });
       const topCustomers = topCustomerOrders.map(c => {
         const cust = topCustomerData.find(d => d.id === c.customerId);
-        return { name: cust?.name || 'Unknown', revenue: fmtNum(c._sum.totalSubtotal) };
+        return { name: cust?.name || 'Unknown', revenue: fmtNum(c._sum.grandTotal) };
       });
 
       // Monthly revenue trend (last 12 months)
@@ -197,27 +208,29 @@ class DashboardController {
         const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0));
         const nextStart = new Date(Date.UTC(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0));
         const rev = await prisma.customerOrder.aggregate({
-          _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: start, lt: nextStart } }
+          _sum: { grandTotal: true }, where: { deletedAt: null, createdAt: { gte: start, lt: nextStart } }
         });
         const exp = await prisma.expense.aggregate({
           _sum: { amount: true }, where: { date: { gte: start, lt: nextStart } }
         });
         monthlyRevenue.push({
           month: d.toLocaleString('default', { month: 'short' }),
-          revenue: fmtNum(rev._sum.totalSubtotal),
+          revenue: fmtNum(rev._sum.grandTotal),
           expenses: fmtNum(exp._sum.amount)
         });
       }
 
-      const totalRevenue = fmtNum(totalOrderRevenue._sum.totalSubtotal);
-      const totalExpensesVal = fmtNum(totalExpenses._sum.amount) + fmtNum(totalPurchases._sum.amount);
+      const totalRevenue = fmtNum(totalOrderRevenue._sum.grandTotal);
+      const directCostsVal = fmtNum(totalOrderCosts._sum.totalCost);
+      const generalExpensesVal = fmtNum(totalExpenses._sum.amount);
+      const totalExpensesVal = directCostsVal + generalExpensesVal;
       const netProfit = totalRevenue - totalExpensesVal;
 
       const orderPipeline = {};
       orderCounts.forEach(o => { orderPipeline[o.status] = o._count; });
 
-      const lastMonthRev = fmtNum(lastMonthRevenue._sum.totalSubtotal);
-      const currentMonthRev = fmtNum(currentMonthRevenue._sum.totalSubtotal);
+      const lastMonthRev = fmtNum(lastMonthRevenue._sum.grandTotal);
+      const currentMonthRev = fmtNum(currentMonthRevenue._sum.grandTotal);
       const revenueGrowth = lastMonthRev > 0 ? ((currentMonthRev - lastMonthRev) / lastMonthRev * 100).toFixed(1) : 0;
 
       res.json({
@@ -227,8 +240,8 @@ class DashboardController {
         netProfit,
         profitMargin: totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : 0,
         totalExpenses: totalExpensesVal,
-        totalGeneralExpenses: fmtNum(totalExpenses._sum.amount),
-        totalDirectCosts: fmtNum(totalPurchases._sum.amount),
+        totalGeneralExpenses: generalExpensesVal,
+        totalDirectCosts: directCostsVal,
         orderPipeline,
         oeeScore,
         availability: parseFloat(availability.toFixed(1)),
@@ -256,14 +269,14 @@ class DashboardController {
       const startOfYear = new Date(now.getFullYear(), 0, 1);
 
       const [todaySales, monthSales, yearSales] = await Promise.all([
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, _count: true, where: { deletedAt: null, createdAt: { gte: startOfDay } } }),
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, _count: true, where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, _count: true, where: { deletedAt: null, createdAt: { gte: startOfYear } } })
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true }, _count: true, where: { deletedAt: null, createdAt: { gte: startOfDay } } }),
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true }, _count: true, where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true }, _count: true, where: { deletedAt: null, createdAt: { gte: startOfYear } } })
       ]);
 
       // Order status breakdown
       const orderStatusCounts = await prisma.customerOrder.groupBy({
-        by: ['status'], _count: true, _sum: { totalSubtotal: true }, where: { deletedAt: null }
+        by: ['status'], _count: true, _sum: { grandTotal: true }, where: { deletedAt: null }
       });
 
       // Recent orders
@@ -292,14 +305,14 @@ class DashboardController {
 
       // Top customers
       const topCustomers = await prisma.customerOrder.groupBy({
-        by: ['customerId'], _sum: { totalSubtotal: true }, _count: true, orderBy: { _sum: { totalSubtotal: 'desc' } }, take: 5,
+        by: ['customerId'], _sum: { grandTotal: true }, _count: true, orderBy: { _sum: { grandTotal: 'desc' } }, take: 5,
         where: { deletedAt: null }
       });
       const custIds = topCustomers.map(c => c.customerId);
       const custNames = await prisma.customer.findMany({ where: { id: { in: custIds } }, select: { id: true, name: true, customerType: true } });
       const topCustomerData = topCustomers.map(c => {
         const cust = custNames.find(d => d.id === c.customerId);
-        return { name: cust?.name || 'Unknown', type: cust?.customerType || 'RETAIL', revenue: fmtNum(c._sum.totalSubtotal), orders: c._count };
+        return { name: cust?.name || 'Unknown', type: cust?.customerType || 'RETAIL', revenue: fmtNum(c._sum.grandTotal), orders: c._count };
       });
 
       // New customers this month
@@ -314,25 +327,25 @@ class DashboardController {
         const start = new Date(d); start.setHours(0, 0, 0, 0);
         const end = new Date(d); end.setHours(23, 59, 59, 999);
         const agg = await prisma.customerOrder.aggregate({
-          _sum: { totalSubtotal: true }, _count: true,
+          _sum: { grandTotal: true }, _count: true,
           where: { deletedAt: null, createdAt: { gte: start, lte: end } }
         });
-        dailySales.push({ date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), revenue: fmtNum(agg._sum.totalSubtotal), orders: agg._count });
+        dailySales.push({ date: d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }), revenue: fmtNum(agg._sum.grandTotal), orders: agg._count });
       }
 
       const formattedOrders = recentOrders.map(o => ({
         id: o.id, referenceNo: o.referenceNo, customerName: o.customer?.name || 'N/A',
-        status: o.status, totalSubtotal: fmtNum(o.totalSubtotal), createdAt: o.createdAt,
+        status: o.status, totalSubtotal: fmtNum(o.totalSubtotal), grandTotal: fmtNum(o.grandTotal), createdAt: o.createdAt,
         deliveryDate: o.deliveryDate, productNames: o.items.map(i => i.product?.name).filter(Boolean).join(', ') || 'N/A'
       }));
 
       const statusMap = {};
-      orderStatusCounts.forEach(s => { statusMap[s.status] = { count: s._count, revenue: fmtNum(s._sum.totalSubtotal) }; });
+      orderStatusCounts.forEach(s => { statusMap[s.status] = { count: s._count, revenue: fmtNum(s._sum.grandTotal) }; });
 
       res.json({
-        todaySales: { revenue: fmtNum(todaySales._sum.totalSubtotal), orders: todaySales._count },
-        monthSales: { revenue: fmtNum(monthSales._sum.totalSubtotal), orders: monthSales._count },
-        yearSales: { revenue: fmtNum(yearSales._sum.totalSubtotal), orders: yearSales._count },
+        todaySales: { revenue: fmtNum(todaySales._sum.grandTotal), orders: todaySales._count },
+        monthSales: { revenue: fmtNum(monthSales._sum.grandTotal), orders: monthSales._count },
+        yearSales: { revenue: fmtNum(yearSales._sum.grandTotal), orders: yearSales._count },
         conversionRate,
         newCustomers,
         totalCustomers,
@@ -365,9 +378,20 @@ class DashboardController {
       });
 
       // Production quantity summary
-      const productionAgg = await prisma.productionBatchNew.aggregate({
-        _sum: { quantity: true, partiallyDoneQty: true },
-        where: { deletedAt: null, createdAt: { gte: startOfMonth } }
+      const monthBatches = await prisma.productionBatchNew.findMany({
+        where: { deletedAt: null, createdAt: { gte: startOfMonth } },
+        select: { quantity: true, partiallyDoneQty: true, actualOutput: true, status: true }
+      });
+      let totalPlannedMonth = 0;
+      let totalActualMonth = 0;
+      monthBatches.forEach(b => {
+        const qty = fmtNum(b.quantity);
+        totalPlannedMonth += qty;
+        if (['Completed', 'qc_passed', 'qc_failed'].includes(b.status)) {
+          totalActualMonth += b.actualOutput !== null && b.actualOutput !== undefined ? fmtNum(b.actualOutput) : qty;
+        } else {
+          totalActualMonth += fmtNum(b.partiallyDoneQty);
+        }
       });
 
       // QC pass/fail rates
@@ -380,8 +404,7 @@ class DashboardController {
       const totalBatches = Object.values(statusMap).reduce((a, b) => a + b, 0);
       const completedBatches = (statusMap['Completed'] || 0) + (statusMap['qc_passed'] || 0);
       const availability = totalBatches > 0 ? Math.min(100, (completedBatches + (statusMap['In Progress'] || 0)) / totalBatches * 100) : 0;
-      const performance = fmtNum(productionAgg._sum.partiallyDoneQty) > 0 && fmtNum(productionAgg._sum.quantity) > 0
-        ? Math.min(100, (fmtNum(productionAgg._sum.partiallyDoneQty) / fmtNum(productionAgg._sum.quantity)) * 100) : 0;
+      const performance = totalPlannedMonth > 0 ? Math.min(100, (totalActualMonth / totalPlannedMonth) * 100) : 0;
       const quality = parseFloat(qcPassRate);
       const oee = totalBatches > 0 ? ((availability / 100) * (performance / 100) * (quality / 100) * 100).toFixed(1) : 0;
 
@@ -417,23 +440,37 @@ class DashboardController {
         });
       }
 
-      const formattedBatches = recentBatches.map(b => ({
-        id: b.id, referenceNo: b.referenceNo, productName: b.product?.name || 'N/A',
-        status: b.status, quantity: fmtNum(b.quantity), partiallyDoneQty: fmtNum(b.partiallyDoneQty),
-        startDate: b.startDate, completeDate: b.completeDate,
-        qcStatus: b.qcTests?.length > 0 ? b.qcTests[0].result : 'Pending',
-        donePercent: fmtNum(b.quantity) > 0 ? Math.min(100, Math.round(fmtNum(b.partiallyDoneQty) / fmtNum(b.quantity) * 100)) : 0
-      }));
+      const formattedBatches = recentBatches.map(b => {
+        const qty = fmtNum(b.quantity);
+        const status = b.status;
+        let doneQty = fmtNum(b.partiallyDoneQty);
+        if (['Completed', 'qc_passed', 'qc_failed'].includes(status)) {
+          doneQty = b.actualOutput !== null && b.actualOutput !== undefined ? fmtNum(b.actualOutput) : qty;
+        }
+        const donePercent = qty > 0 ? Math.min(100, Math.round(doneQty / qty * 100)) : 0;
+        return {
+          id: b.id,
+          referenceNo: b.referenceNo,
+          productName: b.product?.name || 'N/A',
+          status,
+          quantity: qty,
+          partiallyDoneQty: doneQty,
+          startDate: b.startDate,
+          completeDate: b.completeDate,
+          qcStatus: b.qcTests?.length > 0 ? b.qcTests[0].result : 'Pending',
+          donePercent
+        };
+      });
 
       // Scrap / rejection rate
-      const totalProductionQty = fmtNum(productionAgg._sum.quantity);
+      const totalProductionQty = totalPlannedMonth;
       const scrapRate = totalProductionQty > 0 ? ((totalLossKg / totalProductionQty) * 100).toFixed(1) : 0;
 
       res.json({
         statusCounts: statusMap,
         totalBatchesMonth: recentBatches.length,
-        plannedQtyMonth: fmtNum(productionAgg._sum.quantity),
-        actualQtyMonth: fmtNum(productionAgg._sum.partiallyDoneQty),
+        plannedQtyMonth: totalPlannedMonth,
+        actualQtyMonth: totalActualMonth,
         oee: parseFloat(oee),
         availability: availability.toFixed(1),
         performance: performance.toFixed(1),
@@ -564,9 +601,9 @@ class DashboardController {
 
       // Revenue
       const [totalRevenue, monthRevenue, yearRevenue] = await Promise.all([
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true, totalCost: true, totalProfit: true }, where: { deletedAt: null } }),
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true, totalProfit: true }, where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
-        prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true, totalProfit: true }, where: { deletedAt: null, createdAt: { gte: startOfYear } } })
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true, totalCost: true, totalProfit: true }, where: { deletedAt: null } }),
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true, totalProfit: true }, where: { deletedAt: null, createdAt: { gte: startOfMonth } } }),
+        prisma.customerOrder.aggregate({ _sum: { grandTotal: true, totalProfit: true }, where: { deletedAt: null, createdAt: { gte: startOfYear } } })
       ]);
 
       // Expenses breakdown by category
@@ -595,14 +632,14 @@ class DashboardController {
         const start = new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0));
         const nextStart = new Date(Date.UTC(d.getFullYear(), d.getMonth() + 1, 1, 0, 0, 0, 0));
         const [rev, exp] = await Promise.all([
-          prisma.customerOrder.aggregate({ _sum: { totalSubtotal: true }, where: { deletedAt: null, createdAt: { gte: start, lt: nextStart } } }),
+          prisma.customerOrder.aggregate({ _sum: { grandTotal: true }, where: { deletedAt: null, createdAt: { gte: start, lt: nextStart } } }),
           prisma.expense.aggregate({ _sum: { amount: true }, where: { date: { gte: start, lt: nextStart } } })
         ]);
         monthlyFinancials.push({
           month: d.toLocaleString('default', { month: 'short' }),
-          revenue: fmtNum(rev._sum.totalSubtotal),
+          revenue: fmtNum(rev._sum.grandTotal),
           expenses: fmtNum(exp._sum.amount),
-          profit: fmtNum(rev._sum.totalSubtotal) - fmtNum(exp._sum.amount)
+          profit: fmtNum(rev._sum.grandTotal) - fmtNum(exp._sum.amount)
         });
       }
 
@@ -611,7 +648,7 @@ class DashboardController {
         _avg: { cgst: true, sgst: true, igst: true }, where: { deletedAt: null }
       });
 
-      const totalRev = fmtNum(totalRevenue._sum.totalSubtotal);
+      const totalRev = fmtNum(totalRevenue._sum.grandTotal);
       const totalExpVal = fmtNum(totalExpenses._sum.amount);
       const profitMargin = totalRev > 0 ? ((fmtNum(totalRevenue._sum.totalProfit) / totalRev) * 100).toFixed(1) : 0;
 
@@ -628,7 +665,7 @@ class DashboardController {
       const totalAP = debtSuppliers.reduce((sum, s) => sum + fmtNum(s.openingBalance), 0);
 
       res.json({
-        revenue: { total: totalRev, month: fmtNum(monthRevenue._sum.totalSubtotal), year: fmtNum(yearRevenue._sum.totalSubtotal) },
+        revenue: { total: totalRev, month: fmtNum(monthRevenue._sum.grandTotal), year: fmtNum(yearRevenue._sum.grandTotal) },
         expenses: { total: totalExpVal, month: fmtNum(monthExpenses._sum.amount) },
         profit: { total: fmtNum(totalRevenue._sum.totalProfit), margin: profitMargin },
         accountsReceivable: { total: totalAR, count: creditCustomers.length },

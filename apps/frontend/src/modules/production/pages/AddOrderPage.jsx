@@ -13,6 +13,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
+import { Pagination } from '@/components/ui/Pagination';
 
 const DEFAULT_GTC = `1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.
 2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.
@@ -86,6 +87,11 @@ export default function AddOrderPage() {
   // Search & Catalog Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [catalogPage, setCatalogPage] = useState(1);
+
+  useEffect(() => {
+    setCatalogPage(1);
+  }, [searchQuery, selectedCategory]);
 
   // Form State
   const [customerId, setCustomerId] = useState('');
@@ -121,22 +127,22 @@ export default function AddOrderPage() {
 
   // Checkout Calculations Inputs
   const [discountType, setDiscountType] = useState('Flat'); // Flat / Percent
-  const [discountValue, setDiscountValue] = useState(0);
-  const [tdsDeduction, setTdsDeduction] = useState(0);
+  const [discountValue, setDiscountValue] = useState('0');
+  const [tdsDeduction, setTdsDeduction] = useState('0');
 
-  const [freight, setFreight] = useState(0);
+  const [freight, setFreight] = useState('0');
   const [freightGst, setFreightGst] = useState(true);
 
-  const [loadingCharges, setLoadingCharges] = useState(0);
+  const [loadingCharges, setLoadingCharges] = useState('0');
   const [loadingGst, setLoadingGst] = useState(true);
 
-  const [packingCharges, setPackingCharges] = useState(0);
+  const [packingCharges, setPackingCharges] = useState('0');
   const [packingGst, setPackingGst] = useState(true);
 
-  const [insurance, setInsurance] = useState(0);
+  const [insurance, setInsurance] = useState('0');
   const [insuranceGst, setInsuranceGst] = useState(true);
 
-  const [otherCharges, setOtherCharges] = useState(0);
+  const [otherCharges, setOtherCharges] = useState('0');
   const [otherGst, setOtherGst] = useState(true);
 
   const [items, setItems] = useState([]);
@@ -169,6 +175,13 @@ export default function AddOrderPage() {
   // Categories list
   const categories = ['All', ...new Set(products.map(p => p.category?.name).filter(Boolean))];
 
+  // Helper to handle numeric input sanitization (strip leading zeros when typing 1-9, display 0 when empty)
+  const handleNumericInputChange = (val, setter) => {
+    let cleaned = val.replace(/[^0-9]/g, '');
+    cleaned = cleaned.replace(/^0+(?=\d)/, '');
+    setter(cleaned === '' ? '0' : cleaned);
+  };
+
   // 3. Current running clock logic
   useEffect(() => {
     if (!isClockRunning) return;
@@ -182,36 +195,36 @@ export default function AddOrderPage() {
     const fetchMasters = async () => {
       setLoading(true);
       try {
-        const custRes = await api.get('/parties/customers');
-        setCustomers(custRes.data || []);
+        const [custRes, prodRes, taxSettingsRes] = await Promise.all([
+          api.get('/parties/customers'),
+          api.get('/products'),
+          api.get('/setup/tax').catch(err => {
+            console.warn('Unable to load tax settings endpoints', err);
+            return { data: null };
+          })
+        ]);
 
-        const prodRes = await api.get('/products');
+        setCustomers(custRes.data || []);
         setProducts(prodRes.data || []);
 
-        // Fetch company details from setup/tax
-        try {
-          const taxSettingsRes = await api.get('/setup/tax');
-          if (taxSettingsRes.data) {
-            setCompanyInfo({
-              companyName: taxSettingsRes.data.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED',
-              companyAddress: taxSettingsRes.data.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053',
-              companyGstin: taxSettingsRes.data.companyGstin || '33AABCL0702C1ZG',
-              companyMobile: taxSettingsRes.data.companyMobile || '+91 9360163523',
-              collectTax: taxSettingsRes.data.collectTax || 'Yes',
-              taxRegNo: taxSettingsRes.data.taxRegNo || '33AABCL0702C1ZG',
-              taxType: taxSettingsRes.data.taxType || 'Exclusive Tax'
-            });
-            setOurGstin(taxSettingsRes.data.companyGstin || '33AABCL0702C1ZG');
-          }
-        } catch (taxErr) {
-          console.warn('Unable to load tax settings endpoints', taxErr);
+        if (taxSettingsRes.data) {
+          setCompanyInfo({
+            companyName: taxSettingsRes.data.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED',
+            companyAddress: taxSettingsRes.data.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053',
+            companyGstin: taxSettingsRes.data.companyGstin || '33AABCL0702C1ZG',
+            companyMobile: taxSettingsRes.data.companyMobile || '+91 9360163523',
+            collectTax: taxSettingsRes.data.collectTax || 'Yes',
+            taxRegNo: taxSettingsRes.data.taxRegNo || '33AABCL0702C1ZG',
+            taxType: taxSettingsRes.data.taxType || 'Exclusive Tax'
+          });
+          setOurGstin(taxSettingsRes.data.companyGstin || '33AABCL0702C1ZG');
         }
 
         if (isEditMode) {
           setIsClockRunning(false); // Stop clock when editing an existing order
           const orderRes = await api.get(`/orders/${id}`);
           const order = orderRes.data;
-           setCustomerId(order.customerId);
+          setCustomerId(order.customerId);
           setOrderType(order.type);
           setDeliveryDate(new Date(order.deliveryDate).toISOString().split('T')[0]);
           setOrderDate(new Date(order.createdAt));
@@ -222,17 +235,17 @@ export default function AddOrderPage() {
           setCollectTax(!!order.collectTax);
           setTaxRegNo(order.taxRegNo || '');
           setTaxType(order.taxType || 'Exclusive');
-          setDiscountValue(Number(order.discountValue || 0));
-          setTdsDeduction(Number(order.tdsDeduction || 0));
-          setFreight(Number(order.freight || 0));
+          setDiscountValue(String(order.discountValue || 0));
+          setTdsDeduction(String(order.tdsDeduction || 0));
+          setFreight(String(order.freight || 0));
           setFreightGst(!!order.freightGst);
-          setLoadingCharges(Number(order.loadingCharges || 0));
+          setLoadingCharges(String(order.loadingCharges || 0));
           setLoadingGst(!!order.loadingGst);
-          setPackingCharges(Number(order.packingCharges || 0));
+          setPackingCharges(String(order.packingCharges || 0));
           setPackingGst(!!order.packingGst);
-          setInsurance(Number(order.insurance || 0));
+          setInsurance(String(order.insurance || 0));
           setInsuranceGst(!!order.insuranceGst);
-          setOtherCharges(Number(order.otherCharges || 0));
+          setOtherCharges(String(order.otherCharges || 0));
           setOtherGst(!!order.otherGst);
           setItems(order.items.map(it => ({
             productId: it.productId,
@@ -834,47 +847,119 @@ export default function AddOrderPage() {
   };
 
   const compileThermalBillPDF = (order) => {
-    const companyName = companyInfo?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
-    const companyAddress = companyInfo?.companyAddress || 'O.T, Madras High Rd, opp. Stedeford Hospital, Chennai, TN';
+    const companyName = companyInfo?.companyName || 'Leonex pvt limited';
+    const companyAddress = companyInfo?.companyAddress || 'Factory / Registered Office Address';
     const companyGstin = companyInfo?.companyGstin || '33AABCL0702C1ZG';
     
     const itemsCount = items.length;
-    const dynamicHeight = 90 + (itemsCount * 8); // height in mm
+    
+    // Count active extra charges
+    const freightVal = Math.round(Number(freight) || 0);
+    const loadingVal = Math.round(Number(loadingCharges) || 0);
+    const packingVal = Math.round(Number(packingCharges) || 0);
+    const insuranceVal = Math.round(Number(insurance) || 0);
+    const otherVal = Math.round(Number(otherCharges) || 0);
+    const discountVal = Math.round(Number(discountValue) || 0);
+    
+    let activeChargesCount = 0;
+    if (freightVal > 0) activeChargesCount++;
+    if (loadingVal > 0) activeChargesCount++;
+    if (packingVal > 0) activeChargesCount++;
+    if (insuranceVal > 0) activeChargesCount++;
+    if (otherVal > 0) activeChargesCount++;
+    
+    // 30 Shuffled Receipt Quotes
+    const BILL_QUOTES = [
+      "Life is like ice cream, enjoy it before it melts!",
+      "Double the flavor, double the happiness.",
+      "There is always room for some sweet moments.",
+      "Keep cool, carry on, and eat some kulfi.",
+      "Indulge in the creamy goodness of pure happiness.",
+      "Crafting sweetness with premium quality standards.",
+      "Happiness is a cup, a stick, or a slice of dessert.",
+      "Serving smiles and superior taste since inception.",
+      "Freshly prepared, carefully pasteurized, always delicious.",
+      "A sweet treat for a sweeter client like you!",
+      "Manufactured with state-of-the-art hygiene & love.",
+      "Cool down your day with our premium kulfi pops.",
+      "Sprinkled with pistachio, saffron, and joyful vibes.",
+      "The secret ingredient is always high-quality care.",
+      "Making your celebrations sweeter, one batch at a time.",
+      "Quality is not an act, it is a daily habit.",
+      "Every scoop tells a story of craftsmanship.",
+      "Pure cream, natural mangoes, and rich traditions.",
+      "Dessert is nature's way of making up for Mondays.",
+      "Purity you can taste, standards you can trust.",
+      "Kulfi: The ancient Indian art of frozen happiness.",
+      "Crafted in Salem, loved across the nation.",
+      "You can't buy happiness, but you can buy ice cream!",
+      "Creamy texture, rich cardamom, pure delight.",
+      "For the love of kulfi, made with absolute precision.",
+      "Pistachio power and saffron gold in every bite.",
+      "A classic recipe for a modern generation.",
+      "Frozen to perfection, delivered with care.",
+      "Quality raw materials make for unmatched goodness.",
+      "Your trust is our pride. Have a wonderful day!"
+    ];
+    
+    const randomQuote = BILL_QUOTES[Math.floor(Math.random() * BILL_QUOTES.length)];
+    
+    // Dynamic height calculation in mm to fit everything nicely
+    let dynamicHeight = 115 + (itemsCount * 9) + (activeChargesCount * 3.5);
+    if (collectTax) dynamicHeight += 8;
+    if (discountVal > 0) dynamicHeight += 3.5;
     
     const doc = new jsPDF({
       unit: 'mm',
       format: [80, dynamicHeight]
     });
     
+    // Premium Outer Frame
+    doc.setDrawColor(180, 180, 180);
+    doc.line(3, 3, 77, 3);
+    doc.line(3, dynamicHeight - 3, 77, dynamicHeight - 3);
+    doc.line(3, 3, 3, dynamicHeight - 3);
+    doc.line(77, 3, 77, dynamicHeight - 3);
+    
     // Thermal receipt header
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(30, 27, 75);
-    doc.text('RETAIL BILL', 40, 8, { align: 'center' });
+    doc.text('RETAIL BILL', 40, 9, { align: 'center' });
     
-    doc.setFontSize(7);
-    doc.text(companyName.substring(0, 34), 40, 12, { align: 'center' });
+    doc.setFontSize(7.5);
+    doc.text(companyName.toUpperCase(), 40, 13, { align: 'center' });
     
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6);
     doc.setTextColor(71, 85, 105);
     const addressLines = doc.splitTextToSize(companyAddress, 70);
-    doc.text(addressLines, 40, 15, { align: 'center' });
+    doc.text(addressLines, 40, 16, { align: 'center' });
     
-    let curY = 15 + (addressLines.length * 3);
+    let curY = 16 + (addressLines.length * 3);
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 27, 75);
     doc.text(`GSTIN: ${companyGstin}`, 40, curY, { align: 'center' });
     
-    curY += 4;
+    curY += 3;
+    doc.setDrawColor(220, 220, 220);
     doc.line(5, curY, 75, curY); // divider
     
     curY += 4;
     doc.setFontSize(6.5);
     doc.setFont('helvetica', 'normal');
+    doc.setTextColor(50, 50, 50);
+    
+    const createdDate = new Date(order.createdAt || orderDate);
+    const formattedDate = createdDate.toLocaleDateString('en-GB');
+    const formattedTime = createdDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    
     doc.text(`Bill No: ${order.referenceNo || 'N/A'}`, 5, curY);
-    doc.text(`Date: ${new Date(order.createdAt || orderDate).toLocaleDateString('en-GB')}`, 45, curY);
+    doc.text(`Date: ${formattedDate}`, 45, curY);
     
     curY += 3.5;
+    doc.text(`Time: ${formattedTime}`, 45, curY);
+    
     const selectedCust = customers.find(c => c.id === customerId);
     doc.text(`Customer: ${(selectedCust?.name || 'Walk-in Customer').substring(0, 22)}`, 5, curY);
     if (taxRegNo) {
@@ -905,42 +990,42 @@ export default function AddOrderPage() {
       const disc = Math.round(Number(item.discount) || 0);
       const lineTotal = (rate - disc) * qty;
       
-      const nameTrunc = (prod?.name || 'Leonex Product').substring(0, 20);
+      const nameTrunc = (prod?.name || 'Leonex Product').substring(0, 18);
       doc.setFont('helvetica', 'bold');
       doc.text(nameTrunc, 5, curY);
       doc.setFont('helvetica', 'normal');
       doc.text(String(qty), 38, curY, { align: 'right' });
       doc.text(`Rs.${rate - disc}`, 53, curY, { align: 'right' });
       doc.text(`Rs.${lineTotal}`, 75, curY, { align: 'right' });
-      curY += 4;
+      curY += 4.5;
     });
     
-    doc.line(5, curY - 1, 75, curY - 1);
+    doc.line(5, curY - 1.5, 75, curY - 1.5);
     
     // Summary
     curY += 3;
-    doc.setFontSize(6);
+    doc.setFontSize(6.5);
     doc.text('Taxable Subtotal:', 40, curY, { align: 'right' });
     doc.text(`Rs.${taxableValue}`, 75, curY, { align: 'right' });
     
-    if (discountAmount > 0) {
-      curY += 3;
+    if (discountVal > 0) {
+      curY += 3.5;
       doc.text('Discount:', 40, curY, { align: 'right' });
-      doc.text(`-Rs.${discountAmount}`, 75, curY, { align: 'right' });
+      doc.text(`-Rs.${discountVal}`, 75, curY, { align: 'right' });
     }
     
     if (collectTax) {
       const isTamilNadu = taxRegNo.trim().replace(/^GSTIN-/, '').substring(0, 2) === '33' || !taxRegNo;
       if (isTamilNadu) {
-        curY += 3;
+        curY += 3.5;
         doc.text('CGST (9%):', 40, curY, { align: 'right' });
         doc.text(`Rs.${Math.round(cgstVal)}`, 75, curY, { align: 'right' });
         
-        curY += 3;
+        curY += 3.5;
         doc.text('SGST (9%):', 40, curY, { align: 'right' });
         doc.text(`Rs.${Math.round(sgstVal)}`, 75, curY, { align: 'right' });
       } else {
-        curY += 3;
+        curY += 3.5;
         doc.text('IGST (18%):', 40, curY, { align: 'right' });
         doc.text(`Rs.${Math.round(igstVal)}`, 75, curY, { align: 'right' });
       }
@@ -948,22 +1033,70 @@ export default function AddOrderPage() {
     
     const totalChg = freightVal + loadingVal + packingVal + insuranceVal + otherVal;
     if (totalChg > 0) {
-      curY += 3;
+      curY += 3.5;
       doc.text('Extra Charges:', 40, curY, { align: 'right' });
       doc.text(`Rs.${totalChg}`, 75, curY, { align: 'right' });
+      
+      // Render breakdown of active charges
+      doc.setFontSize(5.5);
+      doc.setTextColor(100, 100, 100);
+      if (freightVal > 0) {
+        curY += 3;
+        doc.text('  - Freight:', 40, curY, { align: 'right' });
+        doc.text(`Rs.${freightVal}`, 75, curY, { align: 'right' });
+      }
+      if (loadingVal > 0) {
+        curY += 3;
+        doc.text('  - Loading & Unloading:', 40, curY, { align: 'right' });
+        doc.text(`Rs.${loadingVal}`, 75, curY, { align: 'right' });
+      }
+      if (packingVal > 0) {
+        curY += 3;
+        doc.text('  - Packing Charges:', 40, curY, { align: 'right' });
+        doc.text(`Rs.${packingVal}`, 75, curY, { align: 'right' });
+      }
+      if (insuranceVal > 0) {
+        curY += 3;
+        doc.text('  - Insurance:', 40, curY, { align: 'right' });
+        doc.text(`Rs.${insuranceVal}`, 75, curY, { align: 'right' });
+      }
+      if (otherVal > 0) {
+        curY += 3;
+        doc.text('  - Other Charges:', 40, curY, { align: 'right' });
+        doc.text(`Rs.${otherVal}`, 75, curY, { align: 'right' });
+      }
+      doc.setFontSize(6.5);
+      doc.setTextColor(50, 50, 50);
     }
     
     curY += 4.5;
     doc.line(40, curY - 1.5, 75, curY - 1.5);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.text('GRAND TOTAL:', 40, curY, { align: 'right' });
     doc.text(`Rs.${roundedGrandTotal}`, 75, curY, { align: 'right' });
     
-    curY += 6;
-    doc.setFont('helvetica', 'italic');
+    curY += 5;
+    doc.line(5, curY, 75, curY); // divider
+    
+    // Shuffled quotes display box
+    curY += 4;
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
-    doc.text('Thank you! Visit again.', 40, curY, { align: 'center' });
+    doc.setTextColor(30, 27, 75);
+    doc.text('QUOTE OF THE DAY', 40, curY, { align: 'center' });
+    
+    curY += 3;
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(71, 85, 105);
+    const quoteLines = doc.splitTextToSize(`"${randomQuote}"`, 68);
+    doc.text(quoteLines, 40, curY, { align: 'center' });
+    
+    curY += (quoteLines.length * 2.5) + 3;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(120, 120, 120);
+    doc.text('- Powered by Leonex ERP -', 40, curY, { align: 'center' });
     
     return doc.output('blob');
   };
@@ -1089,6 +1222,13 @@ export default function AddOrderPage() {
     return matchSearch && matchCategory;
   });
 
+  const CATALOG_PAGE_SIZE = 20; // 4 rows of 5 products each
+  const totalCatalogPages = Math.ceil(filteredProducts.length / CATALOG_PAGE_SIZE);
+  const paginatedProducts = filteredProducts.slice(
+    (catalogPage - 1) * CATALOG_PAGE_SIZE,
+    catalogPage * CATALOG_PAGE_SIZE
+  );
+
   const handlePrint = () => {
     window.print();
   };
@@ -1171,7 +1311,7 @@ export default function AddOrderPage() {
 
                 {/* 4. Grid cards displaying product visual details with emoji background headers */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                  {filteredProducts.map((p) => {
+                  {paginatedProducts.map((p) => {
                     const avail = Number(p.currentStock || 0);
                     return (
                       <div
@@ -1210,6 +1350,22 @@ export default function AddOrderPage() {
                     );
                   })}
                 </div>
+
+                {/* Pagination Controls */}
+                {totalCatalogPages > 1 && (
+                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
+                      Showing {(catalogPage - 1) * CATALOG_PAGE_SIZE + 1} to {Math.min(catalogPage * CATALOG_PAGE_SIZE, filteredProducts.length)} of {filteredProducts.length} entries
+                    </div>
+                    <div className="order-1 sm:order-2">
+                      <Pagination
+                        currentPage={catalogPage}
+                        totalPages={totalCatalogPages}
+                        onPageChange={setCatalogPage}
+                      />
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1602,10 +1758,11 @@ export default function AddOrderPage() {
                       </button>
                     </div>
                     <Input
-                      type="number"
-                      min="0"
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
                       value={discountValue}
-                      onChange={(e) => setDiscountValue(Number(e.target.value))}
+                      onChange={(e) => handleNumericInputChange(e.target.value, setDiscountValue)}
                       className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white h-9.5 text-xs font-mono"
                     />
                   </div>
@@ -1621,7 +1778,7 @@ export default function AddOrderPage() {
                         GST 18%
                       </label>
                     </div>
-                    <Input type="number" step="1" value={freight} onChange={(e) => setFreight(Math.round(Number(e.target.value)))} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={freight} onChange={(e) => handleNumericInputChange(e.target.value, setFreight)} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
                   </div>
 
                   <div className="space-y-1">
@@ -1632,7 +1789,7 @@ export default function AddOrderPage() {
                         GST 18%
                       </label>
                     </div>
-                    <Input type="number" step="1" value={loadingCharges} onChange={(e) => setLoadingCharges(Math.round(Number(e.target.value)))} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={loadingCharges} onChange={(e) => handleNumericInputChange(e.target.value, setLoadingCharges)} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
                   </div>
 
                   <div className="space-y-1">
@@ -1643,7 +1800,7 @@ export default function AddOrderPage() {
                         GST 18%
                       </label>
                     </div>
-                    <Input type="number" step="1" value={packingCharges} onChange={(e) => setPackingCharges(Math.round(Number(e.target.value)))} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={packingCharges} onChange={(e) => handleNumericInputChange(e.target.value, setPackingCharges)} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
                   </div>
 
                   <div className="space-y-1">
@@ -1654,7 +1811,7 @@ export default function AddOrderPage() {
                         GST 18%
                       </label>
                     </div>
-                    <Input type="number" step="1" value={insurance} onChange={(e) => setInsurance(Math.round(Number(e.target.value)))} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={insurance} onChange={(e) => handleNumericInputChange(e.target.value, setInsurance)} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
                   </div>
 
                   <div className="space-y-1 sm:col-span-2">
@@ -1665,14 +1822,14 @@ export default function AddOrderPage() {
                         GST 18%
                       </label>
                     </div>
-                    <Input type="number" step="1" value={otherCharges} onChange={(e) => setOtherCharges(Math.round(Number(e.target.value)))} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={otherCharges} onChange={(e) => handleNumericInputChange(e.target.value, setOtherCharges)} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3.5 pt-2 border-t border-slate-200 dark:border-slate-900">
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 block uppercase">TDS Deduction (₹)</label>
-                    <Input type="number" step="1" min="0" value={tdsDeduction} onChange={(e) => setTdsDeduction(Math.round(Number(e.target.value)))} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={tdsDeduction} onChange={(e) => handleNumericInputChange(e.target.value, setTdsDeduction)} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 block uppercase">Round Off (₹)</label>
@@ -1964,7 +2121,11 @@ export default function AddOrderPage() {
                     onClick={() => {
                       const a = document.createElement('a');
                       a.href = pdfUrl;
-                      a.download = `${previewMode === 'invoice' ? 'INVOICE' : 'BILL'}-${invoiceData.referenceNo}.pdf`;
+                      const now = new Date();
+                      const datePart = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+                      const timePart = String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
+                      const customerNamePart = (invoiceData.customerName || 'Walk-in_Customer').trim().replace(/[^a-zA-Z0-9-]/g, '_');
+                      a.download = `${customerNamePart}_${datePart}_${timePart}.pdf`;
                       a.click();
                     }} 
                     variant="outline" 

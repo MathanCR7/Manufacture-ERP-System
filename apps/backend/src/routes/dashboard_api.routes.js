@@ -103,20 +103,12 @@ router.get('/dashboard/kpis', async (req, res, next) => {
     `;
     const lowStockMaterials = lowStockRaw[0]?.count || 0;
 
-    const prodPending = await prisma.productionBatchNew.count({
+    const qcBatchesPending = await prisma.productionBatchNew.count({
       where: {
         status: 'Completed',
-        qcTests: { none: {} }
+        deletedAt: null
       }
     });
-
-    const grnPending = await prisma.gRNReceive.count({
-      where: {
-        status: 'PENDING_LAB'
-      }
-    });
-
-    const qcBatchesPending = prodPending + grnPending;
 
     const ordersToDispatch = await prisma.customerOrder.count({
       where: {

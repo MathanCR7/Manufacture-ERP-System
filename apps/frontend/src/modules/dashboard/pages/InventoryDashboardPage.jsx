@@ -131,12 +131,12 @@ export default function InventoryDashboardPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KPICard title="Total Inv. Value" value={fmt(s.totalInventoryValue)} sub={`RM: ${fmt(s.rmTotalValue)}`}   icon={Package}      accent="#3b82f6" loading={loading} onClick={() => navigate('/rm/stock')} />
-        <KPICard title="FG Stock Value"   value={fmt(s.fpTotalValue)}        sub={`${s.totalFpItems || 0} prods`}  icon={Layers}       accent="#10b981" loading={loading} onClick={() => navigate('/products/stock')} />
-        <KPICard title="Low Stock"        value={s.lowStockCount || 0}       sub="Below reorder level"              icon={AlertTriangle} accent="#f59e0b" loading={loading} onClick={() => navigate('/rm/stock/low')} />
-        <KPICard title="Critical Items"   value={s.criticalCount || 0}       sub="Below minimum level"              icon={AlertCircle}  accent="#ef4444" loading={loading} onClick={() => navigate('/rm/stock/low')} />
-        <KPICard title="Stock In (30d)"   value={`${s.stockInLast30 || 0}`}  sub="Units received"                  icon={TrendingUp}   accent="#6366f1" loading={loading} onClick={() => navigate('/grn/list')} />
-        <KPICard title="Stock Out (30d)"  value={`${s.stockOutLast30 || 0}`} sub="Units dispatched"                icon={TrendingDown} accent="#ec4899" loading={loading} onClick={() => navigate('/sales/list')} />
+        <KPICard title="Total Inv. Value" value={fmt(s.totalInventoryValue)} sub={`RM: ${fmt(s.rmTotalValue)}`}   icon={Package}      accent="#3b82f6" loading={loading} onClick={() => navigate('/rm/stock?from=inventory')} />
+        <KPICard title="FG Stock Value"   value={fmt(s.fpTotalValue)}        sub={`${s.totalFpItems || 0} prods`}  icon={Layers}       accent="#10b981" loading={loading} onClick={() => navigate('/products/stock?from=inventory')} />
+        <KPICard title="Low Stock"        value={s.lowStockCount || 0}       sub="Below reorder level"              icon={AlertTriangle} accent="#f59e0b" loading={loading} onClick={() => navigate('/rm/stock/low?from=inventory')} />
+        <KPICard title="Critical Items"   value={s.criticalCount || 0}       sub="Below minimum level"              icon={AlertCircle}  accent="#ef4444" loading={loading} onClick={() => navigate('/rm/stock/low?from=inventory')} />
+        <KPICard title="Stock In (30d)"   value={`${s.stockInLast30 || 0}`}  sub="Units received"                  icon={TrendingUp}   accent="#6366f1" loading={loading} onClick={() => navigate('/grn/list?from=inventory')} />
+        <KPICard title="Stock Out (30d)"  value={`${s.stockOutLast30 || 0}`} sub="Units dispatched"                icon={TrendingDown} accent="#ec4899" loading={loading} onClick={() => navigate('/sales/list?from=inventory')} />
       </div>
 
       {/* Movement Trend + Reorder Alerts */}

@@ -1795,12 +1795,12 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                       {hasBreakdown && (
                         <span className="inline-block relative">
                           <Info className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600 cursor-pointer transition-colors" />
-                          <span className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-100 absolute z-50 bottom-full mb-2 left-0 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-4 text-xs text-slate-700 dark:text-slate-355 pointer-events-none">
+                          <span className="opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 delay-100 absolute z-50 bottom-full mb-1 left-0 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl shadow-xl p-4 text-xs text-slate-700 dark:text-slate-355 pointer-events-auto">
                             <span className="font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1.5 mb-2 flex justify-between items-center">
                               <span>GST Calculation Details</span>
                               <span className="bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.5 rounded text-[10px] font-black">{breakdown.rate}% Rate Block</span>
                             </span>
-                            <span className="space-y-2 block max-h-48 overflow-y-auto">
+                            <span className="space-y-2 block max-h-48 overflow-y-auto scrollbar-thin">
                               {breakdown.items.length > 0 && (
                                 <span className="block">
                                   <span className="font-bold text-[10px] uppercase text-indigo-600 dark:text-indigo-400 tracking-wider mb-1 block">Line Items</span>
