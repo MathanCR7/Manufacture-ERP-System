@@ -9,7 +9,7 @@ import {
 import { 
   Factory, AlertTriangle, Truck, ClipboardList, CheckSquare, 
   RotateCw, ChevronRight, Activity, TrendingUp, Calendar, 
-  TrendingDown, CheckCircle2, AlertCircle, XCircle, Clock, Users
+  TrendingDown, CheckCircle2, AlertCircle, XCircle, Clock, Users, ExternalLink
 } from 'lucide-react';
 import useAuthStore from '@/app/store/authStore';
 
@@ -1045,9 +1045,27 @@ export default function DashboardPage() {
                         if (test.result === 'PASS') resColor = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400";
                         if (test.result === 'FAIL') resColor = "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400";
 
+                        const handleRowClick = () => {
+                          if (test.batchId) {
+                            navigate(`/production/batches?id=${test.batchId}&from=dashboard`);
+                          } else if (test.grnId) {
+                            navigate(`/grn/view/${test.grnId}?from=dashboard`);
+                          } else {
+                            navigate('/lab/results?from=dashboard');
+                          }
+                        };
+
                         return (
-                          <tr key={test.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors">
-                            <td className="p-3 font-mono font-bold text-indigo-650 dark:text-indigo-400">{test.batchNo}</td>
+                          <tr 
+                            key={test.id} 
+                            onClick={handleRowClick}
+                            className="hover:bg-indigo-50/50 dark:hover:bg-slate-800/60 transition-colors cursor-pointer group"
+                            title={test.batchId ? "Click to view Production Batch details" : test.grnId ? "Click to view GRN Receipt details" : "Click to view Lab Test"}
+                          >
+                            <td className="p-3 font-mono font-bold text-indigo-650 dark:text-indigo-400 group-hover:underline flex items-center gap-1.5">
+                              <span>{test.batchNo}</span>
+                              <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            </td>
                             <td className="p-3 font-semibold truncate max-w-[100px]">{test.productName}</td>
                             <td className="p-3 text-right">
                               <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${resColor}`}>
@@ -1076,14 +1094,24 @@ export default function DashboardPage() {
                       if (test.result === 'PASS') resColor = "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400";
                       if (test.result === 'FAIL') resColor = "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400";
 
+                      const handleMobileClick = () => {
+                        if (test.batchId) {
+                          navigate(`/production/batches?id=${test.batchId}&from=dashboard`);
+                        } else if (test.grnId) {
+                          navigate(`/grn/view/${test.grnId}?from=dashboard`);
+                        } else {
+                          navigate('/lab/results?from=dashboard');
+                        }
+                      };
+
                       return (
                         <div 
                           key={test.id} 
-                          onClick={() => navigate('/lab/results')}
-                          className="bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-850 flex justify-between items-center text-xs cursor-pointer hover:border-indigo-200 transition-colors"
+                          onClick={handleMobileClick}
+                          className="bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-850 flex justify-between items-center text-xs cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700 transition-all shadow-2xs group"
                         >
                           <div>
-                            <span className="font-mono font-bold text-indigo-650 dark:text-indigo-400 block">{test.batchNo}</span>
+                            <span className="font-mono font-bold text-indigo-650 dark:text-indigo-400 block group-hover:underline">{test.batchNo}</span>
                             <span className="text-slate-500 text-[10px] block truncate max-w-[150px]">{test.productName}</span>
                           </div>
                           <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${resColor}`}>

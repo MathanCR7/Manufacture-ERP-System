@@ -473,16 +473,29 @@ export default function ProductionsPage() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-205 dark:border-slate-850">
           <div className="space-y-0.5">
             <button 
+              type="button"
               onClick={() => {
-                if (searchParams.get('from') === 'production') {
-                  navigate('/dashboard/production');
-                } else {
-                  handleCloseDetailModal();
-                }
+                const fromP = searchParams.get('from') || location.state?.from;
+                if (fromP === 'dashboard' || fromP === 'main') navigate('/dashboard');
+                else if (fromP === 'production') navigate('/dashboard/production');
+                else if (fromP === 'executive') navigate('/dashboard/executive');
+                else if (fromP === 'inventory') navigate('/dashboard/inventory');
+                else if (fromP === 'notifications' || fromP === '/notifications') navigate('/notifications');
+                else if (typeof fromP === 'string' && fromP.startsWith('/')) navigate(fromP);
+                else handleCloseDetailModal();
               }}
-              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-650 dark:text-indigo-400 hover:underline mb-1"
+              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-650 dark:text-indigo-400 hover:underline mb-1 cursor-pointer"
             >
-              <ChevronLeft className="w-4 h-4" /> {searchParams.get('from') === 'production' ? 'Back to Production Dashboard' : 'Back to Batch Execution Center'}
+              <ChevronLeft className="w-4 h-4" />
+              {(() => {
+                const fromP = searchParams.get('from') || location.state?.from;
+                if (fromP === 'dashboard' || fromP === 'main') return 'Back to Dashboard';
+                if (fromP === 'production') return 'Back to Production Dashboard';
+                if (fromP === 'executive') return 'Back to Executive Dashboard';
+                if (fromP === 'inventory') return 'Back to Inventory Dashboard';
+                if (fromP === 'notifications' || fromP === '/notifications') return 'Back to Notifications Center';
+                return 'Back to Batch Execution Center';
+              })()}
             </button>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
               Batch Execution Dashboard

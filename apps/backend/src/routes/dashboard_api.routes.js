@@ -340,24 +340,28 @@ router.get('/lab-tests', async (req, res, next) => {
     prodTests.forEach(t => {
       list.push({
         id: t.id,
-        batchNo: t.batch?.referenceNo || t.productionBatchId.slice(0, 8),
+        batchId: t.batch?.id || t.productionBatchId,
+        batchNo: t.batch?.referenceNo || (t.productionBatchId ? t.productionBatchId.slice(0, 8) : 'MP-BATCH'),
         productName: t.batch?.product?.name || 'Production Batch',
         testDate: t.createdAt,
         result: t.result?.toUpperCase() === 'PASS' ? 'PASS' : t.result?.toUpperCase() === 'FAIL' ? 'FAIL' : 'PENDING',
         testedBy: t.tester?.name || 'System',
-        action: t.action || 'approved'
+        action: t.action || 'approved',
+        type: 'BATCH'
       });
     });
 
     grnTests.forEach(t => {
       list.push({
         id: t.id,
-        batchNo: t.grn?.referenceNo || `GRN-${t.grnId.slice(0, 8)}`,
+        grnId: t.grn?.id || t.grnId,
+        batchNo: t.grn?.referenceNo || (t.grnId ? `GRN-${t.grnId.slice(0, 8)}` : 'GRN'),
         productName: t.grn?.po?.name || 'Raw Material GRN',
         testDate: t.createdAt,
         result: t.overallDecision === 'APPROVED' ? 'PASS' : t.overallDecision === 'REJECTED' ? 'FAIL' : 'PENDING',
         testedBy: t.tester?.name || 'System',
-        action: t.overallDecision || 'inspection'
+        action: t.overallDecision || 'inspection',
+        type: 'GRN'
       });
     });
 

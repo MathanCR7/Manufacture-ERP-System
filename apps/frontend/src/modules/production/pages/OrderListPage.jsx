@@ -488,148 +488,294 @@ export default function OrderListPage() {
     const companyName = companySettings?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
     const companyAddress = companySettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
     const companyGstin = companySettings?.companyGstin || '33AABCL0702C1ZG';
-    
-    const itemsCount = (order.items || []).length;
-    const dynamicHeight = 90 + (itemsCount * 8); // height in mm
-    
+    const companyMobile = companySettings?.companyMobile || '+91 9360163523';
+
+    const items = order.items || [];
+    const itemsCount = items.length;
+
+    const discountVal = Number(order.discountValue || order.discount || 0);
+    const collectTax = !!order.collectTax || Number(order.totalTax || order.cgst || order.sgst || 0) > 0;
+    const freightVal = Number(order.freight || order.freightCharges || 0);
+    const loadingVal = Number(order.loadingCharges || order.loading || 0);
+    const packingVal = Number(order.packingCharges || order.packing || 0);
+    const insuranceVal = Number(order.insurance || order.insuranceCharges || 0);
+    const otherVal = Number(order.otherCharges || order.other || 0);
+    const cgstVal = Number(order.cgst || (collectTax ? (order.totalTax ? order.totalTax / 2 : 0) : 0));
+    const sgstVal = Number(order.sgst || (collectTax ? (order.totalTax ? order.totalTax / 2 : 0) : 0));
+    const igstVal = Number(order.igst || 0);
+    const tdsVal = Number(order.tdsDeduction || order.tds || 0);
+    const roundOffVal = Number(order.roundOff || 0);
+
+    let totalTaxableValue = Number(order.subtotal || order.totalSubtotal || 0);
+    if (!totalTaxableValue) {
+      items.forEach(item => {
+        const qty = Number(item.quantity) || 0;
+        const rate = Number(item.unitPrice) || 0;
+        const disc = Number(item.discount) || 0;
+        totalTaxableValue += (rate - disc) * qty;
+      });
+    }
+
+    const roundedGrandTotal = Number(order.grandTotal || (totalTaxableValue + cgstVal + sgstVal + igstVal + freightVal + loadingVal + packingVal + insuranceVal + otherVal - discountVal - tdsVal + roundOffVal));
+
+    const BILL_QUOTES = [
+      "Life is like ice cream, enjoy it before it melts!",
+      "Double the flavor, double the happiness.",
+      "There is always room for some sweet moments.",
+      "Keep cool, carry on, and eat some kulfi.",
+      "Indulge in the creamy goodness of pure happiness.",
+      "Crafting sweetness with premium quality standards.",
+      "Happiness is a cup, a stick, or a slice of dessert.",
+      "Serving smiles and superior taste since inception.",
+      "Freshly prepared, carefully pasteurized, always delicious.",
+      "A sweet treat for a sweeter client like you!",
+      "Manufactured with state-of-the-art hygiene & love.",
+      "Cool down your day with our premium kulfi pops.",
+      "Sprinkled with pistachio, saffron, and joyful vibes.",
+      "The secret ingredient is always high-quality care.",
+      "Making your celebrations sweeter, one batch at a time.",
+      "Quality is not an act, it is a daily habit.",
+      "Every scoop tells a story of craftsmanship.",
+      "Pure cream, natural mangoes, and rich traditions.",
+      "Dessert is nature's way of making up for Mondays.",
+      "Purity you can taste, standards you can trust.",
+      "Kulfi: The ancient Indian art of frozen happiness.",
+      "Crafted in Salem, loved across the nation.",
+      "You can't buy happiness, but you can buy ice cream!",
+      "Creamy texture, rich cardamom, pure delight.",
+      "For the love of kulfi, made with absolute precision.",
+      "Pistachio power and saffron gold in every bite.",
+      "A classic recipe for a modern generation.",
+      "Frozen to perfection, delivered with care.",
+      "Quality raw materials make for unmatched goodness.",
+      "Your trust is our pride. Have a wonderful day!"
+    ];
+
+    const randomQuote = BILL_QUOTES[Math.floor(Math.random() * BILL_QUOTES.length)];
+
+    let activeLines = 14 + itemsCount;
+    if (discountVal > 0) activeLines++;
+    if (freightVal > 0) activeLines++;
+    if (loadingVal > 0) activeLines++;
+    if (packingVal > 0) activeLines++;
+    if (insuranceVal > 0) activeLines++;
+    if (otherVal > 0) activeLines++;
+    if (cgstVal > 0) activeLines++;
+    if (sgstVal > 0) activeLines++;
+    if (igstVal > 0) activeLines++;
+    if (tdsVal > 0) activeLines++;
+    if (roundOffVal !== 0) activeLines++;
+
+    let dynamicHeight = Math.max(160, 110 + (activeLines * 4));
+
     const doc = new jsPDF({
       unit: 'mm',
       format: [80, dynamicHeight]
     });
-    
+
+    // Outer Frame
+    doc.setDrawColor(180, 180, 180);
+    doc.line(3, 3, 77, 3);
+    doc.line(3, dynamicHeight - 3, 77, dynamicHeight - 3);
+    doc.line(3, 3, 3, dynamicHeight - 3);
+    doc.line(77, 3, 77, dynamicHeight - 3);
+
     // Thermal receipt header
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(30, 27, 75);
-    doc.text('RETAIL BILL', 40, 8, { align: 'center' });
-    
+    doc.text('RETAIL TAX INVOICE', 40, 8, { align: 'center' });
+
     doc.setFontSize(7);
-    doc.text(companyName.substring(0, 34), 40, 12, { align: 'center' });
-    
+    doc.text(companyName.toUpperCase().substring(0, 32), 40, 12, { align: 'center' });
+
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
+    doc.setFontSize(5.5);
     doc.setTextColor(71, 85, 105);
-    const addressLines = doc.splitTextToSize(companyAddress, 70);
+    const addressLines = doc.splitTextToSize(companyAddress, 68);
     doc.text(addressLines, 40, 15, { align: 'center' });
-    
-    let curY = 15 + (addressLines.length * 3);
+
+    let curY = 15 + (addressLines.length * 2.8);
     doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 27, 75);
     doc.text(`GSTIN: ${companyGstin}`, 40, curY, { align: 'center' });
-    
-    curY += 4;
-    doc.line(5, curY, 75, curY); // divider
-    
-    curY += 4;
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Bill No: ${order.referenceNo || 'N/A'}`, 5, curY);
-    doc.text(`Date: ${new Date(order.createdAt).toLocaleDateString('en-GB')}`, 45, curY);
-    
+
+    curY += 3;
+    doc.setDrawColor(220, 220, 220);
+    doc.line(5, curY, 75, curY);
+
     curY += 3.5;
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(50, 50, 50);
+
+    const createdDate = new Date(order.createdAt || Date.now());
+    const formattedDate = createdDate.toLocaleDateString('en-GB');
+    const formattedTime = createdDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    doc.text(`Bill No: ${order.referenceNo || 'N/A'}`, 5, curY);
+    doc.text(`Date: ${formattedDate}`, 48, curY);
+
+    curY += 3;
     doc.text(`Customer: ${(order.customer?.name || 'Walk-in Customer').substring(0, 22)}`, 5, curY);
+    doc.text(`Time: ${formattedTime}`, 48, curY);
+
     const taxRegNo = order.customer?.gstin || order.taxRegNo;
     if (taxRegNo) {
-      curY += 3.5;
+      curY += 3;
       doc.text(`Buyer GSTIN: ${taxRegNo}`, 5, curY);
     }
-    
+
+    curY += 3;
+    doc.line(5, curY, 75, curY);
+
+    // Table Headers
     curY += 3.5;
-    doc.line(5, curY, 75, curY); // divider
-    
-    // Table headers
-    curY += 4;
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6);
     doc.text('ITEM', 5, curY);
     doc.text('QTY', 38, curY, { align: 'right' });
     doc.text('RATE', 53, curY, { align: 'right' });
     doc.text('TOTAL', 75, curY, { align: 'right' });
-    
-    curY += 2.5;
+
+    curY += 2;
     doc.line(5, curY, 75, curY);
-    
-    curY += 4;
+
+    curY += 3.5;
     doc.setFont('helvetica', 'normal');
-    
-    let totalTaxableValue = 0;
-    (order.items || []).forEach((item) => {
+    items.forEach((item) => {
+      const name = (item.product?.name || item.name || 'Product').substring(0, 18);
       const qty = Number(item.quantity) || 0;
-      const rate = Math.round(Number(item.unitPrice) || 0);
-      const disc = Math.round(Number(item.discount) || 0);
+      const rate = Number(item.unitPrice) || 0;
+      const disc = Number(item.discount) || 0;
       const lineTotal = (rate - disc) * qty;
-      totalTaxableValue += lineTotal;
-      
-      const nameTrunc = (item.product?.name || 'Leonex Product').substring(0, 20);
+
       doc.setFont('helvetica', 'bold');
-      doc.text(nameTrunc, 5, curY);
+      doc.text(name, 5, curY);
       doc.setFont('helvetica', 'normal');
       doc.text(String(qty), 38, curY, { align: 'right' });
-      doc.text(`Rs.${rate - disc}`, 53, curY, { align: 'right' });
-      doc.text(`Rs.${lineTotal}`, 75, curY, { align: 'right' });
+      doc.text(`Rs.${(rate - disc).toFixed(2)}`, 53, curY, { align: 'right' });
+      doc.text(`Rs.${lineTotal.toFixed(2)}`, 75, curY, { align: 'right' });
       curY += 4;
     });
-    
-    doc.line(5, curY - 1, 75, curY - 1);
-    
-    // Summary
-    const discountVal = Number(order.discountValue || 0);
-    const collectTax = !!order.collectTax;
-    const freightVal = Number(order.freight || 0);
-    const loadingVal = Number(order.loadingCharges || 0);
-    const packingVal = Number(order.packingCharges || 0);
-    const insuranceVal = Number(order.insurance || 0);
-    const otherVal = Number(order.otherCharges || 0);
-    const cgstVal = Number(order.cgst || 0);
-    const sgstVal = Number(order.sgst || 0);
-    const igstVal = Number(order.igst || 0);
-    const roundedGrandTotal = Number(order.grandTotal || (totalTaxableValue + cgstVal + sgstVal + igstVal + freightVal + loadingVal + packingVal + insuranceVal + otherVal - discountVal));
 
-    curY += 3;
+    curY += 1;
+    doc.line(5, curY, 75, curY);
+
+    // Summary Section Header
+    curY += 3.5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.setTextColor(30, 27, 75);
+    doc.text('Invoice Charges Summary', 40, curY, { align: 'center' });
+
+    curY += 2.5;
+    doc.line(20, curY, 60, curY);
+
+    // Summary Details
+    curY += 3.5;
+    doc.setFont('helvetica', 'normal');
     doc.setFontSize(6);
-    doc.text('Taxable Subtotal:', 40, curY, { align: 'right' });
-    doc.text(`Rs.${totalTaxableValue}`, 75, curY, { align: 'right' });
-    
+    doc.setTextColor(50, 50, 50);
+
+    doc.text('Taxable Subtotal:', 48, curY, { align: 'right' });
+    doc.text(`Rs.${totalTaxableValue.toFixed(2)}`, 75, curY, { align: 'right' });
+
     if (discountVal > 0) {
-      curY += 3;
-      doc.text('Discount:', 40, curY, { align: 'right' });
-      doc.text(`-Rs.${discountVal}`, 75, curY, { align: 'right' });
+      curY += 3.2;
+      doc.text('Discount:', 48, curY, { align: 'right' });
+      doc.text(`-Rs.${discountVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
-    
+
+    if (freightVal > 0) {
+      curY += 3.2;
+      doc.text('Freight Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${freightVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (loadingVal > 0) {
+      curY += 3.2;
+      doc.text('Loading & Unloading (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${loadingVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (packingVal > 0) {
+      curY += 3.2;
+      doc.text('Packing Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${packingVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (insuranceVal > 0) {
+      curY += 3.2;
+      doc.text('Insurance (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${insuranceVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (otherVal > 0) {
+      curY += 3.2;
+      doc.text('Other Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${otherVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
     if (collectTax) {
       const isTamilNadu = taxRegNo?.trim().replace(/^GSTIN-/, '').substring(0, 2) === '33' || !taxRegNo;
       if (isTamilNadu) {
-        curY += 3;
-        doc.text('CGST (9%):', 40, curY, { align: 'right' });
-        doc.text(`Rs.${Math.round(cgstVal)}`, 75, curY, { align: 'right' });
-        
-        curY += 3;
-        doc.text('SGST (9%):', 40, curY, { align: 'right' });
-        doc.text(`Rs.${Math.round(sgstVal)}`, 75, curY, { align: 'right' });
+        curY += 3.2;
+        doc.text('CGST @ 9%:', 48, curY, { align: 'right' });
+        doc.text(`Rs.${cgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
+
+        curY += 3.2;
+        doc.text('SGST @ 9%:', 48, curY, { align: 'right' });
+        doc.text(`Rs.${sgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
       } else {
-        curY += 3;
-        doc.text('IGST (18%):', 40, curY, { align: 'right' });
-        doc.text(`Rs.${Math.round(igstVal)}`, 75, curY, { align: 'right' });
+        curY += 3.2;
+        doc.text('IGST @ 18%:', 48, curY, { align: 'right' });
+        doc.text(`Rs.${igstVal.toFixed(2)}`, 75, curY, { align: 'right' });
       }
     }
-    
-    const totalChg = freightVal + loadingVal + packingVal + insuranceVal + otherVal;
-    if (totalChg > 0) {
-      curY += 3;
-      doc.text('Extra Charges:', 40, curY, { align: 'right' });
-      doc.text(`Rs.${totalChg}`, 75, curY, { align: 'right' });
+
+    if (tdsVal > 0) {
+      curY += 3.2;
+      doc.text('TDS Deduction (Rs.):', 48, curY, { align: 'right' });
+      doc.text(`-Rs.${tdsVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
-    
-    curY += 4.5;
-    doc.line(40, curY - 1.5, 75, curY - 1.5);
+
+    if (roundOffVal !== 0) {
+      curY += 3.2;
+      doc.text('Round Off (Rs.):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${roundOffVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    curY += 4;
+    doc.line(35, curY - 1.5, 75, curY - 1.5);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
-    doc.text('GRAND TOTAL:', 40, curY, { align: 'right' });
-    doc.text(`Rs.${roundedGrandTotal}`, 75, curY, { align: 'right' });
-    
-    curY += 6;
-    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(30, 27, 75);
+    doc.text('Total Invoice Amount:', 48, curY, { align: 'right' });
+    doc.text(`Rs.${roundedGrandTotal.toFixed(2)}`, 75, curY, { align: 'right' });
+
+    curY += 5;
+    doc.line(5, curY, 75, curY);
+
+    // Shuffled quotes display box
+    curY += 3.5;
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
-    doc.text('Thank you! Visit again.', 40, curY, { align: 'center' });
-    
+    doc.setTextColor(30, 27, 75);
+    doc.text('QUOTE OF THE DAY', 40, curY, { align: 'center' });
+
+    curY += 2.8;
+    doc.setFont('helvetica', 'italic');
+    doc.setTextColor(71, 85, 105);
+    const quoteLines = doc.splitTextToSize(`"${randomQuote}"`, 66);
+    doc.text(quoteLines, 40, curY, { align: 'center' });
+
+    curY += (quoteLines.length * 2.5) + 2.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(5.5);
+    doc.setTextColor(120, 120, 120);
+    doc.text('- Powered by Leonex ERP -', 40, curY, { align: 'center' });
+
     return doc.output('blob');
   };
 

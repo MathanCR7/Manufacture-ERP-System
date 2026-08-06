@@ -1002,102 +1002,122 @@ export default function AddOrderPage() {
     
     doc.line(5, curY - 1.5, 75, curY - 1.5);
     
-    // Summary
-    curY += 3;
+    // Summary Section Header
+    curY += 3.5;
+    doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
-    doc.text('Taxable Subtotal:', 40, curY, { align: 'right' });
-    doc.text(`Rs.${taxableValue}`, 75, curY, { align: 'right' });
-    
+    doc.setTextColor(30, 27, 75);
+    doc.text('Invoice Charges Summary', 40, curY, { align: 'center' });
+
+    curY += 2.5;
+    doc.line(20, curY, 60, curY);
+
+    // Summary Details
+    curY += 3.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.setTextColor(50, 50, 50);
+
+    doc.text('Taxable Subtotal:', 48, curY, { align: 'right' });
+    doc.text(`Rs.${taxableValue.toFixed(2)}`, 75, curY, { align: 'right' });
+
     if (discountVal > 0) {
-      curY += 3.5;
-      doc.text('Discount:', 40, curY, { align: 'right' });
-      doc.text(`-Rs.${discountVal}`, 75, curY, { align: 'right' });
+      curY += 3.2;
+      doc.text('Discount:', 48, curY, { align: 'right' });
+      doc.text(`-Rs.${discountVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
-    
+
+    if (freightVal > 0) {
+      curY += 3.2;
+      doc.text('Freight Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${freightVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (loadingVal > 0) {
+      curY += 3.2;
+      doc.text('Loading & Unloading (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${loadingVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (packingVal > 0) {
+      curY += 3.2;
+      doc.text('Packing Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${packingVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (insuranceVal > 0) {
+      curY += 3.2;
+      doc.text('Insurance (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${insuranceVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
+    if (otherVal > 0) {
+      curY += 3.2;
+      doc.text('Other Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${otherVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
     if (collectTax) {
       const isTamilNadu = taxRegNo.trim().replace(/^GSTIN-/, '').substring(0, 2) === '33' || !taxRegNo;
       if (isTamilNadu) {
-        curY += 3.5;
-        doc.text('CGST (9%):', 40, curY, { align: 'right' });
-        doc.text(`Rs.${Math.round(cgstVal)}`, 75, curY, { align: 'right' });
-        
-        curY += 3.5;
-        doc.text('SGST (9%):', 40, curY, { align: 'right' });
-        doc.text(`Rs.${Math.round(sgstVal)}`, 75, curY, { align: 'right' });
+        curY += 3.2;
+        doc.text('CGST @ 9%:', 48, curY, { align: 'right' });
+        doc.text(`Rs.${cgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
+
+        curY += 3.2;
+        doc.text('SGST @ 9%:', 48, curY, { align: 'right' });
+        doc.text(`Rs.${sgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
       } else {
-        curY += 3.5;
-        doc.text('IGST (18%):', 40, curY, { align: 'right' });
-        doc.text(`Rs.${Math.round(igstVal)}`, 75, curY, { align: 'right' });
+        curY += 3.2;
+        doc.text('IGST @ 18%:', 48, curY, { align: 'right' });
+        doc.text(`Rs.${igstVal.toFixed(2)}`, 75, curY, { align: 'right' });
       }
     }
-    
-    const totalChg = freightVal + loadingVal + packingVal + insuranceVal + otherVal;
-    if (totalChg > 0) {
-      curY += 3.5;
-      doc.text('Extra Charges:', 40, curY, { align: 'right' });
-      doc.text(`Rs.${totalChg}`, 75, curY, { align: 'right' });
-      
-      // Render breakdown of active charges
-      doc.setFontSize(5.5);
-      doc.setTextColor(100, 100, 100);
-      if (freightVal > 0) {
-        curY += 3;
-        doc.text('  - Freight:', 40, curY, { align: 'right' });
-        doc.text(`Rs.${freightVal}`, 75, curY, { align: 'right' });
-      }
-      if (loadingVal > 0) {
-        curY += 3;
-        doc.text('  - Loading & Unloading:', 40, curY, { align: 'right' });
-        doc.text(`Rs.${loadingVal}`, 75, curY, { align: 'right' });
-      }
-      if (packingVal > 0) {
-        curY += 3;
-        doc.text('  - Packing Charges:', 40, curY, { align: 'right' });
-        doc.text(`Rs.${packingVal}`, 75, curY, { align: 'right' });
-      }
-      if (insuranceVal > 0) {
-        curY += 3;
-        doc.text('  - Insurance:', 40, curY, { align: 'right' });
-        doc.text(`Rs.${insuranceVal}`, 75, curY, { align: 'right' });
-      }
-      if (otherVal > 0) {
-        curY += 3;
-        doc.text('  - Other Charges:', 40, curY, { align: 'right' });
-        doc.text(`Rs.${otherVal}`, 75, curY, { align: 'right' });
-      }
-      doc.setFontSize(6.5);
-      doc.setTextColor(50, 50, 50);
+
+    const tdsVal = Number(order?.tdsDeduction || order?.tds || 0);
+    if (tdsVal > 0) {
+      curY += 3.2;
+      doc.text('TDS Deduction (Rs.):', 48, curY, { align: 'right' });
+      doc.text(`-Rs.${tdsVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
-    
-    curY += 4.5;
-    doc.line(40, curY - 1.5, 75, curY - 1.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text('GRAND TOTAL:', 40, curY, { align: 'right' });
-    doc.text(`Rs.${roundedGrandTotal}`, 75, curY, { align: 'right' });
-    
-    curY += 5;
-    doc.line(5, curY, 75, curY); // divider
-    
-    // Shuffled quotes display box
+
+    const roundOffVal = Number(order?.roundOff || 0);
+    if (roundOffVal !== 0) {
+      curY += 3.2;
+      doc.text('Round Off (Rs.):', 48, curY, { align: 'right' });
+      doc.text(`Rs.${roundOffVal.toFixed(2)}`, 75, curY, { align: 'right' });
+    }
+
     curY += 4;
+    doc.line(35, curY - 1.5, 75, curY - 1.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(30, 27, 75);
+    doc.text('Total Invoice Amount:', 48, curY, { align: 'right' });
+    doc.text(`Rs.${roundedGrandTotal.toFixed(2)}`, 75, curY, { align: 'right' });
+
+    curY += 5;
+    doc.line(5, curY, 75, curY);
+
+    // Shuffled quotes display box
+    curY += 3.5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
     doc.setTextColor(30, 27, 75);
     doc.text('QUOTE OF THE DAY', 40, curY, { align: 'center' });
-    
-    curY += 3;
+
+    curY += 2.8;
     doc.setFont('helvetica', 'italic');
     doc.setTextColor(71, 85, 105);
-    const quoteLines = doc.splitTextToSize(`"${randomQuote}"`, 68);
+    const quoteLines = doc.splitTextToSize(`"${randomQuote}"`, 66);
     doc.text(quoteLines, 40, curY, { align: 'center' });
-    
-    curY += (quoteLines.length * 2.5) + 3;
+
+    curY += (quoteLines.length * 2.5) + 2.5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.5);
     doc.setTextColor(120, 120, 120);
     doc.text('- Powered by Leonex ERP -', 40, curY, { align: 'center' });
-    
+
     return doc.output('blob');
   };
 
