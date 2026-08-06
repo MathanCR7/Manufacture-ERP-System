@@ -192,14 +192,6 @@ export default function QCQueuePage() {
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
       <DashboardBackButton />
-      {fromNotifications && (
-        <button 
-          onClick={() => navigate('/notifications')} 
-          className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-slate-100 border border-slate-205 text-xs font-bold rounded-lg transition-colors w-fit h-8 cursor-pointer"
-        >
-          <ChevronLeft className="w-3.5 h-3.5" /> Notifications Center
-        </button>
-      )}
       
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">

@@ -15,6 +15,8 @@ import APInvoiceView from '../components/APInvoiceView';
 import AssetRegisterView from '../components/AssetRegisterView';
 import ReportsView from '../components/ReportsView';
 
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
+
 export default function AssetManagementPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -72,6 +74,7 @@ export default function AssetManagementPage() {
 
   return (
     <div className="p-0 space-y-6 w-full max-w-[100%] min-h-screen">
+      <DashboardBackButton />
       {/* Top Banner indicating read-only mode for Supervisors */}
       {user?.role === 'SUPERVISOR' && (
         <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium animate-in fade-in slide-in-from-top-3">

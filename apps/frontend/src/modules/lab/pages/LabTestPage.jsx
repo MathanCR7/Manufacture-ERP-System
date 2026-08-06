@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import useAuthStore from '@/app/store/authStore';
+import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 const GRN_STATUS_CONFIG = {
   PENDING_LAB:    { label: 'Pending Lab',    color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20', icon: FlaskConical },
@@ -247,16 +248,7 @@ export default function LabTestPage() {
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-6 space-y-6 mx-auto transition-all duration-300">
-      {fromNotifications && (
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={() => navigate('/notifications')} 
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to Notifications Center
-        </Button>
-      )}
+      <DashboardBackButton />
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate(location.state?.from || sessionStorage.getItem('lastDashboardPath') || '/lab/pending')} className="rounded-full text-slate-500">
           <ArrowLeft className="w-5 h-5" />

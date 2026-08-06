@@ -15,7 +15,18 @@ export default function DashboardBackButton({ defaultLabel, className = '' }) {
   let targetPath = '/dashboard';
   let label = defaultLabel || 'Back to Dashboard';
 
-  if (from === 'sales') {
+  if (from === 'notifications' || from === '/notifications') {
+    return (
+      <button
+        type="button"
+        onClick={() => navigate('/notifications')}
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit cursor-pointer mb-2.5 ${className}`}
+      >
+        <ChevronLeft className="w-4 h-4 text-indigo-500" />
+        <span>Back to Notifications Center</span>
+      </button>
+    );
+  } else if (from === 'sales') {
     targetPath = '/dashboard/sales';
     label = 'Back to Sales Dashboard';
   } else if (from === 'production') {

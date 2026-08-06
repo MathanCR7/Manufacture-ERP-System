@@ -47,11 +47,19 @@ const PhaseColors = {
   PRODUCTION_QC_FAILED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   
   STOCK_LOW_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  STOCK_REPRODUCTION: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
   RM_LOW_STOCK_ALERT: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
   STOCK_EXPIRY_ALERT: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   STOCK_CRITICAL: 'bg-rose-55 text-rose-700 dark:bg-rose-955/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
   STOCK_REORDER: 'bg-amber-50 text-amber-700 dark:bg-amber-955/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
   UPCOMING_DELIVERY: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+
+  ASSET_PR_CREATED: 'bg-blue-50 text-blue-700 dark:bg-blue-955/40 dark:text-blue-300 border-blue-200 dark:border-blue-800/30',
+  ASSET_PR_APPROVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-955/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  ASSET_PQ_CREATED: 'bg-purple-50 text-purple-700 dark:bg-purple-955/40 dark:text-purple-300 border-purple-200 dark:border-purple-800/30',
+  ASSET_PO_CREATED: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-955/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+  ASSET_GRPO_CREATED: 'bg-cyan-50 text-cyan-700 dark:bg-cyan-955/40 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/30',
+  ASSET_INVOICE_CREATED: 'bg-sky-50 text-sky-700 dark:bg-sky-955/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
 };
 
 const getCategoryIcon = (type) => {
@@ -60,7 +68,8 @@ const getCategoryIcon = (type) => {
   if (type.startsWith('GRN_')) return <Truck className="w-4 h-4 text-cyan-650 dark:text-cyan-400" />;
   if (type.startsWith('LAB_')) return <FlaskConical className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />;
   if (type.startsWith('PRODUCTION_')) return <Activity className="w-4 h-4 text-purple-650 dark:text-purple-400" />;
-  if (type.includes('STOCK_') || type.includes('LOW_STOCK') || type.includes('REORDER')) return <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />;
+  if (type.startsWith('ASSET_') || type.includes('ASSET_')) return <Package className="w-4 h-4 text-blue-600 dark:text-blue-400" />;
+  if (type.includes('STOCK_') || type.includes('LOW_STOCK') || type.includes('REORDER') || type.includes('REPRODUCTION')) return <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />;
   return <Bell className="w-4 h-4 text-slate-500" />;
 };
 
@@ -85,6 +94,7 @@ const categories = [
   { value: 'GRN', label: 'GRN Receipts', icon: <Truck className="w-3.5 h-3.5 text-cyan-550" /> },
   { value: 'LAB', label: 'Lab Quality', icon: <FlaskConical className="w-3.5 h-3.5 text-emerald-500" /> },
   { value: 'PRODUCTION', label: 'Production Batches', icon: <Activity className="w-3.5 h-3.5 text-purple-550" /> },
+  { value: 'ASSET', label: 'Asset Management', icon: <Package className="w-3.5 h-3.5 text-blue-500" /> },
   { value: 'ALERTS', label: 'Inventory Alerts', icon: <AlertTriangle className="w-3.5 h-3.5 text-amber-500" /> },
 ];
 
@@ -98,10 +108,10 @@ const NotificationsListPage = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  
+
   // Filters
   const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, UNREAD, READ
-  const [typeFilter, setTypeFilter] = useState('ALL'); // ALL, PO, GRN, LAB, PRODUCTION, ALERTS
+  const [typeFilter, setTypeFilter] = useState('ALL'); // ALL, PO, GRN, LAB, PRODUCTION, ASSET, ALERTS
   const [searchTerm, setSearchTerm] = useState('');
   const [isCategoryOpen, setIsCategoryOpen] = useState(false);
   
@@ -211,33 +221,54 @@ const NotificationsListPage = () => {
       handleMarkAsRead(notif.id);
     }
 
-    if (notif.type === 'UPCOMING_DELIVERY') {
-      navigate('/grn/upcoming');
+    const { type, metadata, referenceId } = notif;
+    const poId = metadata?.purchaseOrderId || metadata?.poId || metadata?.po_id || referenceId;
+    const grnId = metadata?.grn_id || metadata?.grnId || referenceId;
+
+    if (type === 'UPCOMING_DELIVERY') {
+      navigate('/grn/upcoming', { state: { from: '/notifications' } });
       return;
     }
 
-    if (notif.type.startsWith('PO_')) {
-      const poId = notif.metadata?.purchaseOrderId || notif.metadata?.poId || notif.metadata?.po_id;
-      if (poId) navigate(`/purchase-orders/${poId}`, { state: { from: '/notifications' } });
-      else navigate('/purchase-orders');
-    } else if (notif.type.startsWith('GRN_')) {
-      const grnId = notif.metadata?.grn_id || notif.metadata?.grnId || notif.referenceId;
-      if (user?.role === 'LAB_ASSISTANT' && !notif.metadata?.is_tested) {
+    if (type.startsWith('PO_')) {
+      if (poId && poId !== 'system') {
+        navigate(`/purchase-orders/${poId}`, { state: { from: '/notifications' } });
+      } else {
+        navigate('/purchase-orders', { state: { from: '/notifications' } });
+      }
+    } else if (type.startsWith('GRN_')) {
+      if (user?.role === 'LAB_ASSISTANT' && !metadata?.is_tested) {
         navigate(`/lab/test/${grnId}`, { state: { from: '/notifications' } });
-      } else if (grnId) {
+      } else if (grnId && grnId !== 'system') {
         navigate(`/grn/view/${grnId}`, { state: { from: '/notifications' } });
       } else {
-        navigate('/grn/list');
+        navigate('/grn/list', { state: { from: '/notifications' } });
       }
-    } else if (notif.type.startsWith('LAB_')) {
-      navigate('/lab/results');
-    } else if (notif.type.startsWith('PRODUCTION_')) {
-      navigate('/production/batches');
-    } else if (notif.type.includes('STOCK_') || notif.type.includes('REORDER') || notif.type.includes('LOW_STOCK')) {
-      if (notif.type.startsWith('RM_')) {
-        navigate('/purchase/rm-low-stock');
+    } else if (type.startsWith('LAB_')) {
+      navigate('/lab/results', { state: { from: '/notifications' } });
+    } else if (type.startsWith('PRODUCTION_') || type === 'STOCK_REPRODUCTION' || type.includes('REPRODUCTION')) {
+      if (type === 'PRODUCTION_QC_PASSED' || type === 'PRODUCTION_QC_FAILED' || type === 'PRODUCTION_COMPLETED') {
+        navigate('/production/qc-queue', { state: { from: '/notifications' } });
       } else {
-        navigate('/production/low-stock-alerts');
+        navigate('/production/batches', { state: { from: '/notifications' } });
+      }
+    } else if (type.startsWith('ASSET_PR_') || type.startsWith('ASSET_PR') || type.includes('ASSET_PR')) {
+      navigate('/asset-management/requests', { state: { from: '/notifications' } });
+    } else if (type.startsWith('ASSET_PQ_') || type.includes('ASSET_PQ')) {
+      navigate('/asset-management/quotations', { state: { from: '/notifications' } });
+    } else if (type.startsWith('ASSET_PO_') || type.includes('ASSET_PO')) {
+      navigate('/asset-management/orders', { state: { from: '/notifications' } });
+    } else if (type.startsWith('ASSET_GRPO_')) {
+      navigate('/asset-management/grpo', { state: { from: '/notifications' } });
+    } else if (type.startsWith('ASSET_INVOICE_')) {
+      navigate('/asset-management/invoice', { state: { from: '/notifications' } });
+    } else if (type.startsWith('ASSET_')) {
+      navigate('/asset-management/requests', { state: { from: '/notifications' } });
+    } else if (type.includes('STOCK_') || type.includes('REORDER') || type.includes('LOW_STOCK')) {
+      if (type.startsWith('RM_')) {
+        navigate('/purchase/rm-low-stock', { state: { from: '/notifications' } });
+      } else {
+        navigate('/production/low-stock-alerts', { state: { from: '/notifications' } });
       }
     } else {
       navigate('/notifications');

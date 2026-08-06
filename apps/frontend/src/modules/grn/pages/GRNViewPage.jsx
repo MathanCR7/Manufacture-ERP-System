@@ -69,16 +69,6 @@ export default function GRNViewPage() {
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       <DashboardBackButton defaultBack="/grn/list" />
-      {fromNotifications && (
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={() => navigate('/notifications')} 
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" /> Back to Notifications Center
-        </Button>
-      )}
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full text-slate-500">
           <ArrowLeft className="w-5 h-5" />

@@ -769,14 +769,6 @@ export default function ProductionsPage() {
           <span>You have <strong>Read-Only access</strong> to Batch Execution Center. Starting, completing, or scheduling batches is restricted.</span>
         </div>
       )}
-      {fromNotifications && (
-        <button 
-          onClick={() => navigate('/notifications')} 
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-lg transition-colors w-fit h-8"
-        >
-          <ChevronLeft className="w-3.5 h-3.5" /> Back to Notifications Center
-        </button>
-      )}
 
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-850">

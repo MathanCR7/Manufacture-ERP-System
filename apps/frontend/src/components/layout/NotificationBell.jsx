@@ -125,56 +125,55 @@ const NotificationBell = () => {
 
   const getNotificationUrl = (notif) => {
     const { type, metadata, referenceId } = notif;
-    const poId = metadata?.po_id || referenceId;
-    const grnId = metadata?.grn_id || referenceId;
-    const batchId = metadata?.batch_id || referenceId;
+    const poId = metadata?.purchaseOrderId || metadata?.poId || metadata?.po_id || referenceId;
+    const grnId = metadata?.grn_id || metadata?.grnId || referenceId;
 
     if (type.startsWith('PO_')) {
-      return `/purchase-orders/${poId}`;
+      return poId && poId !== 'system' ? `/purchase-orders/${poId}` : `/purchase-orders`;
     }
     if (type.startsWith('GRN_')) {
       if (user?.role === 'LAB_ASSISTANT' && !metadata?.is_tested) {
         return `/lab/test/${grnId}`;
       }
-      return `/grn/view/${grnId}`;
+      return grnId && grnId !== 'system' ? `/grn/view/${grnId}` : `/grn/list`;
     }
-    if (type.startsWith('LAB_RM_')) {
-      return `/lab/test/${grnId}`;
+    if (type.startsWith('LAB_RM_') || type.startsWith('LAB_')) {
+      return `/lab/results`;
     }
     if (type.startsWith('FINAL_QTY_')) {
-      return `/grn/view/${grnId}`;
+      return grnId && grnId !== 'system' ? `/grn/view/${grnId}` : `/grn/list`;
     }
-    if (type.startsWith('PRODUCTION_')) {
-      if (type === 'PRODUCTION_COMPLETED') {
+    if (type.startsWith('PRODUCTION_') || type === 'STOCK_REPRODUCTION' || type.includes('REPRODUCTION')) {
+      if (type === 'PRODUCTION_QC_PASSED' || type === 'PRODUCTION_QC_FAILED' || type === 'PRODUCTION_COMPLETED') {
         return `/production/qc-queue`;
       }
       return `/production/batches`;
     }
-    if (type.includes('STOCK_') || type.includes('LOW_STOCK')) {
+    if (type.includes('STOCK_') || type.includes('LOW_STOCK') || type.includes('REORDER')) {
       if (type.startsWith('RM_')) {
-        return `/rm/stock/low`;
+        return `/purchase/rm-low-stock`;
       } else {
-        return `/products/low-stock`;
+        return `/production/low-stock-alerts`;
       }
     }
     // Asset Management routes
-    if (type === 'ASSET_PR_CREATED' || type === 'ASSET_PR_APPROVED') {
+    if (type.startsWith('ASSET_PR_') || type.startsWith('ASSET_PR') || type.includes('ASSET_PR')) {
       return `/asset-management/requests`;
     }
-    if (type === 'ASSET_PQ_CREATED') {
+    if (type.startsWith('ASSET_PQ_') || type.includes('ASSET_PQ')) {
       return `/asset-management/quotations`;
     }
-    if (type === 'ASSET_PO_CREATED') {
+    if (type.startsWith('ASSET_PO_') || type.includes('ASSET_PO')) {
       return `/asset-management/orders`;
     }
-    if (type === 'ASSET_GRPO_CREATED') {
+    if (type.startsWith('ASSET_GRPO_')) {
       return `/asset-management/grpo`;
     }
-    if (type === 'ASSET_INVOICE_CREATED' || type === 'ASSET_INVOICE_PAID') {
+    if (type.startsWith('ASSET_INVOICE_')) {
       return `/asset-management/invoice`;
     }
-    if (type === 'ASSET_DECOMMISSIONED') {
-      return `/asset-management/register`;
+    if (type.startsWith('ASSET_')) {
+      return `/asset-management/requests`;
     }
     return null;
   };
