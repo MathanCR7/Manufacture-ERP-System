@@ -17,7 +17,8 @@ import {
   FlaskConical, 
   Activity, 
   AlertTriangle,
-  ChevronDown
+  ChevronDown,
+  Package
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
