@@ -15,7 +15,7 @@ export const useLogin = () => {
       setAuth(data.token, data.user);
       return data;
     } catch (err) {
-      const msg = err.response?.data?.error || 'Login failed';
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Login failed';
       setError(msg);
       throw new Error(msg);
     } finally {
