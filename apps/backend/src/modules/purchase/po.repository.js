@@ -8,9 +8,14 @@ class PORepository {
   }
 
   async findById(id) {
-    return prisma.rawMaterialPO.findUnique({
-      where: { id },
-      include: { idRegistry: true, uom: true, user: true }
+    return prisma.rawMaterialPO.findFirst({
+      where: {
+        OR: [
+          { id },
+          { referenceNo: id }
+        ]
+      },
+      include: { idRegistry: true, uom: true, user: true, supplier: true }
     });
   }
 

@@ -268,8 +268,14 @@ router.get('/receive/:id',
   roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']),
   async (req, res, next) => {
     try {
-      const grn = await prisma.gRNReceive.findUnique({
-        where: { id: req.params.id },
+      const { id } = req.params;
+      const grn = await prisma.gRNReceive.findFirst({
+        where: {
+          OR: [
+            { id },
+            { referenceNo: id }
+          ]
+        },
         include: {
           items: true,
           po: { include: { supplier: true, uom: true, user: { select: { name: true } } } },

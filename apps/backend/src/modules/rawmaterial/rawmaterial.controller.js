@@ -151,8 +151,14 @@ exports.updatePOPayment = async (req, res, next) => {
 
 exports.getPOById = async (req, res, next) => {
   try {
-    const po = await prisma.rawMaterialPO.findUnique({
-      where: { id: req.params.id },
+    const { id } = req.params;
+    const po = await prisma.rawMaterialPO.findFirst({
+      where: {
+        OR: [
+          { id },
+          { referenceNo: id }
+        ]
+      },
       include: {
         uom: true,
         user: { select: { name: true, email: true } },
@@ -1090,6 +1096,8 @@ exports.getMaterialHistory = async (req, res, next) => {
     const formattedBatches = batches.map(b => ({
       id: b.id,
       batchNumber: b.batchNumber,
+      poId: b.poId || b.po?.id,
+      grnId: b.grnId || b.grn?.id,
       poReferenceNo: b.po?.referenceNo || 'N/A',
       grnReferenceNo: b.grn?.referenceNo || 'N/A',
       supplierName: b.po?.supplier?.name || 'N/A',
@@ -1134,6 +1142,8 @@ exports.getMaterialHistory = async (req, res, next) => {
       return {
         id: lr.id,
         labTestId: lt?.id,
+        grnId: lt?.grn?.id,
+        poId: lt?.grn?.poId,
         grnReferenceNo: lt?.grn?.referenceNo || 'N/A',
         poReferenceNo: lt?.grn?.po?.referenceNo || 'N/A',
         supplierName: lt?.grn?.po?.supplier?.name || 'N/A',
@@ -1264,6 +1274,8 @@ exports.getMaterialHistory = async (req, res, next) => {
       returnQty: Number(r.returnQty || 0),
       returnReason: r.returnReason,
       reasonDescription: r.reasonDescription,
+      poId: r.poId,
+      grnId: r.grnId,
       supplierName: r.po?.supplier?.name || 'N/A',
       poReferenceNo: r.po?.referenceNo || 'N/A',
       grnReferenceNo: r.grn?.referenceNo || 'N/A',
@@ -1321,6 +1333,7 @@ exports.getMaterialHistory = async (req, res, next) => {
         badgeColor: 'blue',
         user: p.createdBy,
         metadata: {
+          poId: p.id,
           referenceNo: p.referenceNo,
           orderedQty: p.orderedQty,
           rate: p.unitPrice,
@@ -1341,6 +1354,10 @@ exports.getMaterialHistory = async (req, res, next) => {
         badgeColor: 'teal',
         user: g.receivedByName,
         metadata: {
+          grnId: g.grnId || g.id,
+          poId: g.poId,
+          referenceNo: g.referenceNo,
+          poReferenceNo: g.poReferenceNo,
           challan: g.challanNumber,
           vehicle: g.vehicleNumber,
           supplier: g.supplierName
@@ -1359,7 +1376,9 @@ exports.getMaterialHistory = async (req, res, next) => {
         badgeColor: 'emerald',
         user: b.addedByName,
         metadata: {
+          batchId: b.id,
           batchNumber: b.batchNumber,
+          grnId: b.grnId,
           storageLocation: b.storageLocation,
           expiryDate: b.expiryDate
         }
@@ -1377,6 +1396,9 @@ exports.getMaterialHistory = async (req, res, next) => {
         badgeColor: l.overallDecision === 'APPROVED' ? 'emerald' : (l.overallDecision === 'REJECTED' ? 'rose' : 'amber'),
         user: l.testedByName,
         metadata: {
+          labTestId: l.labTestId,
+          grnId: l.grnId,
+          grnReferenceNo: l.grnReferenceNo,
           notes: l.testNotes,
           sampleQty: l.sampleQty
         }
@@ -1411,6 +1433,7 @@ exports.getMaterialHistory = async (req, res, next) => {
         badgeColor: 'rose',
         user: w.responsiblePerson,
         metadata: {
+          wasteId: w.wasteId,
           referenceNo: w.referenceNo,
           notes: w.notes,
           lossAmount: w.lossAmount
@@ -1423,12 +1446,13 @@ exports.getMaterialHistory = async (req, res, next) => {
         id: `usage-${u.id}`,
         type: 'PRODUCTION_USAGE',
         title: `Consumed in Production: ${u.actualUsedQty} ${rm.unitId}`,
-        subtitle: `Batch: ${u.batchNumber} (${u.productName})`,
+        subtitle: `Batch: ${u.batchNumber} • ${u.productName}`,
         timestamp: u.date,
         status: u.usageStatus,
         badgeColor: 'indigo',
         user: 'Production System',
         metadata: {
+          batchId: u.batchId,
           batchNumber: u.batchNumber,
           productName: u.productName,
           totalCost: u.totalCost
@@ -1447,6 +1471,10 @@ exports.getMaterialHistory = async (req, res, next) => {
         badgeColor: 'red',
         user: r.createdByName,
         metadata: {
+          returnId: r.id,
+          poId: r.poId,
+          grnId: r.grnId,
+          referenceNo: r.referenceNo,
           supplier: r.supplierName,
           reason: r.reasonDescription
         }

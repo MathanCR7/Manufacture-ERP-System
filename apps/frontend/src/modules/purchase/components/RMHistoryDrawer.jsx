@@ -611,6 +611,90 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                                     {event.subtitle}
                                   </p>
 
+                                  {/* Quick Link in New Tab */}
+                                  <div className="pt-1 flex items-center gap-2 flex-wrap">
+                                    {event.type === 'PURCHASE_ORDER' && event.metadata?.poId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/purchase-orders/${event.metadata.poId}`, '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>Open PO ({event.metadata.referenceNo})</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                    {event.type === 'GRN_RECEIVE' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/grn/view/${event.metadata?.grnId || ''}`, '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>Open GRN ({event.metadata?.referenceNo})</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                    {event.type === 'INVENTORY_BATCH' && event.metadata?.batchNumber && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/inventory/list?search=${event.metadata.batchNumber}`, '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>View Batch ({event.metadata.batchNumber})</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                    {event.type === 'LAB_QC' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/lab/results?search=${event.metadata?.grnReferenceNo || ''}`, '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>View Lab QC Report</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                    {event.type === 'PRODUCTION_USAGE' && event.metadata?.batchId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/production/batches?id=${event.metadata.batchId}&from=rm_stock`, '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>View Production Batch ({event.metadata.batchNumber})</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                    {event.type === 'STOCK_ADJUSTMENT' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open('/rm/stock-adjustment/list', '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:text-cyan-700 dark:hover:text-cyan-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>View Stock Adjustments</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                    {event.type === 'RM_WASTE' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open('/waste/raw-material', '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>View RM Wastage List</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                    {event.type === 'PURCHASE_RETURN' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open('/purchase-return/list', '_blank')}
+                                        className="inline-flex items-center gap-1 text-[11px] font-bold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:underline cursor-pointer"
+                                      >
+                                        <span>View Purchase Returns</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                      </button>
+                                    )}
+                                  </div>
+
                                   {event.user && (
                                     <div className="text-[10px] text-slate-400 flex items-center gap-1 pt-1 border-t border-slate-100 dark:border-slate-800/60">
                                       <User className="w-3 h-3" /> Logged by: <span className="font-semibold text-slate-600 dark:text-slate-300">{event.user}</span>
@@ -655,8 +739,16 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {purchases.map((po) => (
                                   <tr key={po.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                    <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                      {po.referenceNo}
+                                    <td className="p-3 font-mono font-bold">
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/purchase-orders/${po.id}`, '_blank')}
+                                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold transition-colors"
+                                        title="Open Purchase Order in new tab"
+                                      >
+                                        <span>{po.referenceNo}</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                      </button>
                                     </td>
                                     <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                                       {formatShortDate(po.orderDate)}
@@ -720,9 +812,15 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                               <div key={grn.id} className="p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400">
-                                      {grn.referenceNo}
-                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => window.open(`/grn/view/${grn.grnId || grn.id}`, '_blank')}
+                                      className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                      title="Open GRN in new tab"
+                                    >
+                                      <span>{grn.referenceNo}</span>
+                                      <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
+                                    </button>
                                     <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-900">
                                       Gate Entry: {grn.grnStatus}
                                     </span>
@@ -740,7 +838,19 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                                   <div>
                                     <span className="text-[10px] text-slate-400 block font-semibold">PO Reference</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">{grn.poReferenceNo}</span>
+                                    {grn.poId ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/purchase-orders/${grn.poId}`, '_blank')}
+                                        className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                        title="Open PO in new tab"
+                                      >
+                                        <span>{grn.poReferenceNo}</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                      </button>
+                                    ) : (
+                                      <span className="font-medium text-slate-800 dark:text-slate-200">{grn.poReferenceNo}</span>
+                                    )}
                                   </div>
                                   <div>
                                     <span className="text-[10px] text-slate-400 block font-semibold">Supplier</span>
@@ -773,7 +883,15 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                                     <div className="flex items-center gap-2">
                                       <Warehouse className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
                                       <div>
-                                        <span className="font-mono font-bold text-emerald-800 dark:text-emerald-300">{grn.batch.batchNumber}</span>
+                                        <button
+                                          type="button"
+                                          onClick={() => window.open(`/inventory/list?search=${grn.batch.batchNumber}`, '_blank')}
+                                          className="font-mono font-bold text-emerald-800 dark:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                          title="Open Inventory Batch in new tab"
+                                        >
+                                          <span>{grn.batch.batchNumber}</span>
+                                          <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                        </button>
                                         <span className="text-[10px] text-emerald-700 dark:text-emerald-400 ml-2">Location: {grn.batch.storageLocation}</span>
                                       </div>
                                     </div>
@@ -813,20 +931,34 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                               return (
                                 <div key={lab.id} className="p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center gap-1.5 ${
-                                        isApproved
-                                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                                          : isRejected
-                                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                                      }`}>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open(`/lab/results?search=${lab.grnReferenceNo || ''}`, '_blank')}
+                                        className={`px-2.5 py-0.5 rounded-full text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:opacity-90 ${
+                                          isApproved
+                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                            : isRejected
+                                            ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                        }`}
+                                        title="View Lab QC result in new tab"
+                                      >
                                         {isApproved ? <CheckCircle2 className="w-3.5 h-3.5" /> : isRejected ? <XCircle className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}
                                         QC Decision: {lab.overallDecision}
-                                      </span>
-                                      <span className="font-mono text-xs text-slate-500">
-                                        GRN: {lab.grnReferenceNo}
-                                      </span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                      </button>
+                                      {lab.grnReferenceNo && (
+                                        <button
+                                          type="button"
+                                          onClick={() => window.open(`/grn/view/${lab.grnId || ''}`, '_blank')}
+                                          className="font-mono text-xs text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                          title="View GRN in new tab"
+                                        >
+                                          <span>GRN: {lab.grnReferenceNo}</span>
+                                          <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                        </button>
+                                      )}
                                     </div>
                                     <span className="text-xs text-slate-400 font-mono">
                                       Tested: {formatDate(lab.testDate)}
@@ -880,6 +1012,14 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
                             Manual Stock Adjustments ({stockAdjustments.length})
                           </h3>
+                          <button
+                            type="button"
+                            onClick={() => window.open('/rm/stock-adjustment/list', '_blank')}
+                            className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>Open Adjustments</span>
+                            <ArrowUpRight className="w-3 h-3 opacity-70" />
+                          </button>
                         </div>
 
                         {stockAdjustments.length === 0 ? (
@@ -965,8 +1105,16 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {wasteRecords.map((waste) => (
                                   <tr key={waste.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                    <td className="p-3 font-mono font-bold text-rose-600 dark:text-rose-400">
-                                      {waste.referenceNo}
+                                    <td className="p-3 font-mono font-bold">
+                                      <button
+                                        type="button"
+                                        onClick={() => window.open('/waste/raw-material', '_blank')}
+                                        className="text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold"
+                                        title="Open RM Wastage in new tab"
+                                      >
+                                        <span>{waste.referenceNo}</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                      </button>
                                     </td>
                                     <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                                       {formatShortDate(waste.date)}
@@ -1028,11 +1176,11 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                                         type="button"
                                         onClick={() => {
                                           if (usage.batchId) {
-                                            navigate(`/production/batches?id=${usage.batchId}&from=rm_stock`);
+                                            window.open(`/production/batches?id=${usage.batchId}&from=rm_stock`, '_blank');
                                           }
                                         }}
                                         className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold transition-colors"
-                                        title="View batch in /production/batches"
+                                        title="View batch in /production/batches (New Tab)"
                                       >
                                         <span>{usage.batchNumber}</span>
                                         <ArrowUpRight className="w-3 h-3 opacity-70" />
@@ -1092,8 +1240,16 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                               {purchaseReturns.map((ret) => (
                                 <tr key={ret.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                  <td className="p-3 font-mono font-bold text-red-600 dark:text-red-400">
-                                    {ret.referenceNo}
+                                  <td className="p-3 font-mono font-bold">
+                                    <button
+                                      type="button"
+                                      onClick={() => window.open('/purchase-return/list', '_blank')}
+                                      className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold"
+                                      title="Open Purchase Returns in new tab"
+                                    >
+                                      <span>{ret.referenceNo}</span>
+                                      <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                    </button>
                                   </td>
                                   <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                                     {formatShortDate(ret.returnDate)}
