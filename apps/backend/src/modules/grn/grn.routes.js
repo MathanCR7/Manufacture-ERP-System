@@ -284,7 +284,11 @@ router.get('/receive/:id',
         }
       });
       if (!grn) return res.status(404).json({ error: 'GRN not found' });
-      res.json(grn);
+      const mapped = {
+        ...grn,
+        inventoryStatus: (grn.status === 'LAB_APPROVED' || grn.inventoryStatus === 'UPLOADED') ? 'UPLOADED' : (grn.inventoryStatus || 'NOT_UPLOADED')
+      };
+      res.json(mapped);
     } catch (error) {
       next(error);
     }
@@ -306,7 +310,11 @@ router.get('/receive',
           labTest: { select: { id: true, status: true, overallDecision: true, overrideReason: true, labNotes: true, sampleQty: true, categoryParams: true, testedBy: true, approvedBy: true, approvedAt: true, createdAt: true, updatedAt: true } },
         }
       });
-      res.json(grns);
+      const mapped = grns.map(g => ({
+        ...g,
+        inventoryStatus: (g.status === 'LAB_APPROVED' || g.inventoryStatus === 'UPLOADED') ? 'UPLOADED' : (g.inventoryStatus || 'NOT_UPLOADED')
+      }));
+      res.json(mapped);
     } catch (error) {
       next(error);
     }
@@ -394,11 +402,15 @@ router.post('/lab-test',
           include: { testResults: true }
         });
 
-        // Update GRN status, stock and PO ONLY if this is NOT a draft
+        // Update GRN status, stock, inventory batch and PO ONLY if this is NOT a draft
         if (!data.isDraft) {
           const newGrnStatus = data.overallDecision === 'APPROVED' ? 'LAB_APPROVED' : 
                                data.overallDecision === 'REJECTED' ? 'LAB_REJECTED' : 'LAB_RESAMPLE';
-          await tx.gRNReceive.update({ where: { id: data.grnId }, data: { status: newGrnStatus } });
+          const grnUpdateData = { status: newGrnStatus };
+          if (data.overallDecision === 'APPROVED') {
+            grnUpdateData.inventoryStatus = 'UPLOADED';
+          }
+          await tx.gRNReceive.update({ where: { id: data.grnId }, data: grnUpdateData });
 
           // If approved, update RM stock for each item
           if (data.overallDecision === 'APPROVED') {
@@ -460,6 +472,57 @@ router.post('/lab-test',
                   `Ensure RawMaterial.code or RawMaterial.name matches the PO material.`
                 );
               }
+            }
+
+            // Auto-create InventoryBatch if not already created
+            const existingBatch = await tx.inventoryBatch.findUnique({ where: { grnId: grn.id } });
+            if (!existingBatch) {
+              const totalReceived = grn.items.reduce((s, i) => s + Number(i.actualReceivedQty) - Number(i.returnQty || 0), 0);
+              const sampleQty = Number(data.sampleQty || grn.labTest?.sampleQty || 0);
+              const netQty = Math.max(0, totalReceived - sampleQty);
+
+              const now = new Date();
+              const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+              const poShort = (grn.poId || '').slice(-6).toUpperCase();
+              const grnShort = (grn.id || '').slice(-6).toUpperCase();
+              let batchNumber = `RM-${dateStr}-${poShort}-${grnShort}`;
+
+              const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber } });
+              if (clash) {
+                batchNumber = `${batchNumber}-${Date.now().toString().slice(-4)}`;
+              }
+
+              const firstItem = grn.items[0];
+              let firstRm = firstItem ? await tx.rawMaterial.findFirst({ where: { code: firstItem.rmId } }) : null;
+              if (!firstRm && grn.po?.name) {
+                firstRm = await tx.rawMaterial.findFirst({ where: { name: { equals: grn.po.name, mode: 'insensitive' } } });
+              }
+              if (!firstRm && firstItem?.rmName) {
+                firstRm = await tx.rawMaterial.findFirst({ where: { name: { equals: firstItem.rmName, mode: 'insensitive' } } });
+              }
+              const category = firstRm ? await tx.rMCategory.findUnique({ where: { id: firstRm.categoryId } }) : null;
+              const firstExpiry = data.testResults?.[0]?.expiryDate ? new Date(data.testResults[0].expiryDate) : null;
+
+              await tx.inventoryBatch.create({
+                data: {
+                  batchNumber,
+                  poId: grn.poId,
+                  grnId: grn.id,
+                  rawMaterialId: firstRm?.id || firstItem?.rmId || 'unknown',
+                  rawMaterialName: grn.po?.name || firstItem?.rmName || 'Unknown',
+                  rmCategory: category?.name || null,
+                  supplierId: grn.po?.supplierId || null,
+                  receivedQty: totalReceived,
+                  sampleQty,
+                  netQty,
+                  uomId: grn.po?.uomId,
+                  storageLocation: null,
+                  expiryDate: firstExpiry,
+                  status: 'AVAILABLE',
+                  addedBy: req.user.id,
+                }
+              });
+              console.log(`[LAB APPROVED] InventoryBatch ${batchNumber} automatically uploaded for GRN ${grn.referenceNo || grn.id}`);
             }
 
             // Update PO status to APPROVED
@@ -538,6 +601,7 @@ router.get('/lab-results',
   roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT']),
   async (req, res, next) => {
     try {
+      const { testingRequiredOnly } = req.query;
       const labTests = await prisma.gRNLabTest.findMany({
         orderBy: { createdAt: 'desc' },
         include: {
@@ -551,6 +615,18 @@ router.get('/lab-results',
           tester: { select: { name: true } },
         }
       });
+
+      if (testingRequiredOnly === 'true') {
+        // Return only lab tests that have at least one material where testing was required
+        const filtered = labTests
+          .filter(lt => (lt.testResults || []).some(tr => tr.needTesting !== false))
+          .map(lt => ({
+            ...lt,
+            testResults: (lt.testResults || []).filter(tr => tr.needTesting !== false)
+          }));
+        return res.json(filtered);
+      }
+
       res.json(labTests);
     } catch (error) {
       next(error);

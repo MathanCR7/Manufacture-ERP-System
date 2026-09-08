@@ -851,3 +851,636 @@ exports.getStock = async (req, res, next) => {
     next(error);
   }
 };
+
+exports.getMaterialHistory = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const rm = await prisma.rawMaterial.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        uoms: true
+      }
+    });
+
+    if (!rm) {
+      return res.status(404).json({ error: 'Raw material not found' });
+    }
+
+    // 1. Fetch Purchase Orders (matching direct rmId, code, name or in items JSON)
+    const directPOs = await prisma.rawMaterialPO.findMany({
+      where: {
+        status: { not: 'DELETED' },
+        OR: [
+          { rmId: rm.code },
+          { rmId: rm.id },
+          { name: { equals: rm.name, mode: 'insensitive' } }
+        ]
+      },
+      include: {
+        supplier: true,
+        uom: true,
+        user: { select: { id: true, name: true, email: true } },
+        grnReceives: {
+          include: {
+            receiver: { select: { id: true, name: true } },
+            labTest: {
+              include: {
+                tester: { select: { id: true, name: true } },
+                testResults: true
+              }
+            },
+            inventoryBatch: {
+              include: {
+                uom: true,
+                adder: { select: { id: true, name: true } }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const multiItemPOs = await prisma.rawMaterialPO.findMany({
+      where: {
+        status: { not: 'DELETED' },
+        items: { not: null },
+        id: { notIn: directPOs.map(p => p.id) }
+      },
+      include: {
+        supplier: true,
+        uom: true,
+        user: { select: { id: true, name: true, email: true } },
+        grnReceives: {
+          include: {
+            receiver: { select: { id: true, name: true } },
+            labTest: {
+              include: {
+                tester: { select: { id: true, name: true } },
+                testResults: true
+              }
+            },
+            inventoryBatch: {
+              include: {
+                uom: true,
+                adder: { select: { id: true, name: true } }
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const matchedMultiItemPOs = multiItemPOs.filter(po => {
+      if (Array.isArray(po.items)) {
+        return po.items.some(item =>
+          item.id === rm.id ||
+          item.rmId === rm.code ||
+          (item.name && item.name.toLowerCase() === rm.name.toLowerCase())
+        );
+      }
+      return false;
+    });
+
+    const allMatchedPOs = [...directPOs, ...matchedMultiItemPOs].sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    const formattedPurchases = allMatchedPOs.map(po => {
+      let specificItem = null;
+      if (Array.isArray(po.items)) {
+        specificItem = po.items.find(item =>
+          item.id === rm.id ||
+          item.rmId === rm.code ||
+          (item.name && item.name.toLowerCase() === rm.name.toLowerCase())
+        );
+      }
+
+      const orderedQty = specificItem ? Number(specificItem.quantity || 0) : Number(po.quantity || 0);
+      const unitPrice = specificItem ? Number(specificItem.unitPrice || 0) : (Number(po.quantity) > 0 ? Number(po.amount) / Number(po.quantity) : Number(po.amount || 0));
+      const itemTotal = specificItem ? (Number(specificItem.total) || (orderedQty * unitPrice)) : Number(po.amount || 0);
+
+      return {
+        id: po.id,
+        referenceNo: po.referenceNo || 'N/A',
+        orderDate: po.createdAt,
+        expectedDelivery: po.expectedDelivery,
+        supplierId: po.supplierId,
+        supplierName: po.supplier ? po.supplier.name : 'Unknown Supplier',
+        supplierContact: po.supplier ? (po.supplier.phone || po.supplier.email) : null,
+        status: po.status,
+        paymentStatus: po.paymentStatus || 'UNPAID',
+        paidAmount: Number(po.paidAmount || 0),
+        grandTotal: Number(po.grandTotal || po.amount || 0),
+        orderedQty,
+        unitPrice,
+        itemTotal,
+        uom: specificItem?.uomLabel || (po.uom ? (po.uom.abbreviation || po.uom.name) : rm.unitId),
+        createdBy: po.user ? po.user.name : null,
+        grnCount: po.grnReceives?.length || 0
+      };
+    });
+
+    // 2. Fetch GRN Receipts
+    const grnItems = await prisma.gRNReceiveItem.findMany({
+      where: {
+        OR: [
+          { rmId: rm.id },
+          { rmId: rm.code },
+          { rmName: { equals: rm.name, mode: 'insensitive' } }
+        ]
+      },
+      include: {
+        grn: {
+          include: {
+            po: {
+              include: {
+                supplier: true
+              }
+            },
+            receiver: { select: { id: true, name: true, email: true } },
+            labTest: {
+              include: {
+                tester: { select: { id: true, name: true } },
+                testResults: true
+              }
+            },
+            inventoryBatch: {
+              include: {
+                uom: true,
+                adder: { select: { id: true, name: true } }
+              }
+            }
+          }
+        },
+        labResults: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedGRN = grnItems.map(item => {
+      const grn = item.grn;
+      const lab = grn?.labTest;
+      const batch = grn?.inventoryBatch;
+      return {
+        id: item.id,
+        grnId: grn?.id,
+        referenceNo: grn?.referenceNo || 'N/A',
+        receivedDate: grn?.receivedDate || item.createdAt,
+        poId: grn?.poId,
+        poReferenceNo: grn?.po?.referenceNo || 'N/A',
+        supplierName: grn?.po?.supplier?.name || 'N/A',
+        expectedQty: Number(item.expectedQty || 0),
+        actualReceivedQty: Number(item.actualReceivedQty || 0),
+        returnQty: Number(item.returnQty || 0),
+        discrepancyNotes: grn?.discrepancyNotes,
+        vehicleNumber: grn?.vehicleNumber,
+        driverName: grn?.driverName,
+        challanNumber: grn?.challanNumber,
+        invoiceNumber: grn?.invoiceNumber,
+        invoiceDate: grn?.invoiceDate,
+        isShortDelivery: grn?.isShortDelivery || false,
+        inventoryStatus: grn?.inventoryStatus || 'NOT_UPLOADED',
+        grnStatus: grn?.status || 'PENDING_LAB',
+        receivedByName: grn?.receiver?.name || 'Gate Officer',
+        batch: batch ? {
+          id: batch.id,
+          batchNumber: batch.batchNumber,
+          netQty: Number(batch.netQty || 0),
+          sampleQty: Number(batch.sampleQty || 0),
+          storageLocation: batch.storageLocation || 'Main Warehouse',
+          expiryDate: batch.expiryDate,
+          status: batch.status,
+          addedByName: batch.adder?.name || 'Inventory Officer',
+          createdAt: batch.createdAt
+        } : null,
+        labTest: lab ? {
+          id: lab.id,
+          overallDecision: lab.overallDecision || 'PENDING',
+          status: lab.status,
+          testedByName: lab.tester?.name || 'Lab Staff',
+          testedAt: lab.createdAt,
+          sampleQty: Number(lab.sampleQty || 0),
+          labNotes: lab.labNotes,
+          overrideReason: lab.overrideReason
+        } : null
+      };
+    });
+
+    // 3. Fetch Inventory Batches
+    const batches = await prisma.inventoryBatch.findMany({
+      where: {
+        OR: [
+          { rawMaterialId: rm.id },
+          { rawMaterialName: { equals: rm.name, mode: 'insensitive' } }
+        ]
+      },
+      include: {
+        po: { include: { supplier: true } },
+        grn: { include: { receiver: { select: { name: true } } } },
+        uom: true,
+        adder: { select: { name: true, email: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedBatches = batches.map(b => ({
+      id: b.id,
+      batchNumber: b.batchNumber,
+      poReferenceNo: b.po?.referenceNo || 'N/A',
+      grnReferenceNo: b.grn?.referenceNo || 'N/A',
+      supplierName: b.po?.supplier?.name || 'N/A',
+      receivedQty: Number(b.receivedQty || 0),
+      sampleQty: Number(b.sampleQty || 0),
+      netQty: Number(b.netQty || 0),
+      uom: b.uom ? (b.uom.abbreviation || b.uom.name) : rm.unitId,
+      storageLocation: b.storageLocation || 'Main RM Warehouse',
+      expiryDate: b.expiryDate,
+      status: b.status,
+      addedByName: b.adder?.name || 'Inventory Team',
+      createdAt: b.createdAt
+    }));
+
+    // 4. Fetch QC & Lab Test Reports
+    const labResults = await prisma.gRNLabTestResult.findMany({
+      where: {
+        OR: [
+          { rmId: rm.id },
+          { rmId: rm.code },
+          { rmName: { equals: rm.name, mode: 'insensitive' } }
+        ]
+      },
+      include: {
+        labTest: {
+          include: {
+            tester: { select: { name: true, email: true } },
+            grn: {
+              include: {
+                po: { include: { supplier: true } }
+              }
+            }
+          }
+        },
+        grnItem: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedLabReports = labResults.map(lr => {
+      const lt = lr.labTest;
+      return {
+        id: lr.id,
+        labTestId: lt?.id,
+        grnReferenceNo: lt?.grn?.referenceNo || 'N/A',
+        poReferenceNo: lt?.grn?.po?.referenceNo || 'N/A',
+        supplierName: lt?.grn?.po?.supplier?.name || 'N/A',
+        testDate: lt?.createdAt || lr.createdAt,
+        passed: lr.passed,
+        overallDecision: lt?.overallDecision || (lr.passed ? 'APPROVED' : 'REJECTED'),
+        status: lt?.status || 'COMPLETED',
+        testedByName: lt?.tester?.name || 'Lab Assistant',
+        sampleQty: Number(lt?.sampleQty || 0),
+        expiryDate: lr.expiryDate,
+        testNotes: lr.testNotes || lt?.labNotes || null,
+        overrideReason: lt?.overrideReason || null,
+        categoryParams: lr.categoryParams || lt?.categoryParams || null
+      };
+    });
+
+    // 5. Fetch Stock Adjustments
+    const adjustments = await prisma.rMStockAdjustment.findMany({
+      where: { rawMaterialId: rm.id },
+      include: {
+        user: { select: { name: true, email: true, role: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedAdjustments = adjustments.map(a => ({
+      id: a.id,
+      type: a.type,
+      quantity: Number(a.quantity || 0),
+      notes: a.notes || 'No reason provided',
+      createdAt: a.createdAt,
+      userName: a.user?.name || 'Supervisor',
+      userRole: a.user?.role || 'SUPERVISOR'
+    }));
+
+    // 6. Fetch RM Wastage
+    const wasteItems = await prisma.rMWasteItem.findMany({
+      where: { rawMaterialId: rm.id },
+      include: {
+        waste: {
+          include: {
+            responsibleUser: { select: { name: true, role: true } },
+            creatorUser: { select: { name: true, role: true } }
+          }
+        },
+        uom: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedWaste = wasteItems.map(wi => ({
+      id: wi.id,
+      wasteId: wi.wasteId,
+      referenceNo: wi.waste?.referenceNo || 'N/A',
+      date: wi.waste?.date || wi.createdAt,
+      quantity: Number(wi.quantity || 0),
+      uom: wi.uom ? (wi.uom.abbreviation || wi.uom.name) : rm.unitId,
+      lossAmount: Number(wi.lossAmount || 0),
+      notes: wi.waste?.note || 'No reason specified',
+      responsiblePerson: wi.waste?.responsibleUser?.name || 'N/A',
+      createdBy: wi.waste?.creatorUser?.name || 'Staff',
+      createdAt: wi.createdAt
+    }));
+
+    // 7. Fetch Production Usages
+    const usages = await prisma.productionBatchRMUsage.findMany({
+      where: { rmId: rm.id },
+      include: {
+        batch: true
+      },
+      orderBy: { batch: { createdAt: 'desc' } }
+    });
+
+    const formattedUsages = usages.map(u => ({
+      id: u.id,
+      batchId: u.batchId,
+      batchNumber: u.batch?.batchNumber || 'N/A',
+      productName: u.batch?.productName || 'Finished Product',
+      batchStatus: u.batch?.status || 'COMPLETED',
+      requiredQty: Number(u.requiredQty || 0),
+      availableQtyAtTime: Number(u.availableQtyAtTime || 0),
+      actualUsedQty: Number(u.actualUsedQty || 0),
+      unitCost: Number(u.unitCost || 0),
+      totalCost: Number(u.totalCost || 0),
+      usageStatus: u.status,
+      date: u.batch?.startDate || u.batch?.createdAt || new Date()
+    }));
+
+    // 8. Fetch Purchase Returns
+    const poIds = formattedPurchases.map(p => p.id);
+    const grnIds = formattedGRN.map(g => g.grnId).filter(Boolean);
+
+    const returns = (poIds.length > 0 || grnIds.length > 0) ? await prisma.purchaseReturn.findMany({
+      where: {
+        OR: [
+          { poId: { in: poIds } },
+          { grnId: { in: grnIds } }
+        ]
+      },
+      include: {
+        po: { include: { supplier: true } },
+        grn: true,
+        creator: { select: { name: true } },
+        responsibleUser: { select: { name: true } }
+      },
+      orderBy: { returnDate: 'desc' }
+    }) : [];
+
+    const formattedReturns = returns.map(r => ({
+      id: r.id,
+      referenceNo: r.referenceNo,
+      returnDate: r.returnDate,
+      returnQty: Number(r.returnQty || 0),
+      returnReason: r.returnReason,
+      reasonDescription: r.reasonDescription,
+      supplierName: r.po?.supplier?.name || 'N/A',
+      poReferenceNo: r.po?.referenceNo || 'N/A',
+      grnReferenceNo: r.grn?.referenceNo || 'N/A',
+      status: r.status,
+      initiatedBy: r.initiatedBy,
+      createdByName: r.creator?.name || 'Staff'
+    }));
+
+    // 9. Calculate Aggregate Metrics
+    const currentStock = Number(rm.currentStock || 0);
+    const ratePerUnit = Number(rm.ratePerUnit || 0);
+    const alertLevel = Number(rm.alertLevel || 0);
+
+    const totalPurchasedQty = formattedPurchases.reduce((acc, p) => acc + p.orderedQty, 0);
+    const totalPurchasedValue = formattedPurchases.reduce((acc, p) => acc + (p.itemTotal || 0), 0);
+    const totalInwardedQty = formattedGRN.reduce((acc, g) => acc + g.actualReceivedQty, 0);
+    const totalConsumedQty = formattedUsages.reduce((acc, u) => acc + u.actualUsedQty, 0);
+    const totalConsumedCost = formattedUsages.reduce((acc, u) => acc + u.totalCost, 0);
+
+    const totalAdjustmentAddition = formattedAdjustments
+      .filter(a => a.type === 'ADDITION')
+      .reduce((acc, a) => acc + a.quantity, 0);
+    const totalAdjustmentSubtraction = formattedAdjustments
+      .filter(a => a.type === 'SUBTRACTION')
+      .reduce((acc, a) => acc + a.quantity, 0);
+    const netAdjustedQty = totalAdjustmentAddition - totalAdjustmentSubtraction;
+
+    const totalWastedQty = formattedWaste.reduce((acc, w) => acc + w.quantity, 0);
+    const totalWastedLoss = formattedWaste.reduce((acc, w) => acc + w.lossAmount, 0);
+
+    const stockHealth = currentStock <= 0 ? 'CRITICAL' : (currentStock <= alertLevel ? 'LOW' : 'OPTIMAL');
+
+    const hasHistory = (
+      formattedPurchases.length > 0 ||
+      formattedGRN.length > 0 ||
+      formattedBatches.length > 0 ||
+      formattedLabReports.length > 0 ||
+      formattedAdjustments.length > 0 ||
+      formattedWaste.length > 0 ||
+      formattedUsages.length > 0 ||
+      formattedReturns.length > 0
+    );
+
+    // 10. Generate Unified Chronological Timeline
+    const timelineEvents = [];
+
+    formattedPurchases.forEach(p => {
+      timelineEvents.push({
+        id: `po-${p.id}`,
+        type: 'PURCHASE_ORDER',
+        title: `PO Created: ${p.referenceNo}`,
+        subtitle: `Supplier: ${p.supplierName} • Qty: ${p.orderedQty} ${p.uom}`,
+        timestamp: p.orderDate,
+        status: p.status,
+        badgeColor: 'blue',
+        user: p.createdBy,
+        metadata: {
+          referenceNo: p.referenceNo,
+          orderedQty: p.orderedQty,
+          rate: p.unitPrice,
+          total: p.itemTotal,
+          paymentStatus: p.paymentStatus
+        }
+      });
+    });
+
+    formattedGRN.forEach(g => {
+      timelineEvents.push({
+        id: `grn-${g.id}`,
+        type: 'GRN_RECEIVE',
+        title: `GRN Received: ${g.referenceNo}`,
+        subtitle: `Received: ${g.actualReceivedQty} ${rm.unitId} • PO: ${g.poReferenceNo}`,
+        timestamp: g.receivedDate,
+        status: g.grnStatus,
+        badgeColor: 'teal',
+        user: g.receivedByName,
+        metadata: {
+          challan: g.challanNumber,
+          vehicle: g.vehicleNumber,
+          supplier: g.supplierName
+        }
+      });
+    });
+
+    formattedBatches.forEach(b => {
+      timelineEvents.push({
+        id: `batch-${b.id}`,
+        type: 'INVENTORY_BATCH',
+        title: `Batch Stored: ${b.batchNumber}`,
+        subtitle: `Net Qty: ${b.netQty} ${b.uom} • Location: ${b.storageLocation}`,
+        timestamp: b.createdAt,
+        status: b.status,
+        badgeColor: 'emerald',
+        user: b.addedByName,
+        metadata: {
+          batchNumber: b.batchNumber,
+          storageLocation: b.storageLocation,
+          expiryDate: b.expiryDate
+        }
+      });
+    });
+
+    formattedLabReports.forEach(l => {
+      timelineEvents.push({
+        id: `lab-${l.id}`,
+        type: 'LAB_QC',
+        title: `QC Inspection: ${l.overallDecision}`,
+        subtitle: `GRN: ${l.grnReferenceNo} • Tested by: ${l.testedByName}`,
+        timestamp: l.testDate,
+        status: l.overallDecision,
+        badgeColor: l.overallDecision === 'APPROVED' ? 'emerald' : (l.overallDecision === 'REJECTED' ? 'rose' : 'amber'),
+        user: l.testedByName,
+        metadata: {
+          notes: l.testNotes,
+          sampleQty: l.sampleQty
+        }
+      });
+    });
+
+    formattedAdjustments.forEach(a => {
+      const isAdd = a.type === 'ADDITION';
+      timelineEvents.push({
+        id: `adj-${a.id}`,
+        type: 'STOCK_ADJUSTMENT',
+        title: `Stock ${isAdd ? 'Addition (+)' : 'Subtraction (-)'}: ${a.quantity} ${rm.unitId}`,
+        subtitle: `Reason: ${a.notes}`,
+        timestamp: a.createdAt,
+        status: a.type,
+        badgeColor: isAdd ? 'cyan' : 'amber',
+        user: `${a.userName} (${a.userRole})`,
+        metadata: {
+          notes: a.notes
+        }
+      });
+    });
+
+    formattedWaste.forEach(w => {
+      timelineEvents.push({
+        id: `waste-${w.id}`,
+        type: 'RM_WASTE',
+        title: `Wastage Recorded: ${w.quantity} ${w.uom}`,
+        subtitle: `Loss: ₹${w.lossAmount.toLocaleString('en-IN')} • Ref: ${w.referenceNo}`,
+        timestamp: w.date,
+        status: 'WASTED',
+        badgeColor: 'rose',
+        user: w.responsiblePerson,
+        metadata: {
+          referenceNo: w.referenceNo,
+          notes: w.notes,
+          lossAmount: w.lossAmount
+        }
+      });
+    });
+
+    formattedUsages.forEach(u => {
+      timelineEvents.push({
+        id: `usage-${u.id}`,
+        type: 'PRODUCTION_USAGE',
+        title: `Consumed in Production: ${u.actualUsedQty} ${rm.unitId}`,
+        subtitle: `Batch: ${u.batchNumber} (${u.productName})`,
+        timestamp: u.date,
+        status: u.usageStatus,
+        badgeColor: 'indigo',
+        user: 'Production System',
+        metadata: {
+          batchNumber: u.batchNumber,
+          productName: u.productName,
+          totalCost: u.totalCost
+        }
+      });
+    });
+
+    formattedReturns.forEach(r => {
+      timelineEvents.push({
+        id: `return-${r.id}`,
+        type: 'PURCHASE_RETURN',
+        title: `Purchase Return: ${r.returnQty} ${rm.unitId}`,
+        subtitle: `Reason: ${r.returnReason} • Ref: ${r.referenceNo}`,
+        timestamp: r.returnDate,
+        status: r.status,
+        badgeColor: 'red',
+        user: r.createdByName,
+        metadata: {
+          supplier: r.supplierName,
+          reason: r.reasonDescription
+        }
+      });
+    });
+
+    // Sort timeline descending
+    timelineEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    res.json({
+      material: {
+        id: rm.id,
+        name: rm.name,
+        code: rm.code,
+        category: rm.category?.name || 'General',
+        unit: rm.unitId,
+        currentStock,
+        ratePerUnit,
+        stockValue: currentStock * ratePerUnit,
+        alertLevel,
+        stockHealth,
+        description: rm.description
+      },
+      summary: {
+        hasHistory,
+        currentStock,
+        stockHealth,
+        totalPurchasedQty,
+        totalPurchasedValue,
+        totalInwardedQty,
+        totalConsumedQty,
+        totalConsumedCost,
+        totalAdjustmentAddition,
+        totalAdjustmentSubtraction,
+        netAdjustedQty,
+        totalWastedQty,
+        totalWastedLoss
+      },
+      timeline: timelineEvents,
+      purchases: formattedPurchases,
+      grnReceipts: formattedGRN,
+      batches: formattedBatches,
+      labReports: formattedLabReports,
+      stockAdjustments: formattedAdjustments,
+      wasteRecords: formattedWaste,
+      productionUsages: formattedUsages,
+      purchaseReturns: formattedReturns
+    });
+  } catch (error) {
+    next(error);
+  }
+};

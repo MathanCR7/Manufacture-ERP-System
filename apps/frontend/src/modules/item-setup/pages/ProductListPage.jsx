@@ -185,7 +185,8 @@ function ProductForm({ editId, onBack }) {
       try {
         setLoading(true);
         const mastersRes = await api.get('/products/masters');
-        setMasters(mastersRes.data || {});
+        const mastersData = mastersRes.data || {};
+        setMasters(mastersData);
 
         if (isEditMode) {
           const prodRes = await api.get(`/products/${editId}`);
@@ -211,49 +212,47 @@ function ProductForm({ editId, onBack }) {
           setIsSopLocked(!!prod.isSopLocked);
           setSopHistory(prod.sopHistory || []);
 
-          if (prod.bom) {
+          if (prod.bom && Array.isArray(prod.bom)) {
             setBom(prod.bom.map(item => {
-              const matchedRM = (mastersData.rawMaterials || []).find(m => m.id === item.rmId);
+              const matchedRM = (mastersData.rawMaterials || []).find(m => m.id === item.rmId) || item.rawMaterial;
               const getLocalUomLabel = (uid) => {
                 if (!uid) return 'units';
                 const match = (mastersData.units || []).find(u => 
                   u.id === uid || 
-                  u.abbreviation.toLowerCase() === uid.toLowerCase() || 
-                  u.name.toLowerCase() === uid.toLowerCase()
+                  (u.abbreviation && u.abbreviation.toLowerCase() === uid.toLowerCase()) || 
+                  (u.name && u.name.toLowerCase() === uid.toLowerCase())
                 );
                 return match ? match.abbreviation : uid;
               };
-              const uomLabel = matchedRM ? getLocalUomLabel(matchedRM.unitId) : 'units';
-              const isKg = /kg|kilogram/i.test(uomLabel);
-              const isL = /l|liter|litre/i.test(uomLabel);
-              const subUomLabel = isKg ? 'g' : (isL ? 'ml' : null);
+              const rmObj = matchedRM || item.rawMaterial;
+              const uomLabel = rmObj ? getLocalUomLabel(rmObj.consumptionUnit || rmObj.unitId) : 'units';
+              const rawConsumption = Number(item.consumptionPerUnit || 0);
+
               return {
                 rmId: item.rmId,
-                name: item.rawMaterial?.name || '',
-                code: item.rawMaterial?.code || '',
-                unitPrice: Number(item.unitPrice || 0),
-                consumption: Number(item.consumptionPerUnit || 0),
-                totalCost: Number(item.totalCost || 0),
+                name: item.rawMaterial?.name || matchedRM?.name || 'Raw Material',
+                code: item.rawMaterial?.code || matchedRM?.code || '',
+                unitPrice: Number(item.unitPrice || matchedRM?.ratePerUnit || 0),
+                consumption: rawConsumption,
+                totalCost: Number(item.totalCost || (rawConsumption * Number(item.unitPrice || 0)) || 0),
                 currentStock: matchedRM ? Number(matchedRM.currentStock || 0) : 0,
-                uomLabel,
-                subUomLabel,
-                selectedUnit: 'base'
+                uomLabel
               };
             }));
           }
 
-          if (prod.nonInventoryCosts) {
+          if (prod.nonInventoryCosts && Array.isArray(prod.nonInventoryCosts)) {
             setNonInventoryCosts(prod.nonInventoryCosts.map(item => ({
               itemId: item.itemId,
-              name: item.item?.name || '',
+              name: item.item?.name || (mastersData.nonInventoryItems || []).find(n => n.id === item.itemId)?.name || '',
               cost: Number(item.cost || 0)
             })));
           }
 
-          if (prod.stages) {
+          if (prod.stages && Array.isArray(prod.stages)) {
             setStages(prod.stages.map(item => ({
               stageId: item.stageId,
-              name: item.stage?.name || '',
+              name: item.stage?.name || (mastersData.stages || []).find(s => s.id === item.stageId)?.name || '',
               months: item.months || 0,
               days: item.days || 0,
               hours: item.hours || 0,
@@ -322,10 +321,7 @@ function ProductForm({ editId, onBack }) {
     const rm = masters.rawMaterials.find(m => m.id === selectedRmId);
     if (!rm) return;
 
-    const uomLabel = getUomLabel(rm.unitId);
-    const isKg = /kg|kilogram/i.test(uomLabel);
-    const isL = /l|liter|litre/i.test(uomLabel);
-    const subUomLabel = isKg ? 'g' : (isL ? 'ml' : null);
+    const uomLabel = getUomLabel(rm.consumptionUnit || rm.unitId);
 
     setBom([...bom, {
       rmId: rm.id,
@@ -335,9 +331,7 @@ function ProductForm({ editId, onBack }) {
       consumption: 1,
       totalCost: Number(rm.ratePerUnit || 0),
       currentStock: Number(rm.currentStock || 0),
-      uomLabel,
-      subUomLabel,
-      selectedUnit: 'base'
+      uomLabel
     }]);
     setSelectedRmId('');
   };
@@ -346,36 +340,7 @@ function ProductForm({ editId, onBack }) {
     const updated = [...bom];
     const val = Number(value) || 0;
     updated[index].consumption = val;
-
-    if (updated[index].selectedUnit === 'sub') {
-      updated[index].totalCost = (val / 1000) * updated[index].unitPrice;
-    } else {
-      updated[index].totalCost = val * updated[index].unitPrice;
-    }
-    setBom(updated);
-  };
-
-  const handleRmUnitToggle = (index, newUnitType) => {
-    const updated = [...bom];
-    const oldUnitType = updated[index].selectedUnit || 'base';
-    if (oldUnitType === newUnitType) return;
-
-    updated[index].selectedUnit = newUnitType;
-    let newQty = updated[index].consumption;
-
-    if (newUnitType === 'sub') {
-      newQty = newQty * 1000;
-    } else {
-      newQty = newQty / 1000;
-    }
-
-    updated[index].consumption = Number(newQty.toFixed(4));
-    if (newUnitType === 'sub') {
-      updated[index].totalCost = (updated[index].consumption / 1000) * updated[index].unitPrice;
-    } else {
-      updated[index].totalCost = updated[index].consumption * updated[index].unitPrice;
-    }
-
+    updated[index].totalCost = val * updated[index].unitPrice;
     setBom(updated);
   };
 
@@ -507,15 +472,12 @@ function ProductForm({ editId, onBack }) {
       cgst: Number(cgst),
       sgst: Number(sgst),
       igst: Number(igst),
-      bom: bom.map(b => {
-        const actualConsumption = b.selectedUnit === 'sub' ? Number(b.consumption) / 1000 : Number(b.consumption);
-        return {
-          rmId: b.rmId,
-          consumption: actualConsumption,
-          unitPrice: Number(b.unitPrice),
-          totalCost: Number(b.totalCost)
-        };
-      }),
+      bom: bom.map(b => ({
+        rmId: b.rmId,
+        consumption: Number(b.consumption || 0),
+        unitPrice: Number(b.unitPrice || 0),
+        totalCost: Number(b.totalCost || (Number(b.consumption || 0) * Number(b.unitPrice || 0)))
+      })),
       nonInventoryCosts: nonInventoryCosts.map(n => ({
         itemId: n.itemId,
         cost: Number(n.cost)
@@ -950,23 +912,13 @@ function ProductForm({ editId, onBack }) {
                                 <div className="flex items-center gap-1.5 justify-end">
                                   <Input
                                     type="number"
-                                    step={item.selectedUnit === 'sub' ? '1' : '0.0001'}
+                                    step="0.0001"
+                                    min="0"
                                     className="h-8 w-24 text-right font-bold bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-750 text-slate-855 dark:text-white rounded-xl focus:ring-indigo-505"
                                     value={item.consumption}
                                     onChange={(e) => handleRmQtyChange(idx, e.target.value)}
                                   />
-                                  {item.subUomLabel ? (
-                                    <select
-                                      value={item.selectedUnit || 'base'}
-                                      onChange={(e) => handleRmUnitToggle(idx, e.target.value)}
-                                      className="h-8 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl px-1 text-2xs font-bold text-slate-650 dark:text-slate-300 focus:outline-none"
-                                    >
-                                      <option value="base">{item.uomLabel}</option>
-                                      <option value="sub">{item.subUomLabel}</option>
-                                    </select>
-                                  ) : (
-                                    <span className="text-2xs font-bold text-slate-455 w-8 text-left">{item.uomLabel}</span>
-                                  )}
+                                  <span className="text-2xs font-bold text-slate-500 dark:text-slate-400 min-w-[32px] text-left">{item.uomLabel}</span>
                                 </div>
                               </td>
                               <td className="p-4 text-right">

@@ -30,5 +30,6 @@ router.delete('/rm-waste/:id', authenticateToken, roleMiddleware(['MAIN_MASTER',
 
 // --- RM Stock Routes (/api/rm-stock) ---
 router.get('/rm-stock', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']), rmController.getStock);
+router.get('/rm-stock/:id/history', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT']), rmController.getMaterialHistory);
 
 module.exports = router;

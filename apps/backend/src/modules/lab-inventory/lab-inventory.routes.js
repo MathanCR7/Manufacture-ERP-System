@@ -151,6 +151,20 @@ router.post('/use',
     try {
       const data = usageSchema.parse(req.body);
 
+      const labTest = await prisma.gRNLabTest.findUnique({
+        where: { id: data.labTestId },
+        include: { testResults: true }
+      });
+      if (!labTest) return res.status(404).json({ error: 'Lab test not found' });
+
+      // Validate that this lab test actually had testing required
+      const hasTestedMaterials = labTest.testResults?.some(tr => tr.needTesting !== false);
+      if (!hasTestedMaterials) {
+        return res.status(400).json({
+          error: 'Cannot log chemical usage for this test. All materials were marked as "No Testing Required / Exempt".'
+        });
+      }
+
       const labItem = await prisma.labInventoryItem.findUnique({ where: { id: data.labItemId } });
       if (!labItem) return res.status(404).json({ error: 'Lab inventory item not found' });
       if (Number(labItem.currentStock) < data.quantityUsed) {
@@ -215,8 +229,17 @@ router.get('/usage',
         where,
         orderBy: { dateUsed: 'desc' },
         include: {
-          labItem: { select: { name: true, uom: true } },
+          labItem: { select: { name: true, uom: true, itemCategory: true } },
           user: { select: { name: true } },
+          labTest: {
+            include: {
+              grn: { select: { referenceNo: true } },
+              testResults: {
+                where: { needTesting: true },
+                select: { rmId: true, rmName: true, passed: true }
+              }
+            }
+          }
         },
       });
       res.json(usages);

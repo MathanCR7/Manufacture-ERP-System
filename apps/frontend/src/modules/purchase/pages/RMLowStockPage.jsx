@@ -1,18 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { AlertTriangle, Search, ChevronLeft } from 'lucide-react';
+import { AlertTriangle, Search, ChevronLeft, Clock, FileSpreadsheet } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SortSelect } from '@/components/ui/SortSelect';
 import { Pagination } from '@/components/ui/Pagination';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
+import RMHistoryDrawer from '@/modules/purchase/components/RMHistoryDrawer';
 
 export default function RMLowStockPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
   const fromNotifications = location.state?.from === '/notifications';
+
+  // History Drawer State
+  const [selectedMaterialId, setSelectedMaterialId] = useState(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -25,6 +32,38 @@ export default function RMLowStockPage() {
       return response.data;
     }
   });
+
+  const handleOpenHistory = (materialId) => {
+    setSelectedMaterialId(materialId);
+    setIsHistoryOpen(true);
+  };
+
+  const handleCloseHistory = () => {
+    setIsHistoryOpen(false);
+    setSelectedMaterialId(null);
+  };
+
+  const handleExportLowStockExcel = () => {
+    if (!sortedStock || sortedStock.length === 0) return;
+    const exportData = sortedStock.map((item, idx) => ({
+      'SN': idx + 1,
+      'Material Code': item.code,
+      'Material Name': item.name,
+      'Reorder Level': item.alertLevel,
+      'Available Quantity': item.availableQuantity,
+      'Unit': item.unit,
+      'Rate Per Unit (INR)': item.ratePerUnit,
+      'Total Value (INR)': item.value,
+      'Stock Shortfall': Math.max(0, item.alertLevel - item.availableQuantity),
+      'Deficit Status': 'CRITICAL LOW STOCK'
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Low Stock RM Alerts');
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(workbook, `RM_Low_Stock_Alerts_${dateStamp}.xlsx`);
+  };
 
   const [sortBy, setSortBy] = useState('name_asc');
   const sortOptions = [
@@ -87,11 +126,20 @@ export default function RMLowStockPage() {
             Low Stock Alerts
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Items that have reached or fallen below their reorder levels.
+            Items that have reached or fallen below their reorder levels. Click any item or &quot;History&quot; to inspect full lifecycle.
           </p>
         </div>
         
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportLowStockExcel}
+            className="flex items-center justify-center gap-1.5 text-emerald-700 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/80 h-9 rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-900/60 transition-colors shadow-xs"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Export Excel</span>
+          </Button>
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
@@ -123,18 +171,19 @@ export default function RMLowStockPage() {
                 <th className="px-4 py-2.5">Available Quantity</th>
                 <th className="px-4 py-2.5 text-right">Rate Per Unit</th>
                 <th className="px-4 py-2.5 text-right">Value (In INR)</th>
+                <th className="px-4 py-2.5 text-center w-28">History</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {isLoading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                     Loading stock data...
                   </td>
                 </tr>
               ) : paginatedStock.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
                     No items are currently in low stock.
                   </td>
                 </tr>
@@ -142,14 +191,18 @@ export default function RMLowStockPage() {
                 paginatedStock.map((item, idx) => {
                   const calculatedIndex = (currentPage - 1) * ITEMS_PER_PAGE + idx + 1;
                   return (
-                    <tr key={item.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none">
+                    <tr 
+                      key={item.id} 
+                      onClick={() => handleOpenHistory(item.id)}
+                      className="hover:bg-rose-50/40 dark:hover:bg-rose-950/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none cursor-pointer group"
+                    >
                       <td className="px-4 py-2.5 text-center text-slate-400 font-semibold">{calculatedIndex}</td>
                       <td className="px-4 py-2.5 font-mono font-bold text-slate-905 dark:text-white">
-                        <div className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] inline-block border dark:border-slate-750">
+                        <div className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] inline-block border dark:border-slate-750 group-hover:border-rose-300 dark:group-hover:border-rose-700 transition-colors">
                           {item.code}
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 font-semibold text-indigo-650 dark:text-indigo-400">{item.name}</td>
+                      <td className="px-4 py-2.5 font-semibold text-indigo-650 dark:text-indigo-400 group-hover:underline">{item.name}</td>
                       <td className="px-4 py-2.5">
                         <span className="font-bold text-slate-700 dark:text-slate-300">{item.alertLevel.toLocaleString()}</span>
                         <span className="text-[10px] text-slate-500 uppercase ml-1 font-semibold">{item.unit}</span>
@@ -169,6 +222,20 @@ export default function RMLowStockPage() {
                       <td className="px-4 py-2.5 text-right font-black text-slate-900 dark:text-white">
                         <span className="text-[10px] text-slate-400 mr-0.5">₹</span>
                         {item.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenHistory(item.id);
+                          }}
+                          title="View Material Lifecycle & Audit History"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer shadow-xs"
+                        >
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>History</span>
+                        </button>
                       </td>
                     </tr>
                   );
@@ -199,6 +266,13 @@ export default function RMLowStockPage() {
           </div>
         )}
       </div>
+
+      {/* RM History Drawer */}
+      <RMHistoryDrawer
+        materialId={selectedMaterialId}
+        isOpen={isHistoryOpen}
+        onClose={handleCloseHistory}
+      />
     </div>
   );
 }

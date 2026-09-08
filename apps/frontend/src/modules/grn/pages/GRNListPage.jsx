@@ -49,7 +49,7 @@ function GRNQRModal({ grn, onClose }) {
     labDecision: labTest?.overallDecision,
     labNotes: labTest?.labNotes,
     labCategoryParams: labTest?.categoryParams,
-    inventoryStatus: grn.inventoryStatus,
+    inventoryStatus: (grn.status === 'LAB_APPROVED' || grn.inventoryStatus === 'UPLOADED') ? 'UPLOADED' : (grn.inventoryStatus || 'NOT_UPLOADED'),
     generatedAt: new Date().toISOString(),
   });
 
@@ -141,7 +141,11 @@ const GRNListPage = () => {
 
   const filtered = grns.filter(g => {
     if (filterLabStatus && g.status !== filterLabStatus) return false;
-    if (filterInvStatus && g.inventoryStatus !== filterInvStatus) return false;
+    if (filterInvStatus) {
+      const isUploaded = g.inventoryStatus === 'UPLOADED' || g.status === 'LAB_APPROVED';
+      const effectiveInv = isUploaded ? 'UPLOADED' : (g.inventoryStatus || 'NOT_UPLOADED');
+      if (effectiveInv !== filterInvStatus) return false;
+    }
     if (fromDate && new Date(g.receivedDate) < fromDate) return false;
     if (toDate && new Date(g.receivedDate) > toDate) return false;
     if (search) {
@@ -328,7 +332,9 @@ const GRNListPage = () => {
                 {paginatedGRNs.map(grn => {
                   const labCfg = LAB_STATUS_CONFIG[grn.status] || LAB_STATUS_CONFIG.PENDING_LAB;
                   const LabIcon = labCfg.icon;
-                  const invCfg = INV_STATUS_CONFIG[grn.inventoryStatus || 'NOT_UPLOADED'];
+                  const isUploaded = grn.inventoryStatus === 'UPLOADED' || grn.status === 'LAB_APPROVED';
+                  const invStatus = isUploaded ? 'UPLOADED' : (grn.inventoryStatus || 'NOT_UPLOADED');
+                  const invCfg = INV_STATUS_CONFIG[invStatus];
                   const isRejected = grn.status === 'LAB_REJECTED';
 
                   return (

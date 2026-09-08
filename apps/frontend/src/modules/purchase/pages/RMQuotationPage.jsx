@@ -852,14 +852,19 @@ export default function RMQuotationPage() {
 
       {/* CREATE RM QUOTATION SLIDE-OVER PANEL / DRAWER */}
       {showCreatePanel && (
-        <div 
-          className="fixed inset-0 z-50 bg-slate-950/30 backdrop-blur-[2px] flex justify-end animate-in fade-in duration-200"
-          onClick={() => setShowCreatePanel(false)}
-        >
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          {/* Backdrop */}
           <div 
-            className="w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl bg-white dark:bg-slate-900 h-full max-h-screen border-l border-slate-200/80 dark:border-slate-800/80 shadow-[-20px_0_50px_rgba(0,0,0,0.35)] flex flex-col justify-between animate-in slide-in-from-right duration-300 ease-out"
-            onClick={(e) => e.stopPropagation()}
-          >
+            className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+            onClick={() => setShowCreatePanel(false)}
+          />
+
+          {/* Drawer Container */}
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10 pointer-events-none">
+            <div 
+              className="pointer-events-auto w-screen max-w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl bg-white dark:bg-slate-900 shadow-2xl border-l border-slate-200 dark:border-slate-800 flex flex-col h-full transition-all duration-300 ease-out animate-in slide-in-from-right duration-300"
+              onClick={(e) => e.stopPropagation()}
+            >
             
             {/* 1. FIXED PANEL HEADER (ALWAYS VISIBLE AT TOP) */}
             <div className="shrink-0 bg-gradient-to-r from-purple-700 via-indigo-600 to-violet-700 p-4 sm:p-6 text-white relative overflow-hidden shadow-md z-20">
@@ -1088,6 +1093,7 @@ export default function RMQuotationPage() {
 
           </div>
         </div>
+      </div>
       )}
 
       {/* QUICK ADD SUPPLIER MODAL */}
