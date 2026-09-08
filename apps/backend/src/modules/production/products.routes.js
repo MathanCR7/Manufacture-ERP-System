@@ -242,6 +242,353 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
   }
 });
 
+// GET /api/products/stock/:productId/history - Comprehensive product stock history & stock ledger audit trail
+router.get('/stock/:productId/history', authenticateToken, async (req, res, next) => {
+  try {
+    const { productId } = req.params;
+
+    const product = await prisma.finishedProduct.findFirst({
+      where: {
+        OR: [
+          { id: productId },
+          { code: productId }
+        ],
+        deletedAt: null
+      },
+      include: {
+        category: true,
+        unit: true,
+        creator: { select: { id: true, name: true, email: true, role: true } },
+        stockLevels: true,
+        bom: {
+          include: {
+            rawMaterial: {
+              include: { uoms: true }
+            }
+          }
+        },
+        nonInventoryCosts: {
+          include: { item: true }
+        },
+        stages: {
+          include: { stage: true }
+        }
+      }
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: 'Finished Product not found' });
+    }
+
+    // 1. Stock Movements (Chronological for Running Balance)
+    const rawMovements = await prisma.productStockMovement.findMany({
+      where: { productId: product.id },
+      include: {
+        batch: {
+          include: {
+            qcTests: true
+          }
+        },
+        order: {
+          include: {
+            customer: true
+          }
+        },
+        creator: {
+          select: { id: true, name: true, email: true, role: true }
+        }
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+
+    let currentBalance = Number(product.openingStock || 0);
+    const chronologicalMovements = rawMovements.map(m => {
+      const change = (m.direction || 1) * Number(m.quantity || 0);
+      currentBalance += change;
+      return {
+        id: m.id,
+        type: m.type,
+        direction: m.direction,
+        quantity: Number(m.quantity || 0),
+        balanceAfter: currentBalance,
+        referenceNo: m.batch?.batchNo || m.batch?.referenceNo || m.order?.referenceNo || 'MANUAL',
+        batchId: m.batchId,
+        orderId: m.orderId,
+        batchNo: m.batch?.batchNo || m.batch?.referenceNo || null,
+        orderNo: m.order?.referenceNo || null,
+        note: m.note || '',
+        actorName: m.creator?.name || 'System User',
+        actorRole: m.creator?.role || 'OPERATOR',
+        createdAt: m.createdAt
+      };
+    });
+
+    // Reversed for latest first display in ledger table
+    const ledgerMovements = [...chronologicalMovements].reverse();
+
+    // 2. Production Inflow Batches
+    const batches = await prisma.productionBatchNew.findMany({
+      where: { productId: product.id },
+      include: {
+        creator: { select: { name: true } },
+        qcTests: {
+          include: {
+            tester: { select: { name: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedBatches = batches.map(b => {
+      const planned = Number(b.plannedQuantity || 0);
+      const actual = Number(b.actualOutput || 0);
+      const yieldPct = planned > 0 ? ((actual / planned) * 100).toFixed(1) : '100';
+      const latestQc = b.qcTests && b.qcTests.length > 0 ? b.qcTests[b.qcTests.length - 1] : null;
+      return {
+        id: b.id,
+        batchNo: b.batchNo || b.referenceNo || 'N/A',
+        referenceNo: b.referenceNo || 'N/A',
+        plannedQuantity: planned,
+        actualOutput: actual,
+        unit: product.unit?.abbreviation || 'pcs',
+        yieldPercent: yieldPct,
+        unitCost: Number(b.unitCost || 0),
+        totalCost: Number(b.totalCost || 0),
+        status: b.status,
+        stage: b.stage,
+        startDate: b.startDate,
+        endDate: b.endDate,
+        qcStatus: latestQc ? (latestQc.action === 'approved' ? 'APPROVED' : (latestQc.action === 'rejected' ? 'REJECTED' : 'PENDING')) : 'NOT_TESTED',
+        qcResult: latestQc?.result || 'N/A',
+        qcTester: latestQc?.tester?.name || 'Lab Staff',
+        supervisorName: b.supervisor?.name || b.creator?.name || 'Supervisor',
+        createdAt: b.createdAt
+      };
+    });
+
+    // 3. Customer Orders & Allocations
+    const orderItems = await prisma.customerOrderItem.findMany({
+      where: { productId: product.id },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            creator: { select: { name: true } }
+          }
+        }
+      },
+      orderBy: { order: { deliveryDate: 'desc' } }
+    });
+
+    const formattedOrders = orderItems.map(item => ({
+      id: item.id,
+      orderId: item.order?.id,
+      referenceNo: item.order?.referenceNo || 'N/A',
+      customerName: item.order?.customer?.name || 'N/A',
+      customerContact: item.order?.customer?.phone || item.order?.customer?.email || 'N/A',
+      orderDate: item.order?.createdAt,
+      deliveryDate: item.deliveryDate || item.order?.deliveryDate,
+      orderedQty: Number(item.quantity || 0),
+      unitPrice: Number(item.unitPrice || 0),
+      subtotal: Number(item.subtotal || 0),
+      profit: Number(item.profit || 0),
+      unit: product.unit?.abbreviation || 'pcs',
+      status: item.order?.status || 'Quotation',
+      orderType: item.order?.type
+    }));
+
+    // 4. Product Wastage Records
+    const wastages = await prisma.productWastage.findMany({
+      where: { productId: product.id },
+      include: {
+        creator: { select: { name: true, role: true } }
+      },
+      orderBy: { date: 'desc' }
+    });
+
+    const formattedWastages = wastages.map(w => ({
+      id: w.id,
+      referenceNo: w.referenceNo || 'N/A',
+      date: w.date,
+      quantity: Number(w.quantity || 0),
+      unit: product.unit?.abbreviation || 'pcs',
+      lossAmount: Number(w.quantity || 0) * Number(product.salePrice || 0),
+      note: w.note || 'No notes provided',
+      createdBy: w.creator?.name || 'Supervisor'
+    }));
+
+    // 5. Customer Sales Returns
+    const returnItems = await prisma.salesReturnItem.findMany({
+      where: { productId: product.id },
+      include: {
+        return: {
+          include: {
+            order: {
+              include: {
+                customer: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { return: { createdAt: 'desc' } }
+    });
+
+    const formattedReturns = returnItems.map(ri => ({
+      id: ri.id,
+      returnId: ri.return?.id,
+      referenceNo: ri.return?.returnNo || 'N/A',
+      returnDate: ri.return?.createdAt,
+      customerName: ri.return?.order?.customer?.name || 'N/A',
+      quantity: Number(ri.quantity || 0),
+      unit: product.unit?.abbreviation || 'pcs',
+      reason: ri.return?.reason || 'Customer Return',
+      status: ri.return?.status || 'PENDING',
+      action: 'RESTOCK'
+    }));
+
+    // 6. Bill of Materials (BoM Ingredients)
+    const formattedBOM = (product.bom || []).map(b => ({
+      id: b.id,
+      rmId: b.rmId,
+      rmName: b.rawMaterial?.name || 'Raw Material',
+      rmCode: b.rawMaterial?.code || 'RM',
+      rmUnit: b.rawMaterial?.unitId || 'kg',
+      currentStock: Number(b.rawMaterial?.currentStock || 0),
+      consumptionPerUnit: Number(b.consumptionPerUnit || 0),
+      unitPrice: Number(b.unitPrice || 0),
+      totalCost: Number(b.totalCost || 0)
+    }));
+
+    // 7. Unified Chronological Timeline
+    const timelineEvents = [];
+
+    chronologicalMovements.forEach(m => {
+      const isAdd = m.direction === 1;
+      const isProd = m.type === 'production_in';
+      const isSales = m.type === 'order_allocation';
+
+      timelineEvents.push({
+        id: `mov-${m.id}`,
+        type: isProd ? 'PRODUCTION_INFLOW' : (isSales ? 'SALES_ALLOCATION' : 'STOCK_MOVEMENT'),
+        title: isProd ? `Finished Product Produced: +${m.quantity} ${product.unit?.abbreviation || 'pcs'}` : (isSales ? `Stock Allocated to Order: -${m.quantity} ${product.unit?.abbreviation || 'pcs'}` : `Stock Movement: ${isAdd ? '+' : '-'}${m.quantity} ${product.unit?.abbreviation || 'pcs'}`),
+        subtitle: m.note || `Ref: ${m.referenceNo}`,
+        timestamp: m.createdAt,
+        status: m.type.replace(/_/g, ' ').toUpperCase(),
+        badgeColor: isAdd ? 'emerald' : 'rose',
+        user: m.actorName,
+        metadata: {
+          batchId: m.batchId,
+          orderId: m.orderId,
+          referenceNo: m.referenceNo,
+          quantity: m.quantity,
+          direction: m.direction,
+          balanceAfter: m.balanceAfter
+        }
+      });
+    });
+
+    formattedWastages.forEach(w => {
+      timelineEvents.push({
+        id: `waste-${w.id}`,
+        type: 'PRODUCT_WASTAGE',
+        title: `Product Wastage Discarded: -${w.quantity} ${w.unit}`,
+        subtitle: `Ref: ${w.referenceNo} • Loss: ₹${w.lossAmount.toLocaleString('en-IN')}`,
+        timestamp: w.date,
+        status: 'WASTED',
+        badgeColor: 'rose',
+        user: w.createdBy,
+        metadata: {
+          referenceNo: w.referenceNo,
+          quantity: w.quantity,
+          lossAmount: w.lossAmount,
+          note: w.note
+        }
+      });
+    });
+
+    formattedReturns.forEach(r => {
+      timelineEvents.push({
+        id: `return-${r.id}`,
+        type: 'SALES_RETURN',
+        title: `Customer Return Received: +${r.quantity} ${r.unit}`,
+        subtitle: `Customer: ${r.customerName} • Ref: ${r.referenceNo}`,
+        timestamp: r.returnDate,
+        status: r.status,
+        badgeColor: 'teal',
+        user: 'Sales Desk',
+        metadata: {
+          returnId: r.returnId,
+          referenceNo: r.referenceNo,
+          quantity: r.quantity,
+          reason: r.reason
+        }
+      });
+    });
+
+    timelineEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // 8. Aggregate Metrics
+    const stockLevel = product.stockLevels?.[0] || null;
+    const minLevel = stockLevel?.minLevel !== undefined ? Number(stockLevel.minLevel) : Number(product.alertLevel || 0) * 0.5;
+    const maxLevel = stockLevel?.maxLevel !== undefined ? Number(stockLevel.maxLevel) : 0;
+    const reorderPoint = stockLevel?.reorderPoint !== undefined ? Number(stockLevel.reorderPoint) : Number(product.alertLevel || 0);
+
+    const totalProducedIn = chronologicalMovements.filter(m => m.direction === 1).reduce((sum, m) => sum + m.quantity, 0);
+    const totalAllocatedOut = chronologicalMovements.filter(m => m.direction === -1).reduce((sum, m) => sum + m.quantity, 0);
+    const totalWasted = formattedWastages.reduce((sum, w) => sum + w.quantity, 0);
+    const totalWastedLoss = formattedWastages.reduce((sum, w) => sum + w.lossAmount, 0);
+
+    let stockHealth = 'OPTIMAL';
+    if (currentBalance <= minLevel && minLevel > 0) {
+      stockHealth = 'CRITICAL';
+    } else if (currentBalance <= reorderPoint && reorderPoint > 0) {
+      stockHealth = 'LOW';
+    }
+
+    res.json({
+      product: {
+        id: product.id,
+        code: product.code,
+        name: product.name,
+        category: product.category?.name || 'N/A',
+        unit: product.unit?.abbreviation || product.unit?.name || 'pcs',
+        salePrice: Number(product.salePrice || 0),
+        openingStock: Number(product.openingStock || 0),
+        currentStock: currentBalance,
+        minLevel,
+        maxLevel,
+        reorderPoint,
+        stockHealth,
+        totalValue: currentBalance * Number(product.salePrice || 0),
+        imageUrl: product.imageUrl,
+        createdAt: product.createdAt
+      },
+      metrics: {
+        currentStock: currentBalance,
+        totalGoodsValue: currentBalance * Number(product.salePrice || 0),
+        totalProducedIn,
+        totalAllocatedOut,
+        totalWasted,
+        totalWastedLoss,
+        completedBatchesCount: formattedBatches.filter(b => b.status === 'COMPLETED').length,
+        pendingBatchesCount: formattedBatches.filter(b => b.status !== 'COMPLETED').length,
+        totalOrdersCount: formattedOrders.length
+      },
+      ledger: ledgerMovements,
+      batches: formattedBatches,
+      orders: formattedOrders,
+      bom: formattedBOM,
+      wastages: formattedWastages,
+      returns: formattedReturns,
+      timeline: timelineEvents
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/products/low-stock - Products below min stock
 router.get('/low-stock', authenticateToken, async (req, res, next) => {
   try {

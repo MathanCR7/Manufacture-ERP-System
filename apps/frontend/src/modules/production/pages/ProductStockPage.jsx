@@ -4,6 +4,7 @@ import { Package, Search, AlertTriangle, ArrowRight, RefreshCw, Layers, DollarSi
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/Pagination';
+import ProductHistoryDrawer from '@/modules/production/components/ProductHistoryDrawer';
 
 export default function ProductStockPage() {
   const [stock, setStock] = useState([]);
@@ -12,6 +13,8 @@ export default function ProductStockPage() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [movements, setMovements] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [selectedProductForHistory, setSelectedProductForHistory] = useState(null);
+  const [showProductDrawer, setShowProductDrawer] = useState(false);
 
   // Pagination State for Main Table
   const [currentPage, setCurrentPage] = useState(1);
@@ -173,16 +176,17 @@ export default function ProductStockPage() {
                 <th className="px-4 py-3 text-right">Min Level</th>
                 <th className="px-4 py-3 text-right">Unit Value</th>
                 <th className="px-4 py-3 text-right">Total Value</th>
+                <th className="px-4 py-3 text-center">History & Audit</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">Loading stock details...</td>
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-400">Loading stock details...</td>
                 </tr>
               ) : paginatedStock.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-400">No products found.</td>
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-400">No products found.</td>
                 </tr>
               ) : (
                 paginatedStock.map(item => (
@@ -191,7 +195,16 @@ export default function ProductStockPage() {
                       {item.code}
                     </td>
                     <td className="px-4 py-3 font-semibold text-indigo-650 dark:text-indigo-400">
-                      {item.name}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedProductForHistory(item);
+                          setShowProductDrawer(true);
+                        }}
+                        className="text-left hover:underline cursor-pointer font-bold"
+                      >
+                        {item.name}
+                      </button>
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-0.5 text-[9px] font-bold rounded-lg ${
@@ -207,10 +220,10 @@ export default function ProductStockPage() {
                     <td className="px-4 py-3 text-right font-bold text-slate-950 dark:text-white">
                       {item.currentStock} <span className="text-[10px] font-normal text-slate-400">{item.unit}</span>
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-450">
+                    <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-455">
                       {item.reorderPoint}
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-450">
+                    <td className="px-4 py-3 text-right text-slate-500 dark:text-slate-455">
                       {item.minLevel}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-slate-900 dark:text-white">
@@ -218,6 +231,20 @@ export default function ProductStockPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-white font-mono">
                       ₹{Number(item.totalValue).toLocaleString('en-IN')}
+                    </td>
+                    <td className="px-4 py-3 text-center whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedProductForHistory(item);
+                          setShowProductDrawer(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-900 transition-all cursor-pointer shadow-2xs hover:shadow-xs"
+                        title={`View complete stock ledger audit trail and history for ${item.name}`}
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        <span>History</span>
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -349,6 +376,16 @@ export default function ProductStockPage() {
           </div>
         </div>
       )}
+
+      {/* Per-Product Finished Goods History & Stock Ledger Drawer */}
+      <ProductHistoryDrawer
+        productId={selectedProductForHistory?.id}
+        isOpen={showProductDrawer}
+        onClose={() => {
+          setShowProductDrawer(false);
+          setSelectedProductForHistory(null);
+        }}
+      />
     </div>
   );
 }
