@@ -850,114 +850,131 @@ export default function RMQuotationPage() {
         )}
       </div>
 
-      {/* CREATE RM QUOTATION SLIDE-OVER PANEL / MODAL */}
+      {/* CREATE RM QUOTATION SLIDE-OVER PANEL / DRAWER */}
       {showCreatePanel && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex justify-end animate-in fade-in duration-200">
-          <div className="w-full max-w-3xl bg-white dark:bg-slate-900 h-full overflow-y-auto border-l border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col justify-between">
+        <div 
+          className="fixed inset-0 z-50 bg-slate-950/30 backdrop-blur-[2px] flex justify-end animate-in fade-in duration-200"
+          onClick={() => setShowCreatePanel(false)}
+        >
+          <div 
+            className="w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl bg-white dark:bg-slate-900 h-full max-h-screen border-l border-slate-200/80 dark:border-slate-800/80 shadow-[-20px_0_50px_rgba(0,0,0,0.35)] flex flex-col justify-between animate-in slide-in-from-right duration-300 ease-out"
+            onClick={(e) => e.stopPropagation()}
+          >
             
-            {/* PANEL HEADER WITH PURPLE-PINK GRADIENT */}
-            <div>
-              <div className="bg-gradient-to-r from-purple-700 via-indigo-700 to-violet-700 p-6 text-white relative">
-                <button
-                  type="button"
-                  onClick={() => setShowCreatePanel(false)}
-                  className="absolute top-5 right-5 p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-2xl bg-white/10 border border-white/20">
-                    <FileText className="w-6 h-6" />
-                  </div>
+            {/* 1. FIXED PANEL HEADER (ALWAYS VISIBLE AT TOP) */}
+            <div className="shrink-0 bg-gradient-to-r from-purple-700 via-indigo-600 to-violet-700 p-4 sm:p-6 text-white relative overflow-hidden shadow-md z-20">
+              <div className="absolute -right-10 -top-10 w-36 h-36 bg-white/10 rounded-full blur-2xl pointer-events-none"></div>
+              <div className="absolute right-20 -bottom-10 w-28 h-28 bg-pink-500/20 rounded-full blur-xl pointer-events-none"></div>
+              
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowCreatePanel(false);
+                }}
+                className="absolute top-4 sm:top-5 right-4 sm:right-5 p-2.5 rounded-xl bg-white/10 hover:bg-white/20 active:bg-white/30 text-white transition-all active:scale-95 cursor-pointer z-30 pointer-events-auto shadow-sm"
+                title="Close panel"
+                aria-label="Close panel"
+              >
+                <X className="w-5 h-5 pointer-events-none" />
+              </button>
+              <div className="flex items-center gap-3 sm:gap-3.5 relative z-10 pr-14">
+                <div className="p-2.5 sm:p-3 rounded-2xl bg-white/15 border border-white/25 shadow-inner shrink-0">
+                  <FileText className="w-5 h-5 sm:w-6 sm:h-6 text-white drop-shadow-sm" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-lg sm:text-xl font-black tracking-tight truncate">Create RM Quotation Request</h2>
+                  <p className="text-[11px] sm:text-xs text-purple-200/90 font-medium mt-0.5 truncate sm:whitespace-normal">
+                    Send pricing requests to multiple suppliers via secure link
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. SCROLLABLE FORM BODY (SCROLLS SMOOTHLY BETWEEN HEADER & FOOTER) */}
+            <form id="createQuoteForm" onSubmit={handleSendQuotationRequest} className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 sm:space-y-6">
+              
+              {/* SECTION A: GENERAL DETAILS */}
+              <div className="bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xs">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+                  <Building2 className="w-4 h-4" />
+                  <span>General Details</span>
+                </h3>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <h2 className="text-xl font-extrabold tracking-tight">Create RM Quotation Request</h2>
-                    <p className="text-xs text-purple-200 mt-0.5">Send pricing requests to multiple suppliers via secure link</p>
+                    <Label className="text-xs text-slate-500 dark:text-slate-400">Quotation Date</Label>
+                    <Input
+                      type="date"
+                      value={quotationDate}
+                      onChange={e => setQuotationDate(e.target.value)}
+                      className="mt-1 font-mono text-xs rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <Label className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Expiry Date & Time* (Deadline)</Label>
+                    <div className="grid grid-cols-2 gap-2 mt-1">
+                      <Input
+                        type="date"
+                        value={expiryDate}
+                        onChange={e => setExpiryDate(e.target.value)}
+                        className="font-mono text-xs rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                        required
+                      />
+                      <Input
+                        type="time"
+                        value={expiryTime}
+                        onChange={e => setExpiryTime(e.target.value)}
+                        className="font-mono text-xs rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                        required
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Multi-Select Suppliers */}
+                <div>
+                  <Label className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Select Suppliers* (Multi-Select)</Label>
+                  <div className="mt-1">
+                    <MultiSupplierSelect
+                      suppliers={suppliers}
+                      selectedIds={selectedSupplierIds}
+                      onChange={setSelectedSupplierIds}
+                      onAddNew={() => setShowAddSupplierModal(true)}
+                    />
                   </div>
                 </div>
               </div>
 
-              {/* PANEL BODY FORM */}
-              <form id="createQuoteForm" onSubmit={handleSendQuotationRequest} className="p-6 space-y-6">
-                
-                {/* 1. GENERAL DETAILS SECTION */}
-                <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-                    <Building2 className="w-4 h-4" />
-                    <span>General Details</span>
-                  </h3>
+              {/* SECTION B: SELECT RAW MATERIAL TO ADD */}
+              <div className="bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xs">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+                  <Package className="w-4 h-4" />
+                  <span>Select Raw Material to Add</span>
+                </h3>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-xs text-slate-500 dark:text-slate-400">Quotation Date</Label>
-                      <Input
-                        type="date"
-                        value={quotationDate}
-                        onChange={e => setQuotationDate(e.target.value)}
-                        className="mt-1 font-mono text-xs rounded-2xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <Label className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Expiry Date & Time* (Deadline)</Label>
-                      <div className="grid grid-cols-2 gap-2 mt-1">
-                        <Input
-                          type="date"
-                          value={expiryDate}
-                          onChange={e => setExpiryDate(e.target.value)}
-                          className="font-mono text-xs rounded-2xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
-                          required
-                        />
-                        <Input
-                          type="time"
-                          value={expiryTime}
-                          onChange={e => setExpiryTime(e.target.value)}
-                          className="font-mono text-xs rounded-2xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
-                          required
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Multi-Select Suppliers */}
-                  <div>
-                    <Label className="text-xs text-indigo-600 dark:text-indigo-400 font-bold">Select Suppliers* (Multi-Select)</Label>
-                    <div className="mt-1">
-                      <MultiSupplierSelect
-                        suppliers={suppliers}
-                        selectedIds={selectedSupplierIds}
-                        onChange={setSelectedSupplierIds}
-                        onAddNew={() => setShowAddSupplierModal(true)}
-                      />
-                    </div>
-                  </div>
+                <div className="w-full">
+                  <RawMaterialSelect
+                    rawMaterials={rawMaterials}
+                    value={null}
+                    onChange={handleAddMaterialItem}
+                  />
                 </div>
 
-                {/* 2. SELECT RAW MATERIAL TO ADD SECTION */}
-                <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-                    <Package className="w-4 h-4" />
-                    <span>Select Raw Material to Add</span>
-                  </h3>
-
-                  <div className="w-full">
-                    <RawMaterialSelect
-                      rawMaterials={rawMaterials}
-                      value={null}
-                      onChange={handleAddMaterialItem}
-                    />
-                  </div>
-
-                  {/* Requested Items Table */}
-                  <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-inner">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100 dark:bg-slate-950 text-slate-400 uppercase font-semibold text-[10px]">
+                {/* Responsive Requested Items Table */}
+                <div className="border border-slate-200/80 dark:border-slate-800/80 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-inner">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[480px] sm:min-w-full text-left text-xs">
+                      <thead className="bg-slate-100/80 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
                         <tr>
                           <th className="px-3 py-2.5 w-10 text-center">#</th>
                           <th className="px-3 py-2.5">Material Details</th>
-                          <th className="px-3 py-2.5 w-28 text-center">Quantity</th>
-                          <th className="px-3 py-2.5 w-20">Unit</th>
-                          <th className="px-3 py-2.5 text-center w-28">GST Applicable</th>
+                          <th className="px-3 py-2.5 w-24 sm:w-28 text-center">Quantity</th>
+                          <th className="px-3 py-2.5 w-16 sm:w-20">Unit</th>
+                          <th className="px-3 py-2.5 text-center w-24 sm:w-28">GST Applicable</th>
                           <th className="px-3 py-2.5 text-center w-12">Action</th>
                         </tr>
                       </thead>
@@ -970,7 +987,7 @@ export default function RMQuotationPage() {
                           </tr>
                         ) : (
                           quotationItems.map((item, index) => (
-                            <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-850">
+                            <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-850/60 transition-colors">
                               <td className="px-3 py-2.5 text-center font-mono text-slate-400">{index + 1}</td>
                               <td className="px-3 py-2.5">
                                 <div className="font-bold text-slate-800 dark:text-slate-200">{item.materialName}</div>
@@ -983,7 +1000,7 @@ export default function RMQuotationPage() {
                                   step="0.01"
                                   value={item.quantity}
                                   onChange={e => updateItemQty(index, e.target.value)}
-                                  className="h-8 font-mono text-xs text-center rounded-xl bg-slate-50 dark:bg-slate-950 border-slate-300 dark:border-slate-700"
+                                  className="h-8 font-mono text-xs text-center rounded-lg bg-slate-50 dark:bg-slate-950 border-slate-300 dark:border-slate-700"
                                 />
                               </td>
                               <td className="px-3 py-2.5 font-bold text-slate-600 dark:text-slate-300">{item.unit}</td>
@@ -991,10 +1008,10 @@ export default function RMQuotationPage() {
                                 <button
                                   type="button"
                                   onClick={() => toggleItemGst(index)}
-                                  className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold border transition-all ${
+                                  className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold border transition-all cursor-pointer ${
                                     item.gstApplicable 
-                                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200' 
-                                      : 'bg-slate-100 text-slate-500 border-slate-200'
+                                      ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 shadow-xs' 
+                                      : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700'
                                   }`}
                                 >
                                   {item.gstApplicable ? 'Yes' : 'No'}
@@ -1004,7 +1021,8 @@ export default function RMQuotationPage() {
                                 <button
                                   type="button"
                                   onClick={() => removeItem(index)}
-                                  className="text-rose-400 hover:text-rose-600 p-1"
+                                  className="text-rose-400 hover:text-rose-600 p-1 transition-colors cursor-pointer"
+                                  title="Remove item"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -1016,30 +1034,34 @@ export default function RMQuotationPage() {
                     </table>
                   </div>
                 </div>
+              </div>
 
-                {/* 3. ADDITIONAL NOTE / INSTRUCTIONS */}
-                <div className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-2">
-                  <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                    Instructions visible to supplier (Optional)
-                  </Label>
-                  <textarea
-                    rows={3}
-                    value={instructionNote}
-                    onChange={e => setInstructionNote(e.target.value)}
-                    placeholder="Enter special instructions or requirements visible to selected suppliers..."
-                    className="w-full p-3 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-2xl text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </form>
-            </div>
+              {/* SECTION C: ADDITIONAL NOTE / INSTRUCTIONS */}
+              <div className="bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-2 shadow-xs">
+                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Instructions visible to supplier (Optional)
+                </Label>
+                <textarea
+                  rows={3}
+                  value={instructionNote}
+                  onChange={e => setInstructionNote(e.target.value)}
+                  placeholder="Enter special instructions or requirements visible to selected suppliers..."
+                  className="w-full p-3 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                />
+              </div>
+            </form>
 
-            {/* PANEL FOOTER ACTION */}
-            <div className="p-6 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/80 flex items-center justify-between">
+            {/* 3. FIXED PANEL FOOTER (ALWAYS VISIBLE AT BOTTOM) */}
+            <div className="shrink-0 p-4 sm:p-5 border-t border-slate-200/80 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex items-center justify-between gap-3 shadow-lg z-20">
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => setShowCreatePanel(false)}
-                className="rounded-2xl text-xs border-slate-300 dark:border-slate-700"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowCreatePanel(false);
+                }}
+                className="rounded-xl text-xs border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors h-10 px-4 cursor-pointer"
               >
                 Cancel
               </Button>
@@ -1048,7 +1070,7 @@ export default function RMQuotationPage() {
                 type="submit"
                 form="createQuoteForm"
                 disabled={createMutation.isPending}
-                className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-2xl px-6 h-11 shadow-lg shadow-indigo-600/25 transition-all flex items-center gap-2"
+                className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-xl px-5 sm:px-6 h-10 sm:h-11 shadow-lg shadow-indigo-600/25 transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center gap-2 cursor-pointer disabled:opacity-50"
               >
                 {createMutation.isPending ? (
                   <>
