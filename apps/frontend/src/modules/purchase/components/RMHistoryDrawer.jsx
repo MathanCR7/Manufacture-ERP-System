@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import * as XLSX from 'xlsx';
@@ -35,6 +36,7 @@ import {
 import { Button } from '@/components/ui/button';
 
 export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('timeline');
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -1021,16 +1023,31 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                                 {productionUsages.map((usage) => (
                                   <tr key={usage.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                    <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                      {usage.batchNumber}
+                                    <td className="p-3 font-mono font-bold">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (usage.batchId) {
+                                            navigate(`/production/batches?id=${usage.batchId}&from=rm_stock`);
+                                          }
+                                        }}
+                                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold transition-colors"
+                                        title="View batch in /production/batches"
+                                      >
+                                        <span>{usage.batchNumber}</span>
+                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                      </button>
                                     </td>
                                     <td className="p-3 font-semibold text-slate-900 dark:text-white">
-                                      {usage.productName}
+                                      <div className="font-bold">{usage.productName}</div>
+                                      {usage.batchReferenceNo && usage.batchNo && usage.batchNo !== usage.batchReferenceNo && (
+                                        <span className="text-[10px] text-slate-400 font-mono">Ref: {usage.batchReferenceNo}</span>
+                                      )}
                                     </td>
-                                    <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                    <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap font-medium">
                                       {formatShortDate(usage.date)}
                                     </td>
-                                    <td className="p-3 text-right text-slate-500">
+                                    <td className="p-3 text-right text-slate-500 font-medium">
                                       {usage.requiredQty?.toLocaleString()} {material?.unit}
                                     </td>
                                     <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
@@ -1039,7 +1056,7 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                                     <td className="p-3 text-right font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
                                       {formatCurrency(usage.unitCost)}
                                     </td>
-                                    <td className="p-3 text-right font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                                    <td className="p-3 text-right font-bold text-slate-900 dark:text-white whitespace-nowrap font-mono">
                                       {formatCurrency(usage.totalCost)}
                                     </td>
                                   </tr>

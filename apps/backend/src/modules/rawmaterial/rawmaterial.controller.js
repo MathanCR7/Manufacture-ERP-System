@@ -1202,25 +1202,40 @@ exports.getMaterialHistory = async (req, res, next) => {
     const usages = await prisma.productionBatchRMUsage.findMany({
       where: { rmId: rm.id },
       include: {
-        batch: true
+        batch: {
+          include: {
+            product: true
+          }
+        }
       },
       orderBy: { batch: { createdAt: 'desc' } }
     });
 
-    const formattedUsages = usages.map(u => ({
-      id: u.id,
-      batchId: u.batchId,
-      batchNumber: u.batch?.batchNumber || 'N/A',
-      productName: u.batch?.productName || 'Finished Product',
-      batchStatus: u.batch?.status || 'COMPLETED',
-      requiredQty: Number(u.requiredQty || 0),
-      availableQtyAtTime: Number(u.availableQtyAtTime || 0),
-      actualUsedQty: Number(u.actualUsedQty || 0),
-      unitCost: Number(u.unitCost || 0),
-      totalCost: Number(u.totalCost || 0),
-      usageStatus: u.status,
-      date: u.batch?.startDate || u.batch?.createdAt || new Date()
-    }));
+    const formattedUsages = usages.map(u => {
+      const batchNoStr = u.batch?.batchNo || u.batch?.referenceNo || 'N/A';
+      const prodNameStr = u.batch?.product?.name 
+        ? `${u.batch.product.name}${u.batch.product.code ? ` (${u.batch.product.code})` : ''}` 
+        : 'Finished Product';
+
+      return {
+        id: u.id,
+        batchId: u.batchId,
+        batchNumber: batchNoStr,
+        batchReferenceNo: u.batch?.referenceNo || 'N/A',
+        batchNo: u.batch?.batchNo || null,
+        productName: prodNameStr,
+        productOnlyName: u.batch?.product?.name || 'Finished Product',
+        productCode: u.batch?.product?.code || '',
+        batchStatus: u.batch?.status || 'COMPLETED',
+        requiredQty: Number(u.requiredQty || 0),
+        availableQtyAtTime: Number(u.availableQtyAtTime || 0),
+        actualUsedQty: Number(u.actualUsedQty || 0),
+        unitCost: Number(u.unitCost || 0),
+        totalCost: Number(u.totalCost || 0),
+        usageStatus: u.status,
+        date: u.batch?.startDate || u.batch?.createdAt || new Date()
+      };
+    });
 
     // 8. Fetch Purchase Returns
     const poIds = formattedPurchases.map(p => p.id);
