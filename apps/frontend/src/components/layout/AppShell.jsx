@@ -822,11 +822,12 @@ const AppShell = () => {
   // Fetch badge stats every 15s
   useEffect(() => {
     const fetchBadges = async () => {
-      if (!token || !user) return;
+      if (!token || !user || !useAuthStore.getState().token) return;
 
       // 1. Low Stock Stats (Product)
       if (['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'].includes(user.role)) {
         try {
+          if (!useAuthStore.getState().token) return;
           const lowRes = await api.get('/products/low-stock');
           const products = lowRes.data || [];
           setLowStockCount(products.length);
@@ -864,6 +865,7 @@ const AppShell = () => {
             }
           }
         } catch (e) {
+          if (e?.response?.status === 401 || e?.response?.status === 403) return;
           console.error('Failed to fetch low stock count badge', e);
         }
       }
@@ -871,6 +873,7 @@ const AppShell = () => {
       // 1b. RM Low Stock Stats
       if (['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'].includes(user.role)) {
         try {
+          if (!useAuthStore.getState().token) return;
           const rmStockRes = await api.get('/rm-stock');
           const rawMaterials = rmStockRes.data || [];
           const rmLowStockItems = rawMaterials.filter(item => Number(item.availableQuantity || 0) <= Number(item.alertLevel || 0));
@@ -909,6 +912,7 @@ const AppShell = () => {
             }
           }
         } catch (e) {
+          if (e?.response?.status === 401 || e?.response?.status === 403) return;
           console.error('Failed to fetch RM low stock count badge', e);
         }
       }
@@ -916,9 +920,11 @@ const AppShell = () => {
       // 2. QC Queue Stats
       if (['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'PRODUCTION_STAFF'].includes(user.role)) {
         try {
+          if (!useAuthStore.getState().token) return;
           const qcRes = await api.get('/production/qc-queue');
           setQcPendingCount(qcRes.data?.length || 0);
         } catch (e) {
+          if (e?.response?.status === 401 || e?.response?.status === 403) return;
           console.error('Failed to fetch QC queue badge', e);
         }
       }
@@ -926,6 +932,7 @@ const AppShell = () => {
       // 3. Pending Lab Tests & Toast Alerts
       if (['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER'].includes(user.role)) {
         try {
+          if (!useAuthStore.getState().token) return;
           const labRes = await api.get('/grn/lab-tests');
           const pendingTests = labRes.data || [];
           setPendingRmLabCount(pendingTests.length);
@@ -963,6 +970,7 @@ const AppShell = () => {
             }
           }
         } catch (e) {
+          if (e?.response?.status === 401 || e?.response?.status === 403) return;
           console.error('Failed to fetch pending lab tests badge/toast', e);
         }
       }
@@ -970,6 +978,7 @@ const AppShell = () => {
       // 4. Upcoming Deliveries & Toast Alerts
       if (['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'].includes(user.role)) {
         try {
+          if (!useAuthStore.getState().token) return;
           const upRes = await api.get('/grn/upcoming');
           const awaitingPOs = upRes.data.filter(d => !d.hasGrn);
           
@@ -1008,6 +1017,7 @@ const AppShell = () => {
             }
           }
         } catch (e) {
+          if (e?.response?.status === 401 || e?.response?.status === 403) return;
           console.error('Failed to fetch upcoming deliveries badge/toast', e);
         }
       }
@@ -1015,6 +1025,7 @@ const AppShell = () => {
       // 5. In Progress Production Batches
       if (['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'].includes(user.role)) {
         try {
+          if (!useAuthStore.getState().token) return;
           const batchRes = await api.get('/production', { params: { status: 'In Progress' } });
           const activeBatches = batchRes.data?.batches || [];
           setInProgressBatchesCount(activeBatches.length);
@@ -1041,16 +1052,16 @@ const AppShell = () => {
                 borderColorClass: 'border-amber-100 dark:border-amber-900/40',
                 progressBarColorClass: 'bg-amber-500',
                 buttonColorClass: 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400',
-                redirectPath: '/production/batches',
-                delayMs: 1000
+                redirectPath: '/production/active-batches',
+                delayMs: 3000
               });
 
               localStorage.setItem(`last_toast_time_production_${user.id}`, String(now));
-              // Mark all currently fetched active batches as toasted
-              activeBatches.forEach(b => toastedInProgressRef.current.add(b.referenceNo));
+              toastedInProgressRef.current.add(mostRecent.referenceNo);
             }
           }
         } catch (e) {
+          if (e?.response?.status === 401 || e?.response?.status === 403) return;
           console.error('Failed to fetch in progress batches count', e);
         }
       }

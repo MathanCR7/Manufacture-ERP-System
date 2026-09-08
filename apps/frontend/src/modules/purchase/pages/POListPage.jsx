@@ -176,7 +176,6 @@ export default function POListPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [paymentFilter, setPaymentFilter] = useState('ALL');
-  const [view, setView] = useState({ type: 'list', id: null });
   const [sortBy, setSortBy] = useState('recent');
   
   // Pagination State
@@ -267,7 +266,7 @@ export default function POListPage() {
         </div>
         {['MAIN_MASTER', 'PURCHASE_ACCOUNTANT'].includes(user?.role) && (
           <Button
-            onClick={() => setView({ type: 'create', id: null })}
+            onClick={() => navigate('/purchase-orders/create')}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl text-xs font-semibold h-9 px-4 bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-slate-200 transition-all active:scale-[0.98] shadow-xs select-none cursor-pointer"
           >
             <Plus className="w-4.5 h-4.5 text-white dark:text-slate-900" />
@@ -517,7 +516,7 @@ export default function POListPage() {
                         {po.status === 'PENDING' && ['MAIN_MASTER', 'PURCHASE_ACCOUNTANT'].includes(user?.role) && (
                           <Button
                             variant="ghost" size="icon"
-                            onClick={() => setView({ type: 'edit', id: po.id })}
+                            onClick={() => navigate(`/purchase-orders/edit/${po.id}`)}
                             className="h-8 w-8 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                             title="Edit"
                           >
