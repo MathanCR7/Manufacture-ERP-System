@@ -84,7 +84,6 @@
     @apply bg-background text-foreground;
   }
   html {
-    font-size: 14px;
     @apply font-sans;
   }
 }
