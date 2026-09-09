@@ -286,25 +286,25 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6 bg-[#F4F3FF] dark:bg-slate-950 -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen">
+    <div className="space-y-5 bg-[#F4F3FF] dark:bg-slate-950 -m-3 sm:-m-4 lg:-m-6 p-3 sm:p-4 lg:p-6 min-h-screen">
       
       {/* ----------------------------------------------------
           SECTION 1: KPI SUMMARY ROW (Polling 60s)
          ---------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 2xl:grid-cols-7 gap-3 sm:gap-3.5">
         {/* Active Productions */}
         <div 
           onClick={() => navigate('/production/batches?from=dashboard')}
-          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 rounded-xl group-hover:bg-violet-100 dark:group-hover:bg-violet-900/40 transition-colors">
+            <div className="p-2 sm:p-2.5 bg-violet-50 dark:bg-violet-950/30 text-violet-600 dark:text-violet-400 rounded-xl group-hover:bg-violet-100 dark:group-hover:bg-violet-900/40 transition-colors">
               <Factory className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("+2 new")}
           </div>
-          <div className="mt-2 sm:mt-4">
-            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Active Productions</p>
+          <div className="mt-2 sm:mt-3">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider truncate">Active Productions</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
               {renderKpiValue(kpiQuery, 'activeProductions')}
             </h3>
@@ -314,16 +314,16 @@ export default function DashboardPage() {
         {/* POs Pending Approval */}
         <div 
           onClick={() => navigate('/purchase-orders?from=dashboard')}
-          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 rounded-xl group-hover:bg-amber-100 dark:group-hover:bg-amber-900/40 transition-colors">
+            <div className="p-2 sm:p-2.5 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 rounded-xl group-hover:bg-amber-100 dark:group-hover:bg-amber-900/40 transition-colors">
               <ClipboardList className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("-12%")}
           </div>
-          <div className="mt-2 sm:mt-4">
-            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">POs Pending Approval</p>
+          <div className="mt-2 sm:mt-3">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider truncate">POs Pending Approval</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
               {renderKpiValue(kpiQuery, 'posPendingApproval')}
             </h3>
@@ -333,16 +333,16 @@ export default function DashboardPage() {
         {/* Raw Materials Low Stock */}
         <div 
           onClick={() => navigate('/rm/stock/low?from=dashboard')}
-          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl group-hover:bg-rose-100 dark:group-hover:bg-rose-900/40 transition-colors">
+            <div className="p-2 sm:p-2.5 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-xl group-hover:bg-rose-100 dark:group-hover:bg-rose-900/40 transition-colors">
               <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {kpiQuery.isLoading ? renderDelta("Syncing") : kpiQuery.data?.lowStockMaterials > 0 ? renderDelta("Critical", 'danger') : renderDelta("All Good")}
           </div>
-          <div className="mt-2 sm:mt-4">
-            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Low Stock Materials</p>
+          <div className="mt-2 sm:mt-3">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider truncate">Low Stock Materials</p>
             <h3 className={`text-xl sm:text-2xl font-black mt-1 ${(!kpiQuery.isLoading && kpiQuery.data?.lowStockMaterials > 0) ? 'text-rose-600 dark:text-rose-400' : 'text-slate-800 dark:text-slate-100'}`}>
               {renderKpiValue(kpiQuery, 'lowStockMaterials')}
             </h3>
@@ -352,16 +352,16 @@ export default function DashboardPage() {
         {/* QC Batches Pending */}
         <div 
           onClick={() => navigate('/production/qc-queue?from=dashboard')}
-          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/40 transition-colors">
+            <div className="p-2 sm:p-2.5 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl group-hover:bg-indigo-100 dark:group-hover:bg-indigo-900/40 transition-colors">
               <CheckSquare className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {kpiQuery.isLoading ? renderDelta("Syncing") : kpiQuery.data?.qcBatchesPending > 0 ? renderDelta("Action Required", 'danger') : renderDelta("Queue Clear")}
           </div>
-          <div className="mt-2 sm:mt-4">
-            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">QC Queue Pending</p>
+          <div className="mt-2 sm:mt-3">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider truncate">QC Queue Pending</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
               {renderKpiValue(kpiQuery, 'qcBatchesPending')}
             </h3>
@@ -371,16 +371,16 @@ export default function DashboardPage() {
         {/* Orders to Dispatch */}
         <div 
           onClick={() => navigate('/orders/status?from=dashboard')}
-          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/40 transition-colors">
+            <div className="p-2 sm:p-2.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl group-hover:bg-emerald-100 dark:group-hover:bg-emerald-900/40 transition-colors">
               <Truck className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("+8%")}
           </div>
-          <div className="mt-2 sm:mt-4">
-            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Orders to Dispatch</p>
+          <div className="mt-2 sm:mt-3">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider truncate">Orders to Dispatch</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
               {renderKpiValue(kpiQuery, 'ordersToDispatch')}
             </h3>
@@ -390,16 +390,16 @@ export default function DashboardPage() {
         {/* Active Login Sessions */}
         <div 
           onClick={() => navigate('/audit-logs?from=dashboard')}
-          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl group-hover:bg-teal-100 dark:group-hover:bg-teal-900/40 transition-colors">
+            <div className="p-2 sm:p-2.5 bg-teal-50 dark:bg-teal-950/30 text-teal-600 dark:text-teal-400 rounded-xl group-hover:bg-teal-100 dark:group-hover:bg-teal-900/40 transition-colors">
               <Clock className="w-4 h-4 sm:w-5 sm:h-5 animate-pulse" />
             </div>
             {renderDelta("Live", 'success')}
           </div>
-          <div className="mt-2 sm:mt-4">
-            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Active Sessions</p>
+          <div className="mt-2 sm:mt-3">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider truncate">Active Sessions</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
               {renderKpiValue(kpiQuery, 'activeSessions')}
             </h3>
@@ -409,16 +409,16 @@ export default function DashboardPage() {
         {/* Employees Checked In */}
         <div 
           onClick={() => navigate('/attendance?from=dashboard')}
-          className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
+          className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
-            <div className="p-2 sm:p-3 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl group-hover:bg-purple-100 dark:group-hover:bg-purple-905/40 transition-colors">
+            <div className="p-2 sm:p-2.5 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl group-hover:bg-purple-100 dark:group-hover:bg-purple-905/40 transition-colors">
               <Users className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             {renderDelta("Today", 'success')}
           </div>
-          <div className="mt-2 sm:mt-4">
-            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Checked In Today</p>
+          <div className="mt-2 sm:mt-3">
+            <p className="text-[10px] sm:text-xs text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider truncate">Checked In Today</p>
             <h3 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 mt-1">
               {renderKpiValue(kpiQuery, 'presentToday')}
             </h3>

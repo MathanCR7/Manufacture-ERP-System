@@ -1849,7 +1849,7 @@ const AppShell = () => {
         </header>
 
         {/* --- Main Content Area --- */}
-        <main className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900/50 p-3 sm:p-4 lg:p-6">
           <Outlet />
         </main>
       </div>
