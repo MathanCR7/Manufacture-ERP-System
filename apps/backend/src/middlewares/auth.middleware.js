@@ -50,7 +50,8 @@ const authMiddleware = async (req, res, next) => {
 
       // If an IP lock is defined in the database
       if (dbUser.ipAddress && dbUser.ipAddress.trim() !== '') {
-        const requestIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+        const rawForwarded = req.headers['x-forwarded-for'];
+        const requestIp = (typeof rawForwarded === 'string' ? rawForwarded.split(',')[0].trim() : null) || req.socket.remoteAddress || req.ip || '';
         
         // Clean up IP string (IPv6 loopback ::1, IPv4-mapped IPv6 ::ffff:127.0.0.1, etc.)
         const normalizedReqIp = requestIp.replace(/^.*:/, ''); 

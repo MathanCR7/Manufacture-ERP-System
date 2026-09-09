@@ -1,0 +1,121 @@
+name: Deploy Manufacturing ERP to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI
+
+jobs:
+  validate_and_build:
+    name: Build & Validate Code
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        working-directory: apps/frontend
+        run: npm ci
+
+      - name: Validate Production Build
+        working-directory: apps/frontend
+        run: npm run build
+        env:
+          VITE_API_URL: /api
+
+  deploy_to_vps:
+    name: Deploy to VPS Server
+    needs: validate_and_build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Starting Automated Deployment for erp.leonex.net..."
+
+            # Ensure deployment directory exists
+            if [ ! -d "/var/www/manufacture-erp" ]; then
+              echo "Cloning repository for the first time..."
+              sudo mkdir -p /var/www/manufacture-erp
+              sudo chown -R $USER:$USER /var/www/manufacture-erp
+              git clone https://github.com/MathanCR7/Manufacture-ERP-System.git /var/www/manufacture-erp
+            fi
+
+            cd /var/www/manufacture-erp
+
+            # Pull latest changes from main branch
+            echo "📥 Pulling latest code from GitHub..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Ensure postgres database exists
+            if command -v psql > /dev/null 2>&1; then
+              sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = 'erp_manufacture'" | grep -q 1 || \
+              sudo -u postgres psql -c "CREATE DATABASE erp_manufacture;" || true
+            fi
+
+            # Ensure backend .env exists
+            if [ ! -f "/var/www/manufacture-erp/apps/backend/.env" ]; then
+              echo "Creating initial backend .env file..."
+              cp /var/www/manufacture-erp/apps/backend/.env.example /var/www/manufacture-erp/apps/backend/.env
+            fi
+
+            # Backend deployment
+            echo "⚙️ Updating Backend dependencies and Prisma schema..."
+            cd /var/www/manufacture-erp/apps/backend
+            npm install
+            npx prisma generate
+            npx prisma db push --accept-data-loss
+
+            # Reload or start PM2 daemon
+            if pm2 describe erp-backend > /dev/null 2>&1; then
+              echo "🔄 Reloading PM2 backend process with zero downtime..."
+              pm2 reload erp-backend --update-env
+            else
+              echo "▶️ Starting PM2 backend process..."
+              pm2 start src/server.js --name "erp-backend"
+            fi
+            pm2 save
+
+            # Frontend deployment
+            echo "🎨 Building Frontend..."
+            cd /var/www/manufacture-erp/apps/frontend
+            npm install
+            npm run build
+
+            # Ensure Nginx virtual host for erp.leonex.net is enabled
+            if [ ! -f "/etc/nginx/sites-enabled/erp.leonex.net" ]; then
+              echo "Linking Nginx site configuration for erp.leonex.net..."
+              sudo cp /var/www/manufacture-erp/deploy/nginx/erp.leonex.net.conf /etc/nginx/sites-available/erp.leonex.net
+              sudo ln -sf /etc/nginx/sites-available/erp.leonex.net /etc/nginx/sites-enabled/erp.leonex.net
+            fi
+
+            # Ensure correct file permissions
+            sudo chown -R www-data:www-data /var/www/manufacture-erp/apps/frontend/dist 2>/dev/null || true
+            sudo chmod -R 755 /var/www/manufacture-erp/apps/frontend/dist 2>/dev/null || true
+
+            # Test and reload Nginx
+            sudo nginx -t
+            sudo systemctl reload nginx
+
+            echo "========================================================"
+            echo "✅ Deployment finished successfully! erp.leonex.net is live!"
+            echo "========================================================"

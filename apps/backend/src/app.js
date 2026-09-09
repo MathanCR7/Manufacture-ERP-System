@@ -8,12 +8,27 @@ const errorHandler = require('./middlewares/error.middleware');
 
 const app = express();
 
+// Trust proxy header when running behind Nginx reverse proxy
+app.set('trust proxy', 1);
+
 // Global Middlewares
 app.use(morgan('dev'));
 app.use(compression());
 app.use(helmet());
+
+const configuredOrigins = process.env.FRONTEND_URL 
+  ? process.env.FRONTEND_URL.split(',').map(s => s.trim()) 
+  : ['http://localhost:5173', 'http://localhost:3000', 'https://erp.leonex.net', 'http://erp.leonex.net'];
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: (origin, callback) => {
+    // Allow server-to-server, mobile apps, or same-origin reverse-proxied requests without an Origin header
+    if (!origin) return callback(null, true);
+    if (configuredOrigins.includes(origin)) return callback(null, true);
+    if (origin.endsWith('.leonex.net') || origin === 'https://leonex.net') return callback(null, true);
+    if (process.env.NODE_ENV !== 'production') return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Pragma'],
