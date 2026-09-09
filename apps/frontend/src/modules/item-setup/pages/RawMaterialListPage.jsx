@@ -135,20 +135,15 @@ function RawMaterialForm({ editId, onBack }) {
   // Auto-generate the next RM code in Add mode
   useEffect(() => {
     if (!isEditMode && allRawMaterials) {
-      let nextCode;
-      if (allRawMaterials.length === 0) {
-        nextCode = 'RM-00005';
-      } else {
-        let maxNum = 0;
-        allRawMaterials.forEach(rm => {
-          const match = rm.code && rm.code.match(/^RM-(\d+)$/);
-          if (match) {
-            const num = parseInt(match[1], 10);
-            if (num > maxNum) maxNum = num;
-          }
-        });
-        nextCode = `RM-${String(maxNum + 1).padStart(5, '0')}`;
-      }
+      let maxNum = 0;
+      allRawMaterials.forEach(rm => {
+        const match = rm.code && rm.code.match(/^RM-(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      });
+      const nextCode = `RM-${String(maxNum + 1).padStart(5, '0')}`;
       setValue('code', nextCode);
     }
   }, [allRawMaterials, isEditMode, setValue]);

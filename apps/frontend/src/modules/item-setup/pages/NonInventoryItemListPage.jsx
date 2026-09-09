@@ -128,20 +128,15 @@ function NonInventoryItemForm({ editId, onBack }) {
   // Auto-generate next code in Add mode with NI-0000001 (7 digit pad)
   useEffect(() => {
     if (!isEditMode && allNonInventoryItems) {
-      let nextCode;
-      if (allNonInventoryItems.length === 0) {
-        nextCode = 'NI-0000002';
-      } else {
-        let maxNum = 0;
-        allNonInventoryItems.forEach(item => {
-          const match = item.code && item.code.match(/^NI-(\d+)$/);
-          if (match) {
-            const num = parseInt(match[1], 10);
-            if (num > maxNum) maxNum = num;
-          }
-        });
-        nextCode = `NI-${String(maxNum + 1).padStart(7, '0')}`;
-      }
+      let maxNum = 0;
+      allNonInventoryItems.forEach(item => {
+        const match = item.code && item.code.match(/^NI-(\d+)$/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNum) maxNum = num;
+        }
+      });
+      const nextCode = `NI-${String(maxNum + 1).padStart(7, '0')}`;
       setValue('code', nextCode);
     }
   }, [allNonInventoryItems, isEditMode, setValue]);
