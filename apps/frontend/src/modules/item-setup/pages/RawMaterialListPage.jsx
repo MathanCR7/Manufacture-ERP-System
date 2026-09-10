@@ -257,7 +257,7 @@ function RawMaterialForm({ editId, onBack }) {
         background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
         color: isDark ? '#f8fafc' : '#0f172a',
         customClass: {
-          popup: 'rounded-xl border border-red-100 dark:border-red-950 shadow-lg p-3.5',
+          popup: 'rounded-xl border border-red-100 dark:border-red-955 shadow-lg p-3.5',
           timerProgressBar: 'bg-red-500'
         }
       });
@@ -476,7 +476,8 @@ export default function RawMaterialListPage() {
   const [editId, setEditId] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('latest');
+  // Default sort is code ascending (RM-00001 first) as requested
+  const [sortBy, setSortBy] = useState('code_asc');
   const [selectedIds, setSelectedIds] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
@@ -638,6 +639,12 @@ export default function RawMaterialListPage() {
     });
 
     result.sort((a, b) => {
+      if (sortBy === 'code_asc') {
+        return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+      if (sortBy === 'code_desc') {
+        return (b.code || '').localeCompare(a.code || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
       if (sortBy === 'latest') {
         const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -653,12 +660,6 @@ export default function RawMaterialListPage() {
       }
       if (sortBy === 'name_desc') {
         return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
-      }
-      if (sortBy === 'code_asc') {
-        return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true });
-      }
-      if (sortBy === 'code_desc') {
-        return (b.code || '').localeCompare(a.code || '', undefined, { numeric: true });
       }
       if (sortBy === 'rate_desc') {
         return (parseFloat(b.ratePerUnit) || 0) - (parseFloat(a.ratePerUnit) || 0);
@@ -683,13 +684,13 @@ export default function RawMaterialListPage() {
   const isSomeVisibleSelected = visibleIds.some(id => selectedIds.includes(id)) && !isAllVisibleSelected;
 
   // Header quick sort toggles
-  const handleToggleSortName = () => {
-    setSortBy(prev => (prev === 'name_asc' ? 'name_desc' : 'name_asc'));
+  const handleToggleSortCode = () => {
+    setSortBy(prev => (prev === 'code_asc' ? 'code_desc' : 'code_asc'));
     setCurrentPage(1);
   };
 
-  const handleToggleSortCode = () => {
-    setSortBy(prev => (prev === 'code_asc' ? 'code_desc' : 'code_asc'));
+  const handleToggleSortName = () => {
+    setSortBy(prev => (prev === 'name_asc' ? 'name_desc' : 'name_asc'));
     setCurrentPage(1);
   };
 
@@ -810,7 +811,7 @@ export default function RawMaterialListPage() {
                 </div>
               )}
 
-              {/* Sort Dropdown */}
+              {/* Sort Dropdown - Default RM0001 (code_asc) first */}
               <div className="relative flex items-center w-full sm:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
                   <ArrowUpDown className="w-3.5 h-3.5" />
@@ -824,12 +825,12 @@ export default function RawMaterialListPage() {
                   className="h-8 w-full sm:w-56 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Sort options"
                 >
-                  <option value="latest">Sort: Latest Added (Newest)</option>
-                  <option value="oldest">Sort: Oldest First</option>
+                  <option value="code_asc">Sort: Code (RM-00001 First)</option>
+                  <option value="code_desc">Sort: Code (Descending)</option>
                   <option value="name_asc">Sort: Name (A → Z)</option>
                   <option value="name_desc">Sort: Name (Z → A)</option>
-                  <option value="code_asc">Sort: Code (Ascending)</option>
-                  <option value="code_desc">Sort: Code (Descending)</option>
+                  <option value="latest">Sort: Latest Added (Newest)</option>
+                  <option value="oldest">Sort: Oldest First</option>
                   <option value="rate_desc">Sort: Rate (High to Low)</option>
                   <option value="rate_asc">Sort: Rate (Low to High)</option>
                 </select>
@@ -839,11 +840,11 @@ export default function RawMaterialListPage() {
               </div>
 
               {/* Quick Reset */}
-              {(searchTerm || sortBy !== 'latest') && (
+              {(searchTerm || sortBy !== 'code_asc') && (
                 <button
                   onClick={() => {
                     setSearchTerm('');
-                    setSortBy('latest');
+                    setSortBy('code_asc');
                     setCurrentPage(1);
                   }}
                   className="h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors flex items-center gap-1 text-[11px] font-medium shrink-0 cursor-pointer"
@@ -856,7 +857,7 @@ export default function RawMaterialListPage() {
             </div>
           </div>
 
-          {/* Table */}
+          {/* Table: Order is Code -> Category -> Name -> UOM -> HSN -> Rate -> Op. Stock -> Actions */}
           <div className="overflow-x-auto">
             <Table className="text-xs">
               <TableHeader className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
@@ -870,6 +871,7 @@ export default function RawMaterialListPage() {
                       />
                     </TableHead>
                   )}
+                  {/* 1. Code */}
                   <TableHead className="py-2 px-3 w-28">
                     <button
                       onClick={handleToggleSortCode}
@@ -886,6 +888,9 @@ export default function RawMaterialListPage() {
                       )}
                     </button>
                   </TableHead>
+                  {/* 2. Category (After Code) */}
+                  <TableHead className="py-2 px-3 w-36">Category</TableHead>
+                  {/* 3. Name (After Category) */}
                   <TableHead className="py-2 px-3">
                     <button
                       onClick={handleToggleSortName}
@@ -902,9 +907,11 @@ export default function RawMaterialListPage() {
                       )}
                     </button>
                   </TableHead>
-                  <TableHead className="py-2 px-3">Category</TableHead>
+                  {/* 4. UOM */}
                   <TableHead className="py-2 px-3 w-20">UOM</TableHead>
+                  {/* 5. HSN */}
                   <TableHead className="py-2 px-3 w-24">HSN</TableHead>
+                  {/* 6. Rate */}
                   <TableHead className="py-2 px-3 text-right w-28">
                     <button
                       onClick={handleToggleSortRate}
@@ -921,7 +928,9 @@ export default function RawMaterialListPage() {
                       )}
                     </button>
                   </TableHead>
+                  {/* 7. Op. Stock */}
                   <TableHead className="py-2 px-3 text-right w-20">Op. Stock</TableHead>
+                  {/* 8. Actions */}
                   {canEdit && <TableHead className="py-2 px-3 text-right w-20">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
@@ -931,8 +940,8 @@ export default function RawMaterialListPage() {
                     <TableRow key={idx} className="border-b border-slate-100 dark:border-slate-800/60">
                       {canEdit && <TableCell className="py-2 px-2 text-center"><Skeleton className="h-3.5 w-3.5 mx-auto rounded" /></TableCell>}
                       <TableCell className="py-2 px-3"><Skeleton className="h-4 w-20 rounded" /></TableCell>
-                      <TableCell className="py-2 px-3"><Skeleton className="h-4 w-44 rounded" /></TableCell>
                       <TableCell className="py-2 px-3"><Skeleton className="h-4 w-24 rounded" /></TableCell>
+                      <TableCell className="py-2 px-3"><Skeleton className="h-4 w-44 rounded" /></TableCell>
                       <TableCell className="py-2 px-3"><Skeleton className="h-4 w-12 rounded" /></TableCell>
                       <TableCell className="py-2 px-3"><Skeleton className="h-4 w-16 rounded" /></TableCell>
                       <TableCell className="py-2 px-3 text-right"><Skeleton className="h-4 w-20 ml-auto rounded" /></TableCell>
@@ -984,31 +993,39 @@ export default function RawMaterialListPage() {
                             />
                           </TableCell>
                         )}
-                        <TableCell className="py-2 px-3 font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                        {/* 1. Code */}
+                        <TableCell className="py-2 px-3 font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
                           {item.code}
                         </TableCell>
+                        {/* 2. Category (After Code) */}
+                        <TableCell className="py-2 px-3 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
+                            {item.category?.name || 'Uncategorised'}
+                          </span>
+                        </TableCell>
+                        {/* 3. Name (After Category) */}
                         <TableCell className="py-2 px-3">
                           <span className="font-bold text-slate-900 dark:text-slate-100 tracking-tight text-xs">
                             {item.name?.toUpperCase()}
                           </span>
                         </TableCell>
-                        <TableCell className="py-2 px-3">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
-                            {item.category?.name || 'Uncategorised'}
-                          </span>
-                        </TableCell>
+                        {/* 4. UOM */}
                         <TableCell className="py-2 px-3 text-slate-600 dark:text-slate-400 font-semibold uppercase text-[11px]">
                           {item.unitId}
                         </TableCell>
+                        {/* 5. HSN */}
                         <TableCell className="py-2 px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
                           {item.hsnCode || '—'}
                         </TableCell>
+                        {/* 6. Rate */}
                         <TableCell className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
                           ₹{parseFloat(item.ratePerUnit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
+                        {/* 7. Op. Stock */}
                         <TableCell className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400 font-medium">
                           {item.openingStock ?? 0}
                         </TableCell>
+                        {/* 8. Actions */}
                         {canEdit && (
                           <TableCell className="py-2 px-3 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end space-x-0.5">
