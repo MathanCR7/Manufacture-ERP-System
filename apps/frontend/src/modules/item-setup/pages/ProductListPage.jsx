@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Swal from 'sweetalert2';
 import {
@@ -6,7 +6,8 @@ import {
   ArrowLeft, Save, Loader2, AlertCircle, Info, Check, Percent, Clock, 
   X, Layers, Image as ImageIcon, Sparkles, ChevronRight, Eye, RefreshCw,
   PlusCircle, Sliders, ShieldAlert, TrendingUp, Grid, List as ListIcon,
-  ChevronLeft, Award, HelpCircle, FileText, AlertTriangle
+  ChevronLeft, Award, HelpCircle, FileText, AlertTriangle,
+  ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, ChevronDown
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -18,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import SearchSelect from '@/components/ui/SearchSelect';
 import HsnSelect from '@/components/forms/HsnSelect';
+import { Pagination } from '@/components/ui/Pagination';
 
 const UOM_OPTIONS = [
   // Weight
@@ -54,23 +56,32 @@ function UomSelect({ value, onChange, error }) {
   );
 }
 
+// Custom Checkbox Component
 function TableCheckbox({ checked, onChange, indeterminate }) {
-  const checkboxRef = useRef(null);
-
-  useEffect(() => {
-    if (checkboxRef.current) {
-      checkboxRef.current.indeterminate = indeterminate;
-    }
-  }, [indeterminate]);
-
   return (
-    <input
-      type="checkbox"
-      ref={checkboxRef}
-      checked={checked}
-      onChange={onChange}
-      className="w-4 h-4 text-indigo-605 bg-slate-105 dark:bg-slate-800 border-slate-350 dark:border-slate-700 rounded focus:ring-indigo-500 dark:focus:ring-indigo-600 transition-all cursor-pointer"
-    />
+    <label className="inline-flex items-center justify-center cursor-pointer group select-none">
+      <input
+        type="checkbox"
+        className="sr-only"
+        checked={checked}
+        onChange={onChange}
+      />
+      <div
+        className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-all duration-150 group-hover:scale-105 shadow-3xs relative ${
+          checked
+            ? 'bg-indigo-600 border-indigo-600 text-white'
+            : indeterminate
+            ? 'bg-indigo-500 border-indigo-500 text-white'
+            : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 group-hover:border-indigo-500'
+        }`}
+      >
+        {checked ? (
+          <Check className="w-2.5 h-2.5 text-white" strokeWidth={3.5} />
+        ) : indeterminate ? (
+          <div className="w-2 h-0.5 bg-white rounded-full"></div>
+        ) : null}
+      </div>
+    </label>
   );
 }
 
@@ -1095,57 +1106,128 @@ export default function ProductListPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [view, setView] = useState('list'); // 'list' | 'add' | 'edit'
-  const [displayMode, setDisplayMode] = useState('grid'); // 'grid' | 'table' (WOW UX factor)
+  const [displayMode, setDisplayMode] = useState('grid'); // Default: 12 items in card grid as requested
   const [editId, setEditId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
-  const itemsPerPage = 8; // 8 items look cleaner in grids
+  // Default sort is code ascending (PRD-00001 first) as requested
+  const [sortBy, setSortBy] = useState('code_asc');
+  const itemsPerPage = 12;
 
-  const { data: products, isLoading } = useQuery({
+  const { data: products = [], isLoading } = useQuery({
     queryKey: ['products'],
     queryFn: async () => (await api.get('/products')).data
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (id) => await api.delete(`/products/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['products'] })
-  });
-
-  const bulkDeleteMutation = useMutation({
-    mutationFn: async (ids) => {
-      await Promise.all(ids.map(id => api.delete(`/products/${id}`)));
-    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
-      setSelectedIds([]);
-      const isDark = document.documentElement.classList.contains('dark');
-      Swal.fire({
-        title: '<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Deleted!</span>',
-        html: '<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Selected product configurations removed.</p>',
-        icon: 'success',
-        confirmButtonColor: '#10b981',
-        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-        color: isDark ? '#f8fafc' : '#0f172a',
-      });
+      setSelectedIds(prev => prev.filter(x => x !== editId));
     }
   });
 
-  const handleDelete = (id) => {
+  const handleDelete = (item) => {
     const isDark = document.documentElement.classList.contains('dark');
     Swal.fire({
-      title: '<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Delete Product Configuration?</span>',
-      text: 'Are you sure you want to delete this finished product specification? This will archive all recipe settings.',
+      title: 'Delete Product Configuration?',
+      html: `
+        <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          Are you sure you want to delete <strong class="text-slate-900 dark:text-slate-100">"${item.name}" (${item.code})</strong>?
+          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This will archive all recipe specifications.</p>
+        </div>
+      `,
       icon: 'warning',
+      iconColor: '#f59e0b',
       showCancelButton: true,
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
       confirmButtonColor: '#ef4444',
       cancelButtonColor: '#64748b',
-      confirmButtonText: 'Yes, delete it!',
-      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+      background: isDark ? '#1e293b' : '#ffffff',
       color: isDark ? '#f8fafc' : '#0f172a',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-5 select-none',
+        confirmButton: 'px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition-all mr-2',
+        cancelButton: 'px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-all'
+      },
+      buttonsStyling: false
     }).then((result) => {
       if (result.isConfirmed) {
-        deleteMutation.mutate(id);
+        deleteMutation.mutate(item.id, {
+          onSuccess: () => {
+            Swal.fire({
+              title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Product Removed</span>`,
+              html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Finished product configuration deleted.</p>`,
+              icon: 'success',
+              iconColor: '#10b981',
+              toast: true,
+              position: 'top-end',
+              showConfirmButton: false,
+              timer: 2500,
+              timerProgressBar: true,
+              background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+              color: isDark ? '#f8fafc' : '#0f172a',
+              customClass: {
+                popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
+                timerProgressBar: 'bg-emerald-500'
+              }
+            });
+          }
+        });
       }
     });
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    const isDark = document.documentElement.classList.contains('dark');
+    const result = await Swal.fire({
+      title: 'Bulk Delete Products?',
+      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">You are about to delete <strong>${selectedIds.length}</strong> product formulations. This operation cannot be undone!</p>`,
+      icon: 'warning',
+      iconColor: '#f59e0b',
+      showCancelButton: true,
+      confirmButtonText: `Delete ${selectedIds.length} products`,
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#ef4444',
+      cancelButtonColor: '#64748b',
+      background: isDark ? '#1e293b' : '#ffffff',
+      color: isDark ? '#f8fafc' : '#0f172a',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-5 select-none',
+        confirmButton: 'px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold transition-all mr-2',
+        cancelButton: 'px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg text-xs font-semibold transition-all'
+      },
+      buttonsStyling: false
+    });
+
+    if (result.isConfirmed) {
+      try {
+        await Promise.all(selectedIds.map(id => api.delete(`/products/${id}`)));
+        setSelectedIds([]);
+        queryClient.invalidateQueries({ queryKey: ['products'] });
+
+        Swal.fire({
+          title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Bulk Deletion Successful</span>`,
+          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Selected product configurations removed.</p>`,
+          icon: 'success',
+          iconColor: '#10b981',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3000,
+          timerProgressBar: true,
+          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          color: isDark ? '#f8fafc' : '#0f172a',
+          customClass: {
+            popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
+            timerProgressBar: 'bg-emerald-500'
+          }
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    }
   };
 
   const handleSelectRow = (id) => {
@@ -1164,253 +1246,288 @@ export default function ProductListPage() {
     }
   };
 
-  const handleBulkDelete = () => {
-    const isDark = document.documentElement.classList.contains('dark');
-    Swal.fire({
-      title: '<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Bulk Delete Products?</span>',
-      text: `Are you sure you want to bulk delete the ${selectedIds.length} selected finished product formulations?`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#ef4444',
-      confirmButtonText: 'Yes, delete selected!',
-      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-      color: isDark ? '#f8fafc' : '#0f172a',
-    }).then((result) => {
-      if (result.isConfirmed) {
-        bulkDeleteMutation.mutate(selectedIds);
-      }
+  // Filter and Sort
+  const sortedAndFiltered = useMemo(() => {
+    let result = (products || []).filter(item => {
+      const term = searchTerm.toLowerCase().trim();
+      if (!term) return true;
+      return (
+        (item.name || '').toLowerCase().includes(term) ||
+        (item.code || '').toLowerCase().includes(term) ||
+        (item.category?.name || '').toLowerCase().includes(term) ||
+        (item.hsnCode || '').toLowerCase().includes(term) ||
+        (item.unit?.abbreviation || item.unit?.name || item.unitId || '').toLowerCase().includes(term)
+      );
     });
+
+    result.sort((a, b) => {
+      if (sortBy === 'code_asc') {
+        return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+      if (sortBy === 'code_desc') {
+        return (b.code || '').localeCompare(a.code || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+      if (sortBy === 'name_asc') {
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'name_desc') {
+        return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'price_desc') {
+        return (parseFloat(b.salePrice) || 0) - (parseFloat(a.salePrice) || 0);
+      }
+      if (sortBy === 'price_asc') {
+        return (parseFloat(a.salePrice) || 0) - (parseFloat(b.salePrice) || 0);
+      }
+      if (sortBy === 'cost_desc') {
+        return (parseFloat(b.totalCost) || 0) - (parseFloat(a.totalCost) || 0);
+      }
+      if (sortBy === 'cost_asc') {
+        return (parseFloat(a.totalCost) || 0) - (parseFloat(b.totalCost) || 0);
+      }
+      if (sortBy === 'latest') {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      }
+      if (sortBy === 'oldest') {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeA - timeB;
+      }
+      return 0;
+    });
+
+    return result;
+  }, [products, searchTerm, sortBy]);
+
+  const totalPages = Math.ceil(sortedAndFiltered.length / itemsPerPage) || 1;
+  const paginated = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedAndFiltered.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedAndFiltered, currentPage, itemsPerPage]);
+
+  const visibleIds = paginated.map(item => item.id);
+  const isAllVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.includes(id));
+  const isSomeVisibleSelected = visibleIds.some(id => selectedIds.includes(id)) && !isAllVisibleSelected;
+
+  // Header quick sort toggles
+  const handleToggleSortCode = () => {
+    setSortBy(prev => (prev === 'code_asc' ? 'code_desc' : 'code_asc'));
+    setCurrentPage(1);
   };
 
-  const filtered = products?.filter(p =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.code.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
-  const totalPages = Math.ceil(filtered.length / itemsPerPage);
-  const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const handleToggleSortName = () => {
+    setSortBy(prev => (prev === 'name_asc' ? 'name_desc' : 'name_asc'));
+    setCurrentPage(1);
+  };
 
-  const isAllVisibleSelected = paginated.length > 0 && paginated.every(item => selectedIds.includes(item.id));
-  const isSomeVisibleSelected = paginated.some(item => selectedIds.includes(item.id)) && !isAllVisibleSelected;
+  const handleToggleSortCost = () => {
+    setSortBy(prev => (prev === 'cost_desc' ? 'cost_asc' : 'cost_desc'));
+    setCurrentPage(1);
+  };
 
-  if (isLoading) return <div className="p-8"><Skeleton className="h-[400px] w-full bg-slate-200 dark:bg-slate-850" /></div>;
+  const handleToggleSortPrice = () => {
+    setSortBy(prev => (prev === 'price_desc' ? 'price_asc' : 'price_desc'));
+    setCurrentPage(1);
+  };
 
   if (view !== 'list') {
     return <ProductForm editId={canEdit ? editId : null} onBack={() => { setView('list'); setEditId(null); }} />;
   }
 
   return (
-    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+    <div className="w-full px-3 sm:px-4 py-2.5 space-y-2.5 mx-auto transition-all duration-200">
       {!canEdit && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
-          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-          <span>You have <strong>Read-Only access</strong> to Finished Product Master Setup. Modifying specs is restricted.</span>
+        <div className="flex items-center gap-2 p-2.5 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/80 rounded-xl text-amber-800 dark:text-amber-300 text-xs font-medium">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span>You have <strong>Read-Only access</strong> to Products. Modifying product specifications is restricted.</span>
         </div>
       )}
-      {/* Premium Glassmorphic Header */}
-      <div className="relative bg-gradient-to-r from-slate-50 to-slate-100/50 dark:from-slate-900 dark:to-slate-950/40 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div className="absolute inset-0 bg-grid-slate-200/50 dark:bg-grid-slate-800/10 [mask-image:linear-gradient(0deg,white,rgba(255,255,255,0.6))] rounded-3xl" />
-        <div className="relative flex items-center space-x-4">
-          <div className="p-3 bg-indigo-600 dark:bg-indigo-500 text-white rounded-2xl shadow-lg shadow-indigo-600/10 dark:shadow-indigo-500/10 animate-pulse">
-            <Package className="w-6 h-6" />
+
+      {/* Sleek Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-800 shadow-3xs shrink-0">
+            <Package className="w-4 h-4" />
           </div>
           <div>
-            <h1 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              Finished Product Master Setup
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl">
-              Configure finished product specifications, raw material BOM ratios, processing workflows, and selling prices.
+            <div className="flex items-center gap-2">
+              <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white">
+                Finished Products
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800">
+                {products.length} {products.length === 1 ? 'Product' : 'Products'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Configure finished product specifications, BOM formulas, and selling prices.
             </p>
           </div>
         </div>
-        <div className="relative flex items-center gap-3 w-full md:w-auto justify-end">
-          {/* List/Grid Layout Selector */}
-          <div className="flex bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-1 rounded-xl shadow-inner">
-            <button
-              onClick={() => setDisplayMode('grid')}
-              className={`p-1.5 rounded-lg transition-all cursor-pointer ${displayMode === 'grid' ? 'bg-indigo-50 dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-400 hover:text-slate-600'}`}
-              title="Gallery Grid View"
-            >
-              <Grid className="w-4 h-4" />
-            </button>
+
+        <div className="flex items-center gap-2">
+          {/* View Mode Toggle (Table / Grid) */}
+          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
             <button
               onClick={() => setDisplayMode('table')}
-              className={`p-1.5 rounded-lg transition-all cursor-pointer ${displayMode === 'table' ? 'bg-indigo-50 dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs' : 'text-slate-400 hover:text-slate-600'}`}
+              className={`p-1 rounded-md transition-all cursor-pointer ${
+                displayMode === 'table'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-3xs'
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+              }`}
               title="Standard Table List"
             >
-              <ListIcon className="w-4 h-4" />
+              <ListIcon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setDisplayMode('grid')}
+              className={`p-1 rounded-md transition-all cursor-pointer ${
+                displayMode === 'grid'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-3xs'
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+              }`}
+              title="Cards Grid View"
+            >
+              <Grid className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {canEdit && (
             <Button 
               onClick={() => { setEditId(null); setView('add'); }}
-              className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg hover:-translate-y-[1px] transition-all px-5 h-10 flex items-center cursor-pointer"
+              size="sm"
+              className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
             >
-              <Plus className="w-4 h-4 mr-1.5" /> Add New Spec
+              <Plus className="w-3.5 h-3.5" />
+              Add Product
             </Button>
           )}
         </div>
       </div>
 
-      {/* Bulk actions banner */}
+      {/* Selection Notification Banner */}
       {canEdit && selectedIds.length > 0 && (
-        <div className="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/60 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm animate__animated animate__fadeIn">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-indigo-600 text-white font-bold text-xs shadow-md">
+        <div className="bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl px-3 py-1.5 flex items-center justify-between gap-3 shadow-3xs animate__animated animate__fadeIn">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="w-5 h-5 rounded-md bg-indigo-600 text-white font-bold text-[10px] flex items-center justify-center shadow-3xs">
               {selectedIds.length}
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-800 dark:text-white">Formulations Selected</p>
-              <p className="text-[10px] text-slate-450 dark:text-slate-400">Perform bulk operations on selected entries.</p>
-            </div>
+            </span>
+            <span className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
+              {selectedIds.length} {selectedIds.length === 1 ? 'product' : 'products'} selected
+            </span>
           </div>
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => setSelectedIds([])}
-              className="px-3 py-1.5 text-[11px] font-bold text-slate-550 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-all cursor-pointer"
+              className="px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 rounded-lg transition-colors border border-transparent hover:border-slate-200 dark:hover:border-slate-700 cursor-pointer"
             >
               Clear
             </button>
             <button
               onClick={handleBulkDelete}
-              className="flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[11px] font-bold transition-all shadow-sm cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[11px] font-semibold transition-colors shadow-3xs cursor-pointer"
             >
-              <Trash2 className="w-3.5 h-3.5 mr-1.5" /> Delete Selected ({selectedIds.length})
+              <Trash2 className="w-3 h-3" />
+              Delete Selected
             </button>
           </div>
         </div>
       )}
 
-      {/* Search Header toolbar */}
-      <div className="p-4 bg-slate-50/45 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 shadow-xs">
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Search specifications by name/code..." 
-            value={searchTerm} 
-            onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }} 
-            className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-805 rounded-xl text-xs bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500" 
-          />
-        </div>
-        <div className="text-2xs text-slate-400 uppercase font-extrabold tracking-wider">
-          Total: {filtered.length} Specs Registered
-        </div>
-      </div>
-
-      {/* RENDER GRID MODE */}
-      {displayMode === 'grid' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 animate__animated animate__fadeIn">
-          {paginated.length === 0 ? (
-            <div className="col-span-full py-16 text-center text-slate-400 dark:text-slate-500 font-medium bg-slate-50 dark:bg-slate-900/20 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl">
-              <Package className="w-10 h-10 mx-auto text-slate-350 dark:text-slate-650 mb-3 animate-bounce" />
-              No finished product specifications found.<br />Click Add New Spec above to create your first recipe formula.
+      {/* Main Table Card */}
+      <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs overflow-hidden flex flex-col text-xs">
+        <CardContent className="p-0">
+          {/* Integrated Pro Toolbar */}
+          <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+            {/* Search Input with quick clear */}
+            <div className="relative w-full sm:w-64 md:w-72">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search code, name, category, HSN..."
+                value={searchTerm}
+                onChange={(e) => { 
+                  setSearchTerm(e.target.value); 
+                  setCurrentPage(1); 
+                }}
+                className="w-full pl-8 pr-7 py-1.5 border border-slate-200 dark:border-slate-700/80 rounded-lg text-xs bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 shadow-3xs transition-all placeholder:text-slate-400"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full transition-colors cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
             </div>
-          ) : (
-            paginated.map((item) => (
-              <Card 
-                key={item.id} 
-                className="group overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xs hover:shadow-lg hover:-translate-y-1 transition-all duration-300 rounded-2xl flex flex-col h-full"
-              >
-                {/* Image top placeholder */}
-                <div className="bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-slate-950/40 dark:to-slate-950/20 aspect-video relative flex items-center justify-center border-b border-slate-100 dark:border-slate-800/80 overflow-hidden shrink-0">
-                  {item.imageUrl ? (
-                    <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                  ) : (
-                    <div className="flex flex-col items-center justify-center text-slate-350 dark:text-slate-650">
-                      <ImageIcon className="w-8 h-8 mb-1" />
-                      <span className="text-[9px] uppercase tracking-wider font-bold">No Image Setup</span>
-                    </div>
-                  )}
-                  {/* Select Checkbox bubble overlay */}
-                  {canEdit && (
-                    <div className="absolute top-2.5 left-2.5 z-10">
-                      <TableCheckbox
-                        checked={selectedIds.includes(item.id)}
-                        onChange={() => handleSelectRow(item.id)}
-                      />
-                    </div>
-                  )}
-                  {/* Code Badge overlay */}
-                  <div className="absolute top-2.5 right-2.5 px-2 py-0.5 bg-slate-900/80 backdrop-blur-md rounded-md text-[10px] font-bold font-mono text-white tracking-wider">
-                    {item.code}
-                  </div>
+
+            {/* Sorting & Filter Controls */}
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+              {searchTerm && (
+                <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium hidden md:inline-flex items-center gap-1">
+                  <span>Found {sortedAndFiltered.length} matches</span>
                 </div>
+              )}
 
-                <CardContent className="p-4 flex-1 flex flex-col justify-between">
-                  <div className="space-y-1.5">
-                    {/* Category Tag */}
-                    <span className="inline-flex items-center px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/40 text-[9px] font-bold rounded-lg uppercase tracking-wide">
-                      <Tag className="w-2.5 h-2.5 mr-1" /> {item.category?.name || 'Uncategorized'}
-                    </span>
-                    <h4 className="font-extrabold text-slate-850 dark:text-slate-100 text-sm line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                      {item.name}
-                    </h4>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                      UOM: {item.unit?.abbreviation || item.unit?.name || 'N/A'}
-                    </p>
-                  </div>
+              {/* Sort Dropdown */}
+              <div className="relative flex items-center w-full sm:w-auto">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                </span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    setSortBy(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 w-full sm:w-56 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  aria-label="Sort options"
+                >
+                  <option value="code_asc">Sort: Code (PRD-00001 First)</option>
+                  <option value="code_desc">Sort: Code (Descending)</option>
+                  <option value="name_asc">Sort: Name (A → Z)</option>
+                  <option value="name_desc">Sort: Name (Z → A)</option>
+                  <option value="price_desc">Sort: Selling Price (High to Low)</option>
+                  <option value="price_asc">Sort: Selling Price (Low to High)</option>
+                  <option value="cost_desc">Sort: Total Cost (High to Low)</option>
+                  <option value="cost_asc">Sort: Total Cost (Low to High)</option>
+                  <option value="latest">Sort: Latest Added (Newest)</option>
+                  <option value="oldest">Sort: Oldest First</option>
+                </select>
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3 h-3" />
+                </span>
+              </div>
 
-                  <div className="space-y-2 border-t border-slate-100 dark:border-slate-800/80 pt-3 text-xs">
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 font-medium">BOM Ingredients:</span>
-                      <span className="font-bold text-slate-700 dark:text-slate-350">{item.bom?.length || 0} items</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 font-medium">Ingredient Cost:</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-350">₹{parseFloat(item.totalRawMaterialCost || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-400 font-medium">Overhead Cost:</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-350">₹{parseFloat(item.totalNonInventoryCost || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-t border-slate-100 dark:border-slate-800/60 pt-1">
-                      <span className="text-slate-400 font-medium">Total Cost:</span>
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-350">₹{parseFloat(item.totalCost || 0).toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between items-center border-t border-dashed border-slate-100 dark:border-slate-800/80 pt-2">
-                      <span className="font-extrabold text-indigo-650 dark:text-indigo-400 uppercase text-[10px]">Selling Price:</span>
-                      <span className="font-mono font-extrabold text-slate-900 dark:text-white text-sm">₹{parseFloat(item.salePrice || 0).toFixed(2)}</span>
-                    </div>
-                  </div>
+              {/* Quick Reset */}
+              {(searchTerm || sortBy !== 'code_asc') && (
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSortBy('code_asc');
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors flex items-center gap-1 text-[11px] font-medium shrink-0 cursor-pointer"
+                  title="Reset filters and sort"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span className="hidden lg:inline">Reset</span>
+                </button>
+              )}
+            </div>
+          </div>
 
-                  {/* Quick Action buttons */}
-                  {canEdit && (
-                    <div className="flex items-center gap-2 pt-1 shrink-0">
-                      <Button
-                        size="sm"
-                        onClick={() => { setEditId(item.id); setView('edit'); }}
-                        className="flex-1 bg-slate-50 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 hover:text-indigo-600 hover:border-indigo-200/50 rounded-xl text-xs py-1.5 font-bold transition-all border border-slate-200 dark:border-slate-750 cursor-pointer"
-                      >
-                        <Edit className="w-3.5 h-3.5 mr-1" /> Edit Specs
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => handleDelete(item.id)}
-                        className="p-2 text-rose-500 hover:text-rose-655 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-xl transition-all cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* RENDER TABLE VIEW MODE */}
-      {displayMode === 'table' && (
-        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md overflow-hidden rounded-2xl animate__animated animate__fadeIn">
-          <CardContent className="p-0">
-            <div className="overflow-x-auto text-xs">
-              <Table>
-                <TableHeader className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase font-semibold">
-                  <TableRow className="dark:border-slate-800">
+          {/* STANDARD TABLE VIEW MODE (Default) */}
+          {displayMode === 'table' && (
+            <div className="overflow-x-auto">
+              <Table className="text-xs">
+                <TableHeader className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
+                  <TableRow className="border-b border-slate-200 dark:border-slate-800">
                     {canEdit && (
-                      <TableHead className="w-[50px] text-center">
+                      <TableHead className="w-9 px-2 text-center py-2">
                         <TableCheckbox
                           checked={isAllVisibleSelected}
                           indeterminate={isSomeVisibleSelected}
@@ -1418,106 +1535,434 @@ export default function ProductListPage() {
                         />
                       </TableHead>
                     )}
-                    <TableHead className="w-24">Code</TableHead>
-                    <TableHead>Specification Name</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead className="text-right">BOM RM Cost</TableHead>
-                    <TableHead className="text-right">Overheads</TableHead>
-                    <TableHead className="text-right">Total Unit Cost</TableHead>
-                    <TableHead className="text-right text-indigo-600 dark:text-indigo-400">Selling Price</TableHead>
-                    {canEdit && <TableHead className="text-center w-24">Actions</TableHead>}
+                    {/* 1. Code */}
+                    <TableHead className="py-2 px-3 w-28">
+                      <button
+                        onClick={handleToggleSortCode}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
+                        title="Sort by Code"
+                      >
+                        <span>Code</span>
+                        {sortBy === 'code_asc' ? (
+                          <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : sortBy === 'code_desc' ? (
+                          <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 hover:text-slate-600" />
+                        )}
+                      </button>
+                    </TableHead>
+                    {/* 2. Category (Immediately after Code) */}
+                    <TableHead className="py-2 px-3 w-32">Category</TableHead>
+                    {/* 3. Name */}
+                    <TableHead className="py-2 px-3">
+                      <button
+                        onClick={handleToggleSortName}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
+                        title="Sort by Name"
+                      >
+                        <span>Specification Name</span>
+                        {sortBy === 'name_asc' ? (
+                          <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : sortBy === 'name_desc' ? (
+                          <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 hover:text-slate-600" />
+                        )}
+                      </button>
+                    </TableHead>
+                    {/* 4. UOM */}
+                    <TableHead className="py-2 px-3 w-20">UOM</TableHead>
+                    {/* 5. HSN */}
+                    <TableHead className="py-2 px-3 w-24">HSN</TableHead>
+                    {/* 6. BOM items */}
+                    <TableHead className="py-2 px-3 w-20 text-center">BOM</TableHead>
+                    {/* 7. Total Cost */}
+                    <TableHead className="py-2 px-3 text-right w-28">
+                      <button
+                        onClick={handleToggleSortCost}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none ml-auto"
+                        title="Sort by Cost"
+                      >
+                        <span>Total Cost</span>
+                        {sortBy === 'cost_asc' ? (
+                          <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : sortBy === 'cost_desc' ? (
+                          <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 hover:text-slate-600" />
+                        )}
+                      </button>
+                    </TableHead>
+                    {/* 8. Selling Price */}
+                    <TableHead className="py-2 px-3 text-right w-28">
+                      <button
+                        onClick={handleToggleSortPrice}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none ml-auto"
+                        title="Sort by Selling Price"
+                      >
+                        <span>Selling Price</span>
+                        {sortBy === 'price_asc' ? (
+                          <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : sortBy === 'price_desc' ? (
+                          <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        ) : (
+                          <ArrowUpDown className="w-3 h-3 text-slate-400 hover:text-slate-600" />
+                        )}
+                      </button>
+                    </TableHead>
+                    {/* 9. Stock */}
+                    <TableHead className="py-2 px-3 text-right w-20">Stock</TableHead>
+                    {/* 10. Actions */}
+                    {canEdit && <TableHead className="py-2 px-3 text-right w-20">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
-                <TableBody className="divide-y divide-slate-100 dark:divide-slate-800">
-                  {paginated.length === 0 ? (
+                <TableBody>
+                  {isLoading ? (
+                    Array.from({ length: 5 }).map((_, idx) => (
+                      <TableRow key={idx} className="border-b border-slate-100 dark:border-slate-800/60">
+                        {canEdit && <TableCell className="py-2 px-2 text-center"><Skeleton className="h-3.5 w-3.5 mx-auto rounded" /></TableCell>}
+                        <TableCell className="py-2 px-3"><Skeleton className="h-4 w-20 rounded" /></TableCell>
+                        <TableCell className="py-2 px-3"><Skeleton className="h-4 w-24 rounded" /></TableCell>
+                        <TableCell className="py-2 px-3"><Skeleton className="h-4 w-44 rounded" /></TableCell>
+                        <TableCell className="py-2 px-3"><Skeleton className="h-4 w-12 rounded" /></TableCell>
+                        <TableCell className="py-2 px-3"><Skeleton className="h-4 w-16 rounded" /></TableCell>
+                        <TableCell className="py-2 px-3 text-center"><Skeleton className="h-4 w-14 mx-auto rounded" /></TableCell>
+                        <TableCell className="py-2 px-3 text-right"><Skeleton className="h-4 w-20 ml-auto rounded" /></TableCell>
+                        <TableCell className="py-2 px-3 text-right"><Skeleton className="h-4 w-20 ml-auto rounded" /></TableCell>
+                        <TableCell className="py-2 px-3 text-right"><Skeleton className="h-4 w-12 ml-auto rounded" /></TableCell>
+                        {canEdit && <TableCell className="py-2 px-3 text-right"><Skeleton className="h-6 w-14 ml-auto rounded" /></TableCell>}
+                      </TableRow>
+                    ))
+                  ) : paginated.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={9} className="text-center py-12 text-slate-450 italic">
-                        No finished product specifications found. Click Add New Spec to assign recipes.
+                      <TableCell colSpan={canEdit ? 11 : 9} className="text-center py-10 text-slate-400">
+                        <div className="flex flex-col items-center justify-center gap-1.5">
+                          <Package className="w-7 h-7 text-slate-300 dark:text-slate-600 stroke-1" />
+                          <p className="font-semibold text-xs text-slate-600 dark:text-slate-300">
+                            {searchTerm ? `No products matching "${searchTerm}"` : 'No finished product specifications found.'}
+                          </p>
+                          <p className="text-[11px] text-slate-400">
+                            {searchTerm ? 'Try clearing your search term.' : 'Click "Add Product" above to create your first recipe formula.'}
+                          </p>
+                          {searchTerm && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                              className="mt-1.5 h-7 text-xs"
+                            >
+                              Clear Search
+                            </Button>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ) : (
-                    paginated.map((item) => (
-                      <TableRow key={item.id} className="dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
-                        {canEdit && (
-                          <TableCell className="text-center">
-                            <TableCheckbox
-                              checked={selectedIds.includes(item.id)}
-                              onChange={() => handleSelectRow(item.id)}
-                            />
+                    paginated.map((item) => {
+                      const isSelected = selectedIds.includes(item.id);
+                      return (
+                        <TableRow 
+                          key={item.id} 
+                          className={`transition-colors border-b border-slate-100 dark:border-slate-800/70 last:border-none ${
+                            isSelected 
+                              ? 'bg-indigo-50/50 dark:bg-indigo-950/30' 
+                              : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30'
+                          }`}
+                        >
+                          {canEdit && (
+                            <TableCell className="py-2 px-2 text-center">
+                              <TableCheckbox
+                                checked={isSelected}
+                                onChange={() => handleSelectRow(item.id)}
+                              />
+                            </TableCell>
+                          )}
+                          {/* 1. Code */}
+                          <TableCell className="py-2 px-3 font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                            {item.code}
                           </TableCell>
-                        )}
-                        <TableCell className="font-mono text-slate-500 font-bold">{item.code}</TableCell>
-                        <TableCell className="font-bold text-slate-850 dark:text-slate-100">{item.name}</TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-900 text-slate-650 dark:text-slate-355 border border-slate-200/40 dark:border-slate-800">
-                            <Tag className="w-2.5 h-2.5 mr-1 text-slate-400" /> {item.category?.name || 'N/A'}
-                          </span>
-                        </TableCell>
-                        <td className="p-3 text-right font-mono dark:text-slate-355">₹{parseFloat(item.totalRawMaterialCost || 0).toFixed(2)}</td>
-                        <td className="p-3 text-right font-mono dark:text-slate-355">₹{parseFloat(item.totalNonInventoryCost || 0).toFixed(2)}</td>
-                        <td className="p-3 text-right font-mono font-bold dark:text-white">₹{parseFloat(item.totalCost || 0).toFixed(2)}</td>
-                        <td className="p-3 text-right font-mono font-extrabold text-indigo-650 dark:text-indigo-400">₹{parseFloat(item.salePrice || 0).toFixed(2)}</td>
-                        {canEdit && (
-                          <TableCell className="text-center font-bold">
-                            <div className="flex items-center justify-center space-x-1">
-                              <button 
-                                onClick={() => { setEditId(item.id); setView('edit'); }}
-                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded transition-colors cursor-pointer"
-                                title="Edit Specification Details"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleDelete(item.id)} 
-                                className="p-1.5 text-rose-555 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded transition-colors cursor-pointer"
-                                title="Delete Specification"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                          {/* 2. Category (After Code) */}
+                          <TableCell className="py-2 px-3 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
+                              {item.category?.name || 'Uncategorised'}
+                            </span>
                           </TableCell>
-                        )}
-                      </TableRow>
-                    ))
+                          {/* 3. Name (After Category) */}
+                          <TableCell className="py-2 px-3">
+                            <span className="font-bold text-slate-900 dark:text-slate-100 tracking-tight text-xs">
+                              {item.name?.toUpperCase()}
+                            </span>
+                          </TableCell>
+                          {/* 4. UOM */}
+                          <TableCell className="py-2 px-3 text-slate-600 dark:text-slate-400 font-semibold uppercase text-[11px]">
+                            {item.unit?.abbreviation || item.unit?.name || item.unitId || '—'}
+                          </TableCell>
+                          {/* 5. HSN */}
+                          <TableCell className="py-2 px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                            {item.hsnCode || '—'}
+                          </TableCell>
+                          {/* 6. BOM items count */}
+                          <TableCell className="py-2 px-3 text-center whitespace-nowrap">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-100 dark:border-indigo-900">
+                              {item.bom?.length || 0} items
+                            </span>
+                          </TableCell>
+                          {/* 7. Total Cost */}
+                          <TableCell className="py-2 px-3 text-right font-mono font-semibold text-slate-700 dark:text-slate-300">
+                            ₹{parseFloat(item.totalCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </TableCell>
+                          {/* 8. Selling Price */}
+                          <TableCell className="py-2 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                            ₹{parseFloat(item.salePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </TableCell>
+                          {/* 9. Stock */}
+                          <TableCell className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400 font-medium">
+                            {item.currentStock ?? item.openingStock ?? 0}
+                          </TableCell>
+                          {/* 10. Actions */}
+                          {canEdit && (
+                            <TableCell className="py-2 px-3 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end space-x-0.5">
+                                <button 
+                                  onClick={() => { setEditId(item.id); setView('edit'); }}
+                                  className="p-1 rounded-md text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                                  title="Edit Product"
+                                >
+                                  <Edit className="w-3.5 h-3.5" />
+                                </button>
+                                <button 
+                                  onClick={() => handleDelete(item)} 
+                                  className="p-1 rounded-md text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                                  title="Delete Product"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      {/* Pagination Footer */}
-      <div className="p-4 bg-slate-50/20 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-slate-455">
-        <div>
-          Showing {filtered.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length} entries
-        </div>
-        <div className="flex space-x-1">
-          <button 
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
-            disabled={currentPage === 1} 
-            className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-slate-700 dark:text-slate-350"
-          >
-            Previous
-          </button>
-          {Array.from({ length: totalPages }).map((_, i) => (
-            <button 
-              key={i} 
-              onClick={() => setCurrentPage(i + 1)} 
-              className={`px-3 py-1 border rounded-lg transition-colors font-bold cursor-pointer ${currentPage === i + 1 ? 'bg-indigo-600 dark:bg-indigo-500 text-white border-indigo-600' : 'bg-white dark:bg-slate-900 dark:border-slate-700 text-slate-700 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-            >
-              {i + 1}
-            </button>
-          ))}
-          <button 
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
-            disabled={currentPage === totalPages || totalPages === 0} 
-            className="px-3 py-1 border dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 disabled:opacity-50 font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer text-slate-700 dark:text-slate-350"
-          >
-            Next
-          </button>
-        </div>
-      </div>
+          {/* GALLERY GRID VIEW MODE (Default) */}
+          {displayMode === 'grid' && (
+            <div className="p-3 sm:p-3.5">
+              {isLoading ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-3 sm:gap-3.5">
+                  {Array.from({ length: 12 }).map((_, idx) => (
+                    <div
+                      key={idx}
+                      className="border border-slate-200/80 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 flex flex-col justify-between"
+                    >
+                      <Skeleton className="h-36 sm:h-38 w-full rounded-none" />
+                      <div className="p-3 space-y-2.5 flex-1 flex flex-col justify-between">
+                        <div className="space-y-1.5">
+                          <Skeleton className="h-4 w-3/4 rounded" />
+                          <div className="flex justify-between">
+                            <Skeleton className="h-3 w-16 rounded" />
+                            <Skeleton className="h-3 w-16 rounded" />
+                          </div>
+                        </div>
+                        <div className="p-2 border border-slate-100 dark:border-slate-800 rounded-lg space-y-1.5">
+                          <Skeleton className="h-3 w-full rounded" />
+                          <Skeleton className="h-3 w-4/5 rounded" />
+                          <Skeleton className="h-4 w-1/2 rounded" />
+                        </div>
+                        <Skeleton className="h-7 w-full rounded-lg" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : paginated.length === 0 ? (
+                <div className="py-16 text-center text-slate-400">
+                  <Package className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2 stroke-1" />
+                  <p className="font-semibold text-xs text-slate-600 dark:text-slate-300">
+                    {searchTerm ? `No products matching "${searchTerm}"` : 'No finished product specifications found.'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {searchTerm ? 'Try clearing your search term.' : 'Click "Add Product" above to create your first recipe formula.'}
+                  </p>
+                  {searchTerm && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                      className="mt-2 h-7 text-xs"
+                    >
+                      Clear Search
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-3 sm:gap-3.5">
+                  {paginated.map((item) => {
+                    const isSelected = selectedIds.includes(item.id);
+                    const uom = item.unit?.abbreviation || item.unit?.name || item.unitId || 'pcs';
+                    const stock = item.currentStock ?? item.openingStock ?? 0;
+                    const alert = item.alertLevel ?? 0;
+                    const isLowStock = alert > 0 && stock <= alert && stock > 0;
+                    const isOutOfStock = stock <= 0;
+                    const totalCost = parseFloat(item.totalCost || 0);
+                    const salePrice = parseFloat(item.salePrice || 0);
+
+                    return (
+                      <div
+                        key={item.id}
+                        className={`group border rounded-xl bg-white dark:bg-slate-950 overflow-hidden flex flex-col justify-between transition-all duration-200 shadow-3xs hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-900/60 relative ${
+                          isSelected
+                            ? 'border-indigo-600 dark:border-indigo-500 ring-1 ring-indigo-600 dark:ring-indigo-500 bg-indigo-50/15 dark:bg-indigo-950/20'
+                            : 'border-slate-200 dark:border-slate-800'
+                        }`}
+                      >
+                        {/* Top Media / Thumbnail Section */}
+                        <div className="h-36 sm:h-38 w-full relative bg-slate-100 dark:bg-slate-900/90 border-b border-slate-100 dark:border-slate-800/80 overflow-hidden shrink-0 flex items-center justify-center">
+                          {item.imageUrl ? (
+                            <img 
+                              src={item.imageUrl} 
+                              alt={item.name} 
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-300 dark:text-slate-600 select-none">
+                              <Package className="w-8 h-8 stroke-1 mb-1 text-slate-400 dark:text-slate-500 group-hover:scale-110 transition-transform duration-300" />
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Finished Good</span>
+                            </div>
+                          )}
+
+                          {/* Checkbox overlay top-left */}
+                          {canEdit && (
+                            <div className="absolute top-2 left-2 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs p-1 rounded-md border border-slate-200/60 dark:border-slate-700/60 shadow-3xs">
+                              <TableCheckbox
+                                checked={isSelected}
+                                onChange={() => handleSelectRow(item.id)}
+                              />
+                            </div>
+                          )}
+
+                          {/* Product Code Badge top-right */}
+                          <div className="absolute top-2 right-2 px-2 py-0.5 bg-slate-900/85 dark:bg-slate-950/90 backdrop-blur-xs rounded-md text-[10px] font-bold font-mono text-white tracking-wider shadow-3xs border border-white/10">
+                            {item.code}
+                          </div>
+
+                          {/* Bottom category tag overlay */}
+                          <div className="absolute bottom-2 left-2 max-w-[85%] truncate">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs rounded text-[9px] font-bold text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 shadow-3xs truncate">
+                              <Tag className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                              <span className="truncate">{item.category?.name || 'Uncategorised'}</span>
+                            </span>
+                          </div>
+
+                          {/* Stock status indicator bottom-right */}
+                          <div className="absolute bottom-2 right-2">
+                            {isOutOfStock ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-500/90 backdrop-blur-xs text-white shadow-3xs">
+                                Out of stock
+                              </span>
+                            ) : isLowStock ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/90 backdrop-blur-xs text-white shadow-3xs">
+                                Low: {stock}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-600/90 backdrop-blur-xs text-white shadow-3xs">
+                                {stock} {uom}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Card Content Details */}
+                        <div className="p-3 flex-1 flex flex-col justify-between space-y-2.5 text-xs">
+                          {/* Title & Specs */}
+                          <div>
+                            <h3 
+                              className="font-bold text-slate-900 dark:text-slate-100 text-xs tracking-tight line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors uppercase"
+                              title={item.name}
+                            >
+                              {item.name?.toUpperCase()}
+                            </h3>
+                            <div className="flex items-center justify-between text-[10px] text-slate-400 mt-1 font-semibold">
+                              <span>UOM: <strong className="text-slate-600 dark:text-slate-300 uppercase">{uom}</strong></span>
+                              <span>HSN: <strong className="text-slate-600 dark:text-slate-300 font-mono">{item.hsnCode || '—'}</strong></span>
+                            </div>
+                          </div>
+
+                          {/* Matrix Box */}
+                          <div className="bg-slate-50/70 dark:bg-slate-900/60 rounded-lg p-2 border border-slate-100 dark:border-slate-800/80 space-y-1 text-[11px]">
+                            <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                              <span className="flex items-center gap-1 text-[10px]">
+                                <Layers className="w-3 h-3 text-slate-400" /> BOM Ratio:
+                              </span>
+                              <span className="font-semibold text-slate-700 dark:text-slate-300 text-[10px]">
+                                {item.bom?.length || 0} items
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-slate-500 dark:text-slate-400">
+                              <span className="text-[10px]">Total Cost:</span>
+                              <span className="font-mono font-medium text-slate-700 dark:text-slate-300 text-[11px]">
+                                ₹{totalCost.toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center pt-1 border-t border-dashed border-slate-200 dark:border-slate-700/80">
+                              <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-tight">
+                                Selling Price:
+                              </span>
+                              <span className="font-mono font-extrabold text-slate-900 dark:text-white text-xs">
+                                ₹{salePrice.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Card Actions */}
+                          {canEdit && (
+                            <div className="flex items-center gap-1.5 pt-1">
+                              <Button
+                                size="sm"
+                                onClick={() => { setEditId(item.id); setView('edit'); }}
+                                className="flex-1 h-7 text-[11px] bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/80 font-semibold rounded-lg transition-all shadow-3xs cursor-pointer inline-flex items-center justify-center gap-1"
+                              >
+                                <Edit className="w-3 h-3" />
+                                <span>Edit Specs</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDelete(item)}
+                                className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer shrink-0"
+                                title="Delete Product"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Integrated Compact Pagination */}
+          <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Showing <span className="font-semibold text-slate-800 dark:text-slate-200">{paginated.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0}</span> to <span className="font-semibold text-slate-800 dark:text-slate-200">{Math.min(currentPage * itemsPerPage, sortedAndFiltered.length)}</span> of <span className="font-semibold text-slate-800 dark:text-slate-200">{sortedAndFiltered.length}</span> products
+            </div>
+
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
