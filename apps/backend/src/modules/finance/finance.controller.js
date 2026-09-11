@@ -1,9 +1,14 @@
 const prisma = require('../../database/prisma');
 const notificationService = require('../notifications/notifications.service');
 
-// Create Expense
+// Create Expense (handles single or bulk automatically)
 const createExpense = async (req, res, next) => {
   try {
+    // If an array or { expenses: [...] } is passed, route to bulk creation
+    if (Array.isArray(req.body) || (req.body.expenses && Array.isArray(req.body.expenses))) {
+      return createBulkExpenses(req, res, next);
+    }
+
     const { title, amount, category, date, notes } = req.body;
     const userId = req.user.id;
 
@@ -18,11 +23,11 @@ const createExpense = async (req, res, next) => {
 
     const expense = await prisma.expense.create({
       data: {
-        title,
+        title: title.trim(),
         amount: numericAmount,
         category,
         date: new Date(date),
-        notes: notes || null,
+        notes: notes ? String(notes).trim() : null,
         createdBy: userId
       }
     });
@@ -64,15 +69,143 @@ const createExpense = async (req, res, next) => {
   }
 };
 
-// Get Expenses list with optional filtering
+// Create Multiple Expenses in Batch
+const createBulkExpenses = async (req, res, next) => {
+  try {
+    const rawList = req.body.expenses || (Array.isArray(req.body) ? req.body : []);
+    const userId = req.user.id;
+
+    if (!Array.isArray(rawList) || rawList.length === 0) {
+      return res.status(400).json({ error: 'No expenses provided in bulk list.' });
+    }
+
+    const validExpenses = [];
+    for (let i = 0; i < rawList.length; i++) {
+      const item = rawList[i];
+      if (!item.title || item.amount === undefined || !item.category || !item.date) {
+        return res.status(400).json({
+          error: `Row #${i + 1} is missing required fields (Title, Amount, Category, or Date).`
+        });
+      }
+      const numAmt = parseFloat(item.amount);
+      if (isNaN(numAmt) || numAmt <= 0) {
+        return res.status(400).json({
+          error: `Row #${i + 1} amount must be a positive number.`
+        });
+      }
+      validExpenses.push({
+        title: item.title.trim(),
+        amount: numAmt,
+        category: item.category,
+        date: new Date(item.date),
+        notes: item.notes ? String(item.notes).trim() : null,
+        createdBy: userId
+      });
+    }
+
+    let totalBulkAmount = 0;
+    validExpenses.forEach(e => { totalBulkAmount += e.amount; });
+
+    const createdList = await prisma.$transaction(async (tx) => {
+      const results = [];
+      for (const item of validExpenses) {
+        const exp = await tx.expense.create({
+          data: item
+        });
+        results.push(exp);
+      }
+      return results;
+    });
+
+    // Write Audit Log
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'CREATE',
+        tableName: 'Expense',
+        recordId: `BULK_${createdList.length}`,
+        oldValue: {},
+        newValue: { count: createdList.length, totalAmount: totalBulkAmount },
+        ip: clientIp
+      }
+    });
+
+    // Send Notification
+    try {
+      await notificationService.createNotification({
+        type: 'EXPENSE_CREATED',
+        recipient_roles: ['MAIN_MASTER', 'PURCHASE_ACCOUNTANT'],
+        sender_role: req.user.role,
+        sender_id: userId,
+        reference_type: 'EXPENSE',
+        reference_id: createdList[0]?.id || 'BULK',
+        event_at: new Date(),
+        message: `Batch of ${createdList.length} expenses totaling ₹${totalBulkAmount.toLocaleString('en-IN')} recorded by ${req.user.name || 'Accountant'}.`,
+        metadata: { count: createdList.length, totalAmount: totalBulkAmount }
+      });
+    } catch (notifErr) {
+      console.error('Failed to trigger notification for bulk expense creation:', notifErr);
+    }
+
+    res.status(201).json({ success: true, count: createdList.length, expenses: createdList });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Delete Multiple Expenses in Batch
+const deleteBulkExpenses = async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+    const userId = req.user.id;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Please provide an array of expense IDs to delete.' });
+    }
+
+    const deleteResult = await prisma.expense.deleteMany({
+      where: { id: { in: ids } }
+    });
+
+    // Audit log
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
+    await prisma.auditLog.create({
+      data: {
+        userId,
+        action: 'DELETE',
+        tableName: 'Expense',
+        recordId: `BULK_${deleteResult.count}`,
+        oldValue: { ids },
+        newValue: {},
+        ip: clientIp
+      }
+    });
+
+    res.json({ success: true, count: deleteResult.count, message: `${deleteResult.count} expenses deleted successfully.` });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Get Expenses list with optional filtering (supports multiple categories)
 const getExpenses = async (req, res, next) => {
   try {
-    const { search, category, startDate, endDate } = req.query;
+    const { search, category, categories, startDate, endDate } = req.query;
 
     const where = {};
 
-    if (category) {
-      where.category = category;
+    // Support single or multiple categories
+    const rawCat = categories || category;
+    if (rawCat) {
+      const catList = Array.isArray(rawCat)
+        ? rawCat
+        : String(rawCat).split(',').map(c => c.trim()).filter(Boolean);
+      if (catList.length === 1) {
+        where.category = catList[0];
+      } else if (catList.length > 1) {
+        where.category = { in: catList };
+      }
     }
 
     if (startDate || endDate) {
@@ -84,7 +217,9 @@ const getExpenses = async (req, res, next) => {
     if (search) {
       where.OR = [
         { title: { contains: search, mode: 'insensitive' } },
-        { notes: { contains: search, mode: 'insensitive' } }
+        { notes: { contains: search, mode: 'insensitive' } },
+        { category: { contains: search, mode: 'insensitive' } },
+        { user: { name: { contains: search, mode: 'insensitive' } } }
       ];
     }
 
@@ -282,6 +417,8 @@ const getExpensesSummary = async (req, res, next) => {
 
 module.exports = {
   createExpense,
+  createBulkExpenses,
+  deleteBulkExpenses,
   getExpenses,
   updateExpense,
   deleteExpense,
