@@ -490,13 +490,13 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
 };
 
 /**
- * Handle PR Automatic Email Dispatch
+ * Handle PR Automatic Email Dispatch (WITH ONLINE QUOTATION LINK & FULL DETAILS)
  */
-const sendPRAutomatedEmail = async (pr, supplier) => {
+const sendPRAutomatedEmail = async (pr, supplier, options = {}) => {
   const settings = await getTaxSettingsData();
   const email = supplier?.email;
   if (!email) {
-    console.log(`[PR Dispatch] Skip PR-${pr.id} dispatch. No email for supplier ${supplier?.name}`);
+    console.log(`[PR Dispatch] Skip PR-${pr.prNo || pr.id} dispatch. No email for supplier ${supplier?.name}`);
     await logCommunication({
       documentType: 'PR',
       documentNo: pr.prNo,
@@ -509,52 +509,359 @@ const sendPRAutomatedEmail = async (pr, supplier) => {
     return;
   }
 
-  // Prevent duplicates
-  if (await isAlreadySent('PR', pr.prNo, 'EMAIL')) {
+  // Prevent duplicates (unless bypassed for manual resends)
+  if (!options?.bypassDuplicateCheck && await isAlreadySent('PR', pr.prNo, 'EMAIL')) {
     console.log(`[PR Dispatch] Skip duplicate dispatch for PR-${pr.prNo}`);
     return;
   }
 
-  const subject = `Purchase Request ${pr.prNo} — ${settings.companyName}`;
-  const items = Array.isArray(pr.items) ? pr.items : [];
-  let itemsRows = '';
+  // Retrieve or automatically generate linked PQ & online quotation submission link
+  let pq = options?.pq || null;
+  let linkUrl = options?.linkUrl || null;
+  const publicAppUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+
+  if (!linkUrl) {
+    pq = await prisma.assetPQ.findFirst({
+      where: {
+        prNo: pr.prNo,
+        vendorName: { equals: supplier.name, mode: 'insensitive' },
+        status: { not: 'Cancelled' }
+      },
+      include: { items: true }
+    });
+    if (pq && pq.secureToken) {
+      linkUrl = `${publicAppUrl}/asset-quote/${pq.id}/${pq.secureToken}`;
+    }
+  }
+
+  // If no PQ exists yet, automatically create an AssetPQ for this preferred supplier so a live quotation link is generated!
+  if (!linkUrl) {
+    try {
+      const crypto = require('crypto');
+      const secureToken = crypto.randomBytes(32).toString('hex');
+      const count = await prisma.assetPQ.count();
+      const pqNo = `PQ-${new Date().toISOString().slice(0, 10)}-${String(count + 1).padStart(5, '0')}`;
+      const validityAt = pr.requiredByDate ? new Date(pr.requiredByDate) : new Date(Date.now() + 15 * 24 * 60 * 60 * 1000);
+      const prItems = Array.isArray(pr.items) && pr.items.length > 0 ? pr.items : [{
+        assetName: pr.assetName,
+        category: pr.category,
+        hsnCode: pr.hsnCode,
+        specifications: pr.specifications,
+        quantity: pr.quantity,
+        uom: pr.uom || 'Nos',
+        remarks: 'None'
+      }];
+
+      pq = await prisma.assetPQ.create({
+        data: {
+          pqNo,
+          validUntil: validityAt,
+          prNo: pr.prNo,
+          vendorCode: supplier.code || `V-${String(Math.floor(Math.random() * 9000) + 1000)}`,
+          vendorName: supplier.name,
+          vendorGstin: supplier.gstin || 'N/A',
+          vendorPan: supplier.pan || 'N/A',
+          contactPerson: supplier.contactPerson || '',
+          email: supplier.email || '',
+          phone: supplier.phone || '',
+          address: supplier.address || 'N/A',
+          stateCode: supplier.stateCode || (supplier.gstin ? supplier.gstin.substring(0, 2) : '33'),
+          currency: 'INR',
+          exchangeRate: 1.00,
+          paymentTerms: 'Net 30',
+          paymentMode: '',
+          deliveryTerms: 'Door Delivery',
+          leadTime: 7,
+          warrantyPeriod: 12,
+          amcAvailable: false,
+          amcCost: 0,
+          subtotal: 0,
+          discount: 0,
+          cgst: 0,
+          sgst: 0,
+          igst: 0,
+          taxAmount: 0,
+          shippingCharges: 0,
+          loadingCharges: 0,
+          unloadingCharges: 0,
+          packingCharges: 0,
+          insurance: 0,
+          otherCharges: 0,
+          applyGst: true,
+          roundOff: 0,
+          grandTotal: 0,
+          tds: 0,
+          supplierQuoteRef: '',
+          termsBlock: pr.justification || '',
+          status: 'Sent',
+          secureToken,
+          items: {
+            create: prItems.map((item, idx) => ({
+              lineNo: idx + 1,
+              itemCode: item.itemCode || `AST-${idx + 1}`,
+              description: item.assetName || item.description || '',
+              category: item.category || pr.category || 'IT Equipment',
+              hsnCode: item.hsnCode || pr.hsnCode || '8471',
+              uom: item.uom || 'Nos',
+              quantity: parseInt(item.quantity, 10) || 1,
+              unitPrice: 0,
+              discountPercent: 0,
+              discountedPrice: 0,
+              baseAmount: 0,
+              gstRate: 18,
+              cgst: 0,
+              sgst: 0,
+              igst: 0,
+              lineTotal: 0,
+              specMatch: 'Yes',
+              remarks: item.specifications || item.remarks || ''
+            }))
+          }
+        },
+        include: { items: true }
+      });
+      linkUrl = `${publicAppUrl}/asset-quote/${pq.id}/${secureToken}`;
+    } catch (err) {
+      console.error('[sendPRAutomatedEmail] Auto PQ creation error:', err.message);
+    }
+  }
+
+  const subject = `Purchase Request ${pr.prNo} — Quotation Request — ${settings.companyName}`;
+  const prDateFormatted = new Date(pr.createdAt || pr.requestDate || Date.now()).toLocaleDateString('en-IN');
+  const reqByFormatted = pr.requiredByDate ? new Date(pr.requiredByDate).toLocaleDateString('en-IN') : 'ASAP';
+  const expiryFormatted = pq?.validUntil ? new Date(pq.validUntil).toLocaleDateString('en-IN') : reqByFormatted;
+  
+  const items = Array.isArray(pr.items) && pr.items.length > 0 ? pr.items : [{
+    assetName: pr.assetName,
+    category: pr.category,
+    hsnCode: pr.hsnCode,
+    specifications: pr.specifications,
+    quantity: pr.quantity,
+    uom: pr.uom || 'Nos',
+    remarks: 'None'
+  }];
+
+  // Plain Text Table Rows
+  let itemsRowsText = '';
   items.forEach((item, index) => {
-    itemsRows += `  |  ${index + 1}   | ${item.assetName || item.description || ''} | ${item.quantity} | ${item.uom || 'Nos'} | ${item.remarks || 'None'} |\n`;
+    const name = item.assetName || item.description || 'Item';
+    const cat = item.category || pr.category || '';
+    const specs = item.specifications || item.specs || '';
+    const hsn = item.hsnCode || pr.hsnCode || '—';
+    const detailStr = [name, cat ? `[${cat}]` : '', specs ? `(${specs})` : ''].filter(Boolean).join(' ');
+    itemsRowsText += `  |  ${index + 1}   | ${detailStr} | HSN: ${hsn} | Qty: ${item.quantity} ${item.uom || 'Nos'} | Remarks: ${item.remarks || 'None'} |\n`;
   });
 
-  const body = `Dear ${supplier.contactPerson || supplier.name},
+  const textBody = `Dear ${supplier.contactPerson || supplier.name},
 
-We are pleased to raise the following Purchase Request and request your earliest response with availability and quotation.
+${settings.companyName} is pleased to raise the following Purchase Request and requests your earliest response with pricing, availability, and formal quotation.
 
 PURCHASE REQUEST DETAILS:
 ------------------------------------------
-PR Number      : ${pr.prNo}
-PR Date        : ${new Date(pr.createdAt).toLocaleDateString('en-IN')}
-Required By    : ${pr.requiredByDate ? new Date(pr.requiredByDate).toLocaleDateString('en-IN') : 'ASAP'}
-Raised By      : ${pr.requesterName} / ${pr.department}
+PR Number      : ${pr.prNo}${pq?.pqNo ? `\nRFQ Reference  : ${pq.pqNo}` : ''}
+PR Date        : ${prDateFormatted}
+Required By    : ${reqByFormatted}
+Raised By      : ${pr.requesterName || 'N/A'} / ${pr.department || 'General'}
+Cost Center    : ${pr.costCenter || 'N/A'}
+Priority       : ${pr.priority || 'Normal'}
+Preferred Vendor: ${supplier.name}
 
 ITEMS REQUESTED:
-S.No | Item Name | Qty | Unit | Remarks
+S.No | Item Name & Specs | HSN | Qty & Unit | Remarks
 ------------------------------------------------------------
-${itemsRows}
+${itemsRowsText}
 
-Special Instructions:
-${pr.justification || 'None'}
+Special Instructions / Justification:
+${pr.justification || 'None provided'}
+${linkUrl ? `
+SUBMIT YOUR PRICING ONLINE:
+Please click the secure link below to review specifications and submit your unit prices, tax rates, warranty, and delivery schedule online:
 
+${linkUrl}
+
+Note: This quotation request link is valid until ${expiryFormatted}.
+` : ''}
 Please respond with your best quotation at the earliest.
 
 Warm Regards,
 ${settings.companyName}
 ${settings.companyAddress}
 GSTIN : ${settings.companyGstin}
-Phone : ${settings.companyMobile}`;
+Phone : ${settings.companyMobile}
+Email : ${settings.companyEmail || transporter.options.auth.user}`;
+
+  // HTML Table Rows
+  let tableRowsHtml = '';
+  items.forEach((item, index) => {
+    const isEven = index % 2 === 1;
+    const bg = isEven ? '#f8fafc' : '#ffffff';
+    const name = item.assetName || item.description || 'Item';
+    const cat = item.category || pr.category || '';
+    const specs = item.specifications || item.specs || '';
+    const hsn = item.hsnCode || pr.hsnCode || '—';
+
+    tableRowsHtml += `
+      <tr style="background-color: ${bg}; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+        <td style="padding: 12px 14px; text-align: center; font-family: monospace; color: #64748b; font-weight: 600;">${index + 1}</td>
+        <td style="padding: 12px 14px; color: #0f172a;">
+          <div style="font-weight: 700; font-size: 13px; color: #1e293b;">${name}</div>
+          ${cat ? `<span style="display: inline-block; background-color: #e0e7ff; color: #3730a3; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 6px; margin-top: 4px; text-transform: uppercase;">${cat}</span>` : ''}
+          ${specs ? `<div style="font-size: 11px; color: #475569; margin-top: 4px; line-height: 1.4;">${specs}</div>` : ''}
+        </td>
+        <td style="padding: 12px 14px; font-family: monospace; font-size: 12px; color: #475569; text-align: center;">${hsn}</td>
+        <td style="padding: 12px 14px; text-align: right; font-family: monospace; color: #4f46e5; font-weight: 800; font-size: 14px;">${item.quantity}</td>
+        <td style="padding: 12px 14px; color: #475569; font-weight: 600; text-transform: uppercase; font-size: 12px;">${item.uom || 'Nos'}</td>
+        <td style="padding: 12px 14px; color: #64748b; font-size: 12px;">${item.remarks || '—'}</td>
+      </tr>
+    `;
+  });
+
+  // HTML Email Body
+  const htmlBody = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Purchase Request & Quotation</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 30px 10px;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 680px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+          
+          <!-- HEADER BANNER WITH GRADIENT -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); padding: 35px 30px; text-align: left;">
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td>
+                    <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.5px; padding: 6px 14px; border-radius: 30px; margin-bottom: 12px;">
+                      Purchase Request & Quotation
+                    </span>
+                    <h1 style="color: #ffffff; font-size: 24px; font-weight: 800; margin: 0 0 6px 0; letter-spacing: -0.5px;">
+                      Purchase Request Details
+                    </h1>
+                    <p style="color: #c7d2fe; font-size: 14px; margin: 0;">
+                      PR Number: <strong style="color: #ffffff; font-family: monospace; font-size: 15px;">#${pr.prNo}</strong>
+                      ${pq?.pqNo ? ` &bull; RFQ Ref: <strong style="color: #ffffff; font-family: monospace; font-size: 15px;">#${pq.pqNo}</strong>` : ''}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- BODY CONTENT -->
+          <tr>
+            <td style="padding: 30px 30px 20px 30px; color: #334155; font-size: 14px; line-height: 1.6;">
+              <p style="margin-top: 0; font-size: 16px; font-weight: 700; color: #0f172a;">
+                Dear ${supplier.contactPerson || supplier.name},
+              </p>
+              <p style="color: #475569; margin-bottom: 25px;">
+                <strong style="color: #1e293b;">${settings.companyName}</strong> has raised the following Purchase Request and requests your earliest response with pricing, lead time, and formal quotation.
+              </p>
+
+              <!-- DETAILS GRID CARD -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; padding: 18px 20px; margin-bottom: 25px;">
+                <tr>
+                  <td width="50%" style="padding-bottom: 12px; vertical-align: top;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block;">PR Date</span>
+                    <strong style="font-size: 13px; color: #0f172a;">${prDateFormatted}</strong>
+                  </td>
+                  <td width="50%" style="padding-bottom: 12px; vertical-align: top;">
+                    <span style="font-size: 11px; font-weight: 700; color: #dc2626; text-transform: uppercase; letter-spacing: 0.5px; display: block;">Required By</span>
+                    <strong style="font-size: 13px; color: #dc2626;">${reqByFormatted}</strong>
+                  </td>
+                </tr>
+                <tr>
+                  <td width="50%" style="vertical-align: top;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block;">Raised By & Department</span>
+                    <strong style="font-size: 13px; color: #0f172a;">${pr.requesterName || 'N/A'} &bull; ${pr.department || 'General'}</strong>
+                  </td>
+                  <td width="50%" style="vertical-align: top;">
+                    <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; display: block;">Priority & Cost Center</span>
+                    <strong style="font-size: 13px; color: #4f46e5;">${pr.priority || 'Normal'} &bull; ${pr.costCenter || 'N/A'}</strong>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- ITEMS REQUESTED TABLE -->
+              <h3 style="font-size: 13px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 12px 0;">
+                Items Requested (${items.length})
+              </h3>
+
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin-bottom: 25px;">
+                <thead>
+                  <tr style="background-color: #0f172a; color: #ffffff; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <th style="padding: 12px 14px; width: 40px; text-align: center;">#</th>
+                    <th style="padding: 12px 14px;">Item / Asset Details</th>
+                    <th style="padding: 12px 14px; width: 80px; text-align: center;">HSN</th>
+                    <th style="padding: 12px 14px; text-align: right; width: 70px;">Qty</th>
+                    <th style="padding: 12px 14px; width: 60px;">Unit</th>
+                    <th style="padding: 12px 14px; width: 110px;">Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${tableRowsHtml}
+                </tbody>
+              </table>
+
+              ${pr.justification ? `
+              <!-- INSTRUCTIONS BOX -->
+              <div style="background-color: #eef2ff; border-left: 4px solid #6366f1; padding: 14px 18px; border-radius: 12px; margin-bottom: 25px;">
+                <span style="display: block; font-size: 11px; font-weight: 800; color: #4338ca; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Special Instructions / Buyer Notes:</span>
+                <span style="font-size: 13px; color: #312e81; line-height: 1.5;">${pr.justification}</span>
+              </div>
+              ` : ''}
+
+              ${linkUrl ? `
+              <!-- ONLINE CTA BUTTON -->
+              <div style="text-align: center; margin: 35px 0 25px 0; background-color: #faf5ff; border: 1px dashed #c084fc; border-radius: 16px; padding: 24px 20px;">
+                <span style="display: block; font-size: 12px; font-weight: 700; color: #7e22ce; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 12px;">
+                  Online Quotation Portal Available
+                </span>
+                <a href="${linkUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: #ffffff; text-decoration: none; padding: 16px 38px; border-radius: 14px; font-weight: 800; font-size: 15px; text-align: center; box-shadow: 0 6px 20px rgba(79, 70, 229, 0.35); letter-spacing: 0.3px;">
+                  Submit Your Quote Online &rarr;
+                </a>
+                <p style="font-size: 12px; color: #64748b; margin-top: 14px; margin-bottom: 6px; line-height: 1.4;">
+                  Please click the button above to enter unit prices, tax rates, warranty, and delivery schedule directly into our system.
+                </p>
+                <p style="font-size: 11px; color: #94a3b8; margin: 0; word-break: break-all;">
+                  Direct link: <a href="${linkUrl}" style="color: #4f46e5; text-decoration: underline;">${linkUrl}</a>
+                </p>
+                <p style="font-size: 11px; color: #ef4444; font-weight: 600; margin-top: 8px; margin-bottom: 0;">
+                  Deadline: Valid until ${expiryFormatted}
+                </p>
+              </div>
+              ` : ''}
+
+            </td>
+          </tr>
+
+          <!-- FOOTER -->
+          <tr>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 25px 30px; text-align: center; color: #64748b; font-size: 12px; line-height: 1.5;">
+              <strong style="color: #1e293b; font-size: 13px; display: block; margin-bottom: 4px;">${settings.companyName}</strong>
+              <span>${settings.companyAddress}</span><br />
+              <span style="display: inline-block; margin-top: 6px; font-weight: 600; color: #475569;">GSTIN: ${settings.companyGstin} | Phone: ${settings.companyMobile}</span>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
 
   try {
     await transporter.sendMail({
       from: `"${settings.companyName}" <${transporter.options.auth.user}>`,
       to: email,
       subject,
-      text: body
+      text: textBody,
+      html: htmlBody
     });
 
     await logCommunication({
@@ -564,9 +871,9 @@ Phone : ${settings.companyMobile}`;
       channel: 'EMAIL',
       status: 'SENT',
       subject,
-      content: body
+      content: textBody
     });
-    console.log(`[PR Dispatch] Sent PR-${pr.prNo} to ${email}`);
+    console.log(`[PR Dispatch] Sent PR-${pr.prNo} with HTML & quote link to ${email}`);
   } catch (err) {
     console.error(`[PR Dispatch] Failed to send email:`, err.message);
     await logCommunication({
@@ -576,7 +883,7 @@ Phone : ${settings.companyMobile}`;
       channel: 'EMAIL',
       status: 'FAILED',
       subject,
-      content: body,
+      content: textBody,
       errorMessage: err.message
     });
   }
@@ -1729,7 +2036,7 @@ const resendDocument = async (documentType, documentId, pdfBase64 = null) => {
       if (!email) throw new Error('Supplier email not found');
       
       // Perform direct email send logic
-      await sendPRAutomatedEmail(pr, supplier);
+      await sendPRAutomatedEmail(pr, supplier, { bypassDuplicateCheck: true });
       return { success: true, message: 'PR email resent successfully' };
     }
     
