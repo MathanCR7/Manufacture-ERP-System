@@ -57,11 +57,11 @@ class NotificationService {
         recipientRoles: recipient_roles,
         senderRole: sender_role,
         senderId: finalSenderId,
-        referenceType: reference_type,
-        referenceId: reference_id,
+        referenceType: reference_type || 'GENERAL',
+        referenceId: reference_id || 'NONE',
         eventAt: event_at || new Date(),
-        message,
-        metadata
+        message: message || '',
+        metadata: metadata || {}
       }
     });
 

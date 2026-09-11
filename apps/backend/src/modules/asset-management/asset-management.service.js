@@ -1453,6 +1453,30 @@ class AssetManagementService {
       expiryAt: result.validUntil
     });
 
+    // Create live notification and SSE broadcast for Asset Quotation Received
+    try {
+      const notificationService = require('../notifications/notifications.service');
+      await notificationService.createNotification({
+        type: 'QUOTATION_RECEIVED',
+        recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+        sender_role: 'SYSTEM',
+        sender_id: 'system',
+        reference_type: 'ASSET_PQ',
+        reference_id: result.id,
+        message: `Quotation received from ${result.vendorName || 'Supplier'} for Asset Quotation #${result.pqNumber || result.id} (Grand Total: ₹${Number(result.grandTotal || 0).toLocaleString('en-IN')})`,
+        metadata: {
+          pq_id: result.id,
+          pq_number: result.pqNumber,
+          pr_number: result.prNumber,
+          supplier_name: result.vendorName,
+          grand_total: result.grandTotal,
+          is_asset: true
+        }
+      });
+    } catch (notifErr) {
+      console.error('[Asset Public PQ] Error triggering QUOTATION_RECEIVED notification:', notifErr);
+    }
+
     return mapPQToFrontend(result);
   }
 
@@ -1468,10 +1492,32 @@ class AssetManagementService {
       throw new Error('Invalid quotation link');
     }
 
-    return prisma.assetPQ.update({
+    const updated = await prisma.assetPQ.update({
       where: { id: pq.id },
       data: { status: 'Resubmission Requested' }
     });
+
+    try {
+      const notificationService = require('../notifications/notifications.service');
+      await notificationService.createNotification({
+        type: 'QUOTATION_RESUBMISSION_REQUESTED',
+        recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+        sender_role: 'SYSTEM',
+        sender_id: 'system',
+        reference_type: 'ASSET_PQ',
+        reference_id: pq.id,
+        message: `Supplier requested resubmission / pricing update for Asset Quotation #${pq.pqNumber || pq.id}`,
+        metadata: {
+          pq_id: pq.id,
+          pq_number: pq.pqNumber,
+          is_asset: true
+        }
+      });
+    } catch (notifErr) {
+      console.error('[Asset Public PQ] Error triggering resubmission notification:', notifErr);
+    }
+
+    return updated;
   }
 
   async resendSupplierLink(pqId) {

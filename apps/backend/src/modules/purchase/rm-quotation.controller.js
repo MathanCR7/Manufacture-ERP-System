@@ -535,8 +535,33 @@ const submitPublicQuotation = async (req, res, next) => {
       supplierName: supplierRelation.supplier.name,
       supplierEmail: supplierRelation.supplierEmail || supplierRelation.supplier.email,
       grandTotal: savedResponse.grandTotal,
-      expiryAt: supplierRelation.quotation.expiryAt
+      expiryAt: supplierRelation.quotation.expiryAt,
+      response: savedResponse,
+      secureToken: token
     }).catch(err => console.error('[Response Alert Error]', err));
+
+    // Create live notification and SSE broadcast for RM Quotation Received
+    try {
+      const notificationService = require('../notifications/notifications.service');
+      await notificationService.createNotification({
+        type: 'QUOTATION_RECEIVED',
+        recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+        sender_role: 'SYSTEM',
+        sender_id: 'system',
+        reference_type: 'RM_QUOTATION',
+        reference_id: quotationId,
+        message: `Quotation received from ${supplierRelation.supplier.name} for RFQ #${supplierRelation.quotation.referenceNo} (Grand Total: ₹${Number(savedResponse.grandTotal || 0).toLocaleString('en-IN')})`,
+        metadata: {
+          quotation_id: quotationId,
+          quotation_ref: supplierRelation.quotation.referenceNo,
+          supplier_name: supplierRelation.supplier.name,
+          grand_total: savedResponse.grandTotal,
+          is_rm: true
+        }
+      });
+    } catch (notifErr) {
+      console.error('[RM Public Quotation] Error triggering QUOTATION_RECEIVED notification:', notifErr);
+    }
 
     res.json({
       success: true,
@@ -569,6 +594,27 @@ const requestResubmission = async (req, res, next) => {
       where: { id: supplierRelation.id },
       data: { status: 'RESUBMISSION_REQUESTED' }
     });
+
+    try {
+      const notificationService = require('../notifications/notifications.service');
+      await notificationService.createNotification({
+        type: 'QUOTATION_RESUBMISSION_REQUESTED',
+        recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+        sender_role: 'SYSTEM',
+        sender_id: 'system',
+        reference_type: 'RM_QUOTATION',
+        reference_id: quotationId,
+        message: `Quotation resubmission requested by ${supplierRelation.supplier.name} for RFQ #${supplierRelation.quotation.referenceNo}`,
+        metadata: {
+          quotation_id: quotationId,
+          quotation_ref: supplierRelation.quotation.referenceNo,
+          supplier_name: supplierRelation.supplier.name,
+          is_rm: true
+        }
+      });
+    } catch (notifErr) {
+      console.error('[RM Public Quotation] Error triggering resubmission notification:', notifErr);
+    }
 
     res.json({
       success: true,

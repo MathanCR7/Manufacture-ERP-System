@@ -4,12 +4,18 @@ const prisma = require('../../database/prisma');
 
 const connectSSE = (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders(); 
 
   const userId = req.user.id;
   const role = req.user.role;
+
+  // Send initial handshake so client knows stream is live
+  res.write(`event: connected\n`);
+  res.write(`data: ${JSON.stringify({ connected: true, userId, role, timestamp: new Date().toISOString() })}\n\n`);
+  if (typeof res.flush === 'function') res.flush();
 
   sse.addClient(userId, role, res);
 };

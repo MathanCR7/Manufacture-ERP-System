@@ -7,7 +7,7 @@ import {
   User, LogOut, ChevronDown, ChevronRight, ChevronLeft, Plus, Minus,
   Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText, Bell, Info, CheckCircle2,
   AlertTriangle, TrendingUp, Layers, Camera, Upload, Image, VideoOff, HardDrive,
-  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity
+  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity, Mail
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import useLanguageStore from '@/app/store/languageStore';
@@ -15,6 +15,182 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { api } from '@/lib/axios';
 import Swal from 'sweetalert2';
 import { motion, AnimatePresence } from 'framer-motion';
+import { isVisibleToRole } from '@/config/notifications.config';
+
+const playNotificationChime = () => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.type = 'sine';
+    const now = ctx.currentTime;
+    osc.frequency.setValueAtTime(880, now); // A5
+    osc.frequency.exponentialRampToValueAtTime(1318.51, now + 0.12); // E6
+
+    gain.gain.setValueAtTime(0.001, now);
+    gain.gain.linearRampToValueAtTime(0.15, now + 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.start(now);
+    osc.stop(now + 0.55);
+  } catch (e) {
+    // AudioContext autoplay may be blocked before initial gesture
+  }
+};
+
+const getToastConfigForNotification = (notif) => {
+  const { type, metadata = {}, message, referenceId } = notif;
+
+  if (type === 'QUOTATION_RECEIVED') {
+    const isAsset = metadata?.is_asset || notif.referenceType === 'ASSET_PQ';
+    const supplierName = metadata?.supplier_name || 'Vendor';
+    const refDoc = metadata?.pq_number || metadata?.quotation_ref || referenceId || '';
+    const grandTotal = metadata?.grand_total ? `₹${Number(metadata.grand_total).toLocaleString('en-IN')}` : '';
+
+    return {
+      title: '📄 New Quotation Received',
+      message: `Quotation received from <strong>${supplierName}</strong>${refDoc ? ` for <strong>${refDoc}</strong>` : ''}.${grandTotal ? `<br/><span class="inline-block mt-1 font-extrabold text-emerald-600 dark:text-emerald-400">Total: ${grandTotal}</span>` : ''}`,
+      icon: 'success',
+      borderColorClass: 'border-emerald-200 dark:border-emerald-800/50 shadow-emerald-500/10',
+      progressBarColorClass: 'bg-emerald-500',
+      buttonColorClass: 'bg-emerald-600 text-white hover:bg-emerald-700',
+      redirectPath: isAsset ? '/asset-management/quotations' : '/purchase-quotations'
+    };
+  }
+
+  if (type === 'QUOTATION_RESUBMISSION_REQUESTED') {
+    const isAsset = metadata?.is_asset || notif.referenceType === 'ASSET_PQ';
+    return {
+      title: '⚠️ Quotation Resubmission Requested',
+      message: message || `Supplier requested pricing update / resubmission.`,
+      icon: 'warning',
+      borderColorClass: 'border-amber-200 dark:border-amber-800/50 shadow-amber-500/10',
+      progressBarColorClass: 'bg-amber-500',
+      buttonColorClass: 'bg-amber-600 text-white hover:bg-amber-700',
+      redirectPath: isAsset ? '/asset-management/quotations' : '/purchase-quotations'
+    };
+  }
+
+  if (type === 'EMAIL_SENT') {
+    const recipient = metadata?.recipient || 'Recipient';
+    const docType = metadata?.documentType || 'Document';
+    const docNo = metadata?.documentNo || '';
+    let redirect = '/asset-management/requests';
+    if (docType === 'PO') redirect = docNo ? `/purchase-orders/${docNo}` : '/purchase-orders';
+    if (docType === 'PR') redirect = '/asset-management/requests';
+    if (docType === 'QUOTATION' || docType === 'RFQ' || docType === 'PQ') redirect = '/asset-management/quotations';
+
+    return {
+      title: '✉️ Email Dispatched Live',
+      message: `Automated email for <strong>${docType} #${docNo}</strong> was successfully delivered to <strong>${recipient}</strong>.`,
+      icon: 'mail',
+      borderColorClass: 'border-sky-200 dark:border-sky-800/50 shadow-sky-500/10',
+      progressBarColorClass: 'bg-sky-500',
+      buttonColorClass: 'bg-sky-600 text-white hover:bg-sky-700',
+      redirectPath: redirect
+    };
+  }
+
+  if (type === 'EMAIL_FAILED') {
+    return {
+      title: '⚠️ Email Delivery Alert',
+      message: `Failed to deliver email: <strong>${metadata?.errorMessage || message || 'Unknown issue'}</strong>`,
+      icon: 'error',
+      borderColorClass: 'border-rose-200 dark:border-rose-800/50 shadow-rose-500/10',
+      progressBarColorClass: 'bg-rose-500',
+      buttonColorClass: 'bg-rose-600 text-white hover:bg-rose-700',
+      redirectPath: '/notifications'
+    };
+  }
+
+  if (type.startsWith('ASSET_PR')) {
+    return {
+      title: '📋 Asset Purchase Request',
+      message: message,
+      icon: 'info',
+      borderColorClass: 'border-violet-200 dark:border-violet-800/50 shadow-violet-500/10',
+      progressBarColorClass: 'bg-violet-500',
+      buttonColorClass: 'bg-violet-600 text-white hover:bg-violet-700',
+      redirectPath: '/asset-management/requests'
+    };
+  }
+
+  if (type.startsWith('ASSET_PQ')) {
+    return {
+      title: '📄 Asset Quotation Request',
+      message: message,
+      icon: 'info',
+      borderColorClass: 'border-sky-200 dark:border-sky-800/50 shadow-sky-500/10',
+      progressBarColorClass: 'bg-sky-500',
+      buttonColorClass: 'bg-sky-600 text-white hover:bg-sky-700',
+      redirectPath: '/asset-management/quotations'
+    };
+  }
+
+  if (type.startsWith('PO_')) {
+    return {
+      title: '🛒 Purchase Order Alert',
+      message: message,
+      icon: 'info',
+      borderColorClass: 'border-indigo-200 dark:border-indigo-800/50 shadow-indigo-500/10',
+      progressBarColorClass: 'bg-indigo-500',
+      buttonColorClass: 'bg-indigo-600 text-white hover:bg-indigo-700',
+      redirectPath: metadata?.po_id ? `/purchase-orders/${metadata.po_id}` : '/purchase-orders'
+    };
+  }
+
+  if (type.startsWith('GRN_')) {
+    return {
+      title: '📦 Material Arrival / GRN',
+      message: message,
+      icon: 'info',
+      borderColorClass: 'border-cyan-200 dark:border-cyan-800/50 shadow-cyan-500/10',
+      progressBarColorClass: 'bg-cyan-500',
+      buttonColorClass: 'bg-cyan-600 text-white hover:bg-cyan-700',
+      redirectPath: metadata?.grn_id ? `/grn/view/${metadata.grn_id}` : '/grn/list'
+    };
+  }
+
+  if (type.includes('QC_PASSED')) {
+    return {
+      title: '✨ Production QC Passed',
+      message: message,
+      icon: 'success',
+      borderColorClass: 'border-emerald-200 dark:border-emerald-800/50 shadow-emerald-500/10',
+      progressBarColorClass: 'bg-emerald-500',
+      buttonColorClass: 'bg-emerald-600 text-white hover:bg-emerald-700',
+      redirectPath: '/production/qc-queue'
+    };
+  }
+
+  if (type.includes('QC_FAILED')) {
+    return {
+      title: '❌ Production QC Failed',
+      message: message,
+      icon: 'error',
+      borderColorClass: 'border-rose-200 dark:border-rose-800/50 shadow-rose-500/10',
+      progressBarColorClass: 'bg-rose-500',
+      buttonColorClass: 'bg-rose-600 text-white hover:bg-rose-700',
+      redirectPath: '/production/qc-queue'
+    };
+  }
+
+  return {
+    title: type.replace(/_/g, ' '),
+    message: message,
+    icon: 'info',
+    borderColorClass: 'border-indigo-200 dark:border-indigo-800/50 shadow-indigo-500/10',
+    progressBarColorClass: 'bg-indigo-500',
+    buttonColorClass: 'bg-indigo-600 text-white hover:bg-indigo-700',
+    redirectPath: '/notifications'
+  };
+};
 
 const ToastItem = ({ toast, onClose }) => {
   const [progress, setProgress] = useState(100);
@@ -45,6 +221,8 @@ const ToastItem = ({ toast, onClose }) => {
     if (toast.icon === 'warning') return <AlertTriangle className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-amber-500 shrink-0 animate-bounce" />;
     if (toast.icon === 'error') return <XCircle className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-rose-500 shrink-0" />;
     if (toast.icon === 'success') return <CheckCircle2 className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-emerald-500 shrink-0" />;
+    if (toast.icon === 'mail') return <Mail className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-sky-500 shrink-0 animate-pulse" />;
+    if (toast.icon === 'quote') return <FileText className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-emerald-500 shrink-0" />;
     return <Info className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-indigo-500 shrink-0 animate-pulse" />;
   };
 
@@ -705,6 +883,7 @@ const AppShell = () => {
   const toastedRMStockRef = useRef(new Set());
   const toastedProductStockRef = useRef(new Set());
   const toastedInProgressRef = useRef(new Set());
+  const liveToastedSetRef = useRef(new Set());
   const lastUserIdRef = useRef(null);
   const [attendanceStatus, setAttendanceStatus] = useState(null);
 
@@ -722,6 +901,7 @@ const AppShell = () => {
       toastedRMStockRef.current.clear();
       toastedProductStockRef.current.clear();
       toastedInProgressRef.current.clear();
+      liveToastedSetRef.current.clear();
       setCustomToasts([]);
 
       if (isLogin) {
@@ -791,9 +971,10 @@ const AppShell = () => {
     progressBarColorClass = 'bg-indigo-600',
     buttonColorClass = 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400',
     redirectPath = '',
+    duration = 6000,
     delayMs = 0
   }) => {
-    if (toastedSetRef.current.has(key)) return;
+    if (toastedSetRef && toastedSetRef.current && toastedSetRef.current.has(key)) return;
 
     const addToast = () => {
       const newToast = {
@@ -805,9 +986,12 @@ const AppShell = () => {
         progressBarColorClass,
         buttonColorClass,
         redirectPath,
-        duration: 5000,
+        duration: duration || 6000,
       };
-      setCustomToasts(prev => [...prev, newToast]);
+      setCustomToasts(prev => {
+        if (prev.some(t => t.id === key)) return prev;
+        return [...prev, newToast];
+      });
     };
 
     if (delayMs > 0) {
@@ -816,8 +1000,90 @@ const AppShell = () => {
       addToast();
     }
 
-    toastedSetRef.current.add(key);
+    if (toastedSetRef && toastedSetRef.current) {
+      toastedSetRef.current.add(key);
+    }
   };
+
+  // Real-time live SSE stream listener for instant toast notifications across the entire ERP without page refresh
+  useEffect(() => {
+    if (!token || !user?.id) return;
+
+    const handleIncomingNotification = (notif) => {
+      if (!notif || !notif.id) return;
+      if (!isVisibleToRole(notif.type, user?.role)) return;
+
+      const notifKey = `live_notif_${notif.id}`;
+      if (liveToastedSetRef.current.has(notifKey)) return;
+      liveToastedSetRef.current.add(notifKey);
+
+      const toastConfig = getToastConfigForNotification(notif);
+      playNotificationChime();
+
+      triggerToastAlert({
+        title: toastConfig.title,
+        message: toastConfig.message,
+        icon: toastConfig.icon,
+        key: notifKey,
+        toastedSetRef: liveToastedSetRef,
+        borderColorClass: toastConfig.borderColorClass,
+        progressBarColorClass: toastConfig.progressBarColorClass,
+        buttonColorClass: toastConfig.buttonColorClass,
+        redirectPath: toastConfig.redirectPath,
+        duration: 7000,
+        delayMs: 0
+      });
+    };
+
+    const handleCustomEvent = (e) => {
+      if (e?.detail) {
+        handleIncomingNotification(e.detail);
+      }
+    };
+
+    window.addEventListener('notification-received', handleCustomEvent);
+
+    // Establish resilient direct SSE connection in AppShell
+    let eventSource = null;
+    try {
+      const sseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/notifications/stream?token=${token}`;
+      eventSource = new EventSource(sseUrl);
+
+      const onStreamEvent = (e) => {
+        try {
+          const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+          handleIncomingNotification(data);
+          window.dispatchEvent(new CustomEvent('notification-received', { detail: data }));
+        } catch (err) {
+          console.error('[AppShell SSE Parse Error]', err);
+        }
+      };
+
+      eventSource.addEventListener('notification', onStreamEvent);
+      eventSource.onmessage = onStreamEvent;
+
+      const specificEvents = [
+        'QUOTATION_RECEIVED', 'QUOTATION_RESUBMISSION_REQUESTED',
+        'EMAIL_SENT', 'EMAIL_FAILED',
+        'PO_CREATED', 'PO_STATUS_CHANGED', 'GRN_SUBMITTED',
+        'LAB_RM_APPROVED', 'LAB_RM_REJECTED', 'LAB_RM_RESAMPLE',
+        'PRODUCTION_QC_PASSED', 'PRODUCTION_QC_FAILED', 'PRODUCTION_COMPLETED',
+        'ASSET_PR_CREATED', 'ASSET_PR_APPROVED', 'ASSET_PQ_CREATED',
+        'ASSET_PO_CREATED', 'ASSET_GRPO_CREATED', 'ASSET_INVOICE_CREATED',
+        'ASSET_INVOICE_PAID', 'ASSET_DECOMMISSIONED'
+      ];
+      specificEvents.forEach(evt => eventSource.addEventListener(evt, onStreamEvent));
+    } catch (err) {
+      console.error('[AppShell SSE Connection Error]', err);
+    }
+
+    return () => {
+      window.removeEventListener('notification-received', handleCustomEvent);
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [token, user?.id, user?.role]);
 
   // Fetch badge stats every 15s
   useEffect(() => {
@@ -929,137 +1195,39 @@ const AppShell = () => {
         }
       }
 
-      // 3. Pending Lab Tests & Toast Alerts
+      // 3. Pending Lab Tests Count (badges only, no toast spam on login)
       if (['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER'].includes(user.role)) {
         try {
           if (!useAuthStore.getState().token) return;
           const labRes = await api.get('/grn/lab-tests');
           const pendingTests = labRes.data || [];
           setPendingRmLabCount(pendingTests.length);
-
-          if (pendingTests.length > 0) {
-            const mostRecent = pendingTests[0];
-            const extraCount = pendingTests.length - 1;
-            
-            let message = `GRN <strong>${mostRecent.referenceNo}</strong> is awaiting lab evaluation for material <strong>${mostRecent.po?.name || 'Raw Material'}</strong>.`;
-            if (extraCount > 0) {
-              message += `<div class="mt-1.5 pt-1.5 border-t border-amber-250/20 text-[10px] text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more pending below</span></div>`;
-            }
-
-            const lastToastTime = localStorage.getItem(`last_toast_time_lab_${user.id}`);
-            const now = Date.now();
-            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
-
-            if (shouldToast && ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'].includes(user.role) && !toastedLabTestsRef.current.has(mostRecent.referenceNo)) {
-              triggerToastAlert({
-                title: 'Pending RM Lab Test',
-                message,
-                icon: 'warning',
-                key: mostRecent.referenceNo,
-                toastedSetRef: toastedLabTestsRef,
-                borderColorClass: 'border-amber-100 dark:border-amber-900/40',
-                progressBarColorClass: 'bg-amber-500',
-                buttonColorClass: 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400',
-                redirectPath: '/lab/pending',
-                delayMs: 300
-              });
-
-              localStorage.setItem(`last_toast_time_lab_${user.id}`, String(now));
-              // Mark all currently fetched pending tests as toasted to prevent multiple popups
-              pendingTests.forEach(t => toastedLabTestsRef.current.add(t.referenceNo));
-            }
-          }
         } catch (e) {
           if (e?.response?.status === 401 || e?.response?.status === 403) return;
-          console.error('Failed to fetch pending lab tests badge/toast', e);
+          console.error('Failed to fetch pending lab tests badge', e);
         }
       }
 
-      // 4. Upcoming Deliveries & Toast Alerts
+      // 4. Upcoming Deliveries Count (badges only, no toast spam on login)
       if (['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'].includes(user.role)) {
         try {
           if (!useAuthStore.getState().token) return;
           const upRes = await api.get('/grn/upcoming');
           const awaitingPOs = upRes.data.filter(d => !d.hasGrn);
-          
           setUpcomingDeliveriesCount(awaitingPOs.length);
-
-          if (awaitingPOs.length > 0) {
-            const mostRecent = awaitingPOs[0];
-            const extraCount = awaitingPOs.length - 1;
-
-            let message = `Material <strong>${mostRecent.name}</strong> (${mostRecent.referenceNo}) is awaiting receipt!`;
-            if (extraCount > 0) {
-              message += `<div class="mt-1.5 pt-1.5 border-t border-indigo-200/30 text-[10px] text-indigo-600 dark:text-indigo-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more awaiting receipt</span></div>`;
-            }
-
-            const lastToastTime = localStorage.getItem(`last_toast_time_deliveries_${user.id}`);
-            const now = Date.now();
-            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
-
-            if (shouldToast && !toastedPOsRef.current.has(mostRecent.referenceNo)) {
-              triggerToastAlert({
-                title: 'Upcoming RM Delivery',
-                message,
-                icon: 'info',
-                key: mostRecent.referenceNo,
-                toastedSetRef: toastedPOsRef,
-                borderColorClass: 'border-indigo-100 dark:border-indigo-900/40',
-                progressBarColorClass: 'bg-indigo-600',
-                buttonColorClass: 'bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400',
-                redirectPath: '/grn/upcoming',
-                delayMs: 2500
-              });
-
-              localStorage.setItem(`last_toast_time_deliveries_${user.id}`, String(now));
-              // Mark all currently fetched POs as toasted to prevent multiple popups
-              awaitingPOs.forEach(po => toastedPOsRef.current.add(po.referenceNo));
-            }
-          }
         } catch (e) {
           if (e?.response?.status === 401 || e?.response?.status === 403) return;
-          console.error('Failed to fetch upcoming deliveries badge/toast', e);
+          console.error('Failed to fetch upcoming deliveries badge', e);
         }
       }
 
-      // 5. In Progress Production Batches
+      // 5. In Progress Production Batches Count (badges only, no toast spam on login)
       if (['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'].includes(user.role)) {
         try {
           if (!useAuthStore.getState().token) return;
           const batchRes = await api.get('/production', { params: { status: 'In Progress' } });
           const activeBatches = batchRes.data?.batches || [];
           setInProgressBatchesCount(activeBatches.length);
-
-          if (activeBatches.length > 0) {
-            const mostRecent = activeBatches[0];
-            let message = `Batch <strong>${mostRecent.referenceNo}</strong> for <strong>${mostRecent.product?.name}</strong> is currently active and in progress.`;
-            const extraCount = activeBatches.length - 1;
-            if (extraCount > 0) {
-              message += `<div class="mt-1.5 pt-1.5 border-t border-amber-200/20 text-[10px] text-amber-600 dark:text-amber-400 font-extrabold flex items-center gap-1"><span>★</span><span>${extraCount} more batches in progress</span></div>`;
-            }
-
-            const lastToastTime = localStorage.getItem(`last_toast_time_production_${user.id}`);
-            const now = Date.now();
-            const shouldToast = !lastToastTime || (now - Number(lastToastTime)) > TOAST_COOLDOWN_MS;
-
-            if (shouldToast && !toastedInProgressRef.current.has(mostRecent.referenceNo)) {
-              triggerToastAlert({
-                title: 'Production In Progress',
-                message,
-                icon: 'warning',
-                key: mostRecent.referenceNo,
-                toastedSetRef: toastedInProgressRef,
-                borderColorClass: 'border-amber-100 dark:border-amber-900/40',
-                progressBarColorClass: 'bg-amber-500',
-                buttonColorClass: 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400',
-                redirectPath: '/production/active-batches',
-                delayMs: 3000
-              });
-
-              localStorage.setItem(`last_toast_time_production_${user.id}`, String(now));
-              toastedInProgressRef.current.add(mostRecent.referenceNo);
-            }
-          }
         } catch (e) {
           if (e?.response?.status === 401 || e?.response?.status === 403) return;
           console.error('Failed to fetch in progress batches count', e);

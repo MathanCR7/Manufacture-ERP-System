@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, CheckCircle2, Circle, ExternalLink, Activity, Package, AlertTriangle, XCircle, FlaskConical, Eye, Truck } from 'lucide-react';
+import { Bell, CheckCircle2, Circle, ExternalLink, Activity, Package, AlertTriangle, XCircle, FlaskConical, Eye, Truck, Mail, FileText } from 'lucide-react';
 import useAuthStore from '@/app/store/authStore';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
@@ -42,6 +42,12 @@ const PhaseColors = {
   ASSET_INVOICE_PAID: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-303 border-emerald-200 dark:border-emerald-800/30',
   ASSET_DECOMMISSIONED: 'bg-rose-50 text-rose-700 dark:bg-rose-955/40 dark:text-rose-303 border-rose-200 dark:border-rose-800/30',
   UPCOMING_DELIVERY: 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/30',
+
+  // Quotation & Communication Live Event Colors
+  QUOTATION_RECEIVED: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/30',
+  QUOTATION_RESUBMISSION_REQUESTED: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border-amber-200 dark:border-amber-800/30',
+  EMAIL_SENT: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300 border-sky-200 dark:border-sky-800/30',
+  EMAIL_FAILED: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 border-rose-200 dark:border-rose-800/30',
 };
 
 const relativeTime = (dateStr) => {
@@ -63,53 +69,130 @@ const NotificationBell = () => {
   const user = useAuthStore(state => state.user);
   const [notifications, setNotifications] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
-  const [toastNotifs, setToastNotifs] = useState([]);
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
 
+  const isInitialLoadRef = useRef(true);
+  const knownNotificationIdsRef = useRef(new Set());
+
   useEffect(() => {
-    // Fetch initial notifications
-    api.get('/notifications').then(res => {
-      setNotifications(res.data);
-    }).catch(err => console.error("Failed to fetch notifications", err));
+    let eventSource = null;
+    let reconnectTimeout = null;
+    let isSubscribed = true;
 
-    // Connect SSE
-    const token = useAuthStore.getState().token;
-    const eventSource = new EventSource(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/notifications/stream?token=${token}`);
+    // Fast sync function to guarantee live updates even if SSE is temporarily reconnecting
+    const syncNotifications = async () => {
+      try {
+        const token = useAuthStore.getState().token;
+        if (!token) return;
+        const res = await api.get('/notifications');
+        const freshList = res.data || [];
 
-    const handleEvent = (event) => {
-      const newNotif = JSON.parse(event.data);
-      setNotifications(prev => [newNotif, ...prev]);
-      
-      // Show Toast
-      const toastId = Date.now();
-      setToastNotifs(prev => [...prev, { ...newNotif, toastId }]);
-      setTimeout(() => {
-        setToastNotifs(prev => prev.filter(t => t.toastId !== toastId));
-      }, newNotif.type.includes('QC_PASSED') || newNotif.type.includes('ALERT') ? 10000 : 6000);
+        if (!isSubscribed) return;
 
-      // Dispatch custom event for widgets to listen to
-      window.dispatchEvent(new CustomEvent('notification-received', { detail: newNotif }));
+        if (isInitialLoadRef.current) {
+          isInitialLoadRef.current = false;
+          freshList.forEach(n => knownNotificationIdsRef.current.add(n.id));
+          setNotifications(freshList);
+          return;
+        }
+
+        // Detect brand new notifications that were not previously in state
+        const brandNew = freshList.filter(n => !knownNotificationIdsRef.current.has(n.id));
+
+        if (brandNew.length > 0) {
+          brandNew.forEach(n => {
+            knownNotificationIdsRef.current.add(n.id);
+            // Dispatch live notification event for real-time stacked toast
+            window.dispatchEvent(new CustomEvent('notification-received', { detail: n }));
+          });
+
+          setNotifications(freshList);
+        }
+      } catch (err) {
+        // Silently handle transient network errors
+      }
     };
 
-    // Listen to all specific events
-    const events = [
-      'PO_CREATED', 'PO_AMENDED', 'PO_CANCELLED', 'PO_UPDATED', 'PO_STATUS_CHANGED',
-      'GRN_SUBMITTED', 'LAB_RM_APPROVED', 'LAB_RM_REJECTED', 
-      'LAB_RM_RESAMPLE', 'FINAL_QTY_SUBMITTED', 'PRODUCTION_STARTED', 
-      'PRODUCTION_ON_HOLD', 'PRODUCTION_COMPLETED', 'PRODUCTION_QC_PASSED', 
-      'PRODUCTION_QC_FAILED', 'STOCK_LOW_ALERT', 'STOCK_EXPIRY_ALERT',
-      'STOCK_CRITICAL', 'STOCK_REPRODUCTION', 'RM_LOW_STOCK_ALERT',
-      // Asset Management
-      'ASSET_PR_CREATED', 'ASSET_PR_APPROVED', 'ASSET_PQ_CREATED',
-      'ASSET_PO_CREATED', 'ASSET_GRPO_CREATED', 'ASSET_INVOICE_CREATED',
-      'ASSET_INVOICE_PAID', 'ASSET_DECOMMISSIONED'
-    ];
-    events.forEach(e => eventSource.addEventListener(e, handleEvent));
+    // Initial fetch
+    syncNotifications();
+
+    // Fast background sync interval (every 4 seconds) to guarantee real-time updates without reload
+    const pollInterval = setInterval(syncNotifications, 4000);
+
+    // Establish live SSE stream with automatic reconnection
+    const connectSSE = () => {
+      if (!isSubscribed) return;
+      const token = useAuthStore.getState().token;
+      if (!token) return;
+
+      try {
+        const sseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/notifications/stream?token=${token}`;
+        eventSource = new EventSource(sseUrl);
+
+        const handleIncoming = (event) => {
+          try {
+            const newNotif = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+            if (!newNotif || !newNotif.id) return;
+
+            // Mark as known
+            knownNotificationIdsRef.current.add(newNotif.id);
+
+            // Deduplicate and update bell list live
+            setNotifications(prev => {
+              if (prev.some(n => n.id === newNotif.id)) return prev;
+              return [newNotif, ...prev];
+            });
+
+            // Dispatch custom event for AppShell live stacked toast
+            window.dispatchEvent(new CustomEvent('notification-received', { detail: newNotif }));
+          } catch (err) {
+            console.error("Failed to parse incoming live notification SSE event", err);
+          }
+        };
+
+        eventSource.addEventListener('notification', handleIncoming);
+        eventSource.onmessage = handleIncoming;
+
+        const events = [
+          'QUOTATION_RECEIVED', 'QUOTATION_RESUBMISSION_REQUESTED',
+          'EMAIL_SENT', 'EMAIL_FAILED',
+          'PO_CREATED', 'PO_AMENDED', 'PO_CANCELLED', 'PO_UPDATED', 'PO_STATUS_CHANGED',
+          'GRN_SUBMITTED', 'LAB_RM_APPROVED', 'LAB_RM_REJECTED', 
+          'LAB_RM_RESAMPLE', 'FINAL_QTY_SUBMITTED', 'PRODUCTION_STARTED', 
+          'PRODUCTION_ON_HOLD', 'PRODUCTION_COMPLETED', 'PRODUCTION_QC_PASSED', 
+          'PRODUCTION_QC_FAILED', 'STOCK_LOW_ALERT', 'STOCK_EXPIRY_ALERT',
+          'STOCK_CRITICAL', 'STOCK_REPRODUCTION', 'RM_LOW_STOCK_ALERT',
+          'ASSET_PR_CREATED', 'ASSET_PR_APPROVED', 'ASSET_PQ_CREATED',
+          'ASSET_PO_CREATED', 'ASSET_GRPO_CREATED', 'ASSET_INVOICE_CREATED',
+          'ASSET_INVOICE_PAID', 'ASSET_DECOMMISSIONED', 'UPCOMING_DELIVERY'
+        ];
+        events.forEach(e => eventSource.addEventListener(e, handleIncoming));
+
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          if (isSubscribed && !reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => {
+              reconnectTimeout = null;
+              connectSSE();
+            }, 3000);
+          }
+        };
+      } catch (sseErr) {
+        console.error("Failed to connect Notification SSE stream", sseErr);
+      }
+    };
+
+    connectSSE();
 
     return () => {
-      events.forEach(e => eventSource.removeEventListener(e, handleEvent));
-      eventSource.close();
+      isSubscribed = false;
+      clearInterval(pollInterval);
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSource) eventSource.close();
     };
   }, []);
 
@@ -124,9 +207,25 @@ const NotificationBell = () => {
   }, []);
 
   const getNotificationUrl = (notif) => {
-    const { type, metadata, referenceId } = notif;
+    const { type, metadata = {}, referenceId, referenceType } = notif;
     const poId = metadata?.purchaseOrderId || metadata?.poId || metadata?.po_id || referenceId;
     const grnId = metadata?.grn_id || metadata?.grnId || referenceId;
+
+    if (type === 'QUOTATION_RECEIVED' || type === 'QUOTATION_RESUBMISSION_REQUESTED') {
+      if (metadata?.is_asset || type.includes('ASSET') || referenceType === 'ASSET_PQ') {
+        return '/asset-management/quotations';
+      }
+      return '/purchase-quotations';
+    }
+
+    if (type === 'EMAIL_SENT' || type === 'EMAIL_FAILED') {
+      if (metadata?.documentType === 'PR') return '/asset-management/requests';
+      if (metadata?.documentType === 'PO') return metadata?.documentNo ? `/purchase-orders/${metadata.documentNo}` : '/purchase-orders';
+      if (metadata?.documentType === 'RFQ' || metadata?.documentType === 'PQ' || metadata?.documentType === 'QUOTATION') {
+        return '/asset-management/quotations';
+      }
+      return '/asset-management/requests';
+    }
 
     if (type.startsWith('PO_')) {
       return poId && poId !== 'system' ? `/purchase-orders/${poId}` : `/purchase-orders`;
@@ -219,8 +318,98 @@ const NotificationBell = () => {
   const unreadCount = visibleNotifications.filter(n => !n.seenAt).length;
 
   const renderNotificationContent = (notif) => {
-    const { type, metadata, message, eventAt } = notif;
-    const role = user.role;
+    const { type, metadata = {}, message, eventAt, referenceType } = notif;
+    const role = user?.role;
+
+    // Live Quotation Received
+    if (type === 'QUOTATION_RECEIVED') {
+      const isAsset = metadata?.is_asset || referenceType === 'ASSET_PQ';
+      const redirectUrl = isAsset ? '/asset-management/quotations' : '/purchase-quotations';
+      return (
+        <div 
+          className="bg-emerald-50/80 dark:bg-emerald-950/20 p-3 rounded-lg border border-emerald-200 dark:border-emerald-800/40 cursor-pointer hover:bg-emerald-100/50 transition-colors"
+          onClick={(e) => handleActionClick(e, redirectUrl)}
+        >
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">New Quotation Received</span>
+          </div>
+          <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 mb-2 leading-relaxed">{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, redirectUrl)}
+            className="text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-all"
+          >
+            <span>📄 Review Quotation</span>
+            <ExternalLink className="w-3 h-3" />
+          </button>
+        </div>
+      );
+    }
+
+    // Live Quotation Resubmission Requested
+    if (type === 'QUOTATION_RESUBMISSION_REQUESTED') {
+      const isAsset = metadata?.is_asset || referenceType === 'ASSET_PQ';
+      const redirectUrl = isAsset ? '/asset-management/quotations' : '/purchase-quotations';
+      return (
+        <div 
+          className="bg-amber-50/80 dark:bg-amber-950/20 p-3 rounded-lg border border-amber-200 dark:border-amber-800/40 cursor-pointer hover:bg-amber-100/50 transition-colors"
+          onClick={(e) => handleActionClick(e, redirectUrl)}
+        >
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+            <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider">Price Resubmission Request</span>
+          </div>
+          <p className="text-xs font-semibold text-slate-800 dark:text-slate-100 mb-2 leading-relaxed">{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, redirectUrl)}
+            className="text-[11px] bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-all"
+          >
+            <span>⚠️ Review Request</span>
+          </button>
+        </div>
+      );
+    }
+
+    // Live Email Sent Confirmation
+    if (type === 'EMAIL_SENT') {
+      let redirectUrl = '/asset-management/requests';
+      if (metadata?.documentType === 'PO') redirectUrl = metadata?.documentNo ? `/purchase-orders/${metadata.documentNo}` : '/purchase-orders';
+      if (metadata?.documentType === 'RFQ' || metadata?.documentType === 'PQ' || metadata?.documentType === 'QUOTATION') redirectUrl = '/asset-management/quotations';
+      return (
+        <div 
+          className="bg-sky-50/80 dark:bg-sky-950/20 p-3 rounded-lg border border-sky-200 dark:border-sky-800/40 cursor-pointer hover:bg-sky-100/50 transition-colors"
+          onClick={(e) => handleActionClick(e, redirectUrl)}
+        >
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Mail className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+            <span className="text-[11px] font-bold text-sky-700 dark:text-sky-300 uppercase tracking-wider">Email Dispatched</span>
+          </div>
+          <p className="text-xs font-medium text-slate-800 dark:text-slate-200 mb-2 leading-relaxed">{message}</p>
+          <button
+            onClick={(e) => handleActionClick(e, redirectUrl)}
+            className="text-[11px] bg-sky-600 hover:bg-sky-700 text-white font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-all"
+          >
+            <span>View Details</span>
+          </button>
+        </div>
+      );
+    }
+
+    // Live Email Delivery Failure Alert
+    if (type === 'EMAIL_FAILED') {
+      return (
+        <div 
+          className="bg-rose-50/80 dark:bg-rose-950/20 p-3 rounded-lg border border-rose-200 dark:border-rose-800/40 cursor-pointer hover:bg-rose-100/50 transition-colors"
+          onClick={(e) => handleActionClick(e, '/notifications')}
+        >
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+            <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 uppercase tracking-wider">Email Dispatch Failed</span>
+          </div>
+          <p className="text-xs font-semibold text-rose-900 dark:text-rose-200 mb-2 leading-relaxed">{message}</p>
+        </div>
+      );
+    }
 
     if (type === 'UPCOMING_DELIVERY') {
       return (
@@ -651,8 +840,8 @@ const NotificationBell = () => {
               </div>
             ) : (
               visibleNotifications.map((notif) => {
-                const isReturned = notif.type === 'GRN_SUBMITTED' && (notif.metadata.confirmation_status === 'Returned' || notif.metadata.confirmation_status === 'RETURNED');
-                const isLabMuted = isReturned && user.role === 'LAB_ASSISTANT';
+                const isReturned = notif.type === 'GRN_SUBMITTED' && (notif.metadata?.confirmation_status === 'Returned' || notif.metadata?.confirmation_status === 'RETURNED');
+                const isLabMuted = isReturned && user?.role === 'LAB_ASSISTANT';
                 const isUnread = !notif.seenAt && !isLabMuted;
                 
                 return (
@@ -700,23 +889,6 @@ const NotificationBell = () => {
           </div>
         </div>
       )}
-
-      {/* Toast Overlay */}
-      <div className="fixed top-4 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-4 z-[100] flex flex-col items-center sm:items-end gap-2 pointer-events-none px-4 sm:px-0 w-full sm:w-auto">
-        {toastNotifs.filter(t => isVisibleToRole(t.type, user?.role)).map(t => (
-          <div key={t.toastId} className={`pointer-events-auto w-full max-w-[280px] sm:w-85 shadow-2xl rounded-lg sm:rounded-xl border p-3 sm:p-4 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md transition-all duration-300 animate-in slide-in-from-right-5 ${PhaseColors[t.type]?.split(' ')[3] || 'border-slate-200 dark:border-slate-800'}`}>
-            <div className="flex justify-between items-start mb-2 sm:mb-2.5">
-              <span className={`text-[8px] sm:text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider border ${PhaseColors[t.type] || 'bg-slate-100 text-slate-650 dark:bg-slate-800 dark:text-slate-400'}`}>
-                {t.type.replace(/_/g, ' ')}
-              </span>
-              <button onClick={() => setToastNotifs(prev => prev.filter(x => x.toastId !== t.toastId))} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-355">
-                <XCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </button>
-            </div>
-            <p className="text-[11px] sm:text-xs text-slate-700 dark:text-slate-300 leading-snug font-medium">{t.message}</p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 };

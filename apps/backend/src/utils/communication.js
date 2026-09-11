@@ -18,7 +18,7 @@ const transporter = nodemailer.createTransport({
  */
 const logCommunication = async ({ documentType, documentNo, recipient, channel, status, subject, content, errorMessage }) => {
   try {
-    return await prisma.communicationLog.create({
+    const log = await prisma.communicationLog.create({
       data: {
         documentType,
         documentNo,
@@ -30,6 +30,58 @@ const logCommunication = async ({ documentType, documentNo, recipient, channel, 
         errorMessage: errorMessage || null
       }
     });
+
+    // Trigger real-time live notification and SSE broadcast for email send events
+    try {
+      const notificationService = require('../modules/notifications/notifications.service');
+      const docLabel = documentType === 'PR' ? 'Purchase Request' 
+        : documentType === 'PO' ? 'Purchase Order' 
+        : (documentType === 'QUOTATION' || documentType === 'RFQ' || documentType === 'PQ') ? 'Quotation Request' 
+        : (documentType || 'Document');
+
+      if (status === 'SENT') {
+        await notificationService.createNotification({
+          type: 'EMAIL_SENT',
+          recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+          sender_role: 'SYSTEM',
+          sender_id: 'system',
+          reference_type: documentType || 'COMMUNICATION',
+          reference_id: String(documentNo || 'EMAIL'),
+          message: `Email dispatched successfully for ${docLabel} #${documentNo || ''} to ${recipient}`,
+          metadata: {
+            documentType,
+            documentNo,
+            recipient,
+            subject: subject || `${docLabel} #${documentNo}`,
+            channel: channel || 'EMAIL',
+            status: 'SENT'
+          }
+        });
+      } else if (status === 'FAILED') {
+        await notificationService.createNotification({
+          type: 'EMAIL_FAILED',
+          recipient_roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+          sender_role: 'SYSTEM',
+          sender_id: 'system',
+          reference_type: documentType || 'COMMUNICATION',
+          reference_id: String(documentNo || 'EMAIL'),
+          message: `Email dispatch failed for ${docLabel} #${documentNo || ''} to ${recipient}: ${errorMessage || 'Unknown error'}`,
+          metadata: {
+            documentType,
+            documentNo,
+            recipient,
+            subject: subject || `${docLabel} #${documentNo}`,
+            channel: channel || 'EMAIL',
+            errorMessage,
+            status: 'FAILED'
+          }
+        });
+      }
+    } catch (notifErr) {
+      console.error('[Communication Log] Error triggering live notification:', notifErr);
+    }
+
+    return log;
   } catch (err) {
     console.error('[Communication Log] Failed to write log to database:', err);
   }
@@ -2313,60 +2365,164 @@ Phone : ${settings.companyMobile}`;
 /**
  * Send alert to internal team and confirmation copy to supplier on response submission (HTML Templated)
  */
-const sendRMQuotationResponseAlert = async ({ quotation, supplierName, supplierEmail, grandTotal, expiryAt }) => {
+/**
+ * Send alert to internal team and confirmation copy to supplier on response submission (HTML Templated with Full Financial Breakdown)
+ */
+const sendRMQuotationResponseAlert = async ({ quotation, supplierName, supplierEmail, grandTotal, expiryAt, response, secureToken }) => {
   const settings = await getTaxSettingsData();
-  const expiryFormatted = new Date(expiryAt).toLocaleString('en-IN', {
+  const reqNo = quotation.quotationNo || quotation.referenceNo || quotation.id || 'N/A';
+  const expiryFormatted = new Date(expiryAt || quotation.expiryAt).toLocaleString('en-IN', {
     dateStyle: 'medium',
     timeStyle: 'short'
   });
 
+  const publicAppUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+  const linkUrl = secureToken ? `${publicAppUrl}/quotation-portal/${secureToken}` : '';
+
+  const respData = response || quotation || {};
+  const subtotal = Number(respData.subtotal || 0);
+  const taxTotal = Number(respData.taxTotal || respData.taxAmount || 0);
+  const shippingCharges = Number(respData.shipping || respData.shippingCharges || 0);
+  const otherCharges = Number(respData.otherCharges || 0);
+  const discount = Number(respData.discount || 0);
+  const grandTotalVal = Number(grandTotal !== undefined ? grandTotal : (respData.grandTotal || 0));
+
+  const fmtINR = (val) => {
+    return '₹ ' + Number(val || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+
+  // Plain text breakdown
+  let textBreakdown = '';
+  if (subtotal > 0) textBreakdown += `Taxable Value (Base)  : ${fmtINR(subtotal)}\n`;
+  if (taxTotal > 0) textBreakdown += `${'GST / Tax Amount'.padEnd(22)}: ${fmtINR(taxTotal)}\n`;
+  if (shippingCharges > 0) textBreakdown += `${'Freight charges'.padEnd(22)}: ${fmtINR(shippingCharges)}\n`;
+  if (otherCharges > 0) textBreakdown += `${'Other extra charges'.padEnd(22)}: ${fmtINR(otherCharges)}\n`;
+  if (discount > 0) textBreakdown += `${'Discount Deducted'.padEnd(22)}: - ${fmtINR(discount)}\n`;
+
   // 1. Supplier Confirmation Email (HTML)
   if (supplierEmail) {
-    const subject = `Confirmation: Quotation ${quotation.quotationNo} Submitted — ${settings.companyName}`;
+    const subject = `Confirmation: Quotation #${reqNo} Submitted — ${settings.companyName}`;
     const textBody = `Dear ${supplierName},
 
-Thank you for submitting your quotation response for Request ${quotation.quotationNo}.
+Thank you for submitting your quotation response for Request #${reqNo}. Your pricing details have been securely recorded.
 
-SUBMISSION SUMMARY:
-------------------------------------------
-Quotation Ref : ${quotation.quotationNo}
-Submitted Total: Rs. ${Number(grandTotal).toFixed(2)}
-Deadline      : ${expiryFormatted}
+SUBMISSION SUMMARY & PRICING BREAKDOWN:
+--------------------------------------------------
+Quotation Ref         : #${reqNo}
+Deadline              : ${expiryFormatted}
 
-You can update or resubmit your response anytime before ${expiryFormatted} using your existing access link.
+FINANCIAL DETAILS:
+--------------------------------------------------
+${textBreakdown}--------------------------------------------------
+Grand Total           : ${fmtINR(grandTotalVal)}
+--------------------------------------------------
+
+You can update or resubmit your response anytime before ${expiryFormatted} using your original link:
+${linkUrl || 'Use your original link received in the quotation request email.'}
 
 Warm Regards,
-${settings.companyName}`;
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
 
     const htmlBody = `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"></head>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quotation Submitted Successfully</title>
+</head>
 <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
   <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="padding: 30px 10px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 580px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 620px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
           <tr>
             <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; text-align: left;">
+              <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.22); color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; padding: 5px 12px; border-radius: 20px; margin-bottom: 8px;">
+                Quotation Received
+              </span>
               <h2 style="color: #ffffff; font-size: 22px; font-weight: 800; margin: 0;">Quotation Submitted Successfully</h2>
-              <p style="color: #d1fae5; font-size: 13px; margin: 4px 0 0 0;">Request #${quotation.quotationNo}</p>
+              <p style="color: #d1fae5; font-size: 13px; margin: 4px 0 0 0; font-family: monospace;">Request #${reqNo}</p>
             </td>
           </tr>
           <tr>
             <td style="padding: 25px 30px; color: #334155; font-size: 14px; line-height: 1.6;">
               <p style="margin-top: 0;">Dear <strong>${supplierName}</strong>,</p>
-              <p>Thank you for submitting your quotation response for Request <strong>#${quotation.quotationNo}</strong>. Your pricing details have been securely recorded.</p>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
-                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
-                  <span style="color: #64748b;">Submitted Total:</span>
-                  <strong style="color: #059669; font-family: monospace; font-size: 15px;">Rs. ${Number(grandTotal).toFixed(2)}</strong>
+              <p>Thank you for submitting your quotation response for Request <strong>#${reqNo}</strong>. Your pricing details have been securely recorded.</p>
+
+              <!-- HIGHLIGHT TILES -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 20px;">
+                <tr>
+                  <td width="50%" style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 14px 18px;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; color: #166534; text-transform: uppercase; margin-bottom: 4px;">Submitted Grand Total</span>
+                    <strong style="font-size: 18px; color: #059669; font-family: monospace;">${fmtINR(grandTotalVal)}</strong>
+                  </td>
+                  <td width="10"></td>
+                  <td width="50%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; margin-bottom: 4px;">Deadline</span>
+                    <strong style="font-size: 13px; color: #334155;">${expiryFormatted}</strong>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- BREAKDOWN -->
+              ${subtotal > 0 ? `
+              <h3 style="font-size: 12px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 10px 0;">
+                Commercial Breakdown
+              </h3>
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; margin-bottom: 20px;">
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">Taxable Value (Base):</td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">${fmtINR(subtotal)}</td>
+                </tr>
+                ${taxTotal > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">GST / Tax:</td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">${fmtINR(taxTotal)}</td>
+                </tr>
+                ` : ''}
+                ${shippingCharges > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">Freight charges:</td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">${fmtINR(shippingCharges)}</td>
+                </tr>
+                ` : ''}
+                ${otherCharges > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">Other extra charges:</td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">${fmtINR(otherCharges)}</td>
+                </tr>
+                ` : ''}
+                ${discount > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #dc2626; font-weight: 600; border-bottom: 1px dashed #e2e8f0;">Discount Deducted:</td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #dc2626; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">- ${fmtINR(discount)}</td>
+                </tr>
+                ` : ''}
+                <tr style="background-color: #ecfdf5;">
+                  <td style="padding: 12px 18px; font-size: 14px; color: #065f46; font-weight: 800;">Grand Total:</td>
+                  <td style="padding: 12px 18px; font-size: 16px; color: #059669; font-weight: 900; text-align: right; font-family: monospace;">${fmtINR(grandTotalVal)}</td>
+                </tr>
+              </table>
+              ` : ''}
+
+              <!-- CALLOUT -->
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; text-align: center; margin-bottom: 15px;">
+                ${linkUrl ? `
+                <div style="margin-bottom: 10px;">
+                  <a href="${linkUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; text-decoration: none; padding: 10px 24px; border-radius: 8px; font-weight: 700; font-size: 13px;">
+                    Review or Update Quotation &rarr;
+                  </a>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 12px;">
-                  <span style="color: #64748b;">Deadline:</span>
-                  <span style="color: #334155;">${expiryFormatted}</span>
-                </div>
+                ` : ''}
+                <p style="font-size: 12px; color: #64748b; margin: 0;">You can update or resubmit your response anytime before <strong>${expiryFormatted}</strong> using your original link.</p>
               </div>
-              <p style="font-size: 12px; color: #64748b;">You can update or resubmit your response anytime before ${expiryFormatted} using your original link.</p>
+
             </td>
           </tr>
           <tr>
@@ -2397,12 +2553,12 @@ ${settings.companyName}`;
   // 2. Internal Team Notification Log
   await logCommunication({
     documentType: 'RM_QUOTATION_RESPONSE',
-    documentNo: quotation.quotationNo,
+    documentNo: reqNo,
     recipient: settings.companyName,
     channel: 'SYSTEM_NOTIFICATION',
     status: 'RECEIVED',
-    subject: `Supplier ${supplierName} responded to Quotation #${quotation.quotationNo}`,
-    content: `Supplier ${supplierName} submitted quote with Grand Total Rs. ${Number(grandTotal).toFixed(2)} for ${quotation.quotationNo}.`
+    subject: `Supplier ${supplierName} responded to Quotation #${reqNo}`,
+    content: `Supplier ${supplierName} submitted quote with Grand Total ${fmtINR(grandTotalVal)} for #${reqNo}.`
   });
 };
 
@@ -2637,69 +2793,395 @@ Phone : ${settings.companyMobile}`;
 };
 
 /**
- * Send alert to internal team and confirmation copy to supplier on response submission (HTML Templated)
+ * Send alert to internal team and confirmation copy to supplier on response submission (HTML Templated with Full Financial Breakdown)
  */
 const sendAssetQuotationResponseAlert = async ({ quotation, supplierName, supplierEmail, grandTotal, expiryAt }) => {
   const settings = await getTaxSettingsData();
-  const expiryFormatted = new Date(expiryAt).toLocaleString('en-IN', {
+  const reqNo = quotation.pqNo || quotation.pqNumber || quotation.id || 'N/A';
+  const expiryFormatted = new Date(expiryAt || quotation.validUntil).toLocaleString('en-IN', {
     dateStyle: 'medium',
     timeStyle: 'short'
   });
 
+  const publicAppUrl = process.env.PUBLIC_APP_URL || 'http://localhost:5173';
+  const linkUrl = (quotation.id && quotation.secureToken)
+    ? `${publicAppUrl}/asset-quote/${quotation.id}/${quotation.secureToken}`
+    : (quotation.id ? `${publicAppUrl}/asset-quote/${quotation.id}` : '');
+
+  // Extract financial details
+  const subtotal = Number(quotation.subtotal || 0);
+  const discount = Number(quotation.discount || 0);
+  const cgst = Number(quotation.cgst || 0);
+  const sgst = Number(quotation.sgst || 0);
+  const igst = Number(quotation.igst || 0);
+  const taxAmount = Number(quotation.taxAmount || (cgst + sgst + igst) || 0);
+  const shippingCharges = Number(quotation.shippingCharges || quotation.shipping || 0);
+  const loadingCharges = Number(quotation.loadingCharges || 0);
+  const unloadingCharges = Number(quotation.unloadingCharges || 0);
+  const packingCharges = Number(quotation.packingCharges || 0);
+  const insurance = Number(quotation.insurance || 0);
+  const otherCharges = Number(quotation.otherCharges || 0);
+  const roundOff = Number(quotation.roundOff || 0);
+  const grandTotalVal = Number(grandTotal !== undefined ? grandTotal : (quotation.grandTotal || 0));
+
+  // Determine GST rates from items
+  const items = Array.isArray(quotation.items) ? quotation.items : [];
+  let detectedGstRate = null;
+  for (const it of items) {
+    const r = Number(it.gstRate);
+    if (r > 0) {
+      detectedGstRate = r;
+      break;
+    }
+  }
+  if (!detectedGstRate && subtotal > 0 && (igst > 0 || cgst > 0)) {
+    const totalTaxVal = igst > 0 ? igst : (cgst + sgst);
+    detectedGstRate = Math.round((totalTaxVal / subtotal) * 100);
+  }
+
+  const igstLabel = detectedGstRate ? `IGST @ ${detectedGstRate}%` : 'IGST';
+  const cgstLabel = detectedGstRate ? `CGST @ ${detectedGstRate / 2}%` : 'CGST';
+  const sgstLabel = detectedGstRate ? `SGST @ ${detectedGstRate / 2}%` : 'SGST';
+
+  // Currency Formatter
+  const fmtINR = (val) => {
+    return '₹ ' + Number(val || 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+  };
+
+  // Build items rows for both HTML and text
+  let itemsRowsHtml = '';
+  let itemsRowsText = '';
+  items.forEach((item, index) => {
+    const isEven = index % 2 === 1;
+    const bg = isEven ? '#f8fafc' : '#ffffff';
+    const desc = item.description || item.name || `Asset Item ${index + 1}`;
+    const qty = Number(item.quantity || 1);
+    const uom = item.uom || item.unit || 'Nos';
+    const unitPrice = Number(item.unitPrice || 0);
+    const gstRate = Number(item.gstRate || 0);
+    const lineTotal = Number(item.lineTotal || (qty * unitPrice));
+
+    itemsRowsHtml += `
+      <tr style="background-color: ${bg}; border-bottom: 1px solid #e2e8f0; font-size: 13px;">
+        <td style="padding: 10px 14px; text-align: center; font-family: monospace; color: #64748b; font-weight: 600;">${index + 1}</td>
+        <td style="padding: 10px 14px; color: #0f172a; font-weight: 700;">
+          ${desc}
+          ${item.category ? `<span style="display: block; font-size: 11px; font-family: monospace; color: #64748b; font-weight: normal;">Category: ${item.category}</span>` : ''}
+          ${item.remarks ? `<span style="display: block; font-size: 11px; color: #6366f1; font-style: italic;">Note: ${item.remarks}</span>` : ''}
+        </td>
+        <td style="padding: 10px 14px; text-align: right; font-family: monospace; color: #334155; font-weight: 700;">${qty} ${uom}</td>
+        <td style="padding: 10px 14px; text-align: right; font-family: monospace; color: #334155; font-weight: 600;">${fmtINR(unitPrice)}</td>
+        <td style="padding: 10px 14px; text-align: center; font-family: monospace; color: #059669; font-weight: 700;">${gstRate}%</td>
+        <td style="padding: 10px 14px; text-align: right; font-family: monospace; color: #0f172a; font-weight: 800;">${fmtINR(lineTotal)}</td>
+      </tr>
+    `;
+
+    itemsRowsText += `  |  ${index + 1}   | ${desc} | ${qty} ${uom} | ${fmtINR(unitPrice)} | ${gstRate}% | ${fmtINR(lineTotal)} |\n`;
+  });
+
+  // Plain text breakdown
+  let textBreakdown = `Taxable Value (Base)  : ${fmtINR(subtotal)}\n`;
+  if (igst > 0) textBreakdown += `${igstLabel.padEnd(22)}: ${fmtINR(igst)}\n`;
+  if (cgst > 0) textBreakdown += `${cgstLabel.padEnd(22)}: ${fmtINR(cgst)}\n`;
+  if (sgst > 0) textBreakdown += `${sgstLabel.padEnd(22)}: ${fmtINR(sgst)}\n`;
+  if (igst === 0 && cgst === 0 && sgst === 0 && taxAmount > 0) {
+    textBreakdown += `${'GST / Tax Amount'.padEnd(22)}: ${fmtINR(taxAmount)}\n`;
+  }
+  if (shippingCharges > 0 || quotation.shippingCharges !== undefined) textBreakdown += `${'Freight charges'.padEnd(22)}: ${fmtINR(shippingCharges)}\n`;
+  if (loadingCharges > 0 || quotation.loadingCharges !== undefined) textBreakdown += `${'Loading charges'.padEnd(22)}: ${fmtINR(loadingCharges)}\n`;
+  if (unloadingCharges > 0 || quotation.unloadingCharges !== undefined) textBreakdown += `${'Unloading charges'.padEnd(22)}: ${fmtINR(unloadingCharges)}\n`;
+  if (packingCharges > 0 || quotation.packingCharges !== undefined) textBreakdown += `${'Packing charges'.padEnd(22)}: ${fmtINR(packingCharges)}\n`;
+  if (insurance > 0 || quotation.insurance !== undefined) textBreakdown += `${'Insurance charges'.padEnd(22)}: ${fmtINR(insurance)}\n`;
+  if (otherCharges > 0 || quotation.otherCharges !== undefined) textBreakdown += `${'Other extra charges'.padEnd(22)}: ${fmtINR(otherCharges)}\n`;
+  if (discount > 0) textBreakdown += `${'Discount Deducted'.padEnd(22)}: - ${fmtINR(discount)}\n`;
+  if (roundOff !== 0 || quotation.roundOff !== undefined) textBreakdown += `${'Round Off'.padEnd(22)}: ₹ ${roundOff.toFixed(2)}\n`;
+
   // 1. Supplier Confirmation Email (HTML)
   if (supplierEmail) {
-    const subject = `Confirmation: Asset Quotation ${quotation.pqNo} Submitted — ${settings.companyName}`;
+    const subject = `Confirmation: Quotation #${reqNo} Submitted — ${settings.companyName}`;
     const textBody = `Dear ${supplierName},
 
-Thank you for submitting your quotation response for Request ${quotation.pqNo}.
+Thank you for submitting your quotation response for Request #${reqNo}. Your pricing details have been securely recorded.
 
-SUBMISSION SUMMARY:
-------------------------------------------
-Quotation Ref : ${quotation.pqNo}
-Submitted Total: Rs. ${Number(grandTotal).toFixed(2)}
-Deadline      : ${expiryFormatted}
+SUBMISSION SUMMARY & PRICING BREAKDOWN:
+--------------------------------------------------
+Quotation Ref         : #${reqNo}
+Deadline              : ${expiryFormatted}
 
-You can update or resubmit your response anytime before ${expiryFormatted} using your existing access link.
+FINANCIAL DETAILS:
+--------------------------------------------------
+${textBreakdown}--------------------------------------------------
+Grand Total           : ${fmtINR(grandTotalVal)}
+--------------------------------------------------
+
+${itemsRowsText ? `SUBMITTED ASSETS & RATES:
+S.No | Description | Quantity | Unit Price | GST Rate | Line Total
+----------------------------------------------------------------------
+${itemsRowsText}
+` : ''}You can update or resubmit your response anytime before ${expiryFormatted} using your original link:
+${linkUrl || 'Use your original link received in the quotation request email.'}
 
 Warm Regards,
-${settings.companyName}`;
+${settings.companyName}
+${settings.companyAddress}
+GSTIN : ${settings.companyGstin}
+Phone : ${settings.companyMobile}`;
 
     const htmlBody = `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"></head>
-<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
-  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="padding: 30px 10px;">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quotation Submitted Successfully</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; -webkit-font-smoothing: antialiased;">
+  <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 30px 10px;">
     <tr>
       <td align="center">
-        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 580px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+        <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 640px; background-color: #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 12px 36px rgba(0,0,0,0.08); border: 1px solid #e2e8f0;">
+          
+          <!-- BANNER -->
           <tr>
-            <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; text-align: left;">
-              <h2 style="color: #ffffff; font-size: 22px; font-weight: 800; margin: 0;">Quotation Submitted Successfully</h2>
-              <p style="color: #d1fae5; font-size: 13px; margin: 4px 0 0 0;">Request #${quotation.pqNo}</p>
+            <td style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 32px 30px; text-align: left;">
+              <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.22); color: #ffffff; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 1.2px; padding: 5px 12px; border-radius: 20px; margin-bottom: 10px;">
+                Quotation Received & Recorded
+              </span>
+              <h2 style="color: #ffffff; font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -0.5px;">Quotation Submitted Successfully</h2>
+              <p style="color: #d1fae5; font-size: 14px; margin: 6px 0 0 0; font-family: monospace;">Request #${reqNo}</p>
             </td>
           </tr>
+
+          <!-- BODY -->
           <tr>
-            <td style="padding: 25px 30px; color: #334155; font-size: 14px; line-height: 1.6;">
-              <p style="margin-top: 0;">Dear <strong>${supplierName}</strong>,</p>
-              <p>Thank you for submitting your quotation response for Request <strong>#${quotation.pqNo}</strong>. Your pricing details have been securely recorded.</p>
-              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0;">
-                <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px;">
-                  <span style="color: #64748b;">Submitted Total:</span>
-                  <strong style="color: #059669; font-family: monospace; font-size: 15px;">Rs. ${Number(grandTotal).toFixed(2)}</strong>
+            <td style="padding: 28px 30px; color: #334155; font-size: 14px; line-height: 1.6;">
+              <p style="margin-top: 0; font-size: 15px;">Dear <strong>${supplierName}</strong>,</p>
+              <p style="color: #475569; margin-bottom: 22px;">
+                Thank you for submitting your quotation response for Request <strong>#${reqNo}</strong>. Your pricing details have been securely recorded.
+              </p>
+
+              <!-- SUMMARY HIGHLIGHT TILES -->
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="margin-bottom: 24px;">
+                <tr>
+                  <td width="50%" style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 14px 18px; vertical-align: top;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Submitted Total</span>
+                    <strong style="font-size: 18px; color: #059669; font-family: monospace;">${fmtINR(grandTotalVal)}</strong>
+                  </td>
+                  <td width="10" style="width: 10px;"></td>
+                  <td width="50%" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 18px; vertical-align: top;">
+                    <span style="display: block; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Deadline</span>
+                    <strong style="font-size: 13px; color: #334155;">${expiryFormatted}</strong>
+                  </td>
+                </tr>
+              </table>
+
+              ${items.length > 0 ? `
+              <!-- ITEMS TABLE -->
+              <h3 style="font-size: 12px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 10px 0;">
+                Submitted Asset Details & Rates
+              </h3>
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; width: 100%; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; margin-bottom: 24px;">
+                <thead>
+                  <tr style="background-color: #0f172a; color: #ffffff; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                    <th style="padding: 10px 14px; width: 35px; text-align: center;">#</th>
+                    <th style="padding: 10px 14px;">Asset Details</th>
+                    <th style="padding: 10px 14px; text-align: right; width: 80px;">Qty</th>
+                    <th style="padding: 10px 14px; text-align: right; width: 95px;">Rate (Unit)</th>
+                    <th style="padding: 10px 14px; text-align: center; width: 60px;">GST %</th>
+                    <th style="padding: 10px 14px; text-align: right; width: 95px;">Line Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${itemsRowsHtml}
+                </tbody>
+              </table>
+              ` : ''}
+
+              <!-- FINANCIAL BREAKDOWN CARD -->
+              <h3 style="font-size: 12px; font-weight: 800; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin: 0 0 10px 0;">
+                Commercial & Rate Breakdown
+              </h3>
+              <table role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px; overflow: hidden; margin-bottom: 24px;">
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    Taxable Value (Base):
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(subtotal)}
+                  </td>
+                </tr>
+
+                ${igst > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    ${igstLabel}:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(igst)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${cgst > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    ${cgstLabel}:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(cgst)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${sgst > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    ${sgstLabel}:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(sgst)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(igst === 0 && cgst === 0 && sgst === 0 && taxAmount > 0) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    GST / Tax Amount:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(taxAmount)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(shippingCharges > 0 || quotation.shippingCharges !== undefined) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    Freight charges:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(shippingCharges)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(loadingCharges > 0 || quotation.loadingCharges !== undefined) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    Loading charges:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(loadingCharges)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(unloadingCharges > 0 || quotation.unloadingCharges !== undefined) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    Unloading charges:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(unloadingCharges)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(packingCharges > 0 || quotation.packingCharges !== undefined) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    Packing charges:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(packingCharges)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(insurance > 0 || quotation.insurance !== undefined) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    Insurance charges:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(insurance)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(otherCharges > 0 || quotation.otherCharges !== undefined) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px dashed #e2e8f0;">
+                    Other extra charges:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    ${fmtINR(otherCharges)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${discount > 0 ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #dc2626; font-weight: 600; border-bottom: 1px dashed #e2e8f0;">
+                    Discount Deducted:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #dc2626; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px dashed #e2e8f0;">
+                    - ${fmtINR(discount)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                ${(roundOff !== 0 || quotation.roundOff !== undefined) ? `
+                <tr>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #475569; border-bottom: 1px solid #cbd5e1;">
+                    Round Off:
+                  </td>
+                  <td style="padding: 10px 18px; font-size: 13px; color: #0f172a; font-weight: 700; text-align: right; font-family: monospace; border-bottom: 1px solid #cbd5e1;">
+                    ₹ ${roundOff.toFixed(2)}
+                  </td>
+                </tr>
+                ` : ''}
+
+                <!-- GRAND TOTAL -->
+                <tr style="background-color: #ecfdf5;">
+                  <td style="padding: 14px 18px; font-size: 15px; color: #065f46; font-weight: 800;">
+                    Grand Total:
+                  </td>
+                  <td style="padding: 14px 18px; font-size: 18px; color: #059669; font-weight: 900; text-align: right; font-family: monospace;">
+                    ${fmtINR(grandTotalVal)}
+                  </td>
+                </tr>
+              </table>
+
+              <!-- UPDATE / RESUBMIT CALLOUT -->
+              <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 18px 20px; text-align: center; margin-bottom: 20px;">
+                ${linkUrl ? `
+                <div style="margin-bottom: 12px;">
+                  <a href="${linkUrl}" target="_blank" style="display: inline-block; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);">
+                    Review or Update Quotation &rarr;
+                  </a>
                 </div>
-                <div style="display: flex; justify-content: space-between; font-size: 12px;">
-                  <span style="color: #64748b;">Deadline:</span>
-                  <span style="color: #334155;">${expiryFormatted}</span>
-                </div>
+                ` : ''}
+                <p style="font-size: 12px; color: #64748b; margin: 0; line-height: 1.5;">
+                  You can update or resubmit your response anytime before <strong>${expiryFormatted}</strong> using your original link.
+                </p>
               </div>
-              <p style="font-size: 12px; color: #64748b;">You can update or resubmit your response anytime before ${expiryFormatted} using your original link.</p>
+
             </td>
           </tr>
+
+          <!-- FOOTER -->
           <tr>
-            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 20px 30px; text-align: center; color: #64748b; font-size: 12px;">
-              <strong>${settings.companyName}</strong>
+            <td style="background-color: #f8fafc; border-top: 1px solid #e2e8f0; padding: 22px 30px; text-align: center; color: #64748b; font-size: 12px; line-height: 1.5;">
+              <strong style="color: #1e293b; font-size: 13px; display: block; margin-bottom: 4px;">${settings.companyName}</strong>
+              <span>${settings.companyAddress}</span><br />
+              <span style="display: inline-block; margin-top: 5px; font-weight: 600; color: #475569;">GSTIN: ${settings.companyGstin} | Phone: ${settings.companyMobile}</span>
             </td>
           </tr>
+
         </table>
       </td>
     </tr>
@@ -2715,6 +3197,7 @@ ${settings.companyName}`;
         text: textBody,
         html: htmlBody
       });
+      console.log(`[Asset Quotation Confirmation Dispatch] Sent full breakdown email to ${supplierEmail} for #${reqNo}`);
     } catch (e) {
       console.error('[Asset Quotation Confirmation Email Error]', e.message);
     }
@@ -2723,12 +3206,12 @@ ${settings.companyName}`;
   // 2. Internal Team Notification Log
   await logCommunication({
     documentType: 'PQ_RESPONSE',
-    documentNo: quotation.pqNo,
+    documentNo: reqNo,
     recipient: settings.companyName,
     channel: 'SYSTEM_NOTIFICATION',
     status: 'RECEIVED',
-    subject: `Supplier ${supplierName} responded to Quotation #${quotation.pqNo}`,
-    content: `Supplier ${supplierName} submitted quote with Grand Total Rs. ${Number(grandTotal).toFixed(2)} for ${quotation.pqNo}.`
+    subject: `Supplier ${supplierName} responded to Quotation #${reqNo}`,
+    content: `Supplier ${supplierName} submitted quote with Grand Total ${fmtINR(grandTotalVal)} for #${reqNo}.`
   });
 };
 

@@ -13,7 +13,14 @@ app.set('trust proxy', 1);
 
 // Global Middlewares
 app.use(morgan('dev'));
-app.use(compression());
+app.use(compression({
+  filter: (req, res) => {
+    if (req.headers.accept && req.headers.accept === 'text/event-stream') {
+      return false;
+    }
+    return compression.filter(req, res);
+  }
+}));
 app.use(helmet());
 
 const configuredOrigins = process.env.FRONTEND_URL 
