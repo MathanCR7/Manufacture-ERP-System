@@ -111,15 +111,15 @@ function MultiSelectCategoryDropdown({ selectedValues = [], onChange }) {
   const isNoneSelected = selectedValues.length === 0;
 
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative inline-block z-40" ref={dropdownRef}>
       {/* Trigger Button */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold rounded-xl border transition-all h-9 cursor-pointer w-full sm:w-56 ${
+        className={`flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold rounded-xl border transition-all h-9 cursor-pointer w-full sm:w-56 select-none ${
           selectedValues.length > 0
-            ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 shadow-xs'
-            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:border-slate-300'
+            ? 'bg-indigo-50/90 dark:bg-indigo-950/60 border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 shadow-sm ring-2 ring-indigo-500/10'
+            : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:border-slate-300 dark:hover:border-slate-700'
         }`}
       >
         <div className="flex items-center gap-2 truncate">
@@ -142,45 +142,51 @@ function MultiSelectCategoryDropdown({ selectedValues = [], onChange }) {
         </div>
       </button>
 
-      {/* Dropdown Menu */}
+      {/* Dropdown Menu - Explicit High Z-Index & No Overflow Clipping */}
       {isOpen && (
-        <div className="absolute left-0 mt-1.5 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate__animated animate__fadeIn animate__faster">
+        <div 
+          className="absolute right-0 sm:left-0 top-full mt-2 w-72 sm:w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl z-[9999] overflow-hidden animate__animated animate__fadeIn animate__faster"
+          style={{ minWidth: '18rem', zIndex: 9999 }}
+        >
           {/* Search Header */}
-          <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
+          <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-950/80">
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search category..."
+                placeholder="Search category name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-100"
+                autoFocus
+                className="w-full pl-8 pr-2.5 py-1.5 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-800 dark:text-slate-100 placeholder:text-slate-400"
               />
             </div>
 
             {/* Quick Actions */}
-            <div className="flex items-center justify-between mt-2 pt-1 text-[11px] font-bold">
+            <div className="flex items-center justify-between mt-2.5 pt-1 text-[11px] font-bold">
               <button
                 type="button"
                 onClick={handleSelectAll}
-                className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer flex items-center gap-1"
               >
+                <CheckSquare className="w-3 h-3" />
                 Select All ({CATEGORIES.length})
               </button>
               <button
                 type="button"
                 onClick={handleClearAll}
-                className="text-slate-400 hover:text-rose-500 hover:underline cursor-pointer"
+                className="text-slate-400 hover:text-rose-500 hover:underline cursor-pointer flex items-center gap-1"
               >
-                Clear Filter
+                <X className="w-3 h-3" />
+                Clear
               </button>
             </div>
           </div>
 
           {/* Categories List */}
-          <div className="max-h-60 overflow-y-auto p-1.5 space-y-0.5">
+          <div className="max-h-64 overflow-y-auto p-1.5 space-y-0.5 divide-y divide-slate-100/50 dark:divide-slate-800/40">
             {filteredCategories.length === 0 ? (
-              <div className="text-center py-4 text-xs text-slate-400 italic">
+              <div className="text-center py-6 text-xs text-slate-400 italic">
                 No matching categories found
               </div>
             ) : (
@@ -190,23 +196,23 @@ function MultiSelectCategoryDropdown({ selectedValues = [], onChange }) {
                   <div
                     key={cat.value}
                     onClick={() => handleToggleCategory(cat.value)}
-                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-medium cursor-pointer transition-colors ${
+                    className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium cursor-pointer transition-colors ${
                       isSelected
-                        ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-900 dark:text-indigo-100 font-semibold'
-                        : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                        ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-950 dark:text-indigo-100 font-semibold'
+                        : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <div className={`w-4 h-4 rounded-md flex items-center justify-center border transition-all ${
                         isSelected
-                          ? 'bg-indigo-600 border-indigo-600 text-white'
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
                           : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900'
                       }`}>
                         {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
                       </div>
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
-                        {cat.label}
+                      <span className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0 shadow-xs" style={{ backgroundColor: cat.color }} />
+                        <span className="font-semibold">{cat.label}</span>
                       </span>
                     </div>
                   </div>
@@ -216,14 +222,16 @@ function MultiSelectCategoryDropdown({ selectedValues = [], onChange }) {
           </div>
 
           {/* Footer Status */}
-          <div className="p-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex items-center justify-between text-[10px] text-slate-400 font-medium">
-            <span>{selectedValues.length} active filter{selectedValues.length !== 1 ? 's' : ''}</span>
+          <div className="p-2.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex items-center justify-between text-[11px] text-slate-500 font-medium">
+            <span>
+              <strong>{selectedValues.length}</strong> of {CATEGORIES.length} selected
+            </span>
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="px-2 py-0.5 rounded-md bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors"
+              className="px-3 py-1 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 transition-colors shadow-xs cursor-pointer"
             >
-              Apply
+              Done
             </button>
           </div>
         </div>
@@ -956,172 +964,171 @@ export default function ExpensesPage() {
 
       {/* ==========================================
           SMART FILTER TOOLBAR & MULTI-CHOICE DROPDOWN
+          Notice: Using custom div with overflow-visible to NEVER clip dropdown menus!
           ========================================== */}
-      <Card className="bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 shadow-sm rounded-2xl">
-        <CardContent className="p-4 space-y-3">
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-            
-            {/* Search Input */}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              <Input
-                placeholder="Search by title, description, category, user..."
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="pl-9 pr-8 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs h-9 rounded-xl focus-visible:ring-indigo-500"
-              />
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => setSearchTerm('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* Filters Row */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Multi-Choice Category Dropdown */}
-              <MultiSelectCategoryDropdown
-                selectedValues={selectedCategories}
-                onChange={(newCategories) => {
-                  setSelectedCategories(newCategories);
-                  setCurrentPage(1);
-                }}
-              />
-
-              {/* Date Preset Selector */}
-              <select
-                value={datePreset}
-                onChange={(e) => {
-                  setDatePreset(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200 font-semibold h-9 cursor-pointer"
-              >
-                {DATE_PRESETS.map(dp => (
-                  <option key={dp.id} value={dp.id}>{dp.label}</option>
-                ))}
-              </select>
-
-              {/* Sort By Selector */}
-              <div className="flex items-center border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 overflow-hidden h-9">
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="px-2.5 py-1 text-xs bg-transparent border-0 focus:outline-none text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
-                >
-                  <option value="date">Sort: Date</option>
-                  <option value="amount">Sort: Amount</option>
-                  <option value="title">Sort: Title</option>
-                  <option value="category">Sort: Category</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))}
-                  className="px-2 h-full flex items-center justify-center border-l border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 cursor-pointer"
-                  title={`Order: ${sortOrder === 'asc' ? 'Ascending' : 'Descending'}`}
-                >
-                  {sortOrder === 'asc' ? (
-                    <ArrowUp className="w-3.5 h-3.5 text-indigo-500" />
-                  ) : (
-                    <ArrowDown className="w-3.5 h-3.5 text-indigo-500" />
-                  )}
-                </button>
-              </div>
-
-              {/* Reset All Filters Button */}
-              {(searchTerm || selectedCategories.length > 0 || datePreset !== 'ALL') && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSelectedCategories([]);
-                    setDatePreset('ALL');
-                    setCustomStartDate('');
-                    setCustomEndDate('');
-                    setCurrentPage(1);
-                  }}
-                  className="h-9 px-2.5 rounded-xl text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-bold cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                  Reset
-                </Button>
-              )}
-            </div>
-          </div>
-
-          {/* Custom Date Range Pickers (Visible only when datePreset is CUSTOM) */}
-          {datePreset === 'CUSTOM' && (
-            <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-              <span className="font-extrabold text-slate-500 uppercase text-[10px]">Custom Range:</span>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400 text-xs">From</span>
-                <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => {
-                    setCustomStartDate(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-200"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-slate-400 text-xs">To</span>
-                <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => {
-                    setCustomEndDate(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-200"
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Active Category Chips */}
-          {selectedCategories.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-              <span className="text-[10px] uppercase font-extrabold text-slate-400 mr-1">Filtered by:</span>
-              {selectedCategories.map((catKey) => {
-                const meta = getCategoryMeta(catKey);
-                return (
-                  <span
-                    key={catKey}
-                    className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${meta.bg}`}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta.color }} />
-                    {meta.label}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedCategories(selectedCategories.filter(c => c !== catKey))}
-                      className="ml-0.5 hover:opacity-75 p-0.5 rounded-full"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </span>
-                );
-              })}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-sm rounded-2xl p-4 space-y-3 relative z-30 overflow-visible">
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 overflow-visible">
+          
+          {/* Search Input */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              placeholder="Search by title, description, category, user..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="pl-9 pr-8 bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-xs h-9 rounded-xl focus-visible:ring-indigo-500"
+            />
+            {searchTerm && (
               <button
                 type="button"
-                onClick={() => setSelectedCategories([])}
-                className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline font-medium ml-1"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
-                Clear all
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          {/* Filters Row */}
+          <div className="flex flex-wrap items-center gap-2 overflow-visible">
+            {/* Multi-Choice Category Dropdown */}
+            <MultiSelectCategoryDropdown
+              selectedValues={selectedCategories}
+              onChange={(newCategories) => {
+                setSelectedCategories(newCategories);
+                setCurrentPage(1);
+              }}
+            />
+
+            {/* Date Preset Selector */}
+            <select
+              value={datePreset}
+              onChange={(e) => {
+                setDatePreset(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200 font-semibold h-9 cursor-pointer"
+            >
+              {DATE_PRESETS.map(dp => (
+                <option key={dp.id} value={dp.id}>{dp.label}</option>
+              ))}
+            </select>
+
+            {/* Sort By Selector */}
+            <div className="flex items-center border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 overflow-hidden h-9">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="px-2.5 py-1 text-xs bg-transparent border-0 focus:outline-none text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
+              >
+                <option value="date">Sort: Date</option>
+                <option value="amount">Sort: Amount</option>
+                <option value="title">Sort: Title</option>
+                <option value="category">Sort: Category</option>
+              </select>
+              <button
+                type="button"
+                onClick={() => setSortOrder(prev => (prev === 'asc' ? 'desc' : 'asc'))}
+                className="px-2 h-full flex items-center justify-center border-l border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 cursor-pointer"
+                title={`Order: ${sortOrder === 'asc' ? 'Ascending' : 'Descending'}`}
+              >
+                {sortOrder === 'asc' ? (
+                  <ArrowUp className="w-3.5 h-3.5 text-indigo-500" />
+                ) : (
+                  <ArrowDown className="w-3.5 h-3.5 text-indigo-500" />
+                )}
               </button>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            {/* Reset All Filters Button */}
+            {(searchTerm || selectedCategories.length > 0 || datePreset !== 'ALL') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedCategories([]);
+                  setDatePreset('ALL');
+                  setCustomStartDate('');
+                  setCustomEndDate('');
+                  setCurrentPage(1);
+                }}
+                className="h-9 px-2.5 rounded-xl text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-xs font-bold cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1" />
+                Reset
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Custom Date Range Pickers (Visible only when datePreset is CUSTOM) */}
+        {datePreset === 'CUSTOM' && (
+          <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+            <span className="font-extrabold text-slate-500 uppercase text-[10px]">Custom Range:</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs">From</span>
+              <input
+                type="date"
+                value={customStartDate}
+                onChange={(e) => {
+                  setCustomStartDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-200"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 text-xs">To</span>
+              <input
+                type="date"
+                value={customEndDate}
+                onChange={(e) => {
+                  setCustomEndDate(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs text-slate-800 dark:text-slate-200"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Active Category Chips */}
+        {selectedCategories.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-800">
+            <span className="text-[10px] uppercase font-extrabold text-slate-400 mr-1">Filtered by:</span>
+            {selectedCategories.map((catKey) => {
+              const meta = getCategoryMeta(catKey);
+              return (
+                <span
+                  key={catKey}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${meta.bg}`}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: meta.color }} />
+                  {meta.label}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCategories(selectedCategories.filter(c => c !== catKey))}
+                    className="ml-0.5 hover:opacity-75 p-0.5 rounded-full cursor-pointer"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => setSelectedCategories([])}
+              className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline font-medium ml-1 cursor-pointer"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* ==========================================
           FLOATING BULK SELECTION ACTION BAR
@@ -1173,7 +1180,7 @@ export default function ExpensesPage() {
               size="sm"
               variant="ghost"
               onClick={() => setSelectedExpenseIds([])}
-              className="h-8 px-2.5 text-indigo-200 hover:text-white hover:bg-indigo-800/60 rounded-xl text-xs font-semibold"
+              className="h-8 px-2.5 text-indigo-200 hover:text-white hover:bg-indigo-800/60 rounded-xl text-xs font-semibold cursor-pointer"
             >
               Clear
             </Button>
@@ -1598,7 +1605,7 @@ export default function ExpensesPage() {
           BATCH EXPENSE ENTRY MODAL (MULTI-ADD)
           ========================================== */}
       {isBatchModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
+        <div className="fixed inset-0 z-[10000] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-5xl w-full max-h-[90vh] border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate__animated animate__zoomIn animate__faster flex flex-col">
             
             {/* Modal Header */}
@@ -1833,7 +1840,7 @@ export default function ExpensesPage() {
           SINGLE EXPENSE MODAL (ADD & EDIT)
           ========================================== */}
       {isSingleModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[10000] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate__animated animate__zoomIn animate__faster flex flex-col">
             
             {/* Modal Header */}
@@ -1854,7 +1861,7 @@ export default function ExpensesPage() {
               <button
                 type="button"
                 onClick={handleCloseSingleModal}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl"
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1976,7 +1983,7 @@ export default function ExpensesPage() {
           VIEW EXPENSE DETAILS MODAL
           ========================================== */}
       {viewingExpense && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[10000] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate__animated animate__zoomIn animate__faster">
             <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/50">
               <div className="flex items-center gap-2">
@@ -1988,7 +1995,7 @@ export default function ExpensesPage() {
               <button
                 type="button"
                 onClick={() => setViewingExpense(null)}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2046,7 +2053,7 @@ export default function ExpensesPage() {
                     setViewingExpense(null);
                     handleOpenEditModal(viewingExpense);
                   }}
-                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-8"
+                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-8 cursor-pointer"
                 >
                   <Edit2 className="w-3 h-3 mr-1" />
                   Edit Record
