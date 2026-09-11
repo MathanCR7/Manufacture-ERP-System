@@ -1220,7 +1220,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req,
       const newProduct = await tx.finishedProduct.create({
         data: {
           code,
-          name: data.name,
+          name: data.name ? data.name.trim().toUpperCase() : data.name,
           categoryId: data.categoryId,
           unitId: resolvedUomId,
           stockMethod: data.stockMethod,
@@ -1380,7 +1380,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
       const updatedProduct = await tx.finishedProduct.update({
         where: { id },
         data: {
-          name: data.name,
+          name: data.name ? data.name.trim().toUpperCase() : data.name,
           categoryId: data.categoryId,
           unitId: resolvedUomId,
           stockMethod: data.stockMethod,

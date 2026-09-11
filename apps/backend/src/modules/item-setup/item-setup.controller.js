@@ -8,6 +8,8 @@ const createCrudController = (methodPrefix, pluralPrefix) => ({
       if (data.ratePerUnit) data.ratePerUnit = parseFloat(data.ratePerUnit);
       if (data.openingStock) data.openingStock = parseFloat(data.openingStock);
       if (data.alertLevel) data.alertLevel = parseFloat(data.alertLevel);
+      if (data.name && typeof data.name === 'string') data.name = data.name.trim().toUpperCase();
+      if (data.code && typeof data.code === 'string') data.code = data.code.trim().toUpperCase();
       
       const result = await ItemSetupRepository[`create${methodPrefix}`](data);
       res.status(201).json(result);
@@ -32,6 +34,8 @@ const createCrudController = (methodPrefix, pluralPrefix) => ({
       if (data.ratePerUnit) data.ratePerUnit = parseFloat(data.ratePerUnit);
       if (data.openingStock) data.openingStock = parseFloat(data.openingStock);
       if (data.alertLevel) data.alertLevel = parseFloat(data.alertLevel);
+      if (data.name && typeof data.name === 'string') data.name = data.name.trim().toUpperCase();
+      if (data.code && typeof data.code === 'string') data.code = data.code.trim().toUpperCase();
 
       const result = await ItemSetupRepository[`update${methodPrefix}`](req.params.id, data);
       res.json(result);
