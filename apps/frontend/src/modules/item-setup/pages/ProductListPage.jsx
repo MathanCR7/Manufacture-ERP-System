@@ -7,7 +7,8 @@ import {
   X, Layers, Image as ImageIcon, Sparkles, ChevronRight, Eye, RefreshCw,
   PlusCircle, Sliders, ShieldAlert, TrendingUp, Grid, List as ListIcon,
   ChevronLeft, Award, HelpCircle, FileText, AlertTriangle,
-  ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, ChevronDown
+  ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, ChevronDown,
+  Snowflake, Flame, GripVertical
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -20,6 +21,47 @@ import { Button } from '@/components/ui/button';
 import SearchSelect from '@/components/ui/SearchSelect';
 import HsnSelect from '@/components/forms/HsnSelect';
 import { Pagination } from '@/components/ui/Pagination';
+
+// Standard Factory Workflow Stages for manufacturing
+const STANDARD_FACTORY_STAGES = [
+  { name: 'Pasteurization', category: 'Thermal & Mixing', icon: 'Flame', color: 'amber', desc: 'Thermal pasteurization for food safety' },
+  { name: 'Ageing', category: 'Thermal & Mixing', icon: 'Clock', color: 'blue', desc: 'Mix aging in refrigerated vats at 4°C' },
+  { name: 'VAT', category: 'Thermal & Mixing', icon: 'Layers', color: 'indigo', desc: 'Holding and agitation in process tanks' },
+  { name: 'Mixing', category: 'Thermal & Mixing', icon: 'Sliders', color: 'sky', desc: 'Emulsifying sugars, milk solids and fats' },
+  { name: 'CF - Cont. Freezer', category: 'Freezing & Molding', icon: 'Snowflake', color: 'cyan', desc: 'Continuous scraped surface freezing' },
+  { name: 'BF - Bath Freezer', category: 'Freezing & Molding', icon: 'Snowflake', color: 'teal', desc: 'Brine tank sub-zero mold immersion' },
+  { name: 'CM - Candy Machine', category: 'Freezing & Molding', icon: 'Sparkles', color: 'purple', desc: 'Automated candy stick molding & insertion' },
+  { name: 'Manual Weight', category: 'Packing & Finishing', icon: 'Award', color: 'emerald', desc: 'Manual weighing and portion verification' },
+  { name: 'HT - Hardening Tunner', category: 'Freezing & Molding', icon: 'Snowflake', color: 'indigo', desc: 'Hardening tunnel blast freezing (-30°C)' },
+  { name: 'PACKING', category: 'Packing & Finishing', icon: 'Package', color: 'emerald', desc: 'Primary wrapper and carton packing' },
+  { name: 'LABLE AND PRINTING', category: 'Packing & Finishing', icon: 'Tag', color: 'violet', desc: 'MRP, batch code and barcode labeling' },
+  { name: 'Freezing', category: 'Freezing & Molding', icon: 'Snowflake', color: 'blue', desc: 'Solidification and sub-zero chilling' },
+  { name: 'QC', category: 'Quality & Lab', icon: 'Check', color: 'rose', desc: 'Sensory, physical & lab QC clearance' },
+  { name: 'Storage', category: 'Storage & Intake', icon: 'Layers', color: 'slate', desc: 'Cold storage pallet staging & intake' }
+];
+
+const renderStageIcon = (iconName, className = "w-4 h-4") => {
+  switch (iconName) {
+    case 'Flame': return <Flame className={className} />;
+    case 'Clock': return <Clock className={className} />;
+    case 'Layers': return <Layers className={className} />;
+    case 'Sliders': return <Sliders className={className} />;
+    case 'Snowflake': return <Snowflake className={className} />;
+    case 'Sparkles': return <Sparkles className={className} />;
+    case 'Award': return <Award className={className} />;
+    case 'Package': return <Package className={className} />;
+    case 'Tag': return <Tag className={className} />;
+    case 'Check': return <Check className={className} />;
+    default: return <Clock className={className} />;
+  }
+};
+
+const FORM_STEPS = [
+  { id: 'basic', num: 1, step: 'Step 1', name: 'Product Spec', desc: 'Specs & Unit of Sale' },
+  { id: 'recipe', num: 2, step: 'Step 2', name: 'SOP Guide', desc: 'Standard Operating Guide' },
+  { id: 'bom', num: 3, step: 'Step 3', name: 'Ingredients BOM', desc: 'Formulation & Material Costs' },
+  { id: 'operations', num: 4, step: 'Step 4', name: 'Workflow Stages', desc: 'Processing Timeline & Finish' }
+];
 
 const UOM_OPTIONS = [
   // Weight
@@ -155,6 +197,8 @@ function ProductForm({ editId, onBack }) {
   // Production Stages
   const [stages, setStages] = useState([]);
   const [selectedStageId, setSelectedStageId] = useState('');
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -205,8 +249,15 @@ function ProductForm({ editId, onBack }) {
           
           setName(prod.name || '');
           setCode(prod.code || '');
-          setCategoryId(prod.categoryId || '');
-          setUnitId(prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '');
+          const catId = prod.categoryId || prod.category?.id || '';
+          const matchedCategory = (mastersData.categories || []).find(c => 
+            c.id === catId || 
+            (c.name && prod.category?.name && c.name.toLowerCase() === prod.category.name.toLowerCase())
+          );
+          setCategoryId(matchedCategory ? matchedCategory.id : catId);
+          const initialUnit = (prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '').toLowerCase();
+          const matchedOption = UOM_OPTIONS.find(u => u.toLowerCase() === initialUnit) || prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '';
+          setUnitId(matchedOption);
           setStockMethod(prod.stockMethod || 'FIFO');
           setOpeningStock(Number(prod.openingStock || 0));
           setAlertLevel(Number(prod.alertLevel || 0));
@@ -443,8 +494,230 @@ function ProductForm({ editId, onBack }) {
     setStages(updated);
   };
 
-  const handleRemoveStage = (index) => {
-    setStages(stages.filter((_, i) => i !== index));
+  const handleMoveStage = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= stages.length) return;
+    const updated = [...stages];
+    const temp = updated[index];
+    updated[index] = updated[targetIndex];
+    updated[targetIndex] = temp;
+    updated.forEach((s, idx) => {
+      s.sortOrder = idx;
+    });
+    setStages(updated);
+  };
+
+  // Drag and drop handlers for timeline stages
+  const handleDragStart = (e, index) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDragLeave = () => {
+    setDragOverIndex(null);
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) {
+      setDraggedIndex(null);
+      setDragOverIndex(null);
+      return;
+    }
+
+    const updated = [...stages];
+    const [draggedItem] = updated.splice(draggedIndex, 1);
+    updated.splice(targetIndex, 0, draggedItem);
+    updated.forEach((s, idx) => {
+      s.sortOrder = idx;
+    });
+
+    setStages(updated);
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleQuickToggleStage = (stageName) => {
+    const isDark = document.documentElement.classList.contains('dark');
+    const existingIndex = stages.findIndex(s => s.name.toLowerCase() === stageName.toLowerCase());
+
+    if (existingIndex !== -1) {
+      const removedStage = stages[existingIndex];
+      const updated = stages.filter((_, i) => i !== existingIndex).map((s, idx) => ({ ...s, sortOrder: idx }));
+      setStages(updated);
+      Swal.fire({
+        title: `<span class="font-bold text-sm text-slate-700 dark:text-slate-200">Removed Stage</span>`,
+        text: `Removed "${removedStage.name}" from timeline.`,
+        icon: 'info',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 1500,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+      });
+      return;
+    }
+
+    const match = (masters.stages || []).find(s => s.name.toLowerCase() === stageName.toLowerCase());
+    const stageId = match ? match.id : stageName;
+    const name = match ? match.name : stageName;
+
+    setStages(prev => [...prev, {
+      stageId,
+      name,
+      months: 0,
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      sortOrder: prev.length
+    }]);
+
+    Swal.fire({
+      title: `<span class="font-bold text-sm text-emerald-600">Stage Added</span>`,
+      text: `Added "${name}" to timeline.`,
+      icon: 'success',
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 1500,
+      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+      color: isDark ? '#f8fafc' : '#0f172a',
+    });
+  };
+
+  const handleAddAllStandardStages = () => {
+    const isDark = document.documentElement.classList.contains('dark');
+    const existingNames = new Set(stages.map(s => s.name.toLowerCase()));
+    const toAdd = [];
+
+    STANDARD_FACTORY_STAGES.forEach(std => {
+      if (!existingNames.has(std.name.toLowerCase())) {
+        const match = (masters.stages || []).find(s => s.name.toLowerCase() === std.name.toLowerCase());
+        toAdd.push({
+          stageId: match ? match.id : std.name,
+          name: match ? match.name : std.name,
+          months: 0,
+          days: 0,
+          hours: 0,
+          minutes: 0,
+          sortOrder: stages.length + toAdd.length
+        });
+      }
+    });
+
+    if (toAdd.length === 0) {
+      Swal.fire({
+        title: `<span class="font-bold text-sm">All Stages Present</span>`,
+        text: 'All 14 standard factory workflow stages are already in your timeline.',
+        icon: 'info',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 2500,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+      });
+      return;
+    }
+
+    setStages(prev => [...prev, ...toAdd]);
+    Swal.fire({
+      title: `<span class="font-bold text-sm text-emerald-600">Standard Pipeline Configured</span>`,
+      text: `Added ${toAdd.length} standard factory stages to the timeline.`,
+      icon: 'success',
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 2500,
+      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+      color: isDark ? '#f8fafc' : '#0f172a',
+    });
+  };
+
+  // Human-readable cumulative process duration
+  const totalWorkflowTime = useMemo(() => {
+    let m = 0, d = 0, h = 0, min = 0;
+    stages.forEach(s => {
+      m += Number(s.months || 0);
+      d += Number(s.days || 0);
+      h += Number(s.hours || 0);
+      min += Number(s.minutes || 0);
+    });
+    const extraH = Math.floor(min / 60);
+    const remMin = min % 60;
+    const totalH = h + extraH;
+    const extraD = Math.floor(totalH / 24);
+    const remH = totalH % 24;
+    const totalD = d + extraD;
+    const extraM = Math.floor(totalD / 30);
+    const remD = totalD % 30;
+    const totalM = m + extraM;
+
+    const parts = [];
+    if (totalM > 0) parts.push(`${totalM}mo`);
+    if (remD > 0) parts.push(`${remD}d`);
+    if (remH > 0) parts.push(`${remH}h`);
+    if (remMin > 0 || parts.length === 0) parts.push(`${remMin}m`);
+    return parts.join(' ');
+  }, [stages]);
+
+  // Wizard Step Navigation Handlers
+  const handleNext = () => {
+    if (activeTab === 'basic') {
+      if (!name.trim()) {
+        Swal.fire({
+          title: 'Validation Error',
+          text: 'Product name is required before proceeding to the next step.',
+          icon: 'warning',
+          confirmButtonColor: '#4f46e5'
+        });
+        return;
+      }
+      if (!categoryId) {
+        Swal.fire({
+          title: 'Validation Error',
+          text: 'Please select a Category before proceeding.',
+          icon: 'warning',
+          confirmButtonColor: '#4f46e5'
+        });
+        return;
+      }
+      if (!unitId) {
+        Swal.fire({
+          title: 'Validation Error',
+          text: 'Please select a Unit of Sale before proceeding.',
+          icon: 'warning',
+          confirmButtonColor: '#4f46e5'
+        });
+        return;
+      }
+      setActiveTab('recipe');
+    } else if (activeTab === 'recipe') {
+      setActiveTab('bom');
+    } else if (activeTab === 'bom') {
+      setActiveTab('operations');
+    }
+  };
+
+  const handlePrev = () => {
+    if (activeTab === 'operations') setActiveTab('bom');
+    else if (activeTab === 'bom') setActiveTab('recipe');
+    else if (activeTab === 'recipe') setActiveTab('basic');
   };
 
   // Calculations
@@ -453,7 +726,7 @@ function ProductForm({ editId, onBack }) {
   const totalCost = totalRmCost + totalNonInventoryCost;
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     const isDark = document.documentElement.classList.contains('dark');
 
     if (!name) {
@@ -470,40 +743,52 @@ function ProductForm({ editId, onBack }) {
     }
 
     setSaving(true);
+    setError(null);
     const payload = {
-      name,
+      name: name.trim(),
       categoryId,
       unitId,
-      stockMethod,
-      openingStock: Number(openingStock),
-      alertLevel: Number(alertLevel),
-      hsnCode,
-      profitMargin: Number(profitMargin),
-      salePrice: Number(salePrice),
-      cgst: Number(cgst),
-      sgst: Number(sgst),
-      igst: Number(igst),
-      bom: bom.map(b => ({
-        rmId: b.rmId,
-        consumption: Number(b.consumption || 0),
-        unitPrice: Number(b.unitPrice || 0),
-        totalCost: Number(b.totalCost || (Number(b.consumption || 0) * Number(b.unitPrice || 0)))
+      stockMethod: stockMethod || 'FIFO',
+      openingStock: Math.max(0, Number(openingStock || 0)),
+      alertLevel: Math.max(0, Number(alertLevel || 0)),
+      hsnCode: hsnCode || '',
+      profitMargin: Math.max(0, Number(profitMargin || 0)),
+      salePrice: Math.max(0, Number(salePrice || 0)),
+      cgst: Number(cgst || 0),
+      sgst: Number(sgst || 0),
+      igst: Number(igst || 0),
+      bom: bom
+        .filter(b => b.rmId && String(b.rmId).trim())
+        .map(b => ({
+          rmId: b.rmId,
+          consumption: Math.max(0, Number(b.consumption || 0)),
+          unitPrice: Math.max(0, Number(b.unitPrice || 0)),
+          totalCost: Math.max(0, Number(b.totalCost || (Number(b.consumption || 0) * Number(b.unitPrice || 0))))
+        })),
+      nonInventoryCosts: nonInventoryCosts
+        .filter(n => n.itemId && String(n.itemId).trim())
+        .map(n => ({
+          itemId: n.itemId,
+          cost: Math.max(0, Number(n.cost || 0))
+        })),
+      stages: stages
+        .filter(s => s.stageId && String(s.stageId).trim())
+        .map((s, idx) => ({
+          stageId: s.stageId,
+          months: Math.max(0, Math.round(Number(s.months || 0))),
+          days: Math.max(0, Math.round(Number(s.days || 0))),
+          hours: Math.max(0, Math.round(Number(s.hours || 0))),
+          minutes: Math.max(0, Math.round(Number(s.minutes || 0))),
+          sortOrder: idx
+        })),
+      expectedOutput: Math.max(1, Number(expectedOutput || 1)),
+      sopSteps: (sopSteps || []).map((step, idx) => ({
+        stepNumber: Math.max(1, Math.round(Number(step.stepNumber || idx + 1))),
+        instruction: step.instruction || '',
+        tempTime: step.tempTime || '',
+        safetyNote: step.safetyNote || ''
       })),
-      nonInventoryCosts: nonInventoryCosts.map(n => ({
-        itemId: n.itemId,
-        cost: Number(n.cost)
-      })),
-      stages: stages.map((s, idx) => ({
-        stageId: s.stageId,
-        months: Number(s.months),
-        days: Number(s.days),
-        hours: Number(s.hours),
-        minutes: Number(s.minutes),
-        sortOrder: idx
-      })),
-      expectedOutput: 1, // yield details asked at production batch level
-      sopSteps,
-      imageUrl,
+      imageUrl: imageUrl || null,
       isSopLocked: isEditMode ? true : isSopLocked
     };
 
@@ -525,8 +810,26 @@ function ProductForm({ editId, onBack }) {
       });
       onBack();
     } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.error || 'Failed to save product recipe details.');
+      console.error('Failed to save product details:', err);
+      let errorMsg = 'Failed to save product recipe details.';
+      if (typeof err.response?.data?.error === 'string') {
+        errorMsg = err.response.data.error;
+      } else if (Array.isArray(err.response?.data?.error)) {
+        errorMsg = err.response.data.error.map(e => `${e.path ? e.path.join('.') : 'field'}: ${e.message}`).join('; ');
+      } else if (err.response?.data?.message) {
+        errorMsg = err.response.data.message;
+      } else if (err.message) {
+        errorMsg = err.message;
+      }
+      setError(errorMsg);
+      Swal.fire({
+        title: `<span class="font-extrabold text-sm text-rose-600 dark:text-rose-400">Failed to Save Product</span>`,
+        text: errorMsg,
+        icon: 'error',
+        confirmButtonColor: '#ef4444',
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+      });
     } finally {
       setSaving(false);
     }
@@ -562,69 +865,126 @@ function ProductForm({ editId, onBack }) {
           </div>
         </div>
 
-        {/* Global Save Button in header */}
-        <Button
-          onClick={handleSubmit}
-          disabled={saving}
-          className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-bold rounded-xl text-xs py-2.5 px-5 shadow-md hover:shadow-lg transition-all"
-        >
-          {saving ? <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Saving...</> : <><Save className="w-3.5 h-3.5 mr-1.5" /> Save Specs</>}
-        </Button>
+        {/* Header Action Button: Next on early steps, Save Product on final workflow stage */}
+        <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+          {activeTab === 'operations' ? (
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={saving}
+              className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs py-2.5 px-5 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Check className="w-4 h-4 stroke-[2.5]" />
+                  <span>{isEditMode ? 'Update Product' : 'Save Product'}</span>
+                </>
+              )}
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              onClick={handleNext}
+              className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-5 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <span>Next: {activeTab === 'basic' ? 'SOP Guide' : activeTab === 'recipe' ? 'Ingredients BOM' : 'Workflow Stages'}</span>
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Progress Wizard Tracker */}
-      <div className="hidden sm:flex justify-between items-center bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xs">
-        {[
-          { id: 'basic', step: 'Step 1', name: 'Product Spec' },
-          { id: 'recipe', step: 'Step 2', name: 'SOP Guide' },
-          { id: 'bom', step: 'Step 3', name: 'Ingredients BOM' },
-          { id: 'operations', step: 'Step 4', name: 'Workflow Stages' }
-        ].map((node, index) => (
-          <React.Fragment key={node.id}>
-            <button
-              type="button"
-              onClick={() => setActiveTab(node.id)}
-              className="flex items-center gap-3 text-left focus:outline-none group"
-            >
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
-                activeTab === node.id 
-                  ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-md' 
-                  : 'bg-white dark:bg-slate-800 border dark:border-slate-700 text-slate-500 group-hover:text-indigo-650'
-              }`}>
-                {index + 1}
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">{node.step}</span>
-                <span className={`text-xs font-bold ${activeTab === node.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-650 dark:text-slate-350'}`}>{node.name}</span>
-              </div>
-            </button>
-            {index < 3 && <ChevronRight className="w-4 h-4 text-slate-300 dark:text-slate-700" />}
-          </React.Fragment>
-        ))}
+      {/* Error Notification Banner */}
+      {error && (
+        <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-2xl flex items-center justify-between text-xs text-rose-700 dark:text-rose-300 shadow-xs animate__animated animate__shakeX">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-5 h-5 shrink-0 text-rose-500" />
+            <span className="font-semibold">{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="p-1 text-rose-500 hover:text-rose-700 dark:hover:text-rose-200 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Progress Wizard Tracker - Modern Interactive Stepper */}
+      <div className="hidden sm:flex justify-between items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 rounded-2xl shadow-sm">
+        {FORM_STEPS.map((node, index) => {
+          const isCurrent = activeTab === node.id;
+          const currentIndex = FORM_STEPS.findIndex(s => s.id === activeTab);
+          const isCompleted = index < currentIndex;
+
+          return (
+            <React.Fragment key={node.id}>
+              <button
+                type="button"
+                onClick={() => setActiveTab(node.id)}
+                className={`flex items-center gap-3 text-left focus:outline-none group px-3 py-2 rounded-xl transition-all ${
+                  isCurrent 
+                    ? 'bg-indigo-50/60 dark:bg-indigo-950/30' 
+                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                }`}
+              >
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-extrabold text-xs transition-all ${
+                  isCurrent 
+                    ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-md ring-4 ring-indigo-500/20' 
+                    : isCompleted 
+                    ? 'bg-emerald-500 text-white shadow-xs' 
+                    : 'bg-slate-100 dark:bg-slate-800 border dark:border-slate-700 text-slate-500 group-hover:text-indigo-600'
+                }`}>
+                  {isCompleted ? <Check className="w-4 h-4 stroke-[3]" /> : node.num}
+                </div>
+                <div>
+                  <span className={`text-[10px] block font-bold uppercase tracking-wider ${
+                    isCurrent ? 'text-indigo-600 dark:text-indigo-400' : isCompleted ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                  }`}>
+                    {node.step}
+                  </span>
+                  <span className={`text-xs font-bold ${
+                    isCurrent ? 'text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-300'
+                  }`}>
+                    {node.name}
+                  </span>
+                </div>
+              </button>
+              {index < FORM_STEPS.length - 1 && (
+                <div className="flex-1 mx-2 flex items-center justify-center">
+                  <div className={`h-0.5 w-full rounded-full transition-all ${
+                    index < currentIndex ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-800'
+                  }`} />
+                </div>
+              )}
+            </React.Fragment>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start">
         {/* Main Content Form Area */}
         <div className="lg:col-span-3 space-y-6">
           {/* Mobile responsive active selector */}
-          <div className="flex sm:hidden overflow-x-auto gap-2 p-1 bg-slate-105 dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs">
-            {[
-              { id: 'basic', label: '1. Specs' },
-              { id: 'recipe', label: '2. SOP' },
-              { id: 'bom', label: '3. BOM' },
-              { id: 'operations', label: '4. Stages' }
-            ].map(tab => (
+          <div className="flex sm:hidden overflow-x-auto gap-2 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+            {FORM_STEPS.map(tab => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-3 py-1.5 text-xs font-bold rounded-lg shrink-0 transition-all ${
+                className={`px-3.5 py-2 text-xs font-bold rounded-xl shrink-0 transition-all flex items-center gap-1.5 ${
                   activeTab === tab.id
                     ? 'bg-indigo-600 dark:bg-indigo-500 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                {tab.label}
+                <span>{tab.step}: {tab.name}</span>
               </button>
             ))}
           </div>
@@ -736,6 +1096,22 @@ function ProductForm({ editId, onBack }) {
                     )}
                   </div>
                 </div>
+
+                {/* Step 1 Navigation Footer */}
+                <div className="flex justify-between items-center pt-6 mt-6 border-t border-slate-100 dark:border-slate-800">
+                  <div className="text-xs text-slate-400 dark:text-slate-500 font-medium flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    <span>Step 1 of 4: Core Specifications</span>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleNext}
+                    className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-6 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <span>Next: SOP Guide</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -764,8 +1140,9 @@ function ProductForm({ editId, onBack }) {
                   </span>
                 )}
               </CardHeader>
-              <CardContent className="p-6 space-y-4">
-                <div className="space-y-3">
+              <CardContent className="p-6 space-y-6">
+                {/* SOP Steps Editor */}
+                <div className="space-y-4">
                   <div className="flex justify-between items-center">
                     <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Workflow Steps (Numbered recipe guide)</label>
                     {!isSopLocked && (
@@ -852,6 +1229,27 @@ function ProductForm({ editId, onBack }) {
                     </div>
                   </div>
                 )}
+
+                {/* Step 2 Navigation Footer */}
+                <div className="flex justify-between items-center pt-6 mt-6 border-t border-slate-100 dark:border-slate-800">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePrev}
+                    className="rounded-xl text-xs py-2.5 px-5 flex items-center gap-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous: Product Spec</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleNext}
+                    className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-6 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <span>Next: Ingredients BOM</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           )}
@@ -958,139 +1356,388 @@ function ProductForm({ editId, onBack }) {
                   </table>
                 </div>
 
-                <div className="p-4 border-t border-slate-100 dark:border-slate-805 bg-slate-50/30 dark:bg-slate-950/20 flex justify-end items-center gap-2 text-xs">
-                  <span className="font-semibold text-slate-405 dark:text-slate-400 uppercase">Total Material Cost:</span>
-                  <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">₹{totalRmCost.toFixed(2)}</span>
+                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/20 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase text-2xs">Total Material Cost:</span>
+                    <span className="font-mono font-extrabold text-sm text-slate-900 dark:text-white">₹{totalRmCost.toFixed(2)}</span>
+                  </div>
+                  <div className="text-2xs text-slate-400 font-medium flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    <span>Step 3 of 4: Ingredients Formulation</span>
+                  </div>
+                </div>
+
+                {/* Step 3 Navigation Footer */}
+                <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePrev}
+                    className="rounded-xl text-xs py-2.5 px-5 flex items-center gap-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous: SOP Guide</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleNext}
+                    className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-6 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+                  >
+                    <span>Next: Workflow Stages</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
                 </div>
               </CardContent>
             </Card>
           )}
 
-          {/* TAB 4: Operations & Costs */}
+          {/* TAB 4: Operations & Workflow Timeline (Final Step with Submission) */}
           {activeTab === 'operations' && (
-            <div className="space-y-6 animate__animated animate__fadeIn">
-              {/* Manufacturing Stages durations - Timeline Flow layout */}
-              <Card className="bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-800 shadow-md overflow-hidden">
-                <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-50/20 dark:bg-slate-950/20">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-500">
-                      <Clock className="w-4 h-4" />
+            <div className="space-y-4 animate__animated animate__fadeIn">
+              {/* 14 Standard Factory Stages Palette (Click chip to toggle Add / Remove) */}
+              <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-2xl overflow-hidden">
+                <CardHeader className="py-3 px-4 border-b border-slate-100 dark:border-slate-800/80 flex flex-row items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 rounded-lg">
+                      <Layers className="w-4 h-4" />
                     </div>
                     <div>
-                      <h3 className="text-xs font-extrabold uppercase tracking-wide text-slate-700 dark:text-slate-350">Processing Timeline</h3>
-                      <p className="text-[10px] text-slate-400 mt-0.5">Map the chronologically sorted sequence of work stages.</p>
+                      <h4 className="text-xs font-extrabold uppercase tracking-wide text-slate-800 dark:text-slate-200">
+                        Standard Factory Stages Palette
+                      </h4>
+                      <p className="text-[10px] text-slate-400">
+                        Click any stage chip to toggle (add or remove) from your timeline.
+                      </p>
                     </div>
                   </div>
-                  <div className="flex gap-2 w-full sm:w-auto">
-                    <select
-                      value={selectedStageId}
-                      onChange={(e) => setSelectedStageId(e.target.value)}
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none h-9 focus:ring-1 focus:ring-indigo-500"
-                    >
-                      <option value="">Select Stage...</option>
-                      {masters.stages.map(st => (
-                        <option key={st.id} value={st.id}>{st.name}</option>
-                      ))}
-                    </select>
-                    <Button 
-                      type="button" 
-                      onClick={handleAddStage}
-                      className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-1.5 px-4 transition-all"
-                    >
-                      Add Stage
-                    </Button>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60">
+                      {stages.length} / 14 Selected
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
+                      Duration: {totalWorkflowTime || '0m'}
+                    </span>
                   </div>
                 </CardHeader>
-                <CardContent className="p-6">
-                  {stages.length === 0 ? (
-                    <p className="text-slate-400 dark:text-slate-500 italic text-center py-6">No stages added. Assign stages to model the production duration.</p>
-                  ) : (
-                    <div className="space-y-6 relative before:absolute before:left-6 before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-200 dark:before:bg-slate-800">
-                      {stages.map((st, idx) => (
-                        <div key={st.stageId} className="flex gap-4 relative items-start animate__animated animate__fadeIn">
-                          {/* Circle badge marker */}
-                          <div className="z-10 flex items-center justify-center w-12 h-12 rounded-full border bg-indigo-50 border-indigo-250 dark:bg-slate-950 dark:border-slate-800 text-indigo-700 dark:text-indigo-400 font-extrabold text-xs shrink-0 shadow-sm">
-                            {idx + 1}
-                          </div>
-                          
-                          <div className="flex-1 p-4 bg-slate-50/50 dark:bg-slate-905/30 border border-slate-100 dark:border-slate-800 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div>
-                              <h4 className="font-bold text-slate-850 dark:text-slate-100 text-xs uppercase tracking-wide">{st.name}</h4>
-                              <p className="text-[10px] text-slate-405 mt-0.5">Specify estimated time needed for standard yield output.</p>
+                <CardContent className="p-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-2">
+                    {STANDARD_FACTORY_STAGES.map((std, sidx) => {
+                      const isAdded = stages.some(s => s.name.toLowerCase() === std.name.toLowerCase());
+                      return (
+                        <button
+                          key={std.name}
+                          type="button"
+                          onClick={() => handleQuickToggleStage(std.name)}
+                          className={`p-2 rounded-xl text-left border transition-all relative flex flex-col justify-between h-20 group cursor-pointer ${
+                            isAdded
+                              ? 'bg-emerald-50/50 dark:bg-emerald-950/30 border-emerald-400 dark:border-emerald-700/80 shadow-xs hover:border-rose-400 hover:bg-rose-50/30'
+                              : 'bg-slate-50/70 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-xs hover:scale-[1.01]'
+                          }`}
+                          title={isAdded ? `Click to remove "${std.name}" from timeline` : `Click to add "${std.name}" to timeline`}
+                        >
+                          <div className="flex items-start justify-between w-full">
+                            <div className={`p-1 rounded-md transition-colors ${
+                              isAdded 
+                                ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 group-hover:bg-rose-100 group-hover:text-rose-700 dark:group-hover:bg-rose-950 dark:group-hover:text-rose-300' 
+                                : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700 shadow-xs'
+                            }`}>
+                              {renderStageIcon(std.icon, "w-3 h-3")}
                             </div>
-
-                            <div className="flex gap-2 items-center justify-start text-[10px] text-slate-500 font-bold font-mono">
-                              <div className="flex items-center gap-1">
-                                <Input type="number" className="w-12 h-8 p-1 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-white rounded-lg focus:ring-indigo-500" min="0" value={st.months} onChange={(e) => handleStageTimeChange(idx, 'months', e.target.value)} />
-                                <span>Mo</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Input type="number" className="w-12 h-8 p-1 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-white rounded-lg focus:ring-indigo-500" min="0" value={st.days} onChange={(e) => handleStageTimeChange(idx, 'days', e.target.value)} />
-                                <span>Day</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Input type="number" className="w-12 h-8 p-1 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-white rounded-lg focus:ring-indigo-500" min="0" value={st.hours} onChange={(e) => handleStageTimeChange(idx, 'hours', e.target.value)} />
-                                <span>Hr</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Input type="number" className="w-12 h-8 p-1 text-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-white rounded-lg focus:ring-indigo-500" min="0" value={st.minutes} onChange={(e) => handleStageTimeChange(idx, 'minutes', e.target.value)} />
-                                <span>Min</span>
-                              </div>
-
-                              <button 
-                                type="button" 
-                                onClick={() => handleRemoveStage(idx)} 
-                                className="text-rose-500 hover:text-rose-600 ml-2 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                            <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-md transition-colors ${
+                              isAdded 
+                                ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 group-hover:bg-rose-100 group-hover:text-rose-700' 
+                                : 'text-slate-400 dark:text-slate-500'
+                            }`}>
+                              <span className={isAdded ? 'group-hover:hidden' : ''}>{isAdded ? '✓ Added' : `+ ${sidx + 1}`}</span>
+                              {isAdded && <span className="hidden group-hover:inline text-rose-600 font-bold">✕ Del</span>}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-800 dark:text-slate-100 text-[11px] leading-tight truncate">
+                              {std.name}
+                            </div>
+                            <div className={`text-[9px] truncate transition-colors ${
+                              isAdded 
+                                ? 'text-emerald-600 dark:text-emerald-400 group-hover:text-rose-600 font-medium' 
+                                : 'text-slate-400 dark:text-slate-500'
+                            }`}>
+                              {isAdded ? 'Click to remove' : std.category}
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </CardContent>
               </Card>
 
-              
+              {/* Manufacturing Stages Timeline - Drag & Drop Sequence & Duration Editor */}
+              <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm rounded-2xl overflow-hidden">
+                <CardHeader className="py-3 px-4 border-b border-slate-100 dark:border-slate-800 flex flex-row justify-between items-center">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-indigo-500" />
+                    <h4 className="text-xs font-extrabold uppercase tracking-wide text-slate-700 dark:text-slate-300">
+                      Configured Timeline Sequence ({stages.length} {stages.length === 1 ? 'stage' : 'stages'})
+                    </h4>
+                  </div>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium flex items-center gap-1.5">
+                    <GripVertical className="w-3.5 h-3.5 text-indigo-500" />
+                    Drag and drop cards to reorder sequence
+                  </span>
+                </CardHeader>
+                <CardContent className="p-4">
+                  {stages.length === 0 ? (
+                    <div className="py-8 text-center space-y-2">
+                      <div className="w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-500 flex items-center justify-center mx-auto">
+                        <Sliders className="w-5 h-5" />
+                      </div>
+                      <h5 className="font-bold text-xs text-slate-700 dark:text-slate-200">No Stages Selected</h5>
+                      <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                        Click any of the 14 stage chips in the palette above to build your production pipeline.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 relative before:absolute before:left-5 before:top-3 before:bottom-3 before:w-[2px] before:bg-indigo-100 dark:before:bg-indigo-950/60">
+                      {stages.map((st, idx) => {
+                        const stdConfig = STANDARD_FACTORY_STAGES.find(s => s.name.toLowerCase() === st.name.toLowerCase());
+                        const isBeingDragged = draggedIndex === idx;
+                        const isDragTarget = dragOverIndex === idx && draggedIndex !== idx;
+
+                        return (
+                          <div 
+                            key={st.stageId || idx}
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, idx)}
+                            onDragOver={(e) => handleDragOver(e, idx)}
+                            onDragLeave={handleDragLeave}
+                            onDrop={(e) => handleDrop(e, idx)}
+                            onDragEnd={handleDragEnd}
+                            className={`flex gap-2.5 relative items-center group transition-all duration-150 ${
+                              isBeingDragged ? 'opacity-30 scale-[0.98]' : ''
+                            } ${
+                              isDragTarget ? 'ring-2 ring-indigo-500 ring-offset-1 rounded-xl bg-indigo-50/20' : ''
+                            }`}
+                          >
+                            {/* Circle badge marker with drag handle */}
+                            <div 
+                              className="z-10 flex items-center justify-center w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-mono font-extrabold text-xs shrink-0 shadow-sm cursor-grab active:cursor-grabbing hover:bg-indigo-50/50 transition-all"
+                              title="Drag to reorder sequence"
+                            >
+                              #{idx + 1}
+                            </div>
+                            
+                            <div className="flex-1 p-3 bg-slate-50/70 dark:bg-slate-950/40 hover:bg-slate-50 dark:hover:bg-slate-950/70 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all">
+                              <div className="flex items-center gap-2.5">
+                                {/* Grip Drag Handle & Nudge controls */}
+                                <div className="flex items-center gap-1">
+                                  <div 
+                                    className="p-1 rounded-md text-slate-400 hover:text-indigo-600 cursor-grab active:cursor-grabbing transition-all"
+                                    title="Drag to reorder sequence"
+                                  >
+                                    <GripVertical className="w-4 h-4" />
+                                  </div>
+
+                                  <div className="flex flex-col">
+                                    <button
+                                      type="button"
+                                      disabled={idx === 0}
+                                      onClick={() => handleMoveStage(idx, -1)}
+                                      className="p-0.5 rounded text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                      title="Move earlier"
+                                    >
+                                      <ArrowUp className="w-2.5 h-2.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={idx === stages.length - 1}
+                                      onClick={() => handleMoveStage(idx, 1)}
+                                      className="p-0.5 rounded text-slate-400 hover:text-indigo-600 disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
+                                      title="Move later"
+                                    >
+                                      <ArrowDown className="w-2.5 h-2.5" />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <h4 className="font-extrabold text-slate-900 dark:text-slate-100 text-xs tracking-wide">
+                                      {st.name}
+                                    </h4>
+                                    {stdConfig && (
+                                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-900/50">
+                                        {stdConfig.category}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 truncate max-w-xs sm:max-w-sm">
+                                    {stdConfig?.desc || 'Set estimated lead time needed for this stage.'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2.5 justify-end">
+                                <div className="flex gap-1.5 items-center text-2xs text-slate-500 font-bold font-mono">
+                                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                                    <Input 
+                                      type="number" 
+                                      className="w-10 h-6 p-0 text-center bg-transparent border-0 font-bold text-xs focus:ring-0 text-slate-900 dark:text-white" 
+                                      min="0" 
+                                      value={st.months} 
+                                      onChange={(e) => handleStageTimeChange(idx, 'months', e.target.value)} 
+                                    />
+                                    <span className="text-slate-400 text-[10px]">Mo</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                                    <Input 
+                                      type="number" 
+                                      className="w-10 h-6 p-0 text-center bg-transparent border-0 font-bold text-xs focus:ring-0 text-slate-900 dark:text-white" 
+                                      min="0" 
+                                      value={st.days} 
+                                      onChange={(e) => handleStageTimeChange(idx, 'days', e.target.value)} 
+                                    />
+                                    <span className="text-slate-400 text-[10px]">Day</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                                    <Input 
+                                      type="number" 
+                                      className="w-10 h-6 p-0 text-center bg-transparent border-0 font-bold text-xs focus:ring-0 text-slate-900 dark:text-white" 
+                                      min="0" 
+                                      value={st.hours} 
+                                      onChange={(e) => handleStageTimeChange(idx, 'hours', e.target.value)} 
+                                    />
+                                    <span className="text-slate-400 text-[10px]">Hr</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-1.5 py-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
+                                    <Input 
+                                      type="number" 
+                                      className="w-10 h-6 p-0 text-center bg-transparent border-0 font-bold text-xs focus:ring-0 text-slate-900 dark:text-white" 
+                                      min="0" 
+                                      value={st.minutes} 
+                                      onChange={(e) => handleStageTimeChange(idx, 'minutes', e.target.value)} 
+                                    />
+                                    <span className="text-slate-400 text-[10px]">Min</span>
+                                  </div>
+                                </div>
+
+                                <button 
+                                  type="button" 
+                                  onClick={() => handleRemoveStage(idx)} 
+                                  className="text-rose-500 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-all"
+                                  title="Remove stage"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+
+                {/* Step 4 Navigation Footer - Final Submission */}
+                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePrev}
+                    className="rounded-xl text-xs py-2 px-4 flex items-center gap-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    <span>Previous: Ingredients BOM</span>
+                  </Button>
+
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xs text-slate-400 dark:text-slate-500 font-medium">
+                      Step 4 of 4: Pipeline Ready ({stages.length} stages)
+                    </span>
+                    <Button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={saving}
+                      className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-extrabold rounded-xl text-xs py-2.5 px-7 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Saving Product...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4 stroke-[3]" />
+                          <span>{isEditMode ? 'Update Product' : 'Save Product'}</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
             </div>
           )}
         </div>
 
-        {/* Real-time Pricing Summary Sidebar */}
+        {/* Real-time Pricing Summary Sticky Sidebar */}
         <div className="space-y-6">
           <div className="bg-indigo-50/20 dark:bg-indigo-950/10 border border-indigo-100 dark:border-indigo-900/40 p-5 rounded-2xl space-y-4 sticky top-6 shadow-md transition-all">
             <div>
-              <h4 className="font-extrabold text-sm text-slate-855 dark:text-white flex items-center">
-                <Sparkles className="w-4 h-4 mr-1.5 text-indigo-600 dark:text-indigo-405 animate-pulse" /> Cost Summary Matrix
+              <h4 className="font-extrabold text-sm text-slate-800 dark:text-white flex items-center">
+                <Sparkles className="w-4 h-4 mr-1.5 text-indigo-600 dark:text-indigo-400 animate-pulse" /> Live Cost & Stage Matrix
               </h4>
-              <p className="text-[10px] text-slate-455 dark:text-slate-400 mt-0.5">Live estimates per unit/piece.</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">Summary of formulation & processing timeline.</p>
             </div>
 
             <div className="space-y-3 text-xs">
               <div className="flex justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                <span className="text-slate-450 dark:text-slate-400">Ingredient Cost (BOM):</span>
+                <span className="text-slate-500 dark:text-slate-400">Ingredient Cost (BOM):</span>
                 <span className="font-mono font-bold dark:text-white">₹{totalRmCost.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between pb-2 border-b border-slate-200 dark:border-slate-800 font-extrabold text-slate-900 dark:text-white">
-                <span>Total Unit Cost:</span>
-                <span className="font-mono">₹{totalRmCost.toFixed(2)}</span>
+              <div className="flex justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                <span className="text-slate-500 dark:text-slate-400">Pipeline Stages:</span>
+                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">{stages.length} stages</span>
               </div>
-              <div className="flex justify-between pt-1 font-extrabold text-indigo-650 dark:text-indigo-400 text-sm">
+              <div className="flex justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                <span className="text-slate-500 dark:text-slate-400">Est. Lead Time:</span>
+                <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">{totalWorkflowTime || '0m'}</span>
+              </div>
+              <div className="flex justify-between pt-1 font-extrabold text-indigo-600 dark:text-indigo-400 text-sm">
                 <span>Selling Price:</span>
                 <span className="font-mono">₹{Number(salePrice || 0).toFixed(2)}</span>
               </div>
             </div>
 
-            <Button
-              type="button"
-              onClick={handleSubmit}
-              disabled={saving}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-bold py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Save className="w-4 h-4" /> Save Formulation Specs
-            </Button>
+            {/* Sidebar Action Button: Display Save Product on last stage only */}
+            {activeTab === 'operations' ? (
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={saving}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-extrabold py-3 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {saving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving Product...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4 stroke-[3]" />
+                    <span>{isEditMode ? 'Update Product' : 'Save Product'}</span>
+                  </>
+                )}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                onClick={handleNext}
+                className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-extrabold py-3 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>Next: {activeTab === 'basic' ? 'SOP Guide' : activeTab === 'recipe' ? 'Ingredients BOM' : 'Workflow Stages'}</span>
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            )}
           </div>
         </div>
       </div>

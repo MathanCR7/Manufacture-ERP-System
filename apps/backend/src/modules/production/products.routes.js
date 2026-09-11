@@ -117,6 +117,34 @@ const resolveUomId = async (tx, value) => {
   return newUom.id;
 };
 
+const resolveStageId = async (tx, value) => {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return null;
+
+  if (isUuid(trimmed)) {
+    const existing = await tx.productionStageMaster.findUnique({ where: { id: trimmed } });
+    if (existing) return existing.id;
+  }
+
+  const existingByName = await tx.productionStageMaster.findFirst({
+    where: {
+      name: { equals: trimmed, mode: 'insensitive' }
+    }
+  });
+
+  if (existingByName) return existingByName.id;
+
+  const newStage = await tx.productionStageMaster.create({
+    data: {
+      name: trimmed,
+      description: `Production stage: ${trimmed}`,
+      isActive: true
+    }
+  });
+
+  return newStage.id;
+};
+
 // GET /api/products/masters - Fetch all metadata for master dropdowns
 router.get('/masters', authenticateToken, async (req, res, next) => {
   try {
@@ -138,12 +166,20 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
     if (stages.length === 0) {
       await prisma.productionStageMaster.createMany({
         data: [
-          { name: 'Mixing', description: 'Blending raw materials', isActive: true },
           { name: 'Pasteurization', description: 'Thermal processing for food safety', isActive: true },
-          { name: 'Freezing', description: 'Initial solidification step', isActive: true },
-          { name: 'Hardening', description: 'Deep freezing stage', isActive: true },
-          { name: 'Packaging', description: 'Packing into final containers', isActive: true },
-          { name: 'Quality Control', description: 'Laboratory analysis and testing', isActive: true }
+          { name: 'Ageing', description: 'Aging mix at cold temperature', isActive: true },
+          { name: 'VAT', description: 'Aging/Holding VAT tank processing', isActive: true },
+          { name: 'Mixing', description: 'Blending and emulsifying raw materials', isActive: true },
+          { name: 'CF - Cont. Freezer', description: 'Continuous freezer processing', isActive: true },
+          { name: 'BF - Bath Freezer', description: 'Brine bath freezer processing', isActive: true },
+          { name: 'CM - Candy Machine', description: 'Automated candy/stick molding machine', isActive: true },
+          { name: 'Manual Weight', description: 'Manual weighing and portion verification', isActive: true },
+          { name: 'HT - Hardening Tunner', description: 'Hardening tunnel blast freezing', isActive: true },
+          { name: 'PACKING', description: 'Primary and secondary packaging', isActive: true },
+          { name: 'LABLE AND PRINTING', description: 'Batch coding, labeling and printing', isActive: true },
+          { name: 'Freezing', description: 'Solidification and sub-zero chilling', isActive: true },
+          { name: 'QC', description: 'Quality control, sensory and lab inspection', isActive: true },
+          { name: 'Storage', description: 'Cold room pallet storage & inventory intake', isActive: true }
         ]
       });
       stages = await prisma.productionStageMaster.findMany({
@@ -1111,51 +1147,59 @@ router.post('/:id/bom/expand', authenticateToken, async (req, res, next) => {
   }
 });
 
+// Shared robust schema for Product Creation & Update
+const formatZodError = (err) => {
+  if (err instanceof z.ZodError) {
+    return err.errors.map(e => `${e.path.length > 0 ? e.path.join('.') : 'field'}: ${e.message}`).join(', ');
+  }
+  return err?.message || 'Validation failed';
+};
+
+const productValidationSchema = z.object({
+  name: z.string().trim().min(1, 'Product name is required'),
+  categoryId: z.string().trim().min(1, 'Category is required'),
+  unitId: z.string().trim().min(1, 'Unit of sale is required'),
+  stockMethod: z.string().default('FIFO'),
+  openingStock: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0)),
+  alertLevel: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0)),
+  profitMargin: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0)),
+  salePrice: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().optional().nullable().default(0)),
+  cgst: z.preprocess(v => Number(v) || 0, z.number().default(18)),
+  sgst: z.preprocess(v => Number(v) || 0, z.number().default(9)),
+  igst: z.preprocess(v => Number(v) || 0, z.number().default(9)),
+  bom: z.array(z.object({
+    rmId: z.string().min(1, 'Raw material is required'),
+    consumption: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0)),
+    unitPrice: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0)),
+    totalCost: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0))
+  })).default([]),
+  nonInventoryCosts: z.array(z.object({
+    itemId: z.string().min(1, 'Cost factor item is required'),
+    cost: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0))
+  })).default([]),
+  stages: z.array(z.object({
+    stageId: z.string().min(1, 'Stage is required'),
+    months: z.preprocess(v => Math.max(0, Math.round(Number(v) || 0)), z.number().int().nonnegative().default(0)),
+    days: z.preprocess(v => Math.max(0, Math.round(Number(v) || 0)), z.number().int().nonnegative().default(0)),
+    hours: z.preprocess(v => Math.max(0, Math.round(Number(v) || 0)), z.number().int().nonnegative().default(0)),
+    minutes: z.preprocess(v => Math.max(0, Math.round(Number(v) || 0)), z.number().int().nonnegative().default(0)),
+    sortOrder: z.preprocess(v => Math.max(0, Math.round(Number(v) || 0)), z.number().int().nonnegative().default(0))
+  })).default([]),
+  expectedOutput: z.preprocess(v => Math.max(1, Number(v) || 1), z.number().nonnegative().optional().nullable().default(1)),
+  sopSteps: z.array(z.object({
+    stepNumber: z.preprocess(v => Math.max(1, Math.round(Number(v) || 1)), z.number().int().default(1)),
+    instruction: z.preprocess(v => (v === null || v === undefined ? '' : String(v)), z.string().default('')),
+    tempTime: z.preprocess(v => (v === null || v === undefined ? '' : String(v)), z.string().optional().nullable().default('')),
+    safetyNote: z.preprocess(v => (v === null || v === undefined ? '' : String(v)), z.string().optional().nullable().default(''))
+  })).optional().nullable().default([]),
+  imageUrl: z.string().optional().nullable(),
+  isSopLocked: z.boolean().optional()
+});
+
 // POST /api/products - Create Product
 router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
   try {
-    const schema = z.object({
-      name: z.string().min(1),
-      categoryId: z.string().min(1),
-      unitId: z.string().min(1),
-      stockMethod: z.string(),
-      openingStock: z.coerce.number().nonnegative().default(0),
-      alertLevel: z.coerce.number().nonnegative().default(0),
-      profitMargin: z.coerce.number().nonnegative(),
-      salePrice: z.coerce.number().nonnegative().optional(),
-      cgst: z.coerce.number().default(18),
-      sgst: z.coerce.number().default(9),
-      igst: z.coerce.number().default(9),
-      bom: z.array(z.object({
-        rmId: z.string().min(1),
-        consumption: z.coerce.number().positive(),
-        unitPrice: z.coerce.number().positive(),
-        totalCost: z.coerce.number().positive()
-      })),
-      nonInventoryCosts: z.array(z.object({
-        itemId: z.string().min(1),
-        cost: z.coerce.number().positive()
-      })),
-      stages: z.array(z.object({
-        stageId: z.string().min(1),
-        months: z.coerce.number().default(0),
-        days: z.coerce.number().default(0),
-        hours: z.coerce.number().default(0),
-        minutes: z.coerce.number().default(0),
-        sortOrder: z.coerce.number().default(0)
-      })),
-      expectedOutput: z.coerce.number().positive().optional(),
-      sopSteps: z.array(z.object({
-        stepNumber: z.coerce.number(),
-        instruction: z.string(),
-        tempTime: z.string().optional().nullable(),
-        safetyNote: z.string().optional().nullable()
-      })).optional(),
-      imageUrl: z.string().optional().nullable(),
-      isSopLocked: z.boolean().optional()
-    });
-
-    const data = schema.parse(req.body);
+    const data = productValidationSchema.parse(req.body);
 
     const product = await prisma.$transaction(async (tx) => {
       const code = await generateProductCode(tx);
@@ -1193,7 +1237,8 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req,
           alertLevel: data.alertLevel,
           expectedOutput: data.expectedOutput || null,
           sopSteps: data.sopSteps || null,
-          isSopLocked: data.isSopLocked || (data.sopSteps && data.sopSteps.length > 0) ? true : false,
+          isSopLocked: data.isSopLocked !== undefined ? data.isSopLocked : (data.sopSteps && data.sopSteps.length > 0 ? true : false),
+          sopHistory: [],
           imageUrl: data.imageUrl || null,
           createdBy: req.user.id
         }
@@ -1225,18 +1270,43 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req,
 
       // 4. Create stages
       if (data.stages.length > 0) {
-        await tx.productStage.createMany({
-          data: data.stages.map((s, idx) => ({
-            productId: newProduct.id,
-            stageId: s.stageId,
-            months: s.months,
-            days: s.days,
-            hours: s.hours,
-            minutes: s.minutes,
-            sortOrder: s.sortOrder || idx
-          }))
-        });
+        const stageRecords = [];
+        for (let idx = 0; idx < data.stages.length; idx++) {
+          const s = data.stages[idx];
+          const resolvedId = await resolveStageId(tx, s.stageId);
+          if (resolvedId) {
+            stageRecords.push({
+              productId: newProduct.id,
+              stageId: resolvedId,
+              months: s.months,
+              days: s.days,
+              hours: s.hours,
+              minutes: s.minutes,
+              sortOrder: s.sortOrder !== undefined ? s.sortOrder : idx
+            });
+          }
+        }
+        if (stageRecords.length > 0) {
+          await tx.productStage.createMany({ data: stageRecords });
+        }
       }
+
+      // Write action to Audit Log
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'CREATE_PRODUCT',
+          tableName: 'products',
+          recordId: newProduct.id,
+          newValue: {
+            code: newProduct.code,
+            name: newProduct.name,
+            totalCost: newProduct.totalCost,
+            salePrice: newProduct.salePrice
+          },
+          ip: req.ip || '127.0.0.1'
+        }
+      });
 
       return newProduct;
     });
@@ -1244,11 +1314,12 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req,
     res.status(201).json(product);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.error('\n[ZOD VALIDATION ERROR IN POST PRODUCT]:', error.errors);
-      return res.status(400).json({ error: error.errors });
+      const formatted = formatZodError(error);
+      console.error('\n[ZOD VALIDATION ERROR IN POST PRODUCT]:', formatted, error.errors);
+      return res.status(400).json({ error: formatted, details: error.errors });
     }
     console.error('\n[PRODUCT CREATE ERROR]:', error);
-    next(error);
+    return res.status(400).json({ error: error.message || 'Failed to create product' });
   }
 });
 
@@ -1256,48 +1327,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req,
 router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
   try {
     const id = req.params.id;
-    const schema = z.object({
-      name: z.string().min(1),
-      categoryId: z.string().min(1),
-      unitId: z.string().min(1),
-      stockMethod: z.string(),
-      openingStock: z.coerce.number().nonnegative().default(0),
-      alertLevel: z.coerce.number().nonnegative().default(0),
-      profitMargin: z.coerce.number().nonnegative(),
-      salePrice: z.coerce.number().nonnegative().optional(),
-      cgst: z.coerce.number().default(18),
-      sgst: z.coerce.number().default(9),
-      igst: z.coerce.number().default(9),
-      bom: z.array(z.object({
-        rmId: z.string().min(1),
-        consumption: z.coerce.number().positive(),
-        unitPrice: z.coerce.number().positive(),
-        totalCost: z.coerce.number().positive()
-      })),
-      nonInventoryCosts: z.array(z.object({
-        itemId: z.string().min(1),
-        cost: z.coerce.number().positive()
-      })),
-      stages: z.array(z.object({
-        stageId: z.string().min(1),
-        months: z.coerce.number().default(0),
-        days: z.coerce.number().default(0),
-        hours: z.coerce.number().default(0),
-        minutes: z.coerce.number().default(0),
-        sortOrder: z.coerce.number().default(0)
-      })),
-      expectedOutput: z.coerce.number().positive().optional(),
-      sopSteps: z.array(z.object({
-        stepNumber: z.coerce.number(),
-        instruction: z.string(),
-        tempTime: z.string().optional().nullable(),
-        safetyNote: z.string().optional().nullable()
-      })).optional(),
-      imageUrl: z.string().optional().nullable(),
-      isSopLocked: z.boolean().optional()
-    });
-
-    const data = schema.parse(req.body);
+    const data = productValidationSchema.parse(req.body);
 
     const product = await prisma.$transaction(async (tx) => {
       const existing = await tx.finishedProduct.findFirst({
@@ -1322,7 +1352,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
       const salePrice = data.salePrice !== undefined ? Number(data.salePrice) : totalCost * (1 + Number(data.profitMargin) / 100);
 
       // Archive previous SOP values if locked and edited
-      let updatedSopHistory = existing.sopHistory || [];
+      let updatedSopHistory = Array.isArray(existing.sopHistory) ? [...existing.sopHistory] : [];
       if (existing.isSopLocked && (
         JSON.stringify(existing.sopSteps) !== JSON.stringify(data.sopSteps) ||
         JSON.stringify(existing.bom.map(b => ({ rmId: b.rmId, consumption: Number(b.consumptionPerUnit) }))) !== 
@@ -1401,17 +1431,25 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
       // 4. Recreate Stages
       await tx.productStage.deleteMany({ where: { productId: id } });
       if (data.stages.length > 0) {
-        await tx.productStage.createMany({
-          data: data.stages.map((s, idx) => ({
-            productId: id,
-            stageId: s.stageId,
-            months: s.months,
-            days: s.days,
-            hours: s.hours,
-            minutes: s.minutes,
-            sortOrder: s.sortOrder || idx
-          }))
-        });
+        const stageRecords = [];
+        for (let idx = 0; idx < data.stages.length; idx++) {
+          const s = data.stages[idx];
+          const resolvedId = await resolveStageId(tx, s.stageId);
+          if (resolvedId) {
+            stageRecords.push({
+              productId: id,
+              stageId: resolvedId,
+              months: s.months,
+              days: s.days,
+              hours: s.hours,
+              minutes: s.minutes,
+              sortOrder: s.sortOrder !== undefined ? s.sortOrder : idx
+            });
+          }
+        }
+        if (stageRecords.length > 0) {
+          await tx.productStage.createMany({ data: stageRecords });
+        }
       }
 
       // Write action to Audit Log
@@ -1439,14 +1477,15 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
     res.json(product);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      console.error('\n[ZOD VALIDATION ERROR IN PUT PRODUCT]:', error.errors);
-      return res.status(400).json({ error: error.errors });
+      const formatted = formatZodError(error);
+      console.error('\n[ZOD VALIDATION ERROR IN PUT PRODUCT]:', formatted, error.errors);
+      return res.status(400).json({ error: formatted, details: error.errors });
     }
     if (error.message && error.message.includes('not found')) {
       return res.status(404).json({ error: error.message });
     }
     console.error('\n[PRODUCT UPDATE ERROR]:', error);
-    next(error);
+    return res.status(400).json({ error: error.message || 'Failed to update product' });
   }
 });
 

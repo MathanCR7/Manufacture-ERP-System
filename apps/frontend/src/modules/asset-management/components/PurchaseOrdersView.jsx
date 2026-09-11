@@ -56,6 +56,8 @@ const CATEGORY_MAP = {
   'Intangible Assets': { hsn: '9973', gst: 18 }
 };
 
+const DEPARTMENTS = ['IT', 'Manufacturing', 'Admin', 'Logistics', 'Finance', 'HR', 'Sales'];
+
 // ─── Build per-rate tax breakdown (used by both modal and PDF) ────────────────
 // Uses the stored per-item cgst/sgst/igst values (computed at save time from actual item gstRate)
 // grouped by gstRate — this exactly matches the quotation page breakdown.
@@ -849,11 +851,14 @@ function ChargeRow({ label, fieldKey, value, gstState, isInterState, disabled, o
 
 // ─── Create PO Form ───────────────────────────────────────────────────────────
 function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
+  const [poMode, setPoMode] = useState(prefillFromPQ ? 'pr' : 'pr'); // 'pr' or 'direct'
   const [form, setForm] = useState({
     prId: '',
     prNo: '',
     pqId: '',
     pqNo: '',
+    department: 'IT',
+    costCenter: 'CC-IT-001',
     vendorName: '',
     vendorGstin: '',
     vendorPan: '',
@@ -941,11 +946,18 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
 
   useEffect(() => {
     if (editPO) {
+      if (editPO.prNo === 'Direct' || !editPO.prNo) {
+        setPoMode('direct');
+      } else {
+        setPoMode('pr');
+      }
       setForm({
         prId: prs.find(p => p.prNo === editPO.prNo)?.id || '',
         prNo: editPO.prNo || '',
         pqId: editPO.pqId || '',
         pqNo: editPO.pqNo || '',
+        department: editPO.costCenter ? editPO.costCenter.replace('CC-', '').split('-')[0] : 'IT',
+        costCenter: editPO.costCenter || 'CC-IT-001',
         vendorName: editPO.vendorName || '',
         vendorGstin: editPO.vendorGstin || '',
         vendorPan: editPO.vendorPan || '',
@@ -1173,17 +1185,25 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   const handleSubmit = e => {
     e.preventDefault();
     setError('');
-    if (!form.prId) { setError('Please select a Purchase Request (PR) to link this PO'); return; }
+    if (poMode === 'pr' && !form.prId) {
+      setError('Please select a Purchase Request (PR) to link this PO, or switch to "Direct PO (No PR)" mode above.');
+      return;
+    }
     if (!form.poDate) { setError('PO Date is required'); return; }
     if (!form.vendorName) { setError('Vendor name is required'); return; }
     if (form.items.length === 0) { setError('No items found. Add at least one line item.'); return; }
     if (form.items.some(i => !i.itemDescription || !i.unitPrice)) { setError('All item fields are required'); return; }
-    if (!editPOId && existingPOPrNos.includes(form.prNo) && form.prNo !== 'Direct') {
+    if (!editPOId && form.prNo && form.prNo !== 'Direct' && existingPOPrNos.includes(form.prNo)) {
       setError(`A Purchase Order has already been raised for PR ${form.prNo}. Each PR allows only one PO.`);
       return;
     }
     mutation.mutate({
       ...form,
+      prId: poMode === 'direct' ? '' : form.prId,
+      prNo: poMode === 'direct' ? 'Direct' : (form.prNo || 'Direct'),
+      pqId: poMode === 'direct' ? '' : form.pqId,
+      pqNo: poMode === 'direct' ? '' : form.pqNo,
+      isDirect: poMode === 'direct',
       discount: Number(form.discount || 0),
       freight: Number(form.freight || 0),
       loadingCharges: Number(form.loadingCharges || 0),
@@ -1334,11 +1354,52 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         }
       }
     } else {
+      // Direct PR -> PO flow without a PQ
+      let items = [];
+      if (Array.isArray(pr.items) && pr.items.length > 0) {
+        items = pr.items.map(i => ({
+          category: i.category || pr.category || 'IT Equipment',
+          itemDescription: i.description || i.itemDescription || pr.assetName || '',
+          hsnSac: i.hsnCode || i.hsnSac || CATEGORY_MAP[i.category || pr.category]?.hsn || '8471',
+          quantity: Number(i.quantity) || 1,
+          unit: i.uom || i.unit || 'Nos',
+          unitPrice: Number(i.unitPrice || i.estimatedUnitCost || 0) || '',
+          gstRate: Number(i.gstRate || 18),
+        }));
+      } else {
+        const catMap = CATEGORY_MAP[pr.category] || { hsn: '8471', gst: 18 };
+        items = [{
+          category: pr.category || 'IT Equipment',
+          itemDescription: pr.assetName || '',
+          hsnSac: pr.hsnCode || catMap.hsn,
+          quantity: Number(pr.quantity) || 1,
+          unit: 'Nos',
+          unitPrice: Number(pr.estimatedUnitCost) || '',
+          gstRate: catMap.gst || 18,
+        }];
+      }
+
+      setOriginalIsInterState(null);
+      setForm(prev => ({
+        ...prev,
+        prId: pr.id,
+        prNo: pr.prNo,
+        pqId: '',
+        pqNo: '',
+        department: pr.department || prev.department,
+        costCenter: pr.costCenter || prev.costCenter,
+        vendorName: pr.preferredVendor || prev.vendorName || '',
+        items,
+      }));
+
       Swal.fire({
-        icon: 'error',
-        title: 'Purchase Quotation Required',
-        text: `No Purchase Quotation was found for Purchase Request ${pr.prNo}. Under the new procurement workflow, you must record a Purchase Quotation (Step 2) and complete the evaluation before raising a Purchase Order.`,
-        confirmButtonColor: '#4f46e5'
+        icon: 'info',
+        title: 'PR Linked Directly',
+        text: `Loaded details from PR ${pr.prNo} (no quotation linked). You can select your supplier and confirm unit prices directly.`,
+        timer: 3500,
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
       });
     }
   };
@@ -1523,28 +1584,130 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        <div className="border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 rounded-2xl p-5">
-          <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <ClipboardList className="w-4 h-4" /> Link to Purchase Request (PR)
-          </h3>
-          <div className="space-y-3">
-            <PRSelect
-              prs={prs}
-              existingPOPrNos={existingPOPrNos}
-              value={prs.find(p => p.id === form.prId) || null}
-              onChange={pr => fillFromPR(pr)}
-            />
-            {form.prId && (
-              <div className="flex items-center gap-2 p-2 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs text-emerald-700 dark:text-emerald-400">
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                PR <strong>{form.prNo}</strong> linked — Items and Quotation pricing loaded.
-              </div>
-            )}
-            <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-xl text-[10px] text-amber-700 dark:text-amber-400">
-              <Info className="w-3 h-3 mt-0.5 shrink-0" />
-              Each PR can have only one Purchase Order. PRs marked "PO Raised" are disabled. A quotation must have been created for the selected PR.
+        {/* PO Source / Workflow Mode */}
+        <div className="border border-indigo-200 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-indigo-950/20 rounded-2xl p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-2">
+                <ClipboardList className="w-4 h-4" /> PO Source & Workflow Mode
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Choose whether this PO links to an approved Purchase Request (PR) or is raised directly.
+              </p>
+            </div>
+            
+            <div className="inline-flex p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs self-start sm:self-auto">
+              <button
+                type="button"
+                disabled={isFinanceLocked}
+                onClick={() => {
+                  setPoMode('pr');
+                  if (form.prNo === 'Direct') {
+                    update('prNo', '');
+                    update('prId', '');
+                  }
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  poMode === 'pr'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-50'
+                }`}
+              >
+                🔗 Link to PR
+              </button>
+              <button
+                type="button"
+                disabled={isFinanceLocked}
+                onClick={() => {
+                  setPoMode('direct');
+                  setForm(p => ({
+                    ...p,
+                    prId: '',
+                    prNo: 'Direct',
+                    pqId: '',
+                    pqNo: '',
+                  }));
+                  setOriginalIsInterState(null);
+                }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  poMode === 'direct'
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white disabled:opacity-50'
+                }`}
+              >
+                ⚡ Direct PO (No PR)
+              </button>
             </div>
           </div>
+
+          {poMode === 'pr' ? (
+            <div className="space-y-3 pt-1">
+              <PRSelect
+                prs={prs}
+                existingPOPrNos={existingPOPrNos}
+                value={prs.find(p => p.id === form.prId) || null}
+                onChange={pr => fillFromPR(pr)}
+              />
+              {form.prId && (
+                <div className="flex items-center gap-2 p-2.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs text-emerald-700 dark:text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  PR <strong>{form.prNo}</strong> linked — Items loaded.
+                </div>
+              )}
+              <div className="flex items-start gap-2 p-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 rounded-xl text-[10px] text-amber-700 dark:text-amber-400">
+                <Info className="w-3 h-3 mt-0.5 shrink-0" />
+                Select an approved PR to automatically pull item specifications and procurement details into this order.
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 pt-1">
+              <div className="p-3 bg-white dark:bg-slate-900 border border-indigo-100 dark:border-indigo-950 rounded-xl flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400 font-bold">
+                    ⚡
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Direct Purchase Order Mode Active</h4>
+                    <p className="text-[11px] text-slate-500">No Purchase Request (PR) is required. You can select your supplier, allocate to a department budget, and enter order line items directly below.</p>
+                  </div>
+                </div>
+                <div className="shrink-0 hidden sm:block">
+                  <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                    Direct PO
+                  </span>
+                </div>
+              </div>
+
+              {/* Department selection for Direct PO */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Department Budget Allocation <span className="text-rose-500">*</span></Label>
+                  <div className="relative">
+                    <select
+                      value={form.department || 'IT'}
+                      onChange={e => {
+                        const dept = e.target.value;
+                        update('department', dept);
+                        update('costCenter', `CC-${dept}-001`);
+                      }}
+                      className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">Cost Center</Label>
+                  <Input
+                    value={form.costCenter || `CC-${form.department || 'IT'}-001`}
+                    readOnly
+                    className="h-10 rounded-xl bg-slate-100/50 dark:bg-slate-800/50 cursor-not-allowed font-mono text-xs text-slate-600 dark:text-slate-400"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5">
@@ -1642,7 +1805,9 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
           {form.items.length === 0 ? (
             <div className="text-center py-10 text-slate-400 text-sm border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-xl">
               <Package className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-              Select a PR linked to a Purchase Quotation to auto-fill items.
+              {poMode === 'direct'
+                ? 'No line items yet. Click "+ Add Line" above to add order items.'
+                : 'Select a PR to auto-fill items, or switch to Direct PO mode.'}
             </div>
           ) : (
             <div className="space-y-3">

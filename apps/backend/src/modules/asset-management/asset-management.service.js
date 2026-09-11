@@ -1601,9 +1601,9 @@ class AssetManagementService {
     await this.seedBudgets();
 
     let pqNo = data.pqNo || null;
-    let prNo = data.prNo;
-    let prDepartment = null;
-    let prCostCenter = null;
+    let prNo = data.prNo || (data.isDirect ? 'Direct' : null);
+    let prDepartment = data.department || null;
+    let prCostCenter = data.costCenter || null;
     let resolvedVendorCode = data.vendorCode;
     let resolvedVendorName = data.vendorName;
     let resolvedVendorGstin = data.vendorGstin;
@@ -1618,6 +1618,8 @@ class AssetManagementService {
         prDepartment = pr.department;
         prCostCenter = pr.costCenter;
       }
+    } else if (!prNo) {
+      prNo = 'Direct';
     }
 
     let tds = Number(data.tds || 0);
@@ -1894,7 +1896,7 @@ class AssetManagementService {
       }
 
       // Mark PR as PO Issued / Closed
-      if (prNo) {
+      if (prNo && prNo !== 'Direct') {
         await tx.assetRequest.updateMany({
           where: { prNo },
           data: { status: 'PO Issued' }
@@ -2524,6 +2526,159 @@ class AssetManagementService {
   }
 
   // Register Services
+  async capitalizeManualAsset(data, userId = 'system', actorRole = 'MAIN_MASTER') {
+    if (!data.assetName || !data.assetName.trim()) {
+      throw new Error('Asset name is required');
+    }
+
+    const purchaseCost = Number(data.purchaseValue !== undefined && data.purchaseValue !== '' ? data.purchaseValue : (data.purchaseCost || 0));
+    if (isNaN(purchaseCost) || purchaseCost <= 0) {
+      throw new Error('Valid purchase value is required');
+    }
+
+    if (!data.purchaseDate) {
+      throw new Error('Purchase date is required');
+    }
+
+    const purchaseDate = new Date(data.purchaseDate);
+    if (isNaN(purchaseDate.getTime())) {
+      throw new Error('Invalid purchase date');
+    }
+
+    const category = data.category || 'IT Equipment';
+    const mapDetails = CATEGORY_MAP[category] || { life: 5, rate: 20.00 };
+
+    const usefulLife = data.usefulLifeYears 
+      ? parseInt(data.usefulLifeYears, 10) 
+      : (data.usefulLife ? parseInt(data.usefulLife, 10) : mapDetails.life);
+
+    const depRate = (data.depreciationRate !== undefined && data.depreciationRate !== '' && !isNaN(Number(data.depreciationRate)))
+      ? Number(data.depreciationRate)
+      : mapDetails.rate;
+
+    const incidentalCosts = Number(data.incidentalCosts || 0);
+    const capitalizedCost = purchaseCost + incidentalCosts;
+
+    let salvageValue = capitalizedCost * 0.05;
+    if (data.salvageValue !== undefined && data.salvageValue !== '' && data.salvageValue !== null && !isNaN(Number(data.salvageValue))) {
+      salvageValue = Number(data.salvageValue);
+    }
+
+    const depMethod = (data.depreciationMethod && data.depreciationMethod.includes('WDV')) ? 'WDV' : 'SLM';
+
+    // Calculate annual and monthly depreciation
+    const annualDep = Math.max(0, (capitalizedCost - salvageValue) * (depRate / 100));
+    const monthlyDep = annualDep / 12;
+
+    // Determine unique assetId
+    let assetId = await this.getNextAssetId();
+    let collisionCheck = 0;
+    while (await prisma.asset.findUnique({ where: { assetId } })) {
+      const parts = assetId.split('-');
+      const seq = (parseInt(parts[parts.length - 1], 10) || 1) + 1;
+      assetId = `AST-${String(seq).padStart(5, '0')}`;
+      collisionCheck++;
+      if (collisionCheck > 500) break;
+    }
+
+    // Determine unique serial number
+    let serialNo = data.serialNo ? data.serialNo.trim() : '';
+    if (serialNo) {
+      const existingSerial = await prisma.asset.findUnique({ where: { serialNo } });
+      if (existingSerial) {
+        throw new Error(`Asset with Serial Number "${serialNo}" already exists in the system`);
+      }
+    } else {
+      serialNo = `SN-${Date.now().toString().slice(-6)}-${Math.floor(Math.random() * 9000 + 1000)}`;
+    }
+
+    // Lookup AP Invoice or GRPO if referenced
+    let invoiceNo = data.invoiceNo?.trim() || null;
+    let poNo = data.poNo?.trim() || null;
+    let vendorName = data.vendorName?.trim() || null;
+    let vendorCode = data.vendorCode?.trim() || null;
+
+    if (data.apInvoiceId) {
+      try {
+        const inv = await prisma.assetAPInvoice.findUnique({
+          where: { id: data.apInvoiceId }
+        });
+        if (inv) {
+          invoiceNo = invoiceNo || inv.invoiceNo;
+          poNo = poNo || inv.poNo;
+          if (!vendorName) vendorName = inv.vendorName;
+          if (!vendorCode) vendorCode = inv.vendorCode;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch linked AP Invoice for asset:', err.message);
+      }
+    }
+
+    if (data.grpoId && !poNo) {
+      try {
+        const grpo = await prisma.assetGRPO.findUnique({
+          where: { id: data.grpoId }
+        });
+        if (grpo) {
+          poNo = grpo.poNo;
+          if (!vendorName) vendorName = grpo.vendorName;
+          if (!vendorCode) vendorCode = grpo.vendorCode;
+        }
+      } catch (err) {
+        console.warn('Failed to fetch linked GRPO for asset:', err.message);
+      }
+    }
+
+    if (!vendorCode && data.vendorGstin) {
+      vendorCode = data.vendorGstin.trim().substring(0, 10);
+    }
+
+    const capitalizationDate = data.capitalizationDate ? new Date(data.capitalizationDate) : new Date();
+    const warrantyExpiry = data.warrantyExpiry ? new Date(data.warrantyExpiry) : null;
+    const department = data.department?.trim() || 'IT';
+    const costCenter = data.costCenter?.trim() || ('CC-' + department.toUpperCase());
+    const location = data.location?.trim() || 'HQ Office';
+
+    const asset = await prisma.asset.create({
+      data: {
+        assetId,
+        assetName: data.assetName.trim(),
+        description: data.notes?.trim() || data.description?.trim() || data.assetName.trim(),
+        category,
+        subCategory: data.subCategory?.trim() || null,
+        manufacturer: data.manufacturer?.trim() || null,
+        modelNo: data.modelNo?.trim() || null,
+        serialNo,
+        barcode: data.assetTagNo?.trim() || data.barcode?.trim() || assetId,
+        purchaseDate,
+        capitalizationDate,
+        purchaseCost,
+        incidentalCosts,
+        capitalizedCost,
+        usefulLife,
+        depreciationMethod: depMethod,
+        depreciationRate: depRate,
+        monthlyDepreciation: monthlyDep,
+        accumulatedDepreciation: 0,
+        bookValue: capitalizedCost,
+        salvageValue,
+        location,
+        assignedTo: data.assignedTo?.trim() || null,
+        assignedToEmpId: data.assignedEmpId?.trim() || data.assignedToEmpId?.trim() || null,
+        department,
+        costCenter,
+        status: 'Active',
+        vendorName,
+        vendorCode,
+        poNo,
+        invoiceNo,
+        warrantyExpiry
+      }
+    });
+
+    return mapAssetToFrontend(asset);
+  }
+
   async getAssets() {
     const assets = await prisma.asset.findMany({
       orderBy: { assetId: 'asc' }
@@ -3355,7 +3510,7 @@ class AssetManagementService {
         });
       }
 
-      if (existing.prNo) {
+      if (existing.prNo && existing.prNo !== 'Direct') {
         await tx.assetRequest.updateMany({
           where: { prNo: existing.prNo },
           data: { status: 'Approved' }

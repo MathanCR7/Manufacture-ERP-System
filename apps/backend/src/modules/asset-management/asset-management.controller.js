@@ -211,7 +211,7 @@ class AssetManagementController {
 
   async createAsset(req, res, next) {
     try {
-      const asset = await assetService.capitalizeManualAsset(req.body, req.user.id, req.user.role);
+      const asset = await assetService.capitalizeManualAsset(req.body, req.user?.id, req.user?.role);
       res.status(201).json(asset);
     } catch (error) {
       res.status(400).json({ error: error.message });
