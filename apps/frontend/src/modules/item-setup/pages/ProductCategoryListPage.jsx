@@ -109,8 +109,9 @@ function ProductCategoryForm({ editId, onBack }) {
       api.get('/item-setup/product-category')
         .then(res => {
           const list = res.data || [];
+          const searchUpper = debouncedName.trim().toUpperCase();
           const matches = list.filter(cat =>
-            cat.name.toLowerCase().includes(debouncedName.toLowerCase()) &&
+            (cat.name || '').toUpperCase().includes(searchUpper) &&
             cat.id !== editId
           );
           setNameMatches(matches);
@@ -136,12 +137,13 @@ function ProductCategoryForm({ editId, onBack }) {
 
   const handleFormSubmit = async (data) => {
     const isDark = document.documentElement.classList.contains('dark');
+    const upperName = data.name.trim().toUpperCase();
 
-    const duplicate = nameMatches.find(cat => cat.name.toLowerCase() === data.name.trim().toLowerCase());
+    const duplicate = nameMatches.find(cat => (cat.name || '').toUpperCase() === upperName);
     if (duplicate) {
       const result = await Swal.fire({
         title: '<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Duplicate Category Name</span>',
-        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">A Product Category named <strong>"${data.name.trim()}"</strong> already exists. Do you want to proceed and save it anyway?</p>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">A Product Category named <strong>"${upperName}"</strong> already exists. Do you want to proceed and save it anyway?</p>`,
         icon: 'warning',
         iconColor: '#f59e0b',
         showCancelButton: true,
@@ -161,7 +163,7 @@ function ProductCategoryForm({ editId, onBack }) {
     }
     mutation.mutate({
       ...data,
-      name: data.name.trim()
+      name: upperName
     });
   };
 
@@ -261,13 +263,22 @@ function ProductCategoryForm({ editId, onBack }) {
           <CardContent className="p-3.5 space-y-3 text-xs">
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               <div className="space-y-1 relative sm:col-span-2">
-                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                  Category Name <span className="text-rose-500">*</span>
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    Category Name <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Capital only</span>
+                </div>
                 <input
-                  {...register('name', { required: 'Category name is required' })}
+                  {...register('name', { 
+                    required: 'Category name is required',
+                    onChange: (e) => {
+                      e.target.value = e.target.value.toUpperCase();
+                    }
+                  })}
+                  style={{ textTransform: 'uppercase' }}
                   className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs"
-                  placeholder="e.g. Sweets, Savouries, Beverages"
+                  placeholder="E.G. SWEETS, SAVOURIES, BEVERAGES"
                   maxLength={50}
                   autoFocus
                 />
@@ -281,7 +292,7 @@ function ProductCategoryForm({ editId, onBack }) {
                       <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">Similar categories exist:</p>
                       <ul className="list-disc pl-3.5 mt-0.5 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400 font-medium">
                         {nameMatches.slice(0, 3).map(m => (
-                          <li key={m.id}>{m.name}</li>
+                          <li key={m.id}>{m.name?.toUpperCase()}</li>
                         ))}
                       </ul>
                     </div>
@@ -855,8 +866,8 @@ export default function ProductCategoryListPage() {
                             <div className="w-6 h-6 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100/60 dark:border-indigo-800/60">
                               <Tag className="w-3 h-3" />
                             </div>
-                            <span className="font-bold text-slate-900 dark:text-slate-100 tracking-tight text-xs">
-                              {item.name}
+                            <span className="font-bold text-slate-900 dark:text-slate-100 tracking-tight text-xs uppercase">
+                              {item.name?.toUpperCase()}
                             </span>
                           </div>
                         </TableCell>

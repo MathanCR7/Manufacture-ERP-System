@@ -211,8 +211,9 @@ function ProductForm({ editId, onBack }) {
       api.get('/products')
         .then(res => {
           const list = res.data || [];
+          const searchUpper = debouncedName.trim().toUpperCase();
           const matches = list.filter(p => 
-            p.name.toLowerCase().includes(debouncedName.toLowerCase()) && 
+            (p.name || '').toUpperCase().includes(searchUpper) && 
             p.id !== editId
           );
           setNameMatches(matches);
@@ -246,7 +247,7 @@ function ProductForm({ editId, onBack }) {
           const prodRes = await api.get(`/products/${editId}`);
           const prod = prodRes.data;
           
-          setName(prod.name || '');
+          setName(prod.name ? prod.name.toUpperCase() : '');
           setCode(prod.code || '');
           const catId = prod.categoryId || prod.category?.id || '';
           const matchedCategory = (mastersData.categories || []).find(c => 
@@ -702,7 +703,7 @@ function ProductForm({ editId, onBack }) {
     setSaving(true);
     setError(null);
     const payload = {
-      name: name.trim(),
+      name: name.trim().toUpperCase(),
       categoryId,
       unitId,
       stockMethod: stockMethod || 'FIFO',
@@ -976,15 +977,34 @@ function ProductForm({ editId, onBack }) {
               </CardHeader>
               <CardContent className="p-6 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Product Name *</label>
+                  <div className="space-y-1 relative">
+                    <div className="flex items-center justify-between">
+                      <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Product Name *</label>
+                      <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Capital only</span>
+                    </div>
                     <Input
                       required
-                      placeholder="e.g. Vanilla Cup Container"
+                      placeholder="E.G. VANILLA CUP CONTAINER"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
+                      style={{ textTransform: 'uppercase' }}
+                      onChange={(e) => setName(e.target.value.toUpperCase())}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 font-semibold text-xs transition-all shadow-3xs"
                     />
+
+                    {/* Similar Duplicate Warn overlay */}
+                    {nameMatches.length > 0 && (
+                      <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start gap-2 animate__animated animate__fadeIn">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">Similar products exist:</p>
+                          <ul className="list-disc pl-3.5 mt-0.5 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                            {nameMatches.slice(0, 3).map(m => (
+                              <li key={m.id}>{m.name?.toUpperCase()} ({m.code})</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">System Code *</label>
