@@ -318,6 +318,21 @@ function RawMaterialForm({ editId, onBack }) {
               />
             </div>
 
+            {/* Category Select */}
+            <div className="space-y-1">
+              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Category *</label>
+              <select
+                {...register('categoryId', { required: 'Category is required' })}
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 font-medium h-8"
+              >
+                <option value="">Select Category...</option>
+                {categories?.map((cat) => (
+                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                ))}
+              </select>
+              {errors.categoryId && <span className="text-[11px] text-rose-500 font-medium block">{errors.categoryId.message}</span>}
+            </div>
+
             {/* Name Field */}
             <div className="space-y-1 relative">
               <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">RM Name *</label>
@@ -348,21 +363,6 @@ function RawMaterialForm({ editId, onBack }) {
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Category Select */}
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Category *</label>
-              <select
-                {...register('categoryId', { required: 'Category is required' })}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 font-medium h-8"
-              >
-                <option value="">Select Category...</option>
-                {categories?.map((cat) => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
-                ))}
-              </select>
-              {errors.categoryId && <span className="text-[11px] text-rose-500 font-medium block">{errors.categoryId.message}</span>}
             </div>
 
             {/* UOM Select */}

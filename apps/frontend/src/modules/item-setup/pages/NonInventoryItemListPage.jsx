@@ -169,7 +169,7 @@ function NonInventoryItemForm({ editId, onBack }) {
   const mutation = useMutation({
     mutationFn: async (data) => {
       data.ratePerUnit = parseFloat(data.ratePerUnit) || 0;
-      data.name = data.name.trim();
+      data.name = data.name.toUpperCase().replace(/[^A-Z ]/g, '').trim().replace(/\s+/g, ' ');
       if (isEditMode) return (await api.put(`/item-setup/non-inventory-item/${editId}`, data)).data;
       return (await api.post('/item-setup/non-inventory-item', data)).data;
     },
@@ -218,7 +218,8 @@ function NonInventoryItemForm({ editId, onBack }) {
   });
 
   const onSubmit = (data) => {
-    const duplicate = nameMatches.find(item => item.name.toLowerCase() === data.name.trim().toLowerCase());
+    data.name = data.name.toUpperCase().replace(/[^A-Z ]/g, '').trim().replace(/\s+/g, ' ');
+    const duplicate = nameMatches.find(item => item.name.toLowerCase() === data.name.toLowerCase());
     if (duplicate) {
       const isDark = document.documentElement.classList.contains('dark');
       Swal.fire({
@@ -300,11 +301,50 @@ function NonInventoryItemForm({ editId, onBack }) {
 
             {/* Name Field */}
             <div className="space-y-1 relative sm:col-span-2">
-              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Item Name *</label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Item Name *</label>
+                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Capital A-Z & Spaces only</span>
+              </div>
               <input
-                {...register('name', { required: 'Name is required' })}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs"
-                placeholder="e.g. Machine Maintenance Service, Freight Charges"
+                {...register('name', { 
+                  required: 'Item name is required',
+                  pattern: {
+                    value: /^[A-Z ]+$/,
+                    message: 'Only capital letters (A-Z) and spaces are allowed'
+                  },
+                  validate: (val) => {
+                    if (!val || !val.trim()) return 'Item name cannot be empty';
+                    if (!/^[A-Z ]+$/.test(val)) return 'Only capital letters (A-Z) and spaces are allowed';
+                    return true;
+                  }
+                })}
+                onChange={(e) => {
+                  const upper = e.target.value.toUpperCase().replace(/[^A-Z ]/g, '');
+                  setValue('name', upper, { shouldValidate: true });
+                }}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === 'Backspace' ||
+                    e.key === 'Delete' ||
+                    e.key === 'Tab' ||
+                    e.key === 'Enter' ||
+                    e.key === 'ArrowLeft' ||
+                    e.key === 'ArrowRight' ||
+                    e.key === 'ArrowUp' ||
+                    e.key === 'ArrowDown' ||
+                    e.key === 'Home' ||
+                    e.key === 'End' ||
+                    e.ctrlKey ||
+                    e.metaKey
+                  ) {
+                    return;
+                  }
+                  if (!/^[a-zA-Z ]$/.test(e.key)) {
+                    e.preventDefault();
+                  }
+                }}
+                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs uppercase tracking-wide"
+                placeholder="e.g. MACHINE MAINTENANCE SERVICE, FREIGHT CHARGES"
               />
               {errors.name && <span className="text-[11px] text-rose-500 font-medium block">{errors.name.message}</span>}
 
