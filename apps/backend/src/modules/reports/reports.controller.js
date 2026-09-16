@@ -689,7 +689,16 @@ class ReportsController {
         }
       };
 
-      if (status && status !== 'All') whereClause.status = status;
+      if (status && status !== 'All') {
+        const s = String(status).toUpperCase();
+        if (s === 'PASSED' || s === 'PASS') {
+          whereClause.result = { in: ['Pass', 'pass', 'PASSED', 'Passed'] };
+        } else if (s === 'FAILED' || s === 'FAIL') {
+          whereClause.result = { in: ['Fail', 'fail', 'FAILED', 'Failed'] };
+        } else if (s === 'PENDING') {
+          whereClause.result = { notIn: ['Pass', 'pass', 'PASSED', 'Passed', 'Fail', 'fail', 'FAILED', 'Failed'] };
+        }
+      }
 
       const p = Math.max(1, parseInt(page, 10) || 1);
       const ps = Math.max(1, Math.min(100, parseInt(pageSize, 10) || 20));
@@ -705,6 +714,11 @@ class ReportsController {
                 batchNo: true,
                 product: { select: { name: true, code: true } }
               }
+            },
+            tester: {
+              select: {
+                name: true
+              }
             }
           },
           orderBy: { createdAt: 'desc' },
@@ -712,8 +726,13 @@ class ReportsController {
           take: ps
         }),
         prisma.labProductionTestNew.findMany({
-          where: whereClause,
-          select: { status: true, defectReason: true }
+          where: {
+            createdAt: {
+              gte: rangeStart,
+              lte: rangeEnd
+            }
+          },
+          select: { result: true, action: true, qcNotes: true, qcParams: true }
         })
       ]);
 
@@ -723,11 +742,25 @@ class ReportsController {
       const failureReasons = {};
 
       for (const t of allTests) {
-        const s = (t.status || '').toUpperCase();
-        if (s === 'PASSED' || s === 'QC_PASSED') passedCount++;
-        else if (s === 'FAILED' || s === 'QC_FAILED') {
+        const resStr = String(t.result || '').toLowerCase();
+        const actStr = String(t.action || '').toLowerCase();
+        const isPass = resStr === 'pass' || resStr === 'passed' || actStr === 'approved';
+        const isFail = resStr === 'fail' || resStr === 'failed' || actStr === 'rejected';
+
+        if (isPass) {
+          passedCount++;
+        } else if (isFail) {
           failedCount++;
-          const reason = t.defectReason || 'Unspecified Defect';
+          let reason = t.qcNotes;
+          if (!reason && t.qcParams && typeof t.qcParams === 'object') {
+            const failedKeys = Object.entries(t.qcParams)
+              .filter(([_, v]) => String(v).toLowerCase() === 'fail')
+              .map(([k]) => k.charAt(0).toUpperCase() + k.slice(1));
+            if (failedKeys.length > 0) {
+              reason = `${failedKeys.join(', ')} Non-Conformance`;
+            }
+          }
+          reason = reason || 'Quality Specification Breach';
           failureReasons[reason] = (failureReasons[reason] || 0) + 1;
         } else {
           pendingCount++;
@@ -738,8 +771,41 @@ class ReportsController {
       const passRate = totalEvaluated > 0 ? ((passedCount / totalEvaluated) * 100).toFixed(1) : 100;
       const failRate = totalEvaluated > 0 ? ((failedCount / totalEvaluated) * 100).toFixed(1) : 0;
 
+      const mappedTests = tests.map(t => {
+        const resStr = String(t.result || '').toLowerCase();
+        const actStr = String(t.action || '').toLowerCase();
+        const normalizedStatus = (resStr === 'pass' || resStr === 'passed' || actStr === 'approved') 
+          ? 'PASSED' 
+          : (resStr === 'fail' || resStr === 'failed' || actStr === 'rejected') 
+          ? 'FAILED' 
+          : 'PENDING';
+
+        let defectReason = t.qcNotes;
+        if (!defectReason && t.qcParams && typeof t.qcParams === 'object') {
+          const failedKeys = Object.entries(t.qcParams)
+            .filter(([_, v]) => String(v).toLowerCase() === 'fail')
+            .map(([k]) => k.charAt(0).toUpperCase() + k.slice(1));
+          if (failedKeys.length > 0) {
+            defectReason = `${failedKeys.join(', ')} Non-Conformance`;
+          }
+        }
+
+        return {
+          id: t.id,
+          batch: t.batch,
+          tester: t.tester,
+          createdAt: t.createdAt,
+          expiryDate: t.expiryDate,
+          status: normalizedStatus,
+          result: t.result,
+          action: t.action,
+          defectReason: defectReason || (normalizedStatus === 'PASSED' ? 'Cleared Standard' : 'Pending Review'),
+          qcParams: t.qcParams
+        };
+      });
+
       res.json({
-        data: tests,
+        data: mappedTests,
         aggregates: {
           totalTests: allTests.length,
           passedCount,

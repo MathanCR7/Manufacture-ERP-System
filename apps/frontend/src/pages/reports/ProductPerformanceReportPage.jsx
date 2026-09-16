@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
 import { 
   Trophy, Award, Snail, Download, FileSpreadsheet, FileText, 
-  RefreshCw, TrendingUp, Layers, DollarSign, Package, BarChart2, PieChart as PieIcon
+  RefreshCw, TrendingUp, Layers, DollarSign, Package, BarChart2, PieChart as PieIcon, ArrowUpDown
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, 
@@ -26,6 +26,7 @@ export default function ProductPerformanceReportPage() {
   const [sortBy, setSortBy] = useState('quantity'); // 'quantity' or 'revenue'
   const [limit, setLimit] = useState(50);
   const [activeTab, setActiveTab] = useState('both'); // 'both', 'top', 'least'
+  const [chartType, setChartType] = useState('horizontal'); // 'horizontal', 'grouped', 'donut'
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({ topSelling: [], leastSelling: [], aggregates: {}, filterInfo: {} });
 
@@ -67,13 +68,23 @@ export default function ProductPerformanceReportPage() {
   const paginatedTop = topList.slice((topPage - 1) * pageSize, topPage * pageSize);
   const paginatedLeast = leastList.slice((leastPage - 1) * pageSize, leastPage * pageSize);
 
-  // Prepare chart data
-  const topProductsChartData = topList.slice(0, 6).map(p => ({
+  // Ranked horizontal bar chart dataset (top 7 products)
+  const rankedHorizontalData = topList.slice(0, 7).map(p => ({
+    name: p.name.length > 15 ? `${p.name.substring(0, 15)}...` : p.name,
+    fullName: p.name,
+    revenue: Number(p.revenue || 0),
+    units: Number(p.unitsSold || 0),
+    rank: `#${p.rank}`
+  })).reverse(); // Reverse so rank 1 appears at the top
+
+  // Grouped comparison dataset (Units Sold vs Revenue scaled)
+  const groupedComparisonData = topList.slice(0, 6).map(p => ({
     name: p.name.length > 11 ? `${p.name.substring(0, 11)}...` : p.name,
     revenue: Number(p.revenue || 0),
     units: Number(p.unitsSold || 0)
   }));
 
+  // Revenue share donut dataset
   const salesSharePieData = topList.slice(0, 5).map((p, idx) => ({
     name: p.name,
     value: Number(p.revenue || 0),
@@ -139,7 +150,7 @@ export default function ProductPerformanceReportPage() {
             Top &amp; Least Selling Products Report
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Identify your revenue drivers, high-velocity bestsellers, slow movers, and overstock risks.
+            Rank revenue drivers, high-velocity bestsellers, and monitor slow moving inventory.
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
@@ -292,30 +303,105 @@ export default function ProductPerformanceReportPage() {
       {/* CHART VIEW (Shown when viewMode is 'chart' or 'both') */}
       {(viewMode === 'chart' || viewMode === 'both') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Top Sellers Bar Chart */}
+          {/* Main Comparison Chart: Ranked Horizontal Bar or Grouped Bar */}
           <Card className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                   <BarChart2 className="w-4 h-4 text-amber-500" />
-                  Top Selling Products: {sortBy === 'revenue' ? 'Revenue (₹)' : 'Units Sold'}
+                  {chartType === 'horizontal' 
+                    ? `Ranked Products (${sortBy === 'revenue' ? 'Revenue ₹' : 'Units Sold'})` 
+                    : 'Comparison: Units Dispatched vs Revenue (₹)'}
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">High-volume product revenue contributors</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                  {chartType === 'horizontal' ? 'Horizontal ranking (bestsellers at top)' : 'Side-by-side metric comparison'}
+                </p>
+              </div>
+
+              {/* Chart Comparison View Switcher */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 self-start sm:self-auto">
+                <button
+                  onClick={() => setChartType('horizontal')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                    chartType === 'horizontal'
+                      ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Ranked Bar
+                </button>
+                <button
+                  onClick={() => setChartType('grouped')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                    chartType === 'grouped'
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Grouped Bar
+                </button>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
-              {topProductsChartData.length > 0 ? (
+
+            <div className="h-52 sm:h-56 w-full">
+              {topList.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topProductsChartData} margin={{ top: 5, right: 10, left: 5, bottom: 15 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => sortBy === 'revenue' && v >= 1000 ? `₹${(v/1000).toFixed(0)}k` : v} />
-                    <RechartsTooltip 
-                      formatter={(val) => [sortBy === 'revenue' ? `₹${Number(val).toLocaleString('en-IN')}` : Number(val).toLocaleString(), sortBy === 'revenue' ? 'Revenue' : 'Units Sold']}
-                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
-                    />
-                    <Bar dataKey={sortBy === 'revenue' ? 'revenue' : 'units'} fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  </BarChart>
+                  {chartType === 'horizontal' ? (
+                    /* Horizontal Bar Chart (Recommended for product rankings & long names) */
+                    <BarChart
+                      layout="vertical"
+                      data={rankedHorizontalData}
+                      margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} horizontal={false} />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 9 }}
+                        stroke="#64748b"
+                        tickFormatter={(v) => sortBy === 'revenue' && v >= 1000 ? `₹${(v/1000).toFixed(0)}k` : v}
+                      />
+                      <YAxis
+                        type="category"
+                        dataKey="name"
+                        tick={{ fontSize: 9.5 }}
+                        stroke="#64748b"
+                        width={110}
+                      />
+                      <RechartsTooltip 
+                        formatter={(val, _, props) => [
+                          sortBy === 'revenue' ? `₹${Number(val).toLocaleString('en-IN')}` : Number(val).toLocaleString(),
+                          `${props.payload.rank} - ${sortBy === 'revenue' ? 'Revenue' : 'Units Sold'}`
+                        ]}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Bar 
+                        dataKey={sortBy === 'revenue' ? 'revenue' : 'units'} 
+                        fill="#f59e0b" 
+                        radius={[0, 4, 4, 0]} 
+                      />
+                    </BarChart>
+                  ) : (
+                    /* Grouped Bar Chart (Comparing Units vs Revenue side-by-side) */
+                    <BarChart
+                      data={groupedComparisonData}
+                      margin={{ top: 5, right: 10, left: 5, bottom: 15 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-15} textAnchor="end" stroke="#64748b" />
+                      <YAxis yAxisId="left" tick={{ fontSize: 9 }} stroke="#64748b" />
+                      <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 9 }} stroke="#64748b" tickFormatter={(v) => v >= 1000 ? `₹${(v/1000).toFixed(0)}k` : v} />
+                      <RechartsTooltip 
+                        formatter={(val, name) => [
+                          name === 'Revenue (₹)' ? `₹${Number(val).toLocaleString('en-IN')}` : Number(val).toLocaleString(),
+                          name
+                        ]}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Legend verticalAlign="top" height={24} iconSize={8} wrapperStyle={{ fontSize: '11px' }} />
+                      <Bar yAxisId="left" dataKey="units" name="Units Dispatched" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                      <Bar yAxisId="right" dataKey="revenue" name="Revenue (₹)" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  )}
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-slate-400 text-xs">
@@ -325,7 +411,7 @@ export default function ProductPerformanceReportPage() {
             </div>
           </Card>
 
-          {/* Sales Share Donut Chart */}
+          {/* Sales Share Donut Chart (Composition) */}
           <Card className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
             <div className="flex items-center justify-between mb-2">
               <div>
@@ -333,19 +419,19 @@ export default function ProductPerformanceReportPage() {
                   <PieIcon className="w-4 h-4 text-indigo-500" />
                   Revenue Contribution Share
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Share among top bestsellers</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Share among top bestsellers (≤5 segments)</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full flex items-center justify-center">
+            <div className="h-52 sm:h-56 w-full flex items-center justify-center">
               {salesSharePieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={salesSharePieData}
                       cx="50%"
-                      cy="48%"
-                      innerRadius={48}
-                      outerRadius={70}
+                      cy="46%"
+                      innerRadius={46}
+                      outerRadius={68}
                       paddingAngle={3}
                       dataKey="value"
                     >

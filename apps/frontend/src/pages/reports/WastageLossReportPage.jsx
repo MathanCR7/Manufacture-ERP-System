@@ -17,13 +17,14 @@ import ReportViewSwitcher from '@/components/reports/ReportViewSwitcher';
 import { exportToCSV, exportToExcel, exportToPDF } from '@/utils/reportExportUtils';
 import useCompanyStore from '@/app/store/companyStore';
 
-const LOSS_PALETTE = ['#ef4444', '#f97316', '#f59e0b', '#ec4899', '#8b5cf6'];
+const LOSS_PALETTE = ['#ef4444', '#f97316', '#f59e0b', '#ec4899', '#8b5cf6', '#6366f1'];
 
 export default function WastageLossReportPage() {
   const companyName = useCompanyStore(s => s.company?.companyName) || 'Manufacturing ERP';
 
   const [dateFilter, setDateFilter] = useState({ datePreset: 'this_month', startDate: '', endDate: '' });
   const [viewMode, setViewMode] = useState('both');
+  const [chartMode, setChartMode] = useState('ranked'); // 'ranked' | 'comparison' | 'loss_bar'
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({ data: [], aggregates: {}, filterInfo: {}, pagination: {} });
@@ -70,17 +71,49 @@ export default function WastageLossReportPage() {
     return rmName.includes(term) || batchRef.includes(term);
   });
 
-  // Prepare chart datasets
-  const lossBarData = topLossRMs.map(rm => ({
-    name: rm.name.length > 11 ? `${rm.name.substring(0, 11)}...` : rm.name,
-    lossValue: Number(rm.lossValue || 0)
-  }));
+  // Aggregated per-material stats for Grouped Comparison: Produced Qty vs Loss Qty
+  const rmStats = {};
+  items.forEach(item => {
+    const rmName = item.rawMaterial?.name || 'Raw Material';
+    if (!rmStats[rmName]) {
+      rmStats[rmName] = {
+        name: rmName.length > 14 ? `${rmName.substring(0, 14)}...` : rmName,
+        fullName: rmName,
+        productionQty: 0,
+        lossQty: 0,
+        lossAmount: 0
+      };
+    }
+    rmStats[rmName].productionQty += Number(item.productionQty || 0);
+    rmStats[rmName].lossQty += Number(item.lossQty || 0);
+    rmStats[rmName].lossAmount += Number(item.lossAmount || 0);
+  });
 
-  const lossPieData = topLossRMs.map((rm, idx) => ({
-    name: rm.name,
-    value: Number(rm.lossValue || 0),
+  const groupedMaterialLossData = Object.values(rmStats)
+    .sort((a, b) => b.lossAmount - a.lossAmount)
+    .slice(0, 6);
+
+  // Ranked Horizontal Bar Data (handles long material names cleanly)
+  const rankedLossData = topLossRMs.length > 0
+    ? topLossRMs.slice(0, 6).map((rm, idx) => ({
+        name: rm.name.length > 16 ? `${rm.name.substring(0, 16)}...` : rm.name,
+        fullName: rm.name,
+        lossValue: Number(rm.lossValue || 0),
+        fill: LOSS_PALETTE[idx % LOSS_PALETTE.length]
+      }))
+    : groupedMaterialLossData.map((rm, idx) => ({
+        name: rm.name,
+        fullName: rm.fullName,
+        lossValue: rm.lossAmount,
+        fill: LOSS_PALETTE[idx % LOSS_PALETTE.length]
+      }));
+
+  // Loss Share Donut Data
+  const lossPieData = (topLossRMs.length > 0 ? topLossRMs : groupedMaterialLossData).map((rm, idx) => ({
+    name: rm.name || rm.fullName,
+    value: Number(rm.lossValue || rm.lossAmount || 0),
     color: LOSS_PALETTE[idx % LOSS_PALETTE.length]
-  }));
+  })).filter(d => d.value > 0);
 
   const columns = [
     { header: 'Date', accessor: (r) => r.loss?.date ? new Date(r.loss.date).toLocaleDateString('en-IN') : '-' },
@@ -118,7 +151,7 @@ export default function WastageLossReportPage() {
   return (
     <div className="w-full max-w-full px-3 sm:px-5 py-3 space-y-3 mx-auto text-xs">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-slate-200/80 dark:border-slate-800">
         <div>
           <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <Trash2 className="w-5 h-5 text-rose-500 shrink-0" />
@@ -247,36 +280,133 @@ export default function WastageLossReportPage() {
       {/* CHART VIEW (Shown when viewMode is 'chart' or 'both') */}
       {(viewMode === 'chart' || viewMode === 'both') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Top Scrapped Materials Bar Chart */}
+          {/* Primary Chart Card with Interactive Mode Switcher */}
           <Card className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2.5">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                   <BarChart2 className="w-4 h-4 text-rose-500" />
-                  Highest Scrap / Loss Materials by Cost (₹)
+                  {chartMode === 'ranked' ? 'Highest Scrap / Loss Materials (Ranked Horizontal Bar)' :
+                   chartMode === 'comparison' ? 'Production Qty vs Scrap Loss Qty (Grouped Bar)' :
+                   'Monetary Loss Impact by Raw Material (₹)'}
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Financial damage breakdown by raw material</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                  {chartMode === 'ranked' ? 'Ranked financial damage breakdown with full material descriptions' :
+                   chartMode === 'comparison' ? 'Side-by-side comparison of planned batch volume vs scrapped material' :
+                   'Vertical bar chart of raw material scrap costs in rupees'}
+                </p>
+              </div>
+
+              {/* Chart Mode Switcher Pills */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg shrink-0 self-start sm:self-auto border border-slate-200 dark:border-slate-700">
+                <button
+                  onClick={() => setChartMode('ranked')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                    chartMode === 'ranked'
+                      ? 'bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Ranked (Horizontal)
+                </button>
+                <button
+                  onClick={() => setChartMode('comparison')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                    chartMode === 'comparison'
+                      ? 'bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Grouped Qty
+                </button>
+                <button
+                  onClick={() => setChartMode('loss_bar')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                    chartMode === 'loss_bar'
+                      ? 'bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Cost Bar
+                </button>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
-              {lossBarData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={lossBarData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
-                    <RechartsTooltip 
-                      formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Monetary Loss']}
-                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
-                    />
-                    <Bar dataKey="lossValue" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-slate-400 text-xs">
-                  Zero material loss recorded for this period.
-                </div>
-              )}
+
+            <div className="h-52 sm:h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                {chartMode === 'ranked' ? (
+                  /* Ranked Horizontal Bar Chart for Top Scrap Materials */
+                  rankedLossData.length > 0 ? (
+                    <BarChart layout="vertical" data={rankedLossData} margin={{ top: 5, right: 15, left: 10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" opacity={0.12} />
+                      <XAxis 
+                        type="number" 
+                        tick={{ fontSize: 9 }} 
+                        stroke="#64748b" 
+                        tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} 
+                      />
+                      <YAxis 
+                        dataKey="name" 
+                        type="category" 
+                        tick={{ fontSize: 9 }} 
+                        stroke="#64748b" 
+                        width={90} 
+                      />
+                      <RechartsTooltip 
+                        formatter={(val, _, item) => [`₹${Number(val).toLocaleString('en-IN')}`, item.payload.fullName || 'Loss Value']}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Bar dataKey="lossValue" name="Loss Amount (₹)" radius={[0, 4, 4, 0]}>
+                        {rankedLossData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+                      Zero material loss recorded for this period.
+                    </div>
+                  )
+                ) : chartMode === 'comparison' ? (
+                  /* Grouped Bar Chart: Production Qty vs Loss Qty */
+                  groupedMaterialLossData.length > 0 ? (
+                    <BarChart data={groupedMaterialLossData} margin={{ top: 5, right: 10, left: -10, bottom: 15 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.12} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
+                      <YAxis tick={{ fontSize: 9 }} stroke="#64748b" />
+                      <RechartsTooltip 
+                        formatter={(val, name) => [Number(val).toLocaleString(), name]}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Legend verticalAlign="top" height={24} iconSize={8} wrapperStyle={{ fontSize: '10.5px' }} />
+                      <Bar dataKey="productionQty" name="Batch Qty" fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="lossQty" name="Scrap / Lost Qty" fill="#ef4444" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+                      Zero material loss recorded for this period.
+                    </div>
+                  )
+                ) : (
+                  /* Standard Cost Bar Chart */
+                  rankedLossData.length > 0 ? (
+                    <BarChart data={rankedLossData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
+                      <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                      <RechartsTooltip 
+                        formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Monetary Loss']}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Bar dataKey="lossValue" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+                      Zero material loss recorded for this period.
+                    </div>
+                  )
+                )}
+              </ResponsiveContainer>
             </div>
           </Card>
 
@@ -291,16 +421,16 @@ export default function WastageLossReportPage() {
                 <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Proportional loss contribution</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full flex items-center justify-center">
+            <div className="h-52 sm:h-56 w-full flex items-center justify-center">
               {lossPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={lossPieData}
                       cx="50%"
-                      cy="48%"
-                      innerRadius={48}
-                      outerRadius={70}
+                      cy="46%"
+                      innerRadius={46}
+                      outerRadius={68}
                       paddingAngle={3}
                       dataKey="value"
                     >

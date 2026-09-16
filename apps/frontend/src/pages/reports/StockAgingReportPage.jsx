@@ -30,6 +30,7 @@ export default function StockAgingReportPage() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedBucket, setSelectedBucket] = useState('All');
   const [viewMode, setViewMode] = useState('both');
+  const [chartMode, setChartMode] = useState('grouped'); // 'grouped' | 'ranked' | 'valuation'
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({ data: [], buckets: {}, pagination: {} });
@@ -98,19 +99,55 @@ export default function StockAgingReportPage() {
     );
   }
 
-  // Prepare chart datasets
-  const agingBucketBarData = [
-    { name: '0-30d (Fresh)', valuation: buckets['0-30']?.totalValuation || 0, fill: BUCKET_COLORS['0-30'] },
-    { name: '31-60d (Normal)', valuation: buckets['31-60']?.totalValuation || 0, fill: BUCKET_COLORS['31-60'] },
-    { name: '61-90d (Slow)', valuation: buckets['61-90']?.totalValuation || 0, fill: BUCKET_COLORS['61-90'] },
-    { name: '90+d (Critical)', valuation: buckets['90+']?.totalValuation || 0, fill: BUCKET_COLORS['90+'] }
+  // Dual-metric comparison grouped data: Valuation ₹ vs Batch Count per age bucket
+  const agingGroupedData = [
+    { 
+      name: '0-30d Fresh', 
+      valuation: Number(buckets['0-30']?.totalValuation || 0), 
+      batches: Number(buckets['0-30']?.count || 0) 
+    },
+    { 
+      name: '31-60d Normal', 
+      valuation: Number(buckets['31-60']?.totalValuation || 0), 
+      batches: Number(buckets['31-60']?.count || 0) 
+    },
+    { 
+      name: '61-90d Slow', 
+      valuation: Number(buckets['61-90']?.totalValuation || 0), 
+      batches: Number(buckets['61-90']?.count || 0) 
+    },
+    { 
+      name: '90+d Critical', 
+      valuation: Number(buckets['90+']?.totalValuation || 0), 
+      batches: Number(buckets['90+']?.count || 0) 
+    }
   ];
 
-  const agingCountPieData = [
-    { name: '0-30 Days', value: buckets['0-30']?.count || 0, color: BUCKET_COLORS['0-30'] },
-    { name: '31-60 Days', value: buckets['31-60']?.count || 0, color: BUCKET_COLORS['31-60'] },
-    { name: '61-90 Days', value: buckets['61-90']?.count || 0, color: BUCKET_COLORS['61-90'] },
-    { name: '90+ Days', value: buckets['90+']?.count || 0, color: BUCKET_COLORS['90+'] }
+  // Ranked Horizontal Bar Data: Top Aged Products locking up capital
+  const rankedAgedProducts = [...items]
+    .sort((a, b) => (Number(b.stockValuation) || 0) - (Number(a.stockValuation) || 0))
+    .slice(0, 6)
+    .map(p => ({
+      name: p.name?.length > 15 ? `${p.name.substring(0, 15)}...` : (p.name || p.code),
+      valuation: Number(p.stockValuation || 0),
+      ageDays: p.ageDays || 0,
+      fill: BUCKET_COLORS[p.agingBucket] || '#6366f1'
+    }));
+
+  // Valuation Histogram Data
+  const agingBucketBarData = [
+    { name: '0-30d (Fresh)', valuation: Number(buckets['0-30']?.totalValuation || 0), fill: BUCKET_COLORS['0-30'] },
+    { name: '31-60d (Normal)', valuation: Number(buckets['31-60']?.totalValuation || 0), fill: BUCKET_COLORS['31-60'] },
+    { name: '61-90d (Slow)', valuation: Number(buckets['61-90']?.totalValuation || 0), fill: BUCKET_COLORS['61-90'] },
+    { name: '90+d (Critical)', valuation: Number(buckets['90+']?.totalValuation || 0), fill: BUCKET_COLORS['90+'] }
+  ];
+
+  // Capital Share Composition Donut Data
+  const agingCapitalPieData = [
+    { name: '0-30 Days', value: Number(buckets['0-30']?.totalValuation || 0), color: BUCKET_COLORS['0-30'] },
+    { name: '31-60 Days', value: Number(buckets['31-60']?.totalValuation || 0), color: BUCKET_COLORS['31-60'] },
+    { name: '61-90 Days', value: Number(buckets['61-90']?.totalValuation || 0), color: BUCKET_COLORS['61-90'] },
+    { name: '90+ Days', value: Number(buckets['90+']?.totalValuation || 0), color: BUCKET_COLORS['90+'] }
   ].filter(d => d.value > 0);
 
   const columns = [
@@ -169,7 +206,7 @@ export default function StockAgingReportPage() {
   return (
     <div className="w-full max-w-full px-3 sm:px-5 py-3 space-y-3 mx-auto text-xs">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pb-2.5 border-b border-slate-200/80 dark:border-slate-800">
         <div>
           <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
             <Clock className="w-5 h-5 text-indigo-500 shrink-0" />
@@ -384,67 +421,175 @@ export default function StockAgingReportPage() {
       {/* CHART VIEW (Shown when viewMode is 'chart' or 'both') */}
       {(viewMode === 'chart' || viewMode === 'both') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Capital Valuation by Aging Bucket Bar Chart */}
+          {/* Primary Chart Card with Interactive Mode Switcher */}
           <Card className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2.5">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                   <BarChart2 className="w-4 h-4 text-indigo-500" />
-                  Working Capital Tied in Aged Inventory (₹)
+                  {chartMode === 'grouped' ? 'Aging Bucket Comparison (Valuation vs Batches)' :
+                   chartMode === 'ranked' ? 'Top Aged Inventory by Capital Value (Ranked)' :
+                   'Working Capital Tied Across Age Buckets (₹)'}
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Total financial valuation across age buckets</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                  {chartMode === 'grouped' ? 'Dual-axis comparison of tied capital value (₹) and batch frequencies' :
+                   chartMode === 'ranked' ? 'Horizontal ranking of highest-value stagnant products with shelf age' :
+                   'Inventory valuation distribution across 0-30, 31-60, 61-90, 90+ days'}
+                </p>
+              </div>
+
+              {/* Chart Mode Switcher Pills */}
+              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg shrink-0 self-start sm:self-auto border border-slate-200 dark:border-slate-700">
+                <button
+                  onClick={() => setChartMode('grouped')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                    chartMode === 'grouped'
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Grouped Comparison
+                </button>
+                <button
+                  onClick={() => setChartMode('ranked')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                    chartMode === 'ranked'
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Top Aged (Ranked)
+                </button>
+                <button
+                  onClick={() => setChartMode('valuation')}
+                  className={`px-2 py-0.5 rounded text-[10px] font-semibold transition-all ${
+                    chartMode === 'valuation'
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Valuation Bar
+                </button>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
+
+            <div className="h-52 sm:h-56 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={agingBucketBarData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
-                  <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-15} textAnchor="end" stroke="#64748b" />
-                  <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
-                  <RechartsTooltip 
-                    formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Capital Valuation']}
-                    contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
-                  />
-                  <Bar dataKey="valuation" radius={[4, 4, 0, 0]}>
-                    {agingBucketBarData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
-                    ))}
-                  </Bar>
-                </BarChart>
+                {chartMode === 'grouped' ? (
+                  /* Dual-Axis Grouped Bar Chart */
+                  <BarChart data={agingGroupedData} margin={{ top: 5, right: 15, left: -5, bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.12} />
+                    <XAxis dataKey="name" tick={{ fontSize: 9.5 }} stroke="#64748b" />
+                    <YAxis 
+                      yAxisId="val" 
+                      tick={{ fontSize: 9 }} 
+                      stroke="#6366f1" 
+                      tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} 
+                    />
+                    <YAxis 
+                      yAxisId="cnt" 
+                      orientation="right" 
+                      tick={{ fontSize: 9 }} 
+                      stroke="#10b981" 
+                    />
+                    <RechartsTooltip 
+                      formatter={(val, name) => [
+                        name === 'Valuation (₹)' ? `₹${Number(val).toLocaleString('en-IN')}` : `${val} Batches`,
+                        name
+                      ]}
+                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                    />
+                    <Legend verticalAlign="top" height={24} iconSize={8} wrapperStyle={{ fontSize: '10.5px' }} />
+                    <Bar yAxisId="val" dataKey="valuation" name="Valuation (₹)" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                    <Bar yAxisId="cnt" dataKey="batches" name="Batch Count" fill="#10b981" radius={[3, 3, 0, 0]} />
+                  </BarChart>
+                ) : chartMode === 'ranked' ? (
+                  /* Ranked Horizontal Bar Chart for Top Aged Items */
+                  rankedAgedProducts.length > 0 ? (
+                    <BarChart layout="vertical" data={rankedAgedProducts} margin={{ top: 5, right: 15, left: 10, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#334155" opacity={0.12} />
+                      <XAxis 
+                        type="number" 
+                        tick={{ fontSize: 9 }} 
+                        stroke="#64748b" 
+                        tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} 
+                      />
+                      <YAxis 
+                        dataKey="name" 
+                        type="category" 
+                        tick={{ fontSize: 9 }} 
+                        stroke="#64748b" 
+                        width={90} 
+                      />
+                      <RechartsTooltip 
+                        formatter={(val, _, item) => [
+                          `₹${Number(val).toLocaleString('en-IN')} (${item.payload.ageDays} days in stock)`,
+                          'Tied Capital'
+                        ]}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Bar dataKey="valuation" name="Valuation (₹)" radius={[0, 4, 4, 0]}>
+                        {rankedAgedProducts.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-slate-400 text-xs">
+                      No aged inventory items recorded.
+                    </div>
+                  )
+                ) : (
+                  /* Valuation Bar Chart across buckets */
+                  <BarChart data={agingBucketBarData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
+                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-15} textAnchor="end" stroke="#64748b" />
+                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                    <RechartsTooltip 
+                      formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Capital Valuation']}
+                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                    />
+                    <Bar dataKey="valuation" radius={[4, 4, 0, 0]}>
+                      {agingBucketBarData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                )}
               </ResponsiveContainer>
             </div>
           </Card>
 
-          {/* Unit Count by Bucket Donut Chart */}
+          {/* Capital Share Composition Donut Chart */}
           <Card className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                   <PieIcon className="w-4 h-4 text-amber-500" />
-                  Batch Count by Age Bucket
+                  Capital Share by Age Bucket
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Number of batches in each tier</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Proportional valuation breakdown</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full flex items-center justify-center">
-              {agingCountPieData.length > 0 ? (
+            <div className="h-52 sm:h-56 w-full flex items-center justify-center">
+              {agingCapitalPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
-                      data={agingCountPieData}
+                      data={agingCapitalPieData}
                       cx="50%"
-                      cy="48%"
-                      innerRadius={48}
-                      outerRadius={70}
+                      cy="46%"
+                      innerRadius={46}
+                      outerRadius={68}
                       paddingAngle={3}
                       dataKey="value"
                     >
-                      {agingCountPieData.map((entry, index) => (
+                      {agingCapitalPieData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>
                     <RechartsTooltip 
-                      formatter={(val, name) => [`${val} Batches`, name]}
+                      formatter={(val, name) => [`₹${Number(val).toLocaleString('en-IN')}`, name]}
                       contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
                     />
                     <Legend 

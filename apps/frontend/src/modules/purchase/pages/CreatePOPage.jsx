@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { 
   CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown, 
   Plus, Minus, AlertTriangle, FileText, CheckCircle2, Package, Tag, Calculator, 
-  Info, Trash2, Scale, Building2, CreditCard, ShieldCheck, ArrowRight 
+  Info, Trash2, Scale, Building2, CreditCard, ShieldCheck, ArrowRight, Layers 
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import Swal from 'sweetalert2';
@@ -121,7 +121,7 @@ function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Searchable Raw Material Select Component (Responsive with Badges)
+   Searchable Item Select Component (Raw Materials & Non-Inventory Items)
    ───────────────────────────────────────────────────────────────────────────── */
 const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
   { rawMaterials, value, onChange, error, lowStockIds = new Set() },
@@ -129,6 +129,7 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
 ) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'RAW_MATERIAL' | 'NON_INVENTORY'
   const containerRef = useRef(null);
   const searchRef = useRef(null);
 
@@ -144,17 +145,22 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
     focusSearch: () => searchRef.current?.focus(),
   }));
 
-  const filtered = rawMaterials.filter(rm => {
+  const rmCount = rawMaterials.filter(it => it.itemType === 'RAW_MATERIAL').length;
+  const nonInvCount = rawMaterials.filter(it => it.itemType === 'NON_INVENTORY').length;
+
+  const filtered = rawMaterials.filter(item => {
+    if (typeFilter !== 'ALL' && item.itemType !== typeFilter) return false;
     const q = search.toLowerCase().trim();
     if (!q) return true;
-    const nameMatch = (rm.name || '').toLowerCase().includes(q);
-    const codeMatch = (rm.code || '').toLowerCase().includes(q);
-    const catName = rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || '';
-    const catMatch = catName.toLowerCase().includes(q);
-    const uomVal = (rm.unitId || rm.consumptionUnit || '').toLowerCase();
+    const nameMatch = (item.name || '').toLowerCase().includes(q);
+    const codeMatch = (item.code || '').toLowerCase().includes(q);
+    const catName = (item.categoryName || item.category?.name || (typeof item.category === 'string' ? item.category : '') || '').toLowerCase();
+    const catMatch = catName.includes(q);
+    const uomVal = (item.displayUom || item.unitId || item.consumptionUnit || '').toLowerCase();
     const uomMatch = uomVal.includes(q);
-    const descMatch = (rm.description || '').toLowerCase().includes(q);
-    return nameMatch || codeMatch || catMatch || uomMatch || descMatch;
+    const descMatch = (item.description || '').toLowerCase().includes(q);
+    const typeMatch = (item.itemTypeLabel || '').toLowerCase().includes(q);
+    return nameMatch || codeMatch || catMatch || uomMatch || descMatch || typeMatch;
   });
 
   useEffect(() => {
@@ -174,8 +180,8 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
     }
   }, [open]);
 
-  const handleSelect = (rm) => {
-    onChange(rm);
+  const handleSelect = (item) => {
+    onChange(item);
     setOpen(false);
     setSearch('');
   };
@@ -186,8 +192,9 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
     setSearch('');
   };
 
-  const selectedCategoryName = value ? (value.category?.name || (typeof value.category === 'string' ? value.category : '')) : '';
-  const selectedUomLabel = value ? (value.unitId || value.consumptionUnit || 'units').toUpperCase() : '';
+  const isSelectedNonInv = value?.itemType === 'NON_INVENTORY';
+  const selectedCategoryName = value ? (value.categoryName || value.category?.name || (typeof value.category === 'string' ? value.category : '')) : '';
+  const selectedUomLabel = value ? (value.displayUom || value.unitId || value.consumptionUnit || 'units').toUpperCase() : '';
 
   return (
     <div ref={containerRef} className="relative w-full">
@@ -201,14 +208,25 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
         } ${error ? 'border-rose-400 ring-2 ring-rose-500/20 bg-rose-50/30' : ''}`}
       >
         <div className="flex items-center gap-2 truncate min-w-0 flex-1">
-          <div className="p-1 bg-indigo-50 dark:bg-indigo-950/60 rounded-md text-indigo-600 dark:text-indigo-400 shrink-0">
-            <Package className="w-3.5 h-3.5" />
+          <div className={`p-1 rounded-md shrink-0 ${
+            isSelectedNonInv 
+              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
+              : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
+          }`}>
+            {isSelectedNonInv ? <Layers className="w-3.5 h-3.5" /> : <Package className="w-3.5 h-3.5" />}
           </div>
 
           {value ? (
             <div className="flex items-center gap-1.5 sm:gap-2 truncate flex-wrap">
               <span className="font-semibold text-slate-900 dark:text-white text-xs truncate">
                 {value.code} — {value.name}
+              </span>
+              <span className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                isSelectedNonInv 
+                  ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60' 
+                  : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60'
+              }`}>
+                {isSelectedNonInv ? '🚫 Non-Inventory' : '🌾 Raw Material'}
               </span>
               {selectedCategoryName && (
                 <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
@@ -225,7 +243,7 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
             </div>
           ) : (
             <span className="text-slate-400 dark:text-slate-500 text-xs truncate font-medium">
-              Click to select Raw Material (search by Name, Code, Category, or UOM)...
+              Click to select Raw Material or Non-Inventory Item (search by Name, Code, Category, or UOM)...
             </span>
           )}
         </div>
@@ -246,6 +264,45 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
 
       {open && (
         <div className="absolute z-50 mt-1.5 left-0 right-0 w-full max-w-[calc(100vw-1.5rem)] sm:max-w-none bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150 ring-1 ring-black/5 dark:ring-white/5">
+          {/* Quick Filter Tabs */}
+          <div className="flex items-center gap-1.5 p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 overflow-x-auto">
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('ALL'); }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 ${
+                typeFilter === 'ALL'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+            >
+              All Items ({rawMaterials.length})
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('RAW_MATERIAL'); }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 flex items-center gap-1 ${
+                typeFilter === 'RAW_MATERIAL'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+              }`}
+            >
+              <span>🌾 Raw Materials</span>
+              <span className="text-[10px] opacity-80 font-mono">({rmCount})</span>
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('NON_INVENTORY'); }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 flex items-center gap-1 ${
+                typeFilter === 'NON_INVENTORY'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-purple-700 dark:text-purple-400 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-950/40'
+              }`}
+            >
+              <span>🚫 Non-Inventory</span>
+              <span className="text-[10px] opacity-80 font-mono">({nonInvCount})</span>
+            </button>
+          </div>
+
           <div className="p-2 border-b border-slate-100 dark:border-slate-800 relative bg-slate-50/70 dark:bg-slate-950/70">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
@@ -253,7 +310,7 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Type to search by RM Name, Code, Category, or UOM..."
+              placeholder="Type to search by Name, Code, Category, or UOM..."
               className="w-full pl-8 pr-7 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white"
             />
             {search && (
@@ -271,14 +328,15 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
             {filtered.length === 0 ? (
               <li className="px-3 py-6 text-xs text-slate-400 flex flex-col items-center justify-center">
                 <Search className="w-5 h-5 text-slate-300 dark:text-slate-600 mb-1" />
-                <span className="font-medium">No raw materials matched "{search}"</span>
+                <span className="font-medium">No items matched "{search}"</span>
                 <span className="text-[10px] text-slate-400 mt-0.5">Try searching by code, category name, or unit</span>
               </li>
             ) : (
               filtered.map(rm => {
-                const isLow = lowStockIds.has(rm.id);
-                const categoryName = rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || 'General';
-                const uomLabel = (rm.unitId || rm.consumptionUnit || 'units').toUpperCase();
+                const isNonInv = rm.itemType === 'NON_INVENTORY';
+                const isLow = rm.isLowStock || lowStockIds.has(rm.id);
+                const categoryName = rm.categoryName || rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || (isNonInv ? 'Non-Inventory' : 'General');
+                const uomLabel = (rm.displayUom || rm.unitId || rm.consumptionUnit || 'units').toUpperCase();
 
                 return (
                   <li
@@ -291,20 +349,28 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {isLow ? (
-                        <div className="relative flex h-2.5 w-2.5 shrink-0">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
-                        </div>
-                      ) : (
-                        <div className="h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"></div>
-                      )}
-                      
+                      <div className={`p-1 rounded-md shrink-0 ${
+                        isNonInv 
+                          ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
+                          : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                      }`}>
+                        {isNonInv ? <Layers className="w-3.5 h-3.5" /> : <Package className="w-3.5 h-3.5" />}
+                      </div>
+
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={`font-semibold text-xs truncate ${isLow ? 'text-rose-700 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
                             {rm.name}
                           </span>
+                          {isNonInv ? (
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800 shrink-0">
+                              Non-Inventory
+                            </span>
+                          ) : (
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 shrink-0">
+                              Raw Material
+                            </span>
+                          )}
                           {isLow && (
                             <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-400 font-bold border border-rose-200 dark:border-rose-800 shrink-0">
                               Low Stock
@@ -333,7 +399,7 @@ const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
                         {uomLabel}
                       </span>
 
-                      {/* RM Code */}
+                      {/* Code */}
                       <span className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
                         {rm.code}
                       </span>
@@ -440,7 +506,16 @@ export default function CreatePOPage({ onBack }) {
     queryKey: ['raw-materials-setup'],
     queryFn: async () => {
       const response = await api.get('/item-setup/raw-material');
-      return response.data;
+      return response.data || [];
+    },
+  });
+
+  // Fetch Non-Inventory items from Item Setup
+  const { data: nonInventoryItems = [], isLoading: isLoadingNonInv } = useQuery({
+    queryKey: ['non-inventory-items-setup'],
+    queryFn: async () => {
+      const response = await api.get('/item-setup/non-inventory-item');
+      return response.data || [];
     },
   });
 
@@ -454,10 +529,35 @@ export default function CreatePOPage({ onBack }) {
   });
 
   // Build set of raw material IDs that are at or below alert level
-  const lowStockIds = new Set(
-    rmStock.filter(s => s.alertLevel != null && Number(s.availableQuantity) <= Number(s.alertLevel)).map(s => s.id)
-  );
+  const lowStockIds = useMemo(() => {
+    return new Set(
+      rmStock.filter(s => s.alertLevel != null && Number(s.availableQuantity) <= Number(s.alertLevel)).map(s => s.id)
+    );
+  }, [rmStock]);
   const lowStockCount = lowStockIds.size;
+
+  // Combine Raw Materials and Non-Inventory Items into a unified purchasable catalog
+  const purchasableItems = useMemo(() => {
+    const rmList = (rawMaterials || []).map(rm => ({
+      ...rm,
+      itemType: 'RAW_MATERIAL',
+      itemTypeLabel: 'Raw Material',
+      categoryName: rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || 'General',
+      displayUom: rm.unitId || rm.consumptionUnit || 'units',
+      isLowStock: lowStockIds.has(rm.id),
+    }));
+
+    const nonInvList = (nonInventoryItems || []).map(ni => ({
+      ...ni,
+      itemType: 'NON_INVENTORY',
+      itemTypeLabel: 'Non-Inventory',
+      categoryName: ni.category || 'Non-Inventory',
+      displayUom: ni.unitId || 'pcs',
+      isLowStock: false,
+    }));
+
+    return [...rmList, ...nonInvList];
+  }, [rawMaterials, nonInventoryItems, lowStockIds]);
 
   // Fetch all UOMs as fallback
   const { data: allUoms = [] } = useQuery({
@@ -479,12 +579,12 @@ export default function CreatePOPage({ onBack }) {
     keepPreviousData: true,
   });
 
-  const getDefaultUomForRawMaterial = (rm) => {
-    if (!rm) return null;
-    if (rmUoms?.length > 0) return rmUoms[0];
-    if (rm.uoms?.length > 0) return rm.uoms[0];
+  const getDefaultUomForItem = (item) => {
+    if (!item) return null;
+    if (item.itemType !== 'NON_INVENTORY' && rmUoms?.length > 0) return rmUoms[0];
+    if (item.uoms?.length > 0) return item.uoms[0];
 
-    const normalized = (rm.unitId || rm.consumptionUnit || '').trim().toLowerCase();
+    const normalized = (item.unitId || item.consumptionUnit || item.displayUom || '').trim().toLowerCase();
     if (!normalized) return null;
 
     const exactMatch = allUoms.find(u => 
@@ -502,31 +602,32 @@ export default function CreatePOPage({ onBack }) {
     return containsMatch || null;
   };
 
-  const handleAddRmItem = (rm) => {
-    if (!rm) return;
-    const exists = items.some(item => item.id === rm.id);
+  const handleAddRmItem = (item) => {
+    if (!item) return;
+    const exists = items.some(it => it.id === item.id);
     if (exists) {
       Swal.fire({
         icon: 'info',
         title: 'Item Already in List',
-        text: `${rm.name} is already added. You can update its quantity directly in the table.`,
+        text: `${item.name} is already added. You can update its quantity directly in the table.`,
         confirmButtonColor: '#4f46e5',
       });
       return;
     }
     
-    const defaultUom = getDefaultUomForRawMaterial(rm);
-    const uomLabel = (defaultUom ? defaultUom.abbreviation : (rm.unitId || rm.consumptionUnit || 'units')).toUpperCase();
+    const defaultUom = getDefaultUomForItem(item);
+    const uomLabel = (defaultUom ? defaultUom.abbreviation : (item.displayUom || item.unitId || item.consumptionUnit || 'units')).toUpperCase();
     const uomId = defaultUom ? defaultUom.id : '';
-    const categoryName = rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || 'General';
+    const categoryName = item.categoryName || item.category?.name || (typeof item.category === 'string' ? item.category : '') || (item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'General');
 
     const newItem = {
-      id: rm.id,
-      rmId: rm.code,
-      name: rm.name,
+      id: item.id,
+      rmId: item.code,
+      name: item.name,
+      itemType: item.itemType || 'RAW_MATERIAL',
       category: categoryName,
       quantity: 1,
-      unitPrice: Number(rm.ratePerUnit || 0),
+      unitPrice: Number(item.ratePerUnit || 0),
       uomLabel: uomLabel,
       uomId: uomId,
       gstApplicable: true,
@@ -600,7 +701,7 @@ export default function CreatePOPage({ onBack }) {
     setErrorMsg('');
 
     if (items.length === 0) {
-      setErrorMsg('Please add at least one raw material item.');
+      setErrorMsg('Please add at least one item (Raw Material or Non-Inventory).');
       triggerAddRmDropdown();
       return;
     }
@@ -766,7 +867,6 @@ export default function CreatePOPage({ onBack }) {
                 <DatePicker
                   value={formData.expectedDelivery}
                   onChange={(date) => setFormData({ ...formData, expectedDelivery: date })}
-                  disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
                   modalTitle="Expected Delivery"
                   placeholder="Select Date..."
                   triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
@@ -852,21 +952,21 @@ export default function CreatePOPage({ onBack }) {
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                     <Package className="w-3.5 h-3.5 text-indigo-500" />
-                    2. Select Raw Material to Add <span className="text-rose-500">*</span>
+                    2. Select Raw Material or Non-Inventory Item to Add <span className="text-rose-500">*</span>
                   </Label>
                   <span className="text-[11px] text-slate-400 hidden sm:inline">
-                    Shows Category & UOM for every RM
+                    Browse Raw Materials & Non-Inventory Items with Category & UOM
                   </span>
                 </div>
 
-                {isLoadingRMs ? (
+                {isLoadingRMs || isLoadingNonInv ? (
                   <div className="w-full h-10 px-3 border rounded-xl text-slate-400 border-slate-300 dark:border-slate-700 flex items-center bg-white dark:bg-slate-900 text-xs">
-                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin text-indigo-500" /> Loading raw materials catalog...
+                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin text-indigo-500" /> Loading items catalog...
                   </div>
                 ) : (
                   <RawMaterialSelect 
                     ref={rmSelectRef}
-                    rawMaterials={rawMaterials}
+                    rawMaterials={purchasableItems}
                     value={formData.selectedRm}
                     onChange={handleAddRmItem} 
                     lowStockIds={lowStockIds}
@@ -879,7 +979,7 @@ export default function CreatePOPage({ onBack }) {
             <div className="flex items-center justify-between pt-1">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Added Materials ({items.length})
+                  Added Items ({items.length})
                 </span>
                 {items.length > 0 && (
                   <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 h-4 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
@@ -909,7 +1009,7 @@ export default function CreatePOPage({ onBack }) {
                   <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px] shadow-2xs">
                     <tr>
                       <th className="px-3 py-2 w-8 text-center bg-slate-50 dark:bg-slate-800">#</th>
-                      <th className="px-3 py-2 bg-slate-50 dark:bg-slate-800">Material / Category / UOM</th>
+                      <th className="px-3 py-2 bg-slate-50 dark:bg-slate-800">Item / Category / UOM</th>
                       <th className="px-3 py-2 text-center w-36 bg-slate-50 dark:bg-slate-800">Quantity</th>
                       <th className="px-3 py-2 text-right w-28 bg-slate-50 dark:bg-slate-800">Unit Price (₹)</th>
                       <th className="px-3 py-2 text-center w-24 bg-slate-50 dark:bg-slate-800">Tax Status</th>
@@ -924,12 +1024,24 @@ export default function CreatePOPage({ onBack }) {
                     {items.length > 0 ? (
                       items.map((item, index) => {
                         const itemSubtotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+                        const isNonInv = item.itemType === 'NON_INVENTORY';
                         return (
                           <tr key={item.id || index} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
                             <td className="px-3 py-2 text-center text-slate-400 font-medium">{index + 1}</td>
                             
                             <td className="px-3 py-2">
-                              <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs">{item.name}</div>
+                              <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs flex items-center gap-1.5 flex-wrap">
+                                <span>{item.name}</span>
+                                {isNonInv ? (
+                                  <span className="inline-flex items-center text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800">
+                                    Non-Inventory
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
+                                    Raw Material
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                                 <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700">
                                   {item.rmId}

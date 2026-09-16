@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
 import { 
   Factory, Download, FileSpreadsheet, FileText, Search, RefreshCw, 
-  TrendingUp, Layers, CheckCircle2, Clock, DollarSign, ArrowUpDown, Filter, BarChart2, PieChart as PieIcon
+  TrendingUp, Layers, CheckCircle2, Clock, DollarSign, ArrowUpDown, Filter, BarChart2, PieChart as PieIcon, Target
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, 
-  CartesianGrid, Tooltip as RechartsTooltip, Legend 
+  CartesianGrid, Tooltip as RechartsTooltip, Legend, ReferenceLine 
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ export default function ProductionBatchReportPage() {
   const [dateFilter, setDateFilter] = useState({ datePreset: 'this_month', startDate: '', endDate: '' });
   const [statusFilter, setStatusFilter] = useState('All');
   const [viewMode, setViewMode] = useState('both');
+  const [chartMode, setChartMode] = useState('bullet'); // 'bullet', 'volume'
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({ data: [], aggregates: {}, filterInfo: {}, pagination: {} });
@@ -72,13 +73,25 @@ export default function ProductionBatchReportPage() {
     return refNo.includes(term) || batchNo.includes(term) || prodName.includes(term);
   });
 
-  // Prepare chart datasets
+  // 1. Yield vs 100% Target Bullet Chart Dataset
+  const yieldBulletData = filteredItems.slice(0, 8).map(b => {
+    const yPct = b.yieldPercent != null ? Number(b.yieldPercent) : 100;
+    return {
+      name: b.referenceNo || b.batchNo || 'Batch',
+      yieldPct: yPct,
+      targetYield: 100,
+      fill: yPct >= 98 ? '#10b981' : yPct >= 92 ? '#6366f1' : '#f59e0b'
+    };
+  });
+
+  // 2. Planned vs Actual Output Volume Dataset
   const batchOutputChartData = filteredItems.slice(0, 8).map(b => ({
     name: b.referenceNo || b.batchNo || 'Batch',
     planned: Number(b.quantity || 0),
     actual: b.actualOutput != null ? Number(b.actualOutput) : 0
   }));
 
+  // 3. Status Distribution Donut Dataset
   const statusCounts = aggs.statusCounts || {};
   const statusPieData = Object.keys(statusCounts).map((status, idx) => ({
     name: status,
@@ -134,7 +147,7 @@ export default function ProductionBatchReportPage() {
             Production Batches Report
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Monitor shopfloor execution, planned vs. actual output yields, unit manufacturing costs, and cycle times.
+            Monitor shopfloor execution, target yields vs. actual output, unit manufacturing costs, and cycle times.
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
@@ -267,34 +280,83 @@ export default function ProductionBatchReportPage() {
         </div>
       </div>
 
-      {/* CHART VIEW (Shown when viewMode is 'chart' or 'both') */}
+      {/* CHART VIEW */}
       {(viewMode === 'chart' || viewMode === 'both') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Output Volume: Target vs Actual Bar Chart */}
+          {/* Main Chart: Yield Bullet vs Target OR Planned vs Actual Output */}
           <Card className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <BarChart2 className="w-4 h-4 text-indigo-500" />
-                  Planned vs Actual Output by Batch
+                  <Target className="w-4 h-4 text-indigo-500" />
+                  {chartMode === 'bullet' ? 'Batch Yield % vs. 100% Target (Bullet/Threshold Chart)' : 'Planned vs Actual Output Produced by Batch'}
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Yield and execution volume analysis</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                  {chartMode === 'bullet' ? 'Evaluate shopfloor output against standard 100% yield threshold' : 'Yield and volume execution analysis'}
+                </p>
+              </div>
+
+              {/* Chart Mode Switcher */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 self-start sm:self-auto">
+                <button
+                  onClick={() => setChartMode('bullet')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                    chartMode === 'bullet'
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Yield vs Target
+                </button>
+                <button
+                  onClick={() => setChartMode('volume')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                    chartMode === 'volume'
+                      ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Output Volume
+                </button>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
-              {batchOutputChartData.length > 0 ? (
+
+            <div className="h-52 sm:h-56 w-full">
+              {filteredItems.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={batchOutputChartData} margin={{ top: 5, right: 10, left: -10, bottom: 15 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" />
-                    <RechartsTooltip 
-                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
-                    />
-                    <Legend verticalAlign="top" height={26} iconSize={10} wrapperStyle={{ fontSize: '11px' }} />
-                    <Bar dataKey="planned" name="Planned Output" fill="#94a3b8" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="actual" name="Actual Produced" fill="#6366f1" radius={[3, 3, 0, 0]} />
-                  </BarChart>
+                  {chartMode === 'bullet' ? (
+                    /* Bullet Chart with Target Reference Line */
+                    <BarChart data={yieldBulletData} margin={{ top: 10, right: 10, left: -5, bottom: 15 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
+                      <YAxis domain={[70, 110]} tick={{ fontSize: 9 }} stroke="#64748b" tickFormatter={(v) => `${v}%`} />
+                      <RechartsTooltip 
+                        formatter={(val) => [`${Number(val).toFixed(1)}%`, 'Batch Yield']}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      {/* Target Yield 100% threshold line */}
+                      <ReferenceLine y={100} stroke="#10b981" strokeWidth={2} strokeDasharray="4 4" label={{ value: '100% Target', position: 'top', fill: '#10b981', fontSize: 10 }} />
+                      <ReferenceLine y={90} stroke="#f59e0b" strokeWidth={1} strokeDasharray="2 2" />
+                      <Bar dataKey="yieldPct" name="Actual Yield %" radius={[4, 4, 0, 0]}>
+                        {yieldBulletData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  ) : (
+                    /* Output Volume: Target vs Actual Bar Chart */
+                    <BarChart data={batchOutputChartData} margin={{ top: 5, right: 10, left: -10, bottom: 15 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
+                      <YAxis tick={{ fontSize: 9 }} stroke="#64748b" />
+                      <RechartsTooltip 
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Legend verticalAlign="top" height={24} iconSize={8} wrapperStyle={{ fontSize: '11px' }} />
+                      <Bar dataKey="planned" name="Planned Output" fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="actual" name="Actual Produced" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  )}
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-slate-400 text-xs">
@@ -312,19 +374,19 @@ export default function ProductionBatchReportPage() {
                   <PieIcon className="w-4 h-4 text-emerald-500" />
                   Batch Status Distribution
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Pipeline health across batches</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Pipeline execution health</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full flex items-center justify-center">
+            <div className="h-52 sm:h-56 w-full flex items-center justify-center">
               {statusPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={statusPieData}
                       cx="50%"
-                      cy="48%"
-                      innerRadius={48}
-                      outerRadius={70}
+                      cy="46%"
+                      innerRadius={46}
+                      outerRadius={68}
                       paddingAngle={3}
                       dataKey="value"
                     >
@@ -352,7 +414,7 @@ export default function ProductionBatchReportPage() {
         </div>
       )}
 
-      {/* TABLE VIEW (Shown when viewMode is 'table' or 'both') */}
+      {/* TABLE VIEW */}
       {(viewMode === 'table' || viewMode === 'both') && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">

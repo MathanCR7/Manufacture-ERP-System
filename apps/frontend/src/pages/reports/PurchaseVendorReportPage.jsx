@@ -24,6 +24,7 @@ export default function PurchaseVendorReportPage() {
 
   const [dateFilter, setDateFilter] = useState({ datePreset: 'this_month', startDate: '', endDate: '' });
   const [viewMode, setViewMode] = useState('both');
+  const [chartMode, setChartMode] = useState('horizontal'); // 'horizontal', 'donut'
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({ data: [], aggregates: {}, filterInfo: {}, pagination: {} });
@@ -70,13 +71,15 @@ export default function PurchaseVendorReportPage() {
     return poNum.includes(term) || supName.includes(term);
   });
 
-  // Prepare chart datasets
-  const vendorSpendBarData = topVendors.map(v => ({
-    name: v.name.length > 11 ? `${v.name.substring(0, 11)}...` : v.name,
-    spend: Number(v.spend || 0)
-  }));
+  // Horizontal ranking bar chart dataset (reversed so top spend is at top)
+  const rankedVendorData = topVendors.slice(0, 6).map((v, idx) => ({
+    name: v.name.length > 15 ? `${v.name.substring(0, 15)}...` : v.name,
+    fullName: v.name,
+    spend: Number(v.spend || 0),
+    rank: `#${idx + 1}`
+  })).reverse();
 
-  const vendorSpendPieData = topVendors.map((v, idx) => ({
+  const vendorSpendPieData = topVendors.slice(0, 5).map((v, idx) => ({
     name: v.name,
     value: Number(v.spend || 0),
     color: VENDOR_PALETTE[idx % VENDOR_PALETTE.length]
@@ -243,32 +246,47 @@ export default function PurchaseVendorReportPage() {
         </div>
       </div>
 
-      {/* CHART VIEW (Shown when viewMode is 'chart' or 'both') */}
+      {/* CHART VIEW (Horizontal Ranked Bar Chart + Allocation Share Donut) */}
       {(viewMode === 'chart' || viewMode === 'both') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Top Vendors by Spend Bar Chart */}
+          {/* Top Vendors by Spend: Horizontal Bar Chart */}
           <Card className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                   <BarChart2 className="w-4 h-4 text-indigo-500" />
-                  Top Vendors by Procurement Spend (₹)
+                  Top Vendors by Procurement Spend (Ranked Horizontal Bar)
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Total expenditure allocated across key suppliers</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Horizontal ranking handles long supplier names with full clarity</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
-              {vendorSpendBarData.length > 0 ? (
+            <div className="h-52 sm:h-56 w-full">
+              {rankedVendorData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={vendorSpendBarData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                  <BarChart
+                    layout="vertical"
+                    data={rankedVendorData}
+                    margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 9 }}
+                      stroke="#64748b"
+                      tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="name"
+                      tick={{ fontSize: 9.5 }}
+                      stroke="#64748b"
+                      width={115}
+                    />
                     <RechartsTooltip 
-                      formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`, 'Spend']}
+                      formatter={(val, _, props) => [`₹${Number(val).toLocaleString('en-IN')}`, `${props.payload.rank} - Total Spend`]}
                       contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
                     />
-                    <Bar dataKey="spend" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="spend" fill="#6366f1" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -279,7 +297,7 @@ export default function PurchaseVendorReportPage() {
             </div>
           </Card>
 
-          {/* Vendor Share Donut Chart */}
+          {/* Vendor Share Donut Chart (≤5 segments) */}
           <Card className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
             <div className="flex items-center justify-between mb-2">
               <div>
@@ -290,16 +308,16 @@ export default function PurchaseVendorReportPage() {
                 <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Spend breakdown across top vendors</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full flex items-center justify-center">
+            <div className="h-52 sm:h-56 w-full flex items-center justify-center">
               {vendorSpendPieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
                       data={vendorSpendPieData}
                       cx="50%"
-                      cy="48%"
-                      innerRadius={48}
-                      outerRadius={70}
+                      cy="46%"
+                      innerRadius={46}
+                      outerRadius={68}
                       paddingAngle={3}
                       dataKey="value"
                     >
@@ -327,7 +345,7 @@ export default function PurchaseVendorReportPage() {
         </div>
       )}
 
-      {/* TABLE VIEW (Shown when viewMode is 'table' or 'both') */}
+      {/* TABLE VIEW */}
       {(viewMode === 'table' || viewMode === 'both') && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">

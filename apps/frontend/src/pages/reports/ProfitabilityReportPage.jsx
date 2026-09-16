@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
 import { 
   DollarSign, Download, FileSpreadsheet, FileText, Search, RefreshCw, 
-  TrendingUp, Percent, ArrowUpRight, Layers, BarChart2
+  TrendingUp, Percent, ArrowUpRight, Layers, BarChart2, GitCommit
 } from 'lucide-react';
 import { 
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
-  Tooltip as RechartsTooltip, Legend 
+  Tooltip as RechartsTooltip, Legend, Cell 
 } from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,7 @@ export default function ProfitabilityReportPage() {
     endDate: ''
   });
   const [viewMode, setViewMode] = useState('both');
+  const [chartMode, setChartMode] = useState('waterfall'); // 'waterfall', 'grouped', 'margin'
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({ data: [], aggregates: {}, pagination: {}, filterInfo: {} });
@@ -72,14 +73,48 @@ export default function ProfitabilityReportPage() {
     );
   }
 
-  // Prepare chart datasets
+  // 1. Waterfall Chart Dataset: Revenue -> Less: COGS -> = Gross Profit
+  const totalRev = Number(aggs.totalRevenue || 0);
+  const totalCogs = Number(aggs.totalCOGS || 0);
+  const totalProfit = Number(aggs.totalGrossProfit || 0);
+
+  const waterfallData = [
+    {
+      step: '1. Revenue',
+      base: 0,
+      amount: totalRev,
+      fill: '#10b981',
+      type: 'Revenue Inflow',
+      displayVal: `+₹${totalRev.toLocaleString('en-IN')}`
+    },
+    {
+      step: '2. Less: COGS',
+      base: Math.max(0, totalProfit),
+      amount: totalCogs,
+      fill: '#ef4444',
+      type: 'Direct Cost Outflow',
+      displayVal: `-₹${totalCogs.toLocaleString('en-IN')}`
+    },
+    {
+      step: '3. Gross Profit',
+      base: 0,
+      amount: Math.max(0, totalProfit),
+      fill: '#6366f1',
+      type: 'Net Realized Margin',
+      displayVal: `₹${totalProfit.toLocaleString('en-IN')}`
+    }
+  ];
+
+  // 2. Grouped Comparison Dataset (Top products: Revenue vs COGS vs Profit)
   const profitabilityBarData = items.slice(0, 6).map(p => ({
     name: p.name.length > 9 ? `${p.name.substring(0, 9)}...` : p.name,
+    fullName: p.name,
     revenue: Number(p.totalRevenue || 0),
     cogs: Number(p.totalCOGS || 0),
     profit: Number(p.grossProfit || 0)
   }));
 
+  // 3. Margin % Comparison Dataset
   const marginBarData = items.slice(0, 7).map(p => ({
     name: p.name.length > 11 ? `${p.name.substring(0, 11)}...` : p.name,
     margin: Number(p.grossMarginPercent || 0)
@@ -276,36 +311,85 @@ export default function ProfitabilityReportPage() {
         </div>
       </div>
 
-      {/* CHART VIEW (Shown when viewMode is 'chart' or 'both') */}
+      {/* CHART VIEW (Waterfall Profit Flow + Comparison Bar) */}
       {(viewMode === 'chart' || viewMode === 'both') && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          {/* Revenue vs COGS vs Gross Profit Grouped Bar Chart */}
+          {/* Main Chart: Waterfall Breakdown OR Product Grouped Comparison */}
           <Card className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                   <BarChart2 className="w-4 h-4 text-emerald-500" />
-                  Revenue vs COGS vs Gross Profit by Product
+                  {chartMode === 'waterfall' ? 'Profitability Waterfall: Revenue → COGS → Gross Margin' : 'Revenue vs COGS vs Gross Profit by Product'}
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Financial profitability breakdown across top products</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                  {chartMode === 'waterfall' ? 'Flow analysis: Starting revenue less direct manufacturing costs to net gross profit' : 'Product-level profitability side-by-side'}
+                </p>
+              </div>
+
+              {/* Chart Mode Switcher */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 self-start sm:self-auto">
+                <button
+                  onClick={() => setChartMode('waterfall')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                    chartMode === 'waterfall'
+                      ? 'bg-white dark:bg-slate-700 text-emerald-600 dark:text-emerald-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Waterfall Flow
+                </button>
+                <button
+                  onClick={() => setChartMode('grouped')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                    chartMode === 'grouped'
+                      ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  Product Bar
+                </button>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
-              {profitabilityBarData.length > 0 ? (
+
+            <div className="h-52 sm:h-56 w-full">
+              {items.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={profitabilityBarData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
-                    <RechartsTooltip 
-                      formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`]}
-                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
-                    />
-                    <Legend verticalAlign="top" height={26} iconSize={10} wrapperStyle={{ fontSize: '11px' }} />
-                    <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="cogs" name="COGS" fill="#94a3b8" radius={[3, 3, 0, 0]} />
-                    <Bar dataKey="profit" name="Gross Profit" fill="#10b981" radius={[3, 3, 0, 0]} />
-                  </BarChart>
+                  {chartMode === 'waterfall' ? (
+                    /* Waterfall Chart using stacked invisible base + floating step bars */
+                    <BarChart data={waterfallData} margin={{ top: 10, right: 15, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
+                      <XAxis dataKey="step" tick={{ fontSize: 10, fontWeight: 600 }} stroke="#64748b" />
+                      <YAxis tick={{ fontSize: 9 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                      <RechartsTooltip 
+                        formatter={(_, __, props) => [props.payload.displayVal, props.payload.type]}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      {/* Invisible transparent base that lifts the deduction bar */}
+                      <Bar dataKey="base" stackId="waterfall" fill="transparent" />
+                      {/* Colored step amount bar */}
+                      <Bar dataKey="amount" stackId="waterfall" radius={[4, 4, 0, 0]}>
+                        {waterfallData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  ) : (
+                    /* Grouped Comparison Bar Chart */
+                    <BarChart data={profitabilityBarData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
+                      <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
+                      <YAxis tick={{ fontSize: 9 }} stroke="#64748b" tickFormatter={(v) => `₹${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                      <RechartsTooltip 
+                        formatter={(val) => [`₹${Number(val).toLocaleString('en-IN')}`]}
+                        contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
+                      />
+                      <Legend verticalAlign="top" height={24} iconSize={8} wrapperStyle={{ fontSize: '11px' }} />
+                      <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="cogs" name="COGS" fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="profit" name="Gross Profit" fill="#10b981" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  )}
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-slate-400 text-xs">
@@ -315,24 +399,24 @@ export default function ProfitabilityReportPage() {
             </div>
           </Card>
 
-          {/* Gross Margin % Bar Chart */}
+          {/* Secondary Ranking Bar: Product Gross Margin % */}
           <Card className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
                   <Percent className="w-4 h-4 text-purple-500" />
-                  Product Margin %
+                  Product Margin % Ranking
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Margin percentage per product line</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Margin contribution per product line</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
+            <div className="h-52 sm:h-56 w-full">
               {marginBarData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={marginBarData} margin={{ top: 5, right: 10, left: -10, bottom: 15 }}>
+                  <BarChart data={marginBarData} margin={{ top: 5, right: 10, left: -10, bottom: 20 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
                     <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `${v}%`} />
+                    <YAxis tick={{ fontSize: 9 }} stroke="#64748b" tickFormatter={(v) => `${v}%`} />
                     <RechartsTooltip 
                       formatter={(val) => [`${Number(val).toFixed(1)}%`, 'Gross Margin']}
                       contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
@@ -350,7 +434,7 @@ export default function ProfitabilityReportPage() {
         </div>
       )}
 
-      {/* TABLE VIEW (Shown when viewMode is 'table' or 'both') */}
+      {/* TABLE VIEW */}
       {(viewMode === 'table' || viewMode === 'both') && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">

@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
 import { 
   Users, Download, FileSpreadsheet, FileText, Search, RefreshCw, 
-  Award, Zap, TrendingUp, Clock, BarChart2
+  Award, Zap, TrendingUp, Clock, BarChart2, ShieldCheck, Radar as RadarIcon
 } from 'lucide-react';
 import { 
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, 
+  ResponsiveContainer, BarChart, Bar, RadarChart, Radar, PolarGrid, 
+  PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, 
   Tooltip as RechartsTooltip, Legend 
 } from 'recharts';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,8 @@ import ReportViewSwitcher from '@/components/reports/ReportViewSwitcher';
 import { exportToCSV, exportToExcel, exportToPDF } from '@/utils/reportExportUtils';
 import useCompanyStore from '@/app/store/companyStore';
 
+const RADAR_COLORS = ['#6366f1', '#10b981', '#f59e0b'];
+
 export default function OperatorProductivityReportPage() {
   const companyName = useCompanyStore(s => s.company?.companyName) || 'Manufacturing ERP';
 
@@ -26,6 +29,7 @@ export default function OperatorProductivityReportPage() {
     endDate: ''
   });
   const [viewMode, setViewMode] = useState('both');
+  const [chartMode, setChartMode] = useState('radar'); // 'radar', 'volume', 'yield'
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState({ data: [], aggregates: {}, filterInfo: {} });
@@ -75,13 +79,50 @@ export default function OperatorProductivityReportPage() {
     ? (items.reduce((sum, o) => sum + Number(o.avgYieldPercent || 0), 0) / items.length).toFixed(1)
     : 100;
 
-  // Chart datasets
+  // 1. Radar Chart Data: Multi-metric evaluation comparing top 2-3 operators
+  const top3Operators = items.slice(0, 3);
+  const maxOutput = Math.max(1, ...items.map(o => Number(o.totalActualOutput || 0)));
+  const maxBatches = Math.max(1, ...items.map(o => Number(o.batchesHandled || 0)));
+
+  const radarMetrics = [
+    { metric: 'Yield %', key: 'yield' },
+    { metric: 'Completion %', key: 'completion' },
+    { metric: 'Volume Output', key: 'volume' },
+    { metric: 'Cycle Speed', key: 'speed' },
+    { metric: 'Batch Load', key: 'load' }
+  ];
+
+  const radarChartData = radarMetrics.map(m => {
+    const row = { metric: m.metric };
+    top3Operators.forEach((op, idx) => {
+      let score = 0;
+      if (m.key === 'yield') {
+        score = Math.min(100, Number(op.avgYieldPercent || 100));
+      } else if (m.key === 'completion') {
+        const handled = Math.max(1, Number(op.batchesHandled || 1));
+        score = Math.min(100, Math.round((Number(op.completedBatches || 0) / handled) * 100));
+      } else if (m.key === 'volume') {
+        score = Math.min(100, Math.round((Number(op.totalActualOutput || 0) / maxOutput) * 100));
+      } else if (m.key === 'speed') {
+        const hrs = Number(op.avgCycleTimeHours || 0);
+        score = hrs > 0 ? Math.max(30, Math.min(100, Math.round(100 - hrs * 5))) : 85;
+      } else if (m.key === 'load') {
+        score = Math.min(100, Math.round((Number(op.batchesHandled || 0) / maxBatches) * 100));
+      }
+      row[`op_${idx}`] = score;
+    });
+    return row;
+  });
+
+  // 2. Output Volume Grouped Bar Dataset
   const operatorVolumeChartData = items.slice(0, 8).map(op => ({
     name: op.operatorName.length > 11 ? `${op.operatorName.substring(0, 11)}...` : op.operatorName,
     output: Number(op.totalActualOutput || 0),
+    planned: Number(op.totalPlannedQty || 0),
     batches: op.completedBatches || 0
   }));
 
+  // 3. Yield % Comparison Bar Dataset
   const operatorYieldChartData = items.slice(0, 8).map(op => ({
     name: op.operatorName.length > 11 ? `${op.operatorName.substring(0, 11)}...` : op.operatorName,
     yieldPct: Number(op.avgYieldPercent || 0)
@@ -273,70 +314,82 @@ export default function OperatorProductivityReportPage() {
         </div>
       </div>
 
-      {/* CHART VIEW (Shown when viewMode is 'chart' or 'both') */}
+      {/* CHART VIEW (Radar + Grouped Bar Comparison) */}
       {(viewMode === 'chart' || viewMode === 'both') && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {/* Operator Output Volume Bar Chart */}
+          {/* Radar Chart: Multi-Metric Comparison */}
           <Card className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <BarChart2 className="w-4 h-4 text-indigo-500" />
-                  Operator Output Volume (Units)
+                  <RadarIcon className="w-4 h-4 text-indigo-500" />
+                  Multi-Metric Performance Radar (Top Operators)
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Total units manufactured per staff member</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                  5-dimensional skill comparison: Yield, Completion, Volume, Speed &amp; Load
+                </p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
-              {operatorVolumeChartData.length > 0 ? (
+            <div className="h-52 sm:h-56 w-full flex items-center justify-center">
+              {top3Operators.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={operatorVolumeChartData} margin={{ top: 5, right: 10, left: 10, bottom: 15 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
-                    <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis tick={{ fontSize: 10 }} stroke="#64748b" />
+                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarChartData}>
+                    <PolarGrid stroke="#334155" opacity={0.2} />
+                    <PolarAngleAxis dataKey="metric" tick={{ fontSize: 9, fill: '#64748b' }} />
+                    <PolarRadiusAxis angle={30} domain={[0, 100]} tick={{ fontSize: 8, fill: '#64748b' }} />
                     <RechartsTooltip 
-                      formatter={(val) => [`${Number(val).toLocaleString()} Units`, 'Actual Output']}
+                      formatter={(val, name) => [`${val}/100`, name]}
                       contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
                     />
-                    <Bar dataKey="output" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                  </BarChart>
+                    <Legend verticalAlign="bottom" height={26} iconSize={8} wrapperStyle={{ fontSize: '11px' }} />
+                    {top3Operators.map((op, idx) => (
+                      <Radar
+                        key={op.operatorId || idx}
+                        name={op.operatorName}
+                        dataKey={`op_${idx}`}
+                        stroke={RADAR_COLORS[idx % RADAR_COLORS.length]}
+                        fill={RADAR_COLORS[idx % RADAR_COLORS.length]}
+                        fillOpacity={0.25}
+                      />
+                    ))}
+                  </RadarChart>
                 </ResponsiveContainer>
               ) : (
-                <div className="h-full flex items-center justify-center text-slate-400 text-xs">
-                  No operator output recorded for this period.
-                </div>
+                <div className="text-slate-400 text-xs">No operator data available for radar evaluation.</div>
               )}
             </div>
           </Card>
 
-          {/* Operator Yield % Comparison Bar Chart */}
+          {/* Grouped Comparison Bar Chart: Planned vs Actual Output */}
           <Card className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs p-3 sm:p-3.5">
             <div className="flex items-center justify-between mb-2">
               <div>
                 <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <TrendingUp className="w-4 h-4 text-emerald-500" />
-                  Batch Output Efficiency (Yield %)
+                  <BarChart2 className="w-4 h-4 text-emerald-500" />
+                  Planned Target vs Actual Produced by Operator
                 </h3>
-                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Average execution yield percentage</p>
+                <p className="text-[10.5px] text-slate-500 dark:text-slate-400">Target execution volume comparison</p>
               </div>
             </div>
-            <div className="h-48 sm:h-52 w-full">
-              {operatorYieldChartData.length > 0 ? (
+            <div className="h-52 sm:h-56 w-full">
+              {operatorVolumeChartData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={operatorYieldChartData} margin={{ top: 5, right: 10, left: 0, bottom: 15 }}>
+                  <BarChart data={operatorVolumeChartData} margin={{ top: 5, right: 10, left: -5, bottom: 15 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.15} />
                     <XAxis dataKey="name" tick={{ fontSize: 9 }} angle={-20} textAnchor="end" stroke="#64748b" />
-                    <YAxis domain={[80, 100]} tick={{ fontSize: 10 }} stroke="#64748b" tickFormatter={(v) => `${v}%`} />
+                    <YAxis tick={{ fontSize: 9 }} stroke="#64748b" />
                     <RechartsTooltip 
-                      formatter={(val) => [`${Number(val).toFixed(1)}%`, 'Average Yield']}
+                      formatter={(val, name) => [`${Number(val).toLocaleString()} Units`, name]}
                       contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #334155', color: '#fff', fontSize: '11px', padding: '6px 10px' }}
                     />
-                    <Bar dataKey="yieldPct" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Legend verticalAlign="top" height={24} iconSize={8} wrapperStyle={{ fontSize: '11px' }} />
+                    <Bar dataKey="planned" name="Planned Qty" fill="#94a3b8" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="output" name="Actual Produced" fill="#10b981" radius={[3, 3, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
                 <div className="h-full flex items-center justify-center text-slate-400 text-xs">
-                  No operator yield data available.
+                  No operator output recorded.
                 </div>
               )}
             </div>
@@ -344,7 +397,7 @@ export default function OperatorProductivityReportPage() {
         </div>
       )}
 
-      {/* TABLE VIEW (Shown when viewMode is 'table' or 'both') */}
+      {/* TABLE VIEW */}
       {(viewMode === 'table' || viewMode === 'both') && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
