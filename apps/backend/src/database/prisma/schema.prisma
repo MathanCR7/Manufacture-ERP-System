@@ -1824,3 +1824,16 @@ model RMQuotationResponseItem {
 
   @@map("rm_quotation_response_items")
 }
+
+model CompanyDetails {
+  id             String   @id @default(uuid())
+  companyName    String   @map("company_name")
+  companyAddress String   @map("company_address")
+  companyGstin   String   @map("company_gstin")
+  companyPan     String   @map("company_pan")
+  companyMobile  String   @map("company_mobile")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("company_details")
+}

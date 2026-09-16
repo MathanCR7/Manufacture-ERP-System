@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import useAuthStore from '@/app/store/authStore';
+import useCompanyStore from '@/app/store/companyStore';
 import AddOrderPage from './AddOrderPage';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -60,20 +61,12 @@ export default function OrderListPage() {
   const [pdfUrlBill, setPdfUrlBill] = useState(null);
   const [previewMode, setPreviewMode] = useState('invoice');
 
-  // Load Company & Tax Settings dynamically from localStorage
-  const savedSettings = localStorage.getItem('leonex_erp_tax_settings');
-  let compName = 'LEONEX SYSTEMS PRIVATE LIMITED';
-  let compAddr = 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
-  let compGstin = '33AABCL0702C1ZG';
-
-  if (savedSettings) {
-    try {
-      const parsed = JSON.parse(savedSettings);
-      if (parsed.companyName) compName = parsed.companyName;
-      if (parsed.companyAddress) compAddr = parsed.companyAddress;
-      if (parsed.companyGstin) compGstin = parsed.companyGstin;
-    } catch (e) { console.error(e); }
-  }
+  // Live Company & Tax Settings from store
+  const storeCompany = useCompanyStore((s) => s.company);
+  const fetchCompany = useCompanyStore((s) => s.fetchCompany);
+  const compName = storeCompany?.companyName || 'Company';
+  const compAddr = storeCompany?.companyAddress || 'Factory / Registered Office Address';
+  const compGstin = storeCompany?.companyGstin || '';
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -154,10 +147,11 @@ export default function OrderListPage() {
   const compileInvoiceA4PDF = (order, companySettings) => {
     const doc = new jsPDF();
 
-    const companyName = companySettings?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
-    const companyAddress = companySettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
-    const companyGstin = companySettings?.companyGstin || '33AABCL0702C1ZG';
-    const companyMobile = companySettings?.companyMobile || '+91 9360163523';
+    const activeCompany = companySettings || storeCompany;
+    const companyName = activeCompany?.companyName || 'Company';
+    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = activeCompany?.companyGstin || '';
+    const companyMobile = activeCompany?.companyMobile || '';
 
     const customerGstin = order.customer?.gstin || order.taxRegNo || '';
     const customerState = customerGstin.trim().replace(/^GSTIN-/, '').substring(0, 2);
@@ -295,7 +289,7 @@ export default function OrderListPage() {
 
       doc.text(String(index + 1), 17, tY + 4.5, { align: 'center' });
       doc.setFont('helvetica', 'bold');
-      doc.text(item.product?.name || 'Leonex Product', 24, tY + 4.5);
+      doc.text(item.product?.name || 'Product', 24, tY + 4.5);
       doc.setFont('helvetica', 'normal');
       doc.text(item.product?.hsnCode || '21050000', 95, tY + 4.5);
       doc.text(String(qty), 120, tY + 4.5, { align: 'right' });
@@ -471,7 +465,7 @@ export default function OrderListPage() {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
     doc.setTextColor(4, 120, 87);
-    doc.text('LEONEX VERIFIED', 165, sigY + 8.5, { align: 'center' });
+    doc.text('DIGITALLY VERIFIED', 165, sigY + 8.5, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5);
     doc.text('AUTHORISED SIGNATORY', 165, sigY + 13, { align: 'center' });
@@ -479,16 +473,17 @@ export default function OrderListPage() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
-    doc.text('Page 2 of 2 - Generated via Leonex ERP.', 105, 286, { align: 'center' });
+    doc.text('Page 2 of 2 - Generated via ERP System.', 105, 286, { align: 'center' });
 
     return doc.output('blob');
   };
 
   const compileThermalBillPDF = (order, companySettings) => {
-    const companyName = companySettings?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
-    const companyAddress = companySettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
-    const companyGstin = companySettings?.companyGstin || '33AABCL0702C1ZG';
-    const companyMobile = companySettings?.companyMobile || '+91 9360163523';
+    const activeCompany = companySettings || storeCompany;
+    const companyName = activeCompany?.companyName || 'Company';
+    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = activeCompany?.companyGstin || '';
+    const companyMobile = activeCompany?.companyMobile || '';
 
     const items = order.items || [];
     const itemsCount = items.length;
@@ -774,7 +769,7 @@ export default function OrderListPage() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.5);
     doc.setTextColor(120, 120, 120);
-    doc.text('- Powered by Leonex ERP -', 40, curY, { align: 'center' });
+    doc.text(`- Powered by ${companyName || 'ERP System'} -`, 40, curY, { align: 'center' });
 
     return doc.output('blob');
   };

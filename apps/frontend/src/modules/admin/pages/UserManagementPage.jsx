@@ -587,7 +587,7 @@ export default function UserManagementPage() {
                     autoComplete="off"
                     value={formData.email} 
                     onChange={e => setFormData({...formData, email: e.target.value})} 
-                    placeholder="john@leonex.com" 
+                    placeholder="john@company.com" 
                     className="pl-9 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-11 autofill:shadow-[0_0_0_1000px_#f8fafc_inset] dark:autofill:shadow-[0_0_0_1000px_#020617_inset] autofill:text-slate-900 dark:autofill:text-white"
                   />
                 </div>

@@ -7,6 +7,7 @@ import {
   ShieldCheck, RefreshCw, XCircle, LogOut, RotateCcw, Check, Landmark, Edit
 } from 'lucide-react';
 import Swal from 'sweetalert2';
+import useCompanyStore from '@/app/store/companyStore';
 
 const PAYMENT_MODES = [
   'Bank Transfer (NEFT)', 
@@ -20,6 +21,13 @@ const PAYMENT_MODES = [
 
 export default function AssetQuotationPublicPage() {
   const { pqId, token } = useParams();
+
+  const company = useCompanyStore((s) => s.company);
+  const fetchCompany = useCompanyStore((s) => s.fetchCompany);
+
+  useEffect(() => {
+    fetchCompany();
+  }, [fetchCompany]);
 
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -581,8 +589,8 @@ export default function AssetQuotationPublicPage() {
             </div>
             <div>
               <span className="text-[10px] text-slate-500 uppercase font-black tracking-wider block">Buyer Organization</span>
-              <h3 className="text-base font-bold text-slate-200 mt-0.5">Leonex Pvt Limited</h3>
-              <p className="text-xs text-slate-400 mt-1 leading-relaxed">Registered Factory Address, India</p>
+              <h3 className="text-base font-bold text-slate-200 mt-0.5">{company?.companyName || 'Buyer Organization'}</h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">{company?.companyAddress || 'Factory / Registered Office Address'}</p>
             </div>
           </div>
 
@@ -1003,7 +1011,7 @@ export default function AssetQuotationPublicPage() {
                         disabled={isReadOnly}
                         value={bankAccountHolder}
                         onChange={e => setBankAccountHolder(e.target.value)}
-                        placeholder="e.g. Leonex Pvt Ltd"
+                        placeholder="e.g. Account Holder Name"
                         className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-sans text-sm text-slate-200 disabled:opacity-75"
                       />
                     </div>
@@ -1049,7 +1057,7 @@ export default function AssetQuotationPublicPage() {
                         disabled={isReadOnly}
                         value={bankUpi}
                         onChange={e => setBankUpi(e.target.value)}
-                        placeholder="e.g. leonex@okaxis"
+                        placeholder="e.g. yourname@okaxis"
                         className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-indigo-500 font-mono text-sm text-slate-200 disabled:opacity-75"
                       />
                     </div>

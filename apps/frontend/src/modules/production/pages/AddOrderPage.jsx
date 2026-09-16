@@ -3,17 +3,20 @@ import { api } from '@/lib/axios';
 import { 
   ShoppingCart, PlusCircle, Trash2, Info, Printer, X, Check, 
   AlertTriangle, FileText, Calendar, Compass, ShieldAlert, Sparkles, 
-  Layers, Search, Plus, Minus, Tag, RefreshCw, Download, Loader2 
+  Layers, Search, Plus, Minus, Tag, RefreshCw, Download, Loader2,
+  ArrowRight, ExternalLink, Eye, LayoutDashboard, Package, Truck, Receipt, ArrowLeft, Clock, CheckCircle2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import DatePicker from '@/components/ui/DatePicker';
 import SearchSelect from '@/components/ui/SearchSelect';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
 import { Pagination } from '@/components/ui/Pagination';
+import useAuthStore from '@/app/store/authStore';
+import useCompanyStore from '@/app/store/companyStore';
 
 const DEFAULT_GTC = `1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.
 2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.
@@ -25,14 +28,14 @@ const DEFAULT_GTC = `1. Acceptance of Order: The vendor must confirm acceptance 
 8. Statutory Compliance: The Vendor shall strictly comply with all applicable Central, State, and local government laws, labor regulations (including Provident Fund, ESIC, and Minimum Wages acts), and anti-bribery policies. The use of child labor is strictly prohibited. The Vendor is solely responsible for generating accurate E-way bills for all transit movements.
 9. Dispute Resolution: Any dispute arising out of this PO shall first be resolved through amicable mutual discussions. Unresolved disputes shall be referred to a sole arbitrator appointed mutually by both parties, governed by the Indian Arbitration and Conciliation Act, 1996. The venue and seat of arbitration shall be Tamil Nadu, and proceedings will be conducted in English. The courts in Salem shall have exclusive jurisdiction over this contract.`;
 
-// 5. Quantity selector component matching the screenshot
+// Theme-adaptive Quantity Selector component
 const QuantitySelector = ({ value, onChange }) => {
   return (
-    <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl overflow-hidden w-full max-w-[130px] h-9.5">
+    <div className="flex items-center bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden w-full max-w-[120px] h-8.5 transition-colors">
       <button
         type="button"
         onClick={() => onChange(Math.max(1, value - 1))}
-        className="px-3 hover:bg-slate-800 text-slate-400 hover:text-white font-extrabold text-sm h-full flex items-center justify-center cursor-pointer transition-colors border-r border-slate-800 shrink-0"
+        className="px-2.5 bg-slate-200/70 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold text-xs h-full flex items-center justify-center cursor-pointer transition-colors border-r border-slate-200 dark:border-slate-800 shrink-0"
       >
         -
       </button>
@@ -45,20 +48,18 @@ const QuantitySelector = ({ value, onChange }) => {
           const cleanVal = e.target.value.replace(/[^0-9]/g, '');
           onChange(Math.max(1, parseInt(cleanVal) || 1));
         }}
-        className="w-full text-center bg-transparent border-0 font-mono font-bold text-xs focus:ring-0 text-white select-all focus:outline-none"
+        className="w-full text-center bg-transparent border-0 font-mono font-bold text-xs focus:ring-0 text-slate-900 dark:text-white select-all focus:outline-none"
       />
       <button
         type="button"
         onClick={() => onChange(value + 1)}
-        className="px-3 hover:bg-slate-800 text-slate-400 hover:text-white font-extrabold text-sm h-full flex items-center justify-center cursor-pointer transition-colors border-l border-slate-800 shrink-0"
+        className="px-2.5 bg-slate-200/70 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold text-xs h-full flex items-center justify-center cursor-pointer transition-colors border-l border-slate-200 dark:border-slate-800 shrink-0"
       >
         +
       </button>
     </div>
   );
 };
-
-import useAuthStore from '@/app/store/authStore';
 
 export default function AddOrderPage() {
   const { id } = useParams();
@@ -73,11 +74,11 @@ export default function AddOrderPage() {
 
   if (!canEdit) {
     return (
-      <div className="p-6 max-w-4xl mx-auto text-center space-y-4">
+      <div className="p-8 max-w-4xl mx-auto text-center space-y-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-xl mt-8">
         <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto animate-bounce" />
-        <h2 className="text-lg font-bold text-slate-800 dark:text-white">View-Only Access</h2>
-        <p className="text-sm text-slate-550">As a Supervisor, you have read-only access and cannot place or modify sales orders.</p>
-        <Button onClick={() => navigate('/orders/list')} className="bg-indigo-650 hover:bg-indigo-750 text-white rounded-xl cursor-pointer">
+        <h2 className="text-xl font-bold text-slate-800 dark:text-white">View-Only Access</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400">As a Supervisor, you have read-only access and cannot place or modify sales orders.</p>
+        <Button onClick={() => navigate('/orders/list')} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl cursor-pointer font-bold text-xs">
           Back to Order List
         </Button>
       </div>
@@ -106,27 +107,33 @@ export default function AddOrderPage() {
   const [internalNote, setInternalNote] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('Not Paid');
   const [gtcText, setGtcText] = useState(DEFAULT_GTC);
+  const [showGtcAccordion, setShowGtcAccordion] = useState(false);
   
+  const storeCompany = useCompanyStore((s) => s.company);
+
   // Tax Configuration & Predictions
   const [collectTax, setCollectTax] = useState(true);
-  const [taxRegNo, setTaxRegNo] = useState(''); // Initialized to empty, auto-populated on customer select
-  const [taxType, setTaxType] = useState('Exclusive'); // Exclusive or Inclusive
-  const [ourGstin, setOurGstin] = useState('33AABCL0702C1ZG'); // Default company GSTIN Tamil Nadu
-  const [interstateGstRate, setInterstateGstRate] = useState(18); // Default selectable IGST rate
+  const [taxRegNo, setTaxRegNo] = useState('');
+  const [taxType, setTaxType] = useState('Exclusive');
+  const [ourGstin, setOurGstin] = useState(storeCompany?.companyGstin || '');
+  const [interstateGstRate, setInterstateGstRate] = useState(18);
 
-  // Loaded company details from /setup/tax
+  // Short Details Executive Summary Modal
+  const [showShortSummaryModal, setShowShortSummaryModal] = useState(false);
+
+  // Loaded company details
   const [companyInfo, setCompanyInfo] = useState({
-    companyName: 'LEONEX SYSTEMS PRIVATE LIMITED',
-    companyAddress: 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053',
-    companyGstin: '33AABCL0702C1ZG',
-    companyMobile: '+91 9360163523',
-    collectTax: 'Yes',
-    taxRegNo: '33AABCL0702C1ZG',
-    taxType: 'Exclusive Tax'
+    companyName: storeCompany?.companyName || 'Company',
+    companyAddress: storeCompany?.companyAddress || 'Factory / Registered Office Address',
+    companyGstin: storeCompany?.companyGstin || '',
+    companyMobile: storeCompany?.companyMobile || '',
+    collectTax: storeCompany?.collectTax || 'Yes',
+    taxRegNo: storeCompany?.taxRegNo || storeCompany?.companyGstin || '',
+    taxType: storeCompany?.taxType || 'Exclusive Tax'
   });
 
   // Checkout Calculations Inputs
-  const [discountType, setDiscountType] = useState('Flat'); // Flat / Percent
+  const [discountType, setDiscountType] = useState('Flat');
   const [discountValue, setDiscountValue] = useState('0');
   const [tdsDeduction, setTdsDeduction] = useState('0');
 
@@ -150,7 +157,7 @@ export default function AddOrderPage() {
   const [estimates, setEstimates] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // New Customer Inline Form Modal
+  // New Customer Modal
   const [showAddCustomer, setShowAddCustomer] = useState(false);
   const [newCustForm, setNewCustForm] = useState({
     name: '',
@@ -170,19 +177,16 @@ export default function AddOrderPage() {
   const [pdfUrl, setPdfUrl] = useState(null);
   const [pdfUrlA4, setPdfUrlA4] = useState(null);
   const [pdfUrlBill, setPdfUrlBill] = useState(null);
-  const [previewMode, setPreviewMode] = useState('invoice'); // invoice (A4) / bill (Thermal)
+  const [previewMode, setPreviewMode] = useState('invoice');
 
-  // Categories list
   const categories = ['All', ...new Set(products.map(p => p.category?.name).filter(Boolean))];
 
-  // Helper to handle numeric input sanitization (strip leading zeros when typing 1-9, display 0 when empty)
   const handleNumericInputChange = (val, setter) => {
     let cleaned = val.replace(/[^0-9]/g, '');
     cleaned = cleaned.replace(/^0+(?=\d)/, '');
     setter(cleaned === '' ? '0' : cleaned);
   };
 
-  // 3. Current running clock logic
   useEffect(() => {
     if (!isClockRunning) return;
     const timer = setInterval(() => {
@@ -209,19 +213,19 @@ export default function AddOrderPage() {
 
         if (taxSettingsRes.data) {
           setCompanyInfo({
-            companyName: taxSettingsRes.data.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED',
-            companyAddress: taxSettingsRes.data.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053',
-            companyGstin: taxSettingsRes.data.companyGstin || '33AABCL0702C1ZG',
-            companyMobile: taxSettingsRes.data.companyMobile || '+91 9360163523',
+            companyName: taxSettingsRes.data.companyName || storeCompany?.companyName || 'Company',
+            companyAddress: taxSettingsRes.data.companyAddress || storeCompany?.companyAddress || 'Factory / Registered Office Address',
+            companyGstin: taxSettingsRes.data.companyGstin || storeCompany?.companyGstin || '',
+            companyMobile: taxSettingsRes.data.companyMobile || storeCompany?.companyMobile || '',
             collectTax: taxSettingsRes.data.collectTax || 'Yes',
-            taxRegNo: taxSettingsRes.data.taxRegNo || '33AABCL0702C1ZG',
+            taxRegNo: taxSettingsRes.data.taxRegNo || taxSettingsRes.data.companyGstin || '',
             taxType: taxSettingsRes.data.taxType || 'Exclusive Tax'
           });
-          setOurGstin(taxSettingsRes.data.companyGstin || '33AABCL0702C1ZG');
+          setOurGstin(taxSettingsRes.data.companyGstin || storeCompany?.companyGstin || '');
         }
 
         if (isEditMode) {
-          setIsClockRunning(false); // Stop clock when editing an existing order
+          setIsClockRunning(false);
           const orderRes = await api.get(`/orders/${id}`);
           const order = orderRes.data;
           setCustomerId(order.customerId);
@@ -250,15 +254,15 @@ export default function AddOrderPage() {
           setItems(order.items.map(it => ({
             productId: it.productId,
             quantity: Number(it.quantity),
-            unitPrice: Math.round(Number(it.unitPrice)), // No decimal in price
-            discount: Math.round(Number(it.discount)),   // No decimal in discount
+            unitPrice: Math.round(Number(it.unitPrice)),
+            discount: Math.round(Number(it.discount)),
             deliveryDate: new Date(it.deliveryDate).toISOString().split('T')[0]
           })));
         } else {
           const retail = (custRes.data || []).find(c => c.name.toUpperCase().includes('RETAIL')) || (custRes.data || [])[0];
           if (retail) {
             setCustomerId(retail.id);
-            setTaxRegNo(retail.gstin || ''); // auto set customer GSTIN or empty
+            setTaxRegNo(retail.gstin || '');
           }
         }
       } catch (err) {
@@ -270,18 +274,16 @@ export default function AddOrderPage() {
     fetchMasters();
   }, [id, isEditMode]);
 
-  // 2. Fetch and display customer details automatically on select
   useEffect(() => {
     if (customerId && customers.length > 0) {
       const cust = customers.find(c => c.id === customerId);
       if (cust) {
-        setTaxRegNo(cust.gstin || ''); // auto set customer GSTIN, empty if blank
+        setTaxRegNo(cust.gstin || '');
         if (cust.address) setDeliveryAddress(cust.address);
       }
     }
   }, [customerId, customers]);
 
-  // Add item click
   const handleAddProductClick = (product) => {
     const avail = Number(product.currentStock || 0);
     const existingIndex = items.findIndex(it => it.productId === product.id);
@@ -291,7 +293,7 @@ export default function AddOrderPage() {
       if (currentQty + 1 > avail) {
         Swal.fire({
           title: 'Stock Limit Exceeded',
-          html: `<p class="text-xs text-slate-500 mt-1">Cannot add more units. Only <strong>${avail}</strong> units of "${product.name}" are available in stock.</p>`,
+          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Cannot add more units. Only <strong>${avail}</strong> units of "${product.name}" are available in stock.</p>`,
           icon: 'warning',
           confirmButtonColor: '#6366f1'
         });
@@ -304,7 +306,7 @@ export default function AddOrderPage() {
       if (avail < 1) {
         Swal.fire({
           title: 'Out of Stock',
-          html: `<p class="text-xs text-slate-500 mt-1">"${product.name}" is currently out of stock.</p>`,
+          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">"${product.name}" is currently out of stock.</p>`,
           icon: 'warning',
           confirmButtonColor: '#6366f1'
         });
@@ -313,7 +315,7 @@ export default function AddOrderPage() {
       setItems([...items, {
         productId: product.id,
         quantity: 1,
-        unitPrice: Math.round(Number(product.salePrice || 0)), // 6. Enforced integer rounding
+        unitPrice: Math.round(Number(product.salePrice || 0)),
         discount: 0,
         deliveryDate: deliveryDate || new Date().toISOString().split('T')[0]
       }]);
@@ -337,7 +339,7 @@ export default function AddOrderPage() {
       if (newQty > avail) {
         Swal.fire({
           title: 'Stock Limit Exceeded',
-          html: `<p class="text-xs text-slate-500 mt-1">Cannot set quantity to ${newQty}. Only <strong>${avail}</strong> units of "${prod?.name || 'this product'}" are available in stock.</p>`,
+          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Cannot set quantity to ${newQty}. Only <strong>${avail}</strong> units of "${prod?.name || 'this product'}" are available in stock.</p>`,
           icon: 'warning',
           confirmButtonColor: '#6366f1'
         });
@@ -365,7 +367,6 @@ export default function AddOrderPage() {
     setItems(updated);
   };
 
-  // Check stock & estimates
   useEffect(() => {
     const validItems = items.filter(it => it.productId && it.quantity > 0);
     if (validItems.length === 0) {
@@ -398,11 +399,9 @@ export default function AddOrderPage() {
     return () => clearTimeout(timer);
   }, [items]);
 
-  // GST Applicability Logic
   const getTaxRates = () => {
     if (!collectTax) return { isInterState: false, cgst: 0, sgst: 0, igst: 0 };
     
-    // Check if Tamil Nadu (33) state code or other matches
     const customerState = taxRegNo.trim().replace(/^GSTIN-/, '').substring(0, 2);
     const companyState = ourGstin.trim().substring(0, 2);
     
@@ -427,7 +426,6 @@ export default function AddOrderPage() {
 
   const rates = getTaxRates();
 
-  // Unified Checkout calculations
   let taxableValue = 0;
   items.forEach(it => {
     if (!it.productId) return;
@@ -443,7 +441,6 @@ export default function AddOrderPage() {
 
   const taxableBase = Math.max(0, taxableValue - discountAmount);
 
-  // Additional Charges GST calculations
   const gstRateOnCharges = rates.isInterState ? (interstateGstRate / 100) : 0.18;
 
   const freightVal = Math.round(Number(freight) || 0);
@@ -461,12 +458,10 @@ export default function AddOrderPage() {
   const otherVal = Math.round(Number(otherCharges) || 0);
   const otherGstVal = otherGst ? otherVal * gstRateOnCharges : 0;
 
-  // Base GST on items
   const itemsCgstVal = rates.isInterState ? 0 : taxableBase * (rates.cgst / 100);
   const itemsSgstVal = rates.isInterState ? 0 : taxableBase * (rates.sgst / 100);
   const itemsIgstVal = rates.isInterState ? taxableBase * (rates.igst / 100) : 0;
 
-  // Combined GST breakdown
   const cgstVal = itemsCgstVal + (rates.isInterState ? 0 : (freightGstVal + loadingGstVal + packingGstVal + insuranceGstVal + otherGstVal) / 2);
   const sgstVal = itemsSgstVal + (rates.isInterState ? 0 : (freightGstVal + loadingGstVal + packingGstVal + insuranceGstVal + otherGstVal) / 2);
   const igstVal = itemsIgstVal + (rates.isInterState ? (freightGstVal + loadingGstVal + packingGstVal + insuranceGstVal + otherGstVal) : 0);
@@ -477,6 +472,8 @@ export default function AddOrderPage() {
   const grandTotalFinal = Math.max(0, grandTotalBeforeTds - Math.round(Number(tdsDeduction)));
   const roundedGrandTotal = Math.round(grandTotalFinal);
   const roundOff = roundedGrandTotal - grandTotalFinal;
+
+  const totalItemQtyCount = items.reduce((acc, it) => acc + Number(it.quantity || 0), 0);
 
   const handleAddCustomerSubmit = async (e) => {
     e.preventDefault();
@@ -506,7 +503,6 @@ export default function AddOrderPage() {
     }
   };
 
-  // Flavor icon sets for aesthetic catalog cards
   const getProductEmoji = (name) => {
     const lower = name.toLowerCase();
     if (lower.includes('choco') || lower.includes('chocolate')) return '🍫🍦';
@@ -519,24 +515,21 @@ export default function AddOrderPage() {
   const compileInvoiceA4PDF = (order) => {
     const doc = new jsPDF();
 
-    const companyName = companyInfo?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
-    const companyAddress = companyInfo?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
-    const companyGstin = companyInfo?.companyGstin || '33AABCL0702C1ZG';
-    const companyMobile = companyInfo?.companyMobile || '+91 9360163523';
+    const companyName = companyInfo?.companyName || storeCompany?.companyName || 'Company';
+    const companyAddress = companyInfo?.companyAddress || storeCompany?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = companyInfo?.companyGstin || storeCompany?.companyGstin || '';
+    const companyMobile = companyInfo?.companyMobile || storeCompany?.companyMobile || '';
 
-    // Calculate taxes
     const customerGstin = taxRegNo || '';
     const customerState = customerGstin.trim().replace(/^GSTIN-/, '').substring(0, 2);
     const companyState = companyGstin.trim().substring(0, 2);
     const isSameState = customerState === companyState || !customerState;
 
-    // PAGE 1: Invoice items & calculations
-    doc.setFillColor(30, 27, 75); // Deep Indigo/Navy
+    doc.setFillColor(30, 27, 75);
     doc.rect(0, 0, 210, 8, 'F');
-    doc.setFillColor(245, 158, 11); // Amber accent
+    doc.setFillColor(245, 158, 11);
     doc.rect(0, 8, 210, 1.5, 'F');
 
-    // Header Layout
     let currentY = 22;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(22);
@@ -561,7 +554,6 @@ export default function AddOrderPage() {
     currentY += 4.5;
     doc.text(`Mobile: ${companyMobile}`, 14, currentY);
 
-    // Right Side: Metadata Box
     const metaBoxX = 115;
     const metaBoxWidth = 81;
     const metaBoxY = 15;
@@ -605,7 +597,6 @@ export default function AddOrderPage() {
     doc.setFontSize(9);
     doc.text(new Date(order.deliveryDate || deliveryDate).toLocaleDateString('en-GB') || 'N/A', metaBoxX + 44, mY + 4);
 
-    // Billed To Box
     currentY = Math.max(currentY + 6, 60);
     doc.setDrawColor(226, 232, 240);
     doc.setFillColor(255, 255, 255);
@@ -633,7 +624,6 @@ export default function AddOrderPage() {
     doc.setTextColor(30, 27, 75);
     doc.text(`Buyer GSTIN: ${customerGstin || 'Unregistered'}`, 115, bY + 4.5);
 
-    // Table Headers
     currentY += 32;
     doc.setFillColor(30, 27, 75);
     doc.rect(14, currentY, 182, 8, 'F');
@@ -649,7 +639,6 @@ export default function AddOrderPage() {
     doc.text('DISC (Rs.)', 160, currentY + 5.5, { align: 'right' });
     doc.text('TOTAL (Rs.)', 192, currentY + 5.5, { align: 'right' });
 
-    // Table Items
     let tY = currentY + 8;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -667,7 +656,7 @@ export default function AddOrderPage() {
 
       doc.text(String(index + 1), 17, tY + 4.5, { align: 'center' });
       doc.setFont('helvetica', 'bold');
-      doc.text(prod?.name || 'Leonex Product', 24, tY + 4.5);
+      doc.text(prod?.name || 'Product', 24, tY + 4.5);
       doc.setFont('helvetica', 'normal');
       doc.text(prod?.hsnCode || '21050000', 95, tY + 4.5);
       doc.text(String(qty), 120, tY + 4.5, { align: 'right' });
@@ -678,7 +667,6 @@ export default function AddOrderPage() {
       tY += 7.5;
     });
 
-    // Summary box
     tY += 5;
     const summaryX = 115;
     const summaryWidth = 81;
@@ -797,7 +785,6 @@ export default function AddOrderPage() {
     doc.setTextColor(148, 163, 184);
     doc.text('Page 1 of 2 - Terms & Conditions and Seal on Page 2.', 105, 286, { align: 'center' });
 
-    // PAGE 2: Terms and signatory block
     doc.addPage();
     doc.setFillColor(30, 27, 75);
     doc.rect(0, 0, 210, 8, 'F');
@@ -833,7 +820,7 @@ export default function AddOrderPage() {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
     doc.setTextColor(4, 120, 87);
-    doc.text('LEONEX VERIFIED', 165, sigY + 8.5, { align: 'center' });
+    doc.text('DIGITALLY VERIFIED', 165, sigY + 8.5, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5);
     doc.text('AUTHORISED SIGNATORY', 165, sigY + 13, { align: 'center' });
@@ -841,19 +828,18 @@ export default function AddOrderPage() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
-    doc.text('Page 2 of 2 - Generated via Leonex ERP.', 105, 286, { align: 'center' });
+    doc.text('Page 2 of 2 - Generated via ERP System.', 105, 286, { align: 'center' });
 
     return doc.output('blob');
   };
 
   const compileThermalBillPDF = (order) => {
-    const companyName = companyInfo?.companyName || 'Leonex pvt limited';
-    const companyAddress = companyInfo?.companyAddress || 'Factory / Registered Office Address';
-    const companyGstin = companyInfo?.companyGstin || '33AABCL0702C1ZG';
+    const companyName = companyInfo?.companyName || storeCompany?.companyName || 'Company';
+    const companyAddress = companyInfo?.companyAddress || storeCompany?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = companyInfo?.companyGstin || storeCompany?.companyGstin || '';
     
     const itemsCount = items.length;
     
-    // Count active extra charges
     const freightVal = Math.round(Number(freight) || 0);
     const loadingVal = Math.round(Number(loadingCharges) || 0);
     const packingVal = Math.round(Number(packingCharges) || 0);
@@ -868,7 +854,6 @@ export default function AddOrderPage() {
     if (insuranceVal > 0) activeChargesCount++;
     if (otherVal > 0) activeChargesCount++;
     
-    // 30 Shuffled Receipt Quotes
     const BILL_QUOTES = [
       "Life is like ice cream, enjoy it before it melts!",
       "Double the flavor, double the happiness.",
@@ -904,7 +889,6 @@ export default function AddOrderPage() {
     
     const randomQuote = BILL_QUOTES[Math.floor(Math.random() * BILL_QUOTES.length)];
     
-    // Dynamic height calculation in mm to fit everything nicely
     let dynamicHeight = 115 + (itemsCount * 9) + (activeChargesCount * 3.5);
     if (collectTax) dynamicHeight += 8;
     if (discountVal > 0) dynamicHeight += 3.5;
@@ -914,14 +898,12 @@ export default function AddOrderPage() {
       format: [80, dynamicHeight]
     });
     
-    // Premium Outer Frame
     doc.setDrawColor(180, 180, 180);
     doc.line(3, 3, 77, 3);
     doc.line(3, dynamicHeight - 3, 77, dynamicHeight - 3);
     doc.line(3, 3, 3, dynamicHeight - 3);
     doc.line(77, 3, 77, dynamicHeight - 3);
     
-    // Thermal receipt header
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.setTextColor(30, 27, 75);
@@ -943,7 +925,7 @@ export default function AddOrderPage() {
     
     curY += 3;
     doc.setDrawColor(220, 220, 220);
-    doc.line(5, curY, 75, curY); // divider
+    doc.line(5, curY, 75, curY);
     
     curY += 4;
     doc.setFontSize(6.5);
@@ -968,9 +950,8 @@ export default function AddOrderPage() {
     }
     
     curY += 3.5;
-    doc.line(5, curY, 75, curY); // divider
+    doc.line(5, curY, 75, curY);
     
-    // Table headers
     curY += 4;
     doc.setFont('helvetica', 'bold');
     doc.text('ITEM', 5, curY);
@@ -990,7 +971,7 @@ export default function AddOrderPage() {
       const disc = Math.round(Number(item.discount) || 0);
       const lineTotal = (rate - disc) * qty;
       
-      const nameTrunc = (prod?.name || 'Leonex Product').substring(0, 18);
+      const nameTrunc = (prod?.name || 'Product').substring(0, 18);
       doc.setFont('helvetica', 'bold');
       doc.text(nameTrunc, 5, curY);
       doc.setFont('helvetica', 'normal');
@@ -1002,7 +983,6 @@ export default function AddOrderPage() {
     
     doc.line(5, curY - 1.5, 75, curY - 1.5);
     
-    // Summary Section Header
     curY += 3.5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
@@ -1012,7 +992,6 @@ export default function AddOrderPage() {
     curY += 2.5;
     doc.line(20, curY, 60, curY);
 
-    // Summary Details
     curY += 3.5;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6);
@@ -1099,7 +1078,6 @@ export default function AddOrderPage() {
     curY += 5;
     doc.line(5, curY, 75, curY);
 
-    // Shuffled quotes display box
     curY += 3.5;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6);
@@ -1116,7 +1094,7 @@ export default function AddOrderPage() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.5);
     doc.setTextColor(120, 120, 120);
-    doc.text('- Powered by Leonex ERP -', 40, curY, { align: 'center' });
+    doc.text(`- Powered by ${companyName || 'ERP System'} -`, 40, curY, { align: 'center' });
 
     return doc.output('blob');
   };
@@ -1225,7 +1203,7 @@ export default function AddOrderPage() {
 
       setPdfUrlA4(a4Url);
       setPdfUrlBill(billUrl);
-      setPdfUrl(a4Url); // Default to A4 Invoice
+      setPdfUrl(a4Url);
       setPreviewMode('invoice');
       setShowInvoiceModal(true);
     } catch (err) {
@@ -1242,73 +1220,127 @@ export default function AddOrderPage() {
     return matchSearch && matchCategory;
   });
 
-  const CATALOG_PAGE_SIZE = 20; // 4 rows of 5 products each
+  const CATALOG_PAGE_SIZE = 20;
   const totalCatalogPages = Math.ceil(filteredProducts.length / CATALOG_PAGE_SIZE);
   const paginatedProducts = filteredProducts.slice(
     (catalogPage - 1) * CATALOG_PAGE_SIZE,
     catalogPage * CATALOG_PAGE_SIZE
   );
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   const handleModalClose = () => {
     setShowInvoiceModal(false);
     navigate('/orders/list');
   };
 
+  const selectedCustomerObj = customers.find(c => c.id === customerId);
+
   return (
-    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn text-slate-800 dark:text-slate-100">
-      {/* Header */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative shadow-sm">
-        <div className="flex items-center space-x-3.5">
-          <div className="p-3 bg-indigo-650 text-white rounded-2xl">
-            <ShoppingCart className="w-6 h-6" />
-          </div>
+    <div className="w-full max-w-full px-3 sm:px-5 py-3 space-y-3.5 mx-auto transition-all duration-300 text-slate-900 dark:text-slate-100">
+      
+      {/* Sleek, Space-Efficient Single Top Header Bar */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-3 sm:p-4 rounded-2xl flex flex-wrap justify-between items-center gap-3 shadow-xs dark:shadow-xl transition-all">
+        <div className="flex items-center space-x-3">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => navigate('/orders/list')}
+            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer h-9 w-9 shrink-0"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
           <div>
-            <h1 className="text-lg font-extrabold tracking-tight text-slate-900 dark:text-white">
-              {isEditMode ? `Edit Customer Order Spec: ${createdOrderRef}` : 'Configure Customer Sales Order & POS Creator'}
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Double-sided workflow billing: add recipe items using POS product click grids and compile GST invoices instantly.
-            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+                <ShoppingCart className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                {isEditMode ? `Edit Order #${createdOrderRef || id}` : 'Sales Order POS'}
+              </h1>
+              <span className="text-[9px] bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-400 px-2 py-0.5 rounded-full font-black border border-indigo-200 dark:border-indigo-800 uppercase tracking-wide">
+                Billing Workspace
+              </span>
+            </div>
           </div>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => navigate('/orders/list')}
-          className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 rounded-xl text-xs py-2 px-4 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-        >
-          Cancel
-        </Button>
+
+        {/* Live Order Metric Summary Pill Bar */}
+        <div className="hidden lg:flex items-center gap-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3.5 py-1.5 rounded-xl text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-400 uppercase font-bold">Client:</span>
+            <span className="font-extrabold text-slate-800 dark:text-slate-200 line-clamp-1 max-w-[120px]">
+              {selectedCustomerObj?.name || 'Walk-in'}
+            </span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-700">|</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-400 uppercase font-bold">Cart:</span>
+            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{items.length} lines ({totalItemQtyCount} units)</span>
+          </div>
+          <span className="text-slate-300 dark:text-slate-700">|</span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-slate-400 uppercase font-bold">Total:</span>
+            <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-sm">₹{roundedGrandTotal}</span>
+          </div>
+        </div>
+
+        {/* Quick ERP Actions */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowShortSummaryModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black bg-amber-400 hover:bg-amber-300 text-slate-950 transition-all cursor-pointer shadow-xs"
+            title="View Executive Summary Sheet"
+          >
+            <Eye className="w-3.5 h-3.5" /> Summary Sheet
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/orders/list')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/60 transition-all cursor-pointer shadow-2xs"
+          >
+            <Receipt className="w-3.5 h-3.5 text-indigo-500" /> Orders
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard/sales')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/60 transition-all cursor-pointer shadow-2xs"
+          >
+            <LayoutDashboard className="w-3.5 h-3.5 text-violet-500" /> Dashboard
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate('/products/stock')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/60 transition-all cursor-pointer shadow-2xs"
+          >
+            <Package className="w-3.5 h-3.5 text-emerald-500" /> Products
+          </button>
+        </div>
       </div>
 
-      <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <form onSubmit={(e) => e.preventDefault()} className="space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
           
-          {/* LEFT 7 COLUMNS: Product Grid and Selected Items Cart */}
-          <div className="lg:col-span-7 space-y-6">
+          {/* LEFT 7 COLUMNS: Product Catalog Selection & Search */}
+          <div className="lg:col-span-7 space-y-4">
             
-            {/* Catalog search and category selection */}
-            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm dark:shadow-xl">
-              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-750 dark:text-slate-300 flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-indigo-500" /> POS Product Catalog Selection
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs dark:shadow-xl">
+              <CardHeader className="py-3 px-4 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Layers className="w-4 h-4 text-indigo-500" /> POS Product Catalog
                 </h3>
-                <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-750 dark:text-indigo-400 px-2 py-0.5 rounded font-black border border-indigo-100 dark:border-indigo-900">
-                  {filteredProducts.length} Products Found
+                <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 px-2.5 py-0.5 rounded-full font-black border border-indigo-100 dark:border-indigo-900">
+                  {filteredProducts.length} Products Available
                 </span>
               </CardHeader>
-              <CardContent className="pt-4 space-y-4">
+              <CardContent className="p-3.5 space-y-3">
                 <div className="relative">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
                   <Input
-                    placeholder="Search by product name or stock code (e.g. FP-000006)..."
+                    placeholder="Search product by name or code (e.g. FP-000006)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 h-10 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:ring-indigo-500"
+                    className="pl-10 h-9.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:ring-indigo-500"
                   />
                 </div>
 
@@ -1318,9 +1350,9 @@ export default function AddOrderPage() {
                       key={cat}
                       type="button"
                       onClick={() => setSelectedCategory(cat)}
-                      className={`px-3.5 py-1.5 text-2xs font-extrabold rounded-xl transition-all cursor-pointer border ${
+                      className={`px-3 py-1 text-3xs font-extrabold rounded-xl transition-all cursor-pointer border ${
                         selectedCategory === cat
-                          ? 'bg-indigo-650 border-indigo-650 text-white shadow-lg'
+                          ? 'bg-indigo-600 border-indigo-600 text-white shadow-xs'
                           : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-950 dark:hover:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
                       }`}
                     >
@@ -1329,38 +1361,38 @@ export default function AddOrderPage() {
                   ))}
                 </div>
 
-                {/* 4. Grid cards displaying product visual details with emoji background headers */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {/* Grid cards displaying product visual details */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
                   {paginatedProducts.map((p) => {
                     const avail = Number(p.currentStock || 0);
                     return (
                       <div
                         key={p.id}
                         onClick={() => handleAddProductClick(p)}
-                        className="bg-slate-50 dark:bg-slate-950 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-2xl border border-slate-200 dark:border-slate-800 cursor-pointer overflow-hidden transition-all hover:scale-[1.02] hover:border-indigo-500/50 dark:hover:border-indigo-500/70 shadow-sm dark:shadow-lg flex flex-col justify-between"
+                        className="bg-slate-50 dark:bg-slate-950 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/40 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer overflow-hidden transition-all hover:scale-[1.02] hover:border-indigo-500/50 dark:hover:border-indigo-500/70 shadow-2xs flex flex-col justify-between"
                       >
-                        <div className="h-24 bg-gradient-to-br from-indigo-50 to-slate-100 dark:from-indigo-950 dark:to-slate-900 flex items-center justify-center text-4xl rounded-t-2xl relative overflow-hidden border-b border-slate-200 dark:border-slate-900">
+                        <div className="h-20 bg-gradient-to-br from-indigo-50 to-slate-100 dark:from-indigo-950 dark:to-slate-900 flex items-center justify-center text-3xl rounded-t-xl relative overflow-hidden border-b border-slate-200/80 dark:border-slate-900">
                           {p.imageUrl ? (
                             <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
                           ) : (
-                            <div className="flex flex-col items-center gap-1">
+                            <div className="flex flex-col items-center gap-0.5">
                               <span>{getProductEmoji(p.name)}</span>
-                              <span className="text-[8px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-black">Leonex Flavor</span>
+                              <span className="text-[7px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-black">Item</span>
                             </div>
                           )}
                         </div>
 
-                        <div className="p-3 flex flex-col justify-between flex-1">
+                        <div className="p-2.5 flex flex-col justify-between flex-1 space-y-2">
                           <div>
-                            <span className="text-[9px] font-mono font-bold text-slate-500 dark:text-slate-400 block tracking-wider">{p.code}</span>
-                            <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 line-clamp-1 mt-0.5">{p.name}</h4>
+                            <span className="text-[8px] font-mono font-bold text-slate-400 dark:text-slate-500 block">{p.code}</span>
+                            <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 line-clamp-1">{p.name}</h4>
                           </div>
-                          <div className="flex items-center justify-between mt-3.5 pt-2 border-t border-slate-100 dark:border-slate-900">
-                            <span className="font-mono font-black text-xs text-indigo-650 dark:text-indigo-404">₹{Math.round(Number(p.salePrice || 0))}</span>
+                          <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 dark:border-slate-900">
+                            <span className="font-mono font-black text-xs text-indigo-600 dark:text-indigo-400">₹{Math.round(Number(p.salePrice || 0))}</span>
                             <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded ${
                               avail > 0 
-                                ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-404 border border-emerald-200 dark:border-emerald-900/50' 
-                                : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-404 border border-rose-200 dark:border-rose-900/50'
+                                ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900/50' 
+                                : 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-900/50'
                             }`}>
                               Qty: {avail}
                             </span>
@@ -1373,7 +1405,7 @@ export default function AddOrderPage() {
 
                 {/* Pagination Controls */}
                 {totalCatalogPages > 1 && (
-                  <div className="pt-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
+                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-2">
                     <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
                       Showing {(catalogPage - 1) * CATALOG_PAGE_SIZE + 1} to {Math.min(catalogPage * CATALOG_PAGE_SIZE, filteredProducts.length)} of {filteredProducts.length} entries
                     </div>
@@ -1389,159 +1421,55 @@ export default function AddOrderPage() {
               </CardContent>
             </Card>
 
-            {/* Selected item lines cart */}
-            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-visible shadow-sm dark:shadow-xl">
-              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row justify-between items-center">
+            {/* Collapsible GTC Accordion to save vertical space */}
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
+              <div 
+                onClick={() => setShowGtcAccordion(!showGtcAccordion)} 
+                className="py-2.5 px-4 flex justify-between items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-950 transition-colors"
+              >
                 <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <ShoppingCart className="w-4 h-4 text-indigo-500" /> Selected Order Item Lines
+                  <FileText className="w-3.5 h-3.5 text-indigo-500" /> Quotation Terms & Conditions (GTC)
                 </h3>
-                <span className="text-[10px] bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded font-black text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
-                  {items.length} Lines Added
-                </span>
-              </CardHeader>
-              <CardContent className="pt-4 space-y-4">
-                {items.length === 0 ? (
-                  <div className="py-12 text-center text-slate-500 italic text-xs border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl bg-slate-50/50 dark:bg-slate-950/40">
-                    No items selected yet. Click any card from the catalog above to add products.
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {items.map((item, idx) => {
-                      const prod = products.find(p => p.id === item.productId);
-                      const qty = Number(item.quantity) || 0;
-                      const rate = Math.round(Number(item.unitPrice) || 0); // Enforce rounded price
-                      const disc = Math.round(Number(item.discount) || 0);   // Enforce rounded discount
-
-                      const lineSubtotal = (rate - disc) * qty;
-                      const lineCost = prod ? Number(prod.totalCost || 0) * qty : 0;
-                      const lineProfit = lineSubtotal - lineCost;
-                      const sufficiency = stockSufficiency[item.productId];
-
-                      return (
-                        <div key={idx} className="relative p-4 bg-slate-50 dark:bg-slate-950/80 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
-                          <div className="flex justify-between items-center gap-3">
-                            <div className="flex items-center gap-2.5 flex-1">
-                              <span className="flex items-center justify-center w-5.5 h-5.5 rounded-lg bg-indigo-550/10 dark:bg-indigo-950 text-indigo-650 dark:text-indigo-400 font-extrabold text-2xs border border-indigo-200 dark:border-indigo-900">
-                                {idx + 1}
-                              </span>
-                              <div>
-                                <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-                                  {prod?.name || 'Loading...'} 
-                                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal font-sans ml-1">({prod?.code})</span>
-                                </h4>
-                              </div>
-                            </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              className="text-rose-650 dark:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg p-1 h-7 cursor-pointer shrink-0"
-                              onClick={() => handleRemoveItem(idx)}
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-
-                          {/* Inputs Row with Component Quantity Selector */}
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                            <div className="space-y-1">
-                              <label className="text-[9px] font-bold text-slate-400 uppercase block">Quantity</label>
-                              <QuantitySelector
-                                value={item.quantity}
-                                onChange={(val) => handleItemChange(idx, 'quantity', val)}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Unit Price (₹)</label>
-                              <Input
-                                type="number"
-                                step="1"
-                                min="0"
-                                value={item.unitPrice}
-                                onChange={(e) => handleItemChange(idx, 'unitPrice', e.target.value)}
-                                className="font-mono font-bold text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-9.5 rounded-xl text-slate-900 dark:text-white"
-                                required
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Discount (₹)</label>
-                              <Input
-                                type="number"
-                                step="1"
-                                min="0"
-                                value={item.discount}
-                                onChange={(e) => handleItemChange(idx, 'discount', e.target.value)}
-                                className="font-mono font-bold text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-9.5 rounded-xl text-slate-900 dark:text-white"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Line Status and calculations summary */}
-                          <div className="flex flex-wrap items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-900 gap-2 text-[10px] font-mono">
-                            <div className="flex items-center gap-1.5">
-                              <DatePicker
-                                value={item.deliveryDate ? new Date(item.deliveryDate) : null}
-                                onChange={(date) => handleItemChange(idx, 'deliveryDate', date ? date.toISOString().split('T')[0] : '')}
-                                modalTitle="Line Delivery Date"
-                                placeholder="Select Date"
-                                className="space-y-0"
-                                triggerClassName="h-7 text-[10px] p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"
-                              />
-                              {sufficiency ? (
-                                <span className={`px-2 py-0.5 text-[8px] font-black rounded uppercase border ${
-                                  sufficiency.status === 'Sufficient'
-                                    ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-404 border border-emerald-200 dark:border-emerald-900/50'
-                                    : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-404 border border-rose-200 dark:border-rose-900/50'
-                                }`}>
-                                  {sufficiency.status === 'Sufficient' ? 'In Stock' : `Short: ${sufficiency.shortage} (Backorder Allowed)`}
-                                </span>
-                              ) : (
-                                <span className="text-slate-500 font-bold text-[9px]">Checking...</span>
-                              )}
-                            </div>
-                            <div className="flex gap-4">
-                              <div>
-                                <span className="text-slate-500 text-[8px] uppercase block text-right">Subtotal</span>
-                                <span className="font-bold text-slate-800 dark:text-slate-200">₹{lineSubtotal}</span>
-                              </div>
-                              <div>
-                                <span className="text-slate-500 text-[8px] uppercase block text-right">Est. Profit</span>
-                                <span className={`font-bold ${lineProfit >= 0 ? 'text-emerald-650 dark:text-emerald-400' : 'text-rose-650 dark:text-rose-450'}`}>
-                                  ₹{lineProfit.toFixed(0)}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
+                <div className="flex items-center gap-1 text-[10px] text-slate-400 font-bold">
+                  {showGtcAccordion ? 'Collapse Terms' : 'Expand Terms'}
+                  {showGtcAccordion ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </div>
+              {showGtcAccordion && (
+                <CardContent className="p-3 border-t border-slate-100 dark:border-slate-800">
+                  <textarea
+                    value={gtcText}
+                    onChange={(e) => setGtcText(e.target.value)}
+                    className="w-full h-36 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl p-2.5 text-xs leading-normal font-mono focus:outline-none focus:border-indigo-500"
+                    placeholder="Provide quotation terms & conditions here..."
+                  />
+                </CardContent>
+              )}
             </Card>
+
           </div>
 
-          {/* RIGHT 5 COLUMNS: Customer Details & Checkout summary calculation breakdown panel */}
-          <div className="lg:col-span-5 space-y-6">
+          {/* RIGHT 5 COLUMNS: High-Density Billing Desk (Customer, Cart, & Charges) */}
+          <div className="lg:col-span-5 space-y-4">
             
-            {/* Customer Credentials */}
-            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-xl rounded-2xl overflow-visible">
-              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Compass className="w-4 h-4 text-indigo-500" /> Order Parameters & Customer Info
+            {/* Card 1: Customer & Order Parameters */}
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs dark:shadow-xl rounded-2xl overflow-visible">
+              <CardHeader className="py-2.5 px-4 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Compass className="w-4 h-4 text-indigo-500" /> Customer & Order Setup
                 </h3>
               </CardHeader>
-              <CardContent className="pt-4 space-y-4 text-xs">
+              <CardContent className="p-3.5 space-y-3 text-xs">
                 
-                {/* Customer name selector & Inline adder */}
                 <div className="space-y-1">
                   <div className="flex justify-between items-center">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase">Customer Name *</label>
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Customer Name *</label>
                     <button
                       type="button"
                       onClick={() => setShowAddCustomer(true)}
-                      className="text-2xs font-extrabold text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
+                      className="text-3xs font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer"
                     >
-                      <Plus className="w-3 h-3" /> Quick Add Customer
+                      <Plus className="w-3 h-3" /> Quick Add
                     </button>
                   </div>
                   <SearchSelect
@@ -1555,13 +1483,13 @@ export default function AddOrderPage() {
                     placeholder="Select Customer..."
                     searchPlaceholder="Search by name/phone..."
                     required
-                    triggerClassName="h-10 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
+                    triggerClassName="h-9 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 block uppercase">Order Type</label>
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase">Order Mode</label>
                     <SearchSelect
                       value={orderType}
                       onChange={setOrderType}
@@ -1573,12 +1501,12 @@ export default function AddOrderPage() {
                       showSearch={false}
                       placeholder="Select Type..."
                       required
-                      triggerClassName="h-10 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
+                      triggerClassName="h-9 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 block uppercase">Payment Terms</label>
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase">Payment Terms</label>
                     <SearchSelect
                       value={paymentTerms}
                       onChange={setPaymentTerms}
@@ -1590,22 +1518,21 @@ export default function AddOrderPage() {
                       showSearch={false}
                       placeholder="Payment Option..."
                       required
-                      triggerClassName={`h-10 text-xs font-bold border rounded-xl transition-all ${
+                      triggerClassName={`h-9 text-xs font-bold border rounded-xl transition-all ${
                         paymentTerms === 'Paid'
-                          ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50'
                           : paymentTerms === 'Advance Payment'
-                          ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-404 border-amber-200 dark:border-amber-900/50'
-                          : 'bg-rose-50 dark:bg-rose-950 text-rose-700 dark:text-rose-404 border-rose-200 dark:border-rose-900/50'
+                          ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/50'
+                          : 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/50'
                       }`}
                     />
                   </div>
                 </div>
 
-                {/* 3. Live clock running order date picker */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
                     <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 block uppercase">Order Date</label>
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase">Order Timestamp</label>
                       <button
                         type="button"
                         onClick={() => setIsClockRunning(!isClockRunning)}
@@ -1614,9 +1541,8 @@ export default function AddOrderPage() {
                             ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900 animate-pulse' 
                             : 'bg-slate-100 dark:bg-slate-900 text-slate-500'
                         }`}
-                        title={isClockRunning ? 'Click to freeze clock' : 'Click to start live timer'}
                       >
-                        {isClockRunning ? 'LIVE CLOCK' : 'FROZEN'}
+                        {isClockRunning ? 'LIVE' : 'FREEZE'}
                       </button>
                     </div>
                     <DatePicker
@@ -1624,366 +1550,288 @@ export default function AddOrderPage() {
                       showTime
                       value={orderDate}
                       onChange={(date) => {
-                        setIsClockRunning(false); // Stop clock when date is manually adjusted
+                        setIsClockRunning(false);
                         setOrderDate(date || new Date());
                       }}
                       modalTitle="Select Order Timestamp"
                       placeholder="Select date"
                       className="space-y-0"
-                      triggerClassName="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white w-full"
+                      triggerClassName="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white w-full"
                     />
                   </div>
 
                   <DatePicker
-                    label="Required Delivery Date *"
+                    label="Delivery Date *"
                     required
                     value={deliveryDate ? new Date(deliveryDate) : null}
                     onChange={(date) => setDeliveryDate(date ? date.toISOString().split('T')[0] : '')}
                     modalTitle="Select Delivery Date"
                     placeholder="Select date"
                     className="space-y-1"
-                    labelClassName="text-[10px] font-bold text-slate-400 block uppercase"
-                    triggerClassName="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white w-full rounded-xl"
+                    labelClassName="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase"
+                    triggerClassName="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white w-full rounded-xl"
                   />
                 </div>
 
-                {/* 2. Customer GSTIN auto fetched from select */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 block uppercase">Customer GSTIN No</label>
-                  <Input
-                    placeholder="GSTIN No (Auto-fetched from customer)"
-                    value={taxRegNo}
-                    onChange={(e) => setTaxRegNo(e.target.value.toUpperCase())}
-                    className="h-10 text-xs font-mono font-bold uppercase tracking-wider bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 block uppercase">Delivery / Shipping Address</label>
-                  <Input
-                    placeholder="Specify destination address if separate..."
-                    value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                    className="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 block uppercase">Internal Production Notes</label>
-                  <Input
-                    placeholder="Notes for logistics or lab QC check teams..."
-                    value={internalNote}
-                    onChange={(e) => setInternalNote(e.target.value)}
-                    className="h-10 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                {/* GST Settings Predictor */}
-                <div className="pt-3 border-t border-slate-200 dark:border-slate-800 space-y-2">
-                  <div className="flex justify-between items-center gap-2 bg-slate-50 dark:bg-slate-950 p-2 rounded-xl border border-slate-200 dark:border-slate-800">
-                    <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 block uppercase px-1">Collect Tax (GST)</span>
-                    <button
-                      type="button"
-                      onClick={() => setCollectTax(!collectTax)}
-                      className={`px-3 py-1 text-2xs font-extrabold rounded-lg transition-all cursor-pointer ${
-                        collectTax ? 'bg-indigo-650 text-white shadow-xs' : 'bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-405'
-                      }`}
-                    >
-                      {collectTax ? 'ENABLED' : 'DISABLED'}
-                    </button>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase">Customer GSTIN</label>
+                    <Input
+                      placeholder="GSTIN No"
+                      value={taxRegNo}
+                      onChange={(e) => setTaxRegNo(e.target.value.toUpperCase())}
+                      className="h-9 text-xs font-mono font-bold uppercase tracking-wider bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                    />
                   </div>
-
-                  {collectTax && (
-                    <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 text-xs space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="font-extrabold text-slate-500 dark:text-slate-400 uppercase text-[9px]">Supply Target:</span>
-                        <span className="font-extrabold text-indigo-600 dark:text-indigo-400 text-3xs uppercase">
-                          {rates.isInterState ? '🇮🇳 Inter-State (IGST)' : '🏢 Intra-State (CGST + SGST)'}
-                        </span>
-                      </div>
-                      {rates.isInterState ? (
-                        <div className="flex justify-between items-center pt-1.5 border-t border-slate-200 dark:border-slate-900">
-                          <span className="text-[9px] text-slate-500 dark:text-slate-400 font-bold uppercase">IGST Rate:</span>
-                          <select
-                            value={interstateGstRate}
-                            onChange={(e) => setInterstateGstRate(Number(e.target.value))}
-                            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 py-1 font-bold font-mono text-2xs focus:outline-none text-slate-900 dark:text-white"
-                          >
-                            <option value={5}>5%</option>
-                            <option value={12}>12%</option>
-                            <option value={18}>18%</option>
-                            <option value={28}>28%</option>
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="text-[10px] text-slate-500 dark:text-slate-400 text-center font-semibold pt-1 border-t border-slate-200 dark:border-slate-900">
-                          Tamil Nadu automatic calculation: 9% CGST + 9% SGST
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="text-[9px] text-slate-500 dark:text-slate-400 text-center font-bold uppercase tracking-wider">
-                    Company GSTIN: <span className="text-slate-700 dark:text-slate-300 font-mono ml-0.5">{ourGstin}</span>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase">Shipping Address</label>
+                    <Input
+                      placeholder="Destination address..."
+                      value={deliveryAddress}
+                      onChange={(e) => setDeliveryAddress(e.target.value)}
+                      className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+                    />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Calculations Breakdown Sidebar Panel */}
-            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-xl rounded-2xl overflow-hidden">
-              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-305 flex items-center gap-1.5">
-                  <Tag className="w-4 h-4 text-emerald-500" /> Quotation Tax & Charges Ledger
+            {/* Card 2: Selected Order Items Cart */}
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-visible shadow-xs dark:shadow-xl">
+              <CardHeader className="py-2.5 px-4 border-b border-slate-100 dark:border-slate-800 flex flex-row justify-between items-center">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <ShoppingCart className="w-4 h-4 text-indigo-500" /> Selected Item Lines
                 </h3>
+                <span className="text-[10px] bg-slate-100 dark:bg-slate-950 px-2 py-0.5 rounded-full font-black text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-800">
+                  {items.length} Lines
+                </span>
               </CardHeader>
-              <CardContent className="pt-4 space-y-4 text-xs">
+              <CardContent className="p-3 space-y-3">
+                {items.length === 0 ? (
+                  <div className="py-8 text-center text-slate-400 dark:text-slate-500 italic text-xs border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/40">
+                    Click products from the catalog to add items here.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {items.map((item, idx) => {
+                      const prod = products.find(p => p.id === item.productId);
+                      const qty = Number(item.quantity) || 0;
+                      const rate = Math.round(Number(item.unitPrice) || 0);
+                      const disc = Math.round(Number(item.discount) || 0);
+
+                      const lineSubtotal = (rate - disc) * qty;
+                      const lineCost = prod ? Number(prod.totalCost || 0) * qty : 0;
+                      const lineProfit = lineSubtotal - lineCost;
+                      const sufficiency = stockSufficiency[item.productId];
+
+                      return (
+                        <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                          <div className="flex justify-between items-center gap-2">
+                            <div className="flex items-center gap-2 flex-1">
+                              <span className="flex items-center justify-center w-5 h-5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-black text-[10px]">
+                                {idx + 1}
+                              </span>
+                              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 line-clamp-1">
+                                {prod?.name || 'Loading...'} <span className="text-[9px] text-slate-400 font-mono">({prod?.code})</span>
+                              </h4>
+                            </div>
+                            <button
+                              type="button"
+                              className="text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 p-1 cursor-pointer shrink-0"
+                              onClick={() => handleRemoveItem(idx)}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 items-end">
+                            <div className="space-y-0.5">
+                              <label className="text-[8px] font-bold text-slate-400 uppercase block">Qty</label>
+                              <QuantitySelector
+                                value={item.quantity}
+                                onChange={(val) => handleItemChange(idx, 'quantity', val)}
+                              />
+                            </div>
+                            <div className="space-y-0.5">
+                              <label className="text-[8px] font-bold text-slate-400 uppercase block">Price (₹)</label>
+                              <Input
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={item.unitPrice}
+                                onChange={(e) => handleItemChange(idx, 'unitPrice', e.target.value)}
+                                className="font-mono font-bold text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-8.5 rounded-xl text-slate-900 dark:text-white"
+                              />
+                            </div>
+                            <div className="space-y-0.5">
+                              <label className="text-[8px] font-bold text-slate-400 uppercase block">Disc (₹)</label>
+                              <Input
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={item.discount}
+                                onChange={(e) => handleItemChange(idx, 'discount', e.target.value)}
+                                className="font-mono font-bold text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 h-8.5 rounded-xl text-slate-900 dark:text-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-900 text-[10px] font-mono">
+                            <div>
+                              {sufficiency && (
+                                <span className={`px-1.5 py-0.5 text-[8px] font-black rounded uppercase ${
+                                  sufficiency.status === 'Sufficient'
+                                    ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
+                                    : 'bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-400'
+                                }`}>
+                                  {sufficiency.status === 'Sufficient' ? 'In Stock' : `Short: ${sufficiency.shortage}`}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex gap-3">
+                              <span className="text-slate-500">Subtotal: <strong className="text-slate-800 dark:text-white">₹{lineSubtotal}</strong></span>
+                              <span className={`font-bold ${lineProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
+                                Profit: ₹{lineProfit.toFixed(0)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Card 3: Tax & Charges Ledger + Prominent Submit Checkout Button */}
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs dark:shadow-xl rounded-2xl overflow-hidden">
+              <CardHeader className="py-2.5 px-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Tag className="w-4 h-4 text-emerald-500" /> Charges & Tax Ledger
+                </h3>
+                <label className="flex items-center gap-1 text-3xs font-extrabold cursor-pointer text-slate-700 dark:text-slate-300">
+                  <input 
+                    type="checkbox" 
+                    checked={collectTax} 
+                    onChange={() => setCollectTax(!collectTax)}
+                    className="rounded border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 accent-indigo-600 w-3.5 h-3.5"
+                  />
+                  GST {collectTax ? 'ON' : 'OFF'}
+                </label>
+              </CardHeader>
+              <CardContent className="p-3.5 space-y-3 text-xs">
                 
-                {/* GST Applicability Switch */}
-                <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-950 p-2.5 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <span className="font-bold text-slate-700 dark:text-slate-300 text-2xs">GST Applicability</span>
-                  <label className="flex items-center gap-1.5 text-3xs font-extrabold cursor-pointer text-slate-700 dark:text-slate-300">
-                    <input 
-                      type="checkbox" 
-                      checked={collectTax} 
-                      onChange={() => setCollectTax(!collectTax)}
-                      className="rounded border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 accent-indigo-600 w-3.5 h-3.5"
-                    />
-                    Apply GST (CGST + SGST)
-                  </label>
+                {/* Discount input row */}
+                <div className="flex gap-2 items-center">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">Discount:</span>
+                  <div className="flex bg-slate-100 dark:bg-slate-950 rounded-lg border border-slate-200 dark:border-slate-800 p-0.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setDiscountType('Flat')}
+                      className={`px-2 py-0.5 text-3xs font-extrabold rounded ${discountType === 'Flat' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+                    >
+                      ₹
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDiscountType('Percent')}
+                      className={`px-2 py-0.5 text-3xs font-extrabold rounded ${discountType === 'Percent' ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}
+                    >
+                      %
+                    </button>
+                  </div>
+                  <Input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={discountValue}
+                    onChange={(e) => handleNumericInputChange(e.target.value, setDiscountValue)}
+                    className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white h-8 text-xs font-mono font-bold"
+                  />
                 </div>
 
-                {/* Discount type flat / percent */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase block">Discount</label>
-                  <div className="flex gap-2">
-                    <div className="flex bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 p-0.5 overflow-hidden shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setDiscountType('Flat')}
-                        className={`px-3 py-1.5 text-3xs font-extrabold rounded-lg transition-all ${
-                          discountType === 'Flat' ? 'bg-indigo-650 text-white' : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        Flat
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDiscountType('Percent')}
-                        className={`px-3 py-1.5 text-3xs font-extrabold rounded-lg transition-all ${
-                          discountType === 'Percent' ? 'bg-indigo-650 text-white' : 'text-slate-500 dark:text-slate-400'
-                        }`}
-                      >
-                        %
-                      </button>
+                {/* Additional charges grid */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                      <span>Freight (₹)</span>
+                      <label className="cursor-pointer flex items-center gap-0.5"><input type="checkbox" checked={freightGst} onChange={() => setFreightGst(!freightGst)} className="w-2.5 h-2.5 accent-indigo-600" /> GST</label>
                     </div>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      value={discountValue}
-                      onChange={(e) => handleNumericInputChange(e.target.value, setDiscountValue)}
-                      className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white h-9.5 text-xs font-mono"
-                    />
+                    <Input type="text" inputMode="numeric" value={freight} onChange={(e) => handleNumericInputChange(e.target.value, setFreight)} className="h-7.5 text-xs bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono" />
                   </div>
-                </div>
-
-                {/* Charge lines (6. Enforced rounded pricing) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Freight (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={freightGst} onChange={() => setFreightGst(!freightGst)} className="accent-indigo-600 w-3 h-3 rounded" />
-                        GST 18%
-                      </label>
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                      <span>Loading (₹)</span>
+                      <label className="cursor-pointer flex items-center gap-0.5"><input type="checkbox" checked={loadingGst} onChange={() => setLoadingGst(!loadingGst)} className="w-2.5 h-2.5 accent-indigo-600" /> GST</label>
                     </div>
-                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={freight} onChange={(e) => handleNumericInputChange(e.target.value, setFreight)} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" value={loadingCharges} onChange={(e) => handleNumericInputChange(e.target.value, setLoadingCharges)} className="h-7.5 text-xs bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono" />
                   </div>
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Loading & Unloading (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={loadingGst} onChange={() => setLoadingGst(!loadingGst)} className="accent-indigo-600 w-3 h-3 rounded" />
-                        GST 18%
-                      </label>
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                      <span>Packing (₹)</span>
+                      <label className="cursor-pointer flex items-center gap-0.5"><input type="checkbox" checked={packingGst} onChange={() => setPackingGst(!packingGst)} className="w-2.5 h-2.5 accent-indigo-600" /> GST</label>
                     </div>
-                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={loadingCharges} onChange={(e) => handleNumericInputChange(e.target.value, setLoadingCharges)} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" value={packingCharges} onChange={(e) => handleNumericInputChange(e.target.value, setPackingCharges)} className="h-7.5 text-xs bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono" />
                   </div>
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Packing Charges (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-500 uppercase flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={packingGst} onChange={() => setPackingGst(!packingGst)} className="accent-indigo-600 w-3 h-3 rounded" />
-                        GST 18%
-                      </label>
+                  <div className="space-y-0.5">
+                    <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                      <span>Other (₹)</span>
+                      <label className="cursor-pointer flex items-center gap-0.5"><input type="checkbox" checked={otherGst} onChange={() => setOtherGst(!otherGst)} className="w-2.5 h-2.5 accent-indigo-600" /> GST</label>
                     </div>
-                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={packingCharges} onChange={(e) => handleNumericInputChange(e.target.value, setPackingCharges)} className="bg-slate-950 border-slate-800 text-xs text-white h-8.5" />
-                  </div>
-
-                  <div className="space-y-1">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Insurance (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={insuranceGst} onChange={() => setInsuranceGst(!insuranceGst)} className="accent-indigo-600 w-3 h-3 rounded" />
-                        GST 18%
-                      </label>
-                    </div>
-                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={insurance} onChange={(e) => handleNumericInputChange(e.target.value, setInsurance)} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
-                  </div>
-
-                  <div className="space-y-1 sm:col-span-2">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase">Other Charges (₹)</label>
-                      <label className="text-[8px] font-bold text-slate-500 dark:text-slate-400 uppercase flex items-center gap-1 cursor-pointer">
-                        <input type="checkbox" checked={otherGst} onChange={() => setOtherGst(!otherGst)} className="accent-indigo-600 w-3 h-3 rounded" />
-                        GST 18%
-                      </label>
-                    </div>
-                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={otherCharges} onChange={(e) => handleNumericInputChange(e.target.value, setOtherCharges)} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
+                    <Input type="text" inputMode="numeric" value={otherCharges} onChange={(e) => handleNumericInputChange(e.target.value, setOtherCharges)} className="h-7.5 text-xs bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono" />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3.5 pt-2 border-t border-slate-200 dark:border-slate-900">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 block uppercase">TDS Deduction (₹)</label>
-                    <Input type="text" inputMode="numeric" pattern="[0-9]*" value={tdsDeduction} onChange={(e) => handleNumericInputChange(e.target.value, setTdsDeduction)} className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs text-slate-900 dark:text-white h-8.5" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 block uppercase">Round Off (₹)</label>
-                    <div className="h-8.5 flex items-center justify-center font-mono font-bold bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-slate-700 dark:text-slate-300">
-                      {roundOff.toFixed(0)}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right Calculations Panel Box */}
-                <div className="bg-slate-50 dark:bg-slate-950 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-xs font-semibold leading-relaxed">
-                  <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                    <span>Taxable Value:</span>
+                {/* Calculation Ledger Lines */}
+                <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs font-semibold">
+                  <div className="flex justify-between text-slate-500">
+                    <span>Taxable Subtotal:</span>
                     <span className="font-mono text-slate-800 dark:text-slate-200">₹{taxableValue}</span>
                   </div>
-                  {collectTax && (
-                    <>
-                      {rates.isInterState ? (
-                        <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                          <span>IGST @ {interstateGstRate}%:</span>
-                          <span className="font-mono text-slate-800 dark:text-slate-200">₹{igstVal.toFixed(0)}</span>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                            <span>CGST @ 9%:</span>
-                            <span className="font-mono text-slate-800 dark:text-slate-200">₹{cgstVal.toFixed(0)}</span>
-                          </div>
-                          <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                            <span>SGST @ 9%:</span>
-                            <span className="font-mono text-slate-800 dark:text-slate-200">₹{sgstVal.toFixed(0)}</span>
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )}
-                  {freightVal > 0 && (
-                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                      <span>Freight:</span>
-                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{freightVal}</span>
-                    </div>
-                  )}
-                  {loadingVal > 0 && (
-                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                      <span>Loading & Unloading:</span>
-                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{loadingVal}</span>
-                    </div>
-                  )}
-                  {packingVal > 0 && (
-                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                      <span>Packing Charges:</span>
-                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{packingVal}</span>
-                    </div>
-                  )}
-                  {insuranceVal > 0 && (
-                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                      <span>Insurance:</span>
-                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{insuranceVal}</span>
-                    </div>
-                  )}
-                  {otherVal > 0 && (
-                    <div className="flex justify-between text-slate-500 dark:text-slate-400">
-                      <span>Other Charges:</span>
-                      <span className="font-mono text-slate-800 dark:text-slate-200">₹{otherVal}</span>
-                    </div>
-                  )}
                   {discountAmount > 0 && (
-                    <div className="flex justify-between text-rose-650 dark:text-rose-404">
-                      <span>Discount:</span>
-                      <span className="font-mono text-rose-650 dark:text-rose-404">-₹{discountAmount}</span>
+                    <div className="flex justify-between text-rose-500">
+                      <span>Discount Amount:</span>
+                      <span className="font-mono">-₹{discountAmount}</span>
                     </div>
                   )}
-                  {Number(tdsDeduction) > 0 && (
-                    <div className="flex justify-between text-amber-600 dark:text-amber-404">
-                      <span>TDS Deduction:</span>
-                      <span className="font-mono text-amber-650 dark:text-amber-404">-₹{Math.round(Number(tdsDeduction))}</span>
+                  {collectTax && (
+                    <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
+                      <span>GST Tax ({rates.isInterState ? `IGST ${interstateGstRate}%` : 'CGST+SGST 18%'}):</span>
+                      <span className="font-mono">₹{Math.round(totalTax)}</span>
                     </div>
                   )}
-                  {Math.abs(roundOff) > 0 && (
-                    <div className="flex justify-between text-slate-500">
-                      <span>Round Off:</span>
-                      <span className="font-mono text-slate-700 dark:text-slate-300">{roundOff >= 0 ? '+' : ''}{roundOff.toFixed(0)}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between text-sm font-extrabold text-indigo-650 dark:text-indigo-404 border-t border-slate-200 dark:border-slate-900 pt-2">
-                    <span className="uppercase">Quotation Total (Rounded):</span>
-                    <span className="font-mono text-base font-black">₹{roundedGrandTotal}</span>
+                  <div className="flex justify-between text-sm font-black text-indigo-600 dark:text-indigo-400 border-t border-slate-200 dark:border-slate-800 pt-1.5">
+                    <span>Grand Total:</span>
+                    <span className="font-mono text-base text-indigo-600 dark:text-indigo-400">₹{roundedGrandTotal}</span>
                   </div>
                 </div>
+
+                {/* Prominent Submit Order Action Button */}
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={submitting || items.length === 0 || !customerId}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-black py-3 h-12 rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center text-xs gap-2 border border-indigo-500/50"
+                >
+                  {submitting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  {submitting ? 'Submitting Order Specs...' : isEditMode ? 'Save Order Modifications' : 'Create Order & Print Receipt'}
+                </Button>
+
               </CardContent>
             </Card>
 
           </div>
         </div>
-
-        {/* GENERAL TERMS & CONDITIONS (GTC) Textarea */}
-        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm dark:shadow-xl rounded-2xl overflow-hidden max-w-full">
-          <CardHeader className="pb-2 border-b border-slate-100 dark:border-slate-800">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <FileText className="w-4 h-4 text-indigo-500" /> General Terms & Conditions (GTC)
-            </h3>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <textarea
-              value={gtcText}
-              onChange={(e) => setGtcText(e.target.value)}
-              className="w-full h-44 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl p-3 text-xs leading-normal font-mono focus:outline-none focus:border-indigo-500"
-              placeholder="Provide quotations general terms conditions here..."
-            />
-          </CardContent>
-        </Card>
-
-        {/* 1. Main Action Button: Placed BELOW the GTC text card and centered */}
-        <div className="flex justify-center pt-4 pb-8">
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={submitting || items.length === 0 || !customerId}
-            className="w-full max-w-md bg-indigo-650 hover:bg-indigo-750 text-white font-black py-4 h-14 rounded-2xl shadow-2xl transition-all cursor-pointer flex items-center justify-center text-sm gap-2 border border-indigo-500/50 hover:scale-[1.01]"
-          >
-            {submitting ? (
-              <RefreshCw className="w-5 h-5 animate-spin" />
-            ) : (
-              <Check className="w-5 h-5" />
-            )}
-            {submitting ? 'Submitting Order Specs...' : isEditMode ? 'Save Order Modifications' : 'Create Order & Print Receipt'}
-          </Button>
-        </div>
       </form>
 
       {/* Inline Customer Registration Modal */}
       {showAddCustomer && (
-        <div className="fixed inset-0 bg-slate-950/60 dark:bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
-          <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-full max-w-md rounded-2xl shadow-md dark:shadow-2xl p-6 relative border border-slate-200 dark:border-slate-800">
+        <div className="fixed inset-0 bg-slate-950/60 dark:bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-full max-w-md rounded-3xl shadow-2xl p-5 relative border border-slate-200 dark:border-slate-800">
             <button
               onClick={() => setShowAddCustomer(false)}
               className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer p-1 rounded-lg"
@@ -1991,12 +1839,12 @@ export default function AddOrderPage() {
               <X className="w-5 h-5" />
             </button>
             <h3 className="font-extrabold text-sm text-slate-900 dark:text-white uppercase tracking-wider mb-4">Quick Add Customer</h3>
-            <form onSubmit={handleAddCustomerSubmit} className="space-y-3.5 text-xs">
+            <form onSubmit={handleAddCustomerSubmit} className="space-y-3 text-xs">
               <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Customer Name *</label>
+                <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Customer Name *</label>
                 <Input
                   required
-                  placeholder="Enter name"
+                  placeholder="Enter customer name"
                   value={newCustForm.name}
                   onChange={(e) => setNewCustForm({...newCustForm, name: e.target.value})}
                   className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
@@ -2004,7 +1852,7 @@ export default function AddOrderPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Phone *</label>
+                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Phone *</label>
                   <Input
                     required
                     placeholder="Enter phone"
@@ -2014,7 +1862,7 @@ export default function AddOrderPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Customer GSTIN</label>
+                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Customer GSTIN</label>
                   <Input
                     placeholder="e.g. 33AABCL0702C1ZG"
                     value={newCustForm.gstin}
@@ -2025,7 +1873,7 @@ export default function AddOrderPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Email Address</label>
+                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Email Address</label>
                   <Input
                     placeholder="Enter email"
                     type="email"
@@ -2035,11 +1883,11 @@ export default function AddOrderPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Customer Type</label>
+                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Customer Type</label>
                   <select
                     value={newCustForm.customerType}
                     onChange={(e) => setNewCustForm({...newCustForm, customerType: e.target.value})}
-                    className="w-full h-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-2 text-xs focus:outline-none text-slate-900 dark:text-white"
+                    className="w-full h-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 text-xs focus:outline-none text-slate-900 dark:text-white"
                   >
                     <option value="RETAIL">Retail</option>
                     <option value="DISTRIBUTOR">Distributor</option>
@@ -2048,7 +1896,7 @@ export default function AddOrderPage() {
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase">Billing / Delivery Address</label>
+                <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Billing / Delivery Address</label>
                 <Input
                   placeholder="Billing address"
                   value={newCustForm.address}
@@ -2056,18 +1904,124 @@ export default function AddOrderPage() {
                   className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
                 />
               </div>
-              <Button type="submit" className="w-full bg-indigo-655 hover:bg-indigo-755 text-white font-extrabold h-10 rounded-xl cursor-pointer">
+              <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold h-10 rounded-xl cursor-pointer">
                 Save & Select Customer
               </Button>
             </form>
           </div>
         </div>
       )}
+
+      {/* Short Details Executive Summary Modal (Single Compact Page View) */}
+      {showShortSummaryModal && (
+        <div className="fixed inset-0 bg-slate-950/70 dark:bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-indigo-500" />
+                <h3 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                  Executive Order Summary Sheet
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowShortSummaryModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              <div className="grid grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-950 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div>
+                  <span className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 block">Client</span>
+                  <p className="font-extrabold text-sm text-slate-900 dark:text-white">
+                    {selectedCustomerObj?.name || 'Walk-in Customer'}
+                  </p>
+                  <p className="font-mono text-slate-500 dark:text-slate-400 text-[10px]">
+                    GSTIN: {taxRegNo || 'Unregistered'}
+                  </p>
+                  <p className="text-slate-500 dark:text-slate-400 mt-1">{deliveryAddress || 'No address specified'}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 block">Parameters</span>
+                  <p className="font-extrabold text-slate-900 dark:text-white text-xs">{orderType}</p>
+                  <p className="font-semibold text-emerald-600 dark:text-emerald-400">{paymentTerms}</p>
+                  <p className="font-mono text-slate-500 dark:text-slate-400 text-[10px]">
+                    Delivery: {new Date(deliveryDate).toLocaleDateString('en-GB')}
+                  </p>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="px-3 py-2">Item Name</th>
+                      <th className="px-3 py-2 text-right">Qty</th>
+                      <th className="px-3 py-2 text-right">Rate</th>
+                      <th className="px-3 py-2 text-right">Disc</th>
+                      <th className="px-3 py-2 text-right">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {items.map((it, idx) => {
+                      const prod = products.find(p => p.id === it.productId);
+                      const q = Number(it.quantity);
+                      const r = Math.round(Number(it.unitPrice));
+                      const d = Math.round(Number(it.discount));
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-950/50">
+                          <td className="px-3 py-2 font-bold text-slate-800 dark:text-slate-200">{prod?.name || 'Product'}</td>
+                          <td className="px-3 py-2 text-right font-mono">{q}</td>
+                          <td className="px-3 py-2 text-right font-mono">₹{r}</td>
+                          <td className="px-3 py-2 text-right font-mono text-slate-400">₹{d}</td>
+                          <td className="px-3 py-2 text-right font-mono font-bold text-slate-900 dark:text-white">₹{(r - d) * q}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="bg-slate-50 dark:bg-slate-950 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-1.5 font-mono">
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>Subtotal Value:</span>
+                  <span>₹{taxableValue}</span>
+                </div>
+                {discountAmount > 0 && (
+                  <div className="flex justify-between text-rose-600 dark:text-rose-400">
+                    <span>Discount:</span>
+                    <span>-₹{discountAmount}</span>
+                  </div>
+                )}
+                {collectTax && (
+                  <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
+                    <span>GST Taxes:</span>
+                    <span>₹{Math.round(totalTax)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm font-black text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2 font-sans">
+                  <span>Grand Total:</span>
+                  <span className="font-mono text-base text-indigo-600 dark:text-indigo-400">₹{roundedGrandTotal}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-end">
+              <Button onClick={() => setShowShortSummaryModal(false)} variant="outline" className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl">
+                Close Sheet
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Receipt Modal Overlay */}
       {showInvoiceModal && invoiceData && (
-        <div className="fixed inset-0 bg-slate-950/60 dark:bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 w-full max-w-5xl rounded-3xl shadow-lg dark:shadow-2xl overflow-hidden flex flex-col h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
+        <div className="fixed inset-0 bg-slate-950/60 dark:bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col h-[90vh]">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-950">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-indigo-500" /> Premium Tax Invoice Preview
@@ -2082,11 +2036,8 @@ export default function AddOrderPage() {
               </button>
             </div>
 
-            {/* Modal Body / Iframe View */}
-            <div className="flex-1 bg-slate-50 dark:bg-slate-950 p-6 flex flex-col md:flex-row gap-6 overflow-y-auto">
-              {/* Left Column: Interactive Actions */}
+            <div className="flex-1 bg-slate-50 dark:bg-slate-950 p-5 flex flex-col md:flex-row gap-5 overflow-y-auto">
               <div className="w-full md:w-64 space-y-4 shrink-0">
-                {/* 2. Choose Print Format */}
                 <div className="bg-white dark:bg-slate-900 p-4 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-2.5">
                   <span className="text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase block tracking-wider">Choose Layout</span>
                   <div className="grid grid-cols-2 gap-2">
@@ -2121,7 +2072,7 @@ export default function AddOrderPage() {
                   </div>
                 </div>
 
-                <div className="bg-white dark:bg-slate-900 p-4.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3.5">
+                <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
                   <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Receipt Controls</span>
                   
                   <Button 
@@ -2132,7 +2083,7 @@ export default function AddOrderPage() {
                         iframe.contentWindow.print();
                       }
                     }} 
-                    className="w-full bg-indigo-650 hover:bg-indigo-750 text-white font-extrabold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer"
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-2 rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer text-xs"
                   >
                     <Printer className="w-4 h-4" /> Spool Print
                   </Button>
@@ -2149,22 +2100,14 @@ export default function AddOrderPage() {
                       a.click();
                     }} 
                     variant="outline" 
-                    className="w-full border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 text-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 font-bold py-2 rounded-xl flex items-center justify-center gap-2 cursor-pointer text-xs"
                   >
                     <Download className="w-4 h-4" /> Download PDF
                   </Button>
                 </div>
-
-                <div className="bg-slate-50 dark:bg-slate-900/60 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2 text-3xs text-slate-500 dark:text-slate-400">
-                  <span className="font-extrabold text-slate-700 dark:text-slate-400 block uppercase">Terms & Instructions:</span>
-                  <p>1. Ensure your thermal or laser print spooler is active.</p>
-                  <p>2. Select <strong>A4 Invoice</strong> to include full terms and conditions on a dedicated page.</p>
-                  <p>3. Select <strong>Thermal POS</strong> for a compact bill receipt excluding terms to conserve paper.</p>
-                </div>
               </div>
 
-              {/* Right Column: PDF Viewer */}
-              <div className="flex-1 min-h-[500px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 relative">
+              <div className="flex-1 min-h-[480px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-100 dark:bg-slate-900 relative">
                 {pdfUrl ? (
                   <iframe
                     id="invoice-print-frame"
@@ -2181,9 +2124,8 @@ export default function AddOrderPage() {
               </div>
             </div>
 
-            {/* Modal Footer */}
-            <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-end">
-              <Button onClick={handleModalClose} variant="outline" className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 bg-white dark:bg-slate-900 px-6 py-2 rounded-xl text-xs font-bold cursor-pointer">
+            <div className="p-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex justify-end">
+              <Button onClick={handleModalClose} variant="outline" className="border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900 px-6 py-1.5 rounded-xl text-xs font-bold cursor-pointer">
                 Close & Go to Order Registry
               </Button>
             </div>

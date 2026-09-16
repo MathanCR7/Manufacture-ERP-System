@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
+import useCompanyStore from '@/app/store/companyStore';
 import { format } from 'date-fns';
 import DatePicker from '@/components/ui/DatePicker';
 import { Button } from '@/components/ui/button';
@@ -163,10 +164,11 @@ const buildTaxBreakdown = (po, companyGstin = null) => {
 
 // ─── PDF Generator ────────────────────────────────────────────────────────────
 const handleDownloadPOPDF = (po, shouldPrint = false, taxSettings = null) => {
-  const companyName = taxSettings?.companyName || 'Leonex pvt limited';
-  const companyAddress = taxSettings?.companyAddress || 'Factory / Registered Office Address';
-  const companyGstin = taxSettings?.companyGstin || '33AABCL0702C1ZG';
-  const companyPan = taxSettings?.companyPan || 'AABCL0702C';
+  const storeCompany = useCompanyStore.getState().company || {};
+  const companyName = taxSettings?.companyName || storeCompany.companyName || 'Company';
+  const companyAddress = taxSettings?.companyAddress || storeCompany.companyAddress || 'Factory / Registered Office Address';
+  const companyGstin = taxSettings?.companyGstin || storeCompany.companyGstin || '';
+  const companyPan = taxSettings?.companyPan || storeCompany.companyPan || (companyGstin.length >= 12 ? companyGstin.substring(2, 12) : '');
 
   const doc = new jsPDF();
   const { taxRows, totalTaxable, isInterState, applyGst } = buildTaxBreakdown(po, companyGstin);

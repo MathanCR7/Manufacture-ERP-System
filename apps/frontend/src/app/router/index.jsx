@@ -82,13 +82,13 @@ const QRLifecyclePage = lazy(() => import('@/modules/shared/pages/QRLifecyclePag
 // Inventory Module
 const InventoryUploadPage = lazy(() => import('@/modules/inventory/pages/InventoryUploadPage'));
 
-// Leonex ERP Production Module Pages
+// Production Module Pages
 const ProductStockPage = lazy(() => import('@/modules/production/pages/ProductStockPage'));
 const LowStockAlertsPage = lazy(() => import('@/modules/production/pages/LowStockAlertsPage'));
 const ProductionsPage = lazy(() => import('@/modules/production/pages/ProductionsPage'));
 const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProductionPage'));
 
-// Leonex ERP Sales Module Pages
+// Sales Module Pages
 const SalesListPage = lazy(() => import('@/modules/sales/pages/SalesListPage'));
 const SalesReturnsPage = lazy(() => import('@/modules/sales/pages/SalesReturnsPage'));
 const SalesDashboard = lazy(() => import('@/modules/sales/pages/SalesDashboard'));
@@ -97,12 +97,12 @@ const LossReportPage = lazy(() => import('@/modules/production/pages/LossReportP
 const QCQueuePage = lazy(() => import('@/modules/production/pages/QCQueuePage'));
 const ProductWastagePage = lazy(() => import('@/modules/production/pages/ProductWastagePage'));
 
-// Leonex ERP Customer Order Module Pages
+// Customer Order Module Pages
 const AddOrderPage = lazy(() => import('@/modules/production/pages/AddOrderPage'));
 const OrderListPage = lazy(() => import('@/modules/production/pages/OrderListPage'));
 const OrderStatusPage = lazy(() => import('@/modules/production/pages/OrderStatusPage'));
 
-// Leonex ERP Forecasting Module Pages
+// Forecasting Module Pages
 const ForecastByOrderPage = lazy(() => import('@/modules/production/pages/ForecastByOrderPage'));
 const ForecastByProductPage = lazy(() => import('@/modules/production/pages/ForecastByProductPage'));
 
@@ -284,13 +284,13 @@ const AppRouter = () => {
               <Route path="/sales/return" element={<SalesReturnsPage />} />
               <Route path="/sales/dashboard" element={<SalesDashboard />} />
             </Route>
-            {/* Leonex ERP Products */}
+            {/* Products */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/products/stock" element={<ProductStockPage />} />
               <Route path="/products/low-stock" element={<LowStockAlertsPage />} />
             </Route>
 
-            {/* Leonex ERP Production */}
+            {/* Production */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/production/batches" element={<ProductionsPage />} />
               <Route path="/production/add" element={<ProductionsPage />} />
@@ -303,7 +303,7 @@ const AppRouter = () => {
               <Route path="/production/wastage" element={<ProductWastagePage />} />
             </Route>
 
-            {/* Leonex ERP Customer Orders */}
+            {/* Customer Orders */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/orders/add" element={<OrderListPage />} />
               <Route path="/orders/list" element={<OrderListPage />} />
@@ -311,7 +311,7 @@ const AppRouter = () => {
               <Route path="/orders/status" element={<OrderStatusPage />} />
             </Route>
 
-            {/* Leonex ERP Forecasting */}
+            {/* Forecasting */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/forecasting/by-order" element={<ForecastByOrderPage />} />
               <Route path="/forecasting/by-product" element={<ForecastByProductPage />} />

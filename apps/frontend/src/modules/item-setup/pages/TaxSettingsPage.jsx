@@ -1,55 +1,49 @@
-import { Settings, CheckCircle2, Building, AlertTriangle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Building, CheckCircle2, AlertTriangle, Save, RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
-
-import React, { useState, useEffect } from 'react';
+import useCompanyStore from '@/app/store/companyStore';
 
 export default function TaxSettingsPage() {
-  const user = useAuthStore(s => s.user);
+  const user = useAuthStore((s) => s.user);
   const canEdit = user?.role === 'MAIN_MASTER';
-  // Company profile states
-  const [companyName, setCompanyName] = useState('Leonex pvt limited');
-  const [companyAddress, setCompanyAddress] = useState('Factory / Registered Office Address');
-  const [companyGstin, setCompanyGstin] = useState('33AABCL0702C1ZG');
-  const [companyPan, setCompanyPan] = useState('AABCL0702C');
-  const [companyMobile, setCompanyMobile] = useState('+91 9360163523');
+
+  const { company, updateCompany, fetchCompany, loading } = useCompanyStore();
+
+  // Company profile form states
+  const [companyName, setCompanyName] = useState('');
+  const [companyAddress, setCompanyAddress] = useState('');
+  const [companyGstin, setCompanyGstin] = useState('');
+  const [companyPan, setCompanyPan] = useState('');
+  const [companyMobile, setCompanyMobile] = useState('');
+  const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  // Load company details from backend API on mount
+  // Sync state with company store
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const response = await api.get('/setup/tax');
-        const data = response.data;
-        if (data) {
-          setCompanyName(data.companyName || 'Leonex pvt limited');
-          setCompanyAddress(data.companyAddress || 'Factory / Registered Office Address');
-          setCompanyGstin(data.companyGstin || '33AABCL0702C1ZG');
-          setCompanyPan(data.companyPan || 'AABCL0702C');
-          setCompanyMobile(data.companyMobile || '+91 9360163523');
-        }
-      } catch (err) {
-        console.error('Failed to load company settings from backend, trying localStorage fallback:', err);
-        const saved = localStorage.getItem('leonex_erp_tax_settings');
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            setCompanyName(parsed.companyName || 'Leonex pvt limited');
-            setCompanyAddress(parsed.companyAddress || 'Factory / Registered Office Address');
-            setCompanyGstin(parsed.companyGstin || '33AABCL0702C1ZG');
-            setCompanyPan(parsed.companyPan || 'AABCL0702C');
-            setCompanyMobile(parsed.companyMobile || '+91 9360163523');
-          } catch (e) {
-            console.error('Error loading fallback tax settings', e);
-          }
-        }
-      }
-    };
-    fetchSettings();
-  }, []);
+    fetchCompany();
+  }, [fetchCompany]);
+
+  useEffect(() => {
+    if (company) {
+      setCompanyName(company.companyName || '');
+      setCompanyAddress(company.companyAddress || '');
+      setCompanyGstin(company.companyGstin || '');
+      setCompanyPan(company.companyPan || '');
+      setCompanyMobile(company.companyMobile || '');
+    }
+  }, [company]);
+
+  // Derive PAN automatically if GSTIN is entered and PAN is empty
+  const handleGstinChange = (val) => {
+    const upper = val.toUpperCase().trim();
+    setCompanyGstin(upper);
+    if (upper.length >= 12 && !companyPan) {
+      setCompanyPan(upper.substring(2, 12));
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -70,66 +64,76 @@ export default function TaxSettingsPage() {
       return;
     }
 
-    const settings = {
-      companyName: companyName.trim(),
-      companyAddress: companyAddress.trim(),
-      companyGstin: companyGstin.trim(),
-      companyPan: companyPan.trim(),
-      companyMobile: companyMobile.trim()
-    };
-
+    setSaving(true);
     try {
-      await api.post('/setup/tax', settings);
-      localStorage.setItem('leonex_erp_tax_settings', JSON.stringify(settings));
+      await updateCompany({
+        companyName: companyName.trim(),
+        companyAddress: companyAddress.trim(),
+        companyGstin: companyGstin.trim().toUpperCase(),
+        companyPan: companyPan.trim().toUpperCase(),
+        companyMobile: companyMobile.trim()
+      });
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setTimeout(() => setSuccess(false), 4000);
     } catch (err) {
-      console.error('Failed to save settings to backend:', err);
-      alert('Failed to save settings to backend. Saving locally instead.');
-      localStorage.setItem('leonex_erp_tax_settings', JSON.stringify(settings));
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      console.error('Failed to save settings:', err);
+      alert('Failed to save settings to database: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 text-xs">
       {!canEdit && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
           <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
           <span>You have <strong>Read-Only access</strong> to Company Settings. Modifying business parameters is restricted.</span>
         </div>
       )}
+
       {/* Page Title */}
-      <div className="pb-3 border-b border-slate-205 dark:border-slate-800">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
-          <Building className="w-5.5 h-5.5 mr-2 text-indigo-650 shrink-0" />
-          Company Details Settings
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
-          Configure business profile details, GSTIN, PAN, and contact number. These details are updated across all invoices.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center">
+            <Building className="w-5.5 h-5.5 mr-2 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            Company &amp; Tax Settings
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+            Configure business profile details, GSTIN, PAN, and contact information. Stored in PostgreSQL database and updated live across all invoices, purchase orders, and quotes.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => fetchCompany()}
+          disabled={loading}
+          className="self-start sm:self-auto flex items-center gap-1.5 rounded-xl border-slate-200 dark:border-slate-800 h-9 text-xs"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+          <span>Refresh Data</span>
+        </Button>
       </div>
 
       {success && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-650 dark:text-emerald-400 font-bold">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-          <span className="text-xs">Company details saved successfully and applied across all invoices!</span>
+        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-semibold shadow-xs">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <span className="text-xs">Company details saved successfully to PostgreSQL database and applied live across all modules!</span>
         </div>
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        
         {/* Company Settings Card */}
-        <Card className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-hidden text-xs">
+        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden text-xs">
           <CardContent className="p-5 space-y-4">
-            <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
-              <h2 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5 text-slate-500">
+            <div className="border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center justify-between">
+              <h2 className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
                 <Building className="w-4 h-4 text-indigo-500" />
-                Company Details
+                Live Business Profile
               </h2>
+              <span className="text-[10px] text-slate-400 font-mono">PostgreSQL Live Data</span>
             </div>
-            
+
             <div className="grid grid-cols-1 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -140,7 +144,7 @@ export default function TaxSettingsPage() {
                   required
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="e.g. Leonex pvt limited"
+                  placeholder="e.g. Acme Manufacturing Pvt Ltd"
                   className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl h-9 text-xs font-semibold disabled:opacity-75 disabled:cursor-not-allowed"
                 />
               </div>
@@ -154,8 +158,8 @@ export default function TaxSettingsPage() {
                   required
                   value={companyAddress}
                   onChange={(e) => setCompanyAddress(e.target.value)}
-                  placeholder="e.g. Factory / Registered Office Address"
-                  className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl h-9 text-xs font-semibold disabled:opacity-75 disabled:cursor-not-allowed"
+                  placeholder="e.g. Factory / Registered Office Address, City, State, PIN"
+                  className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl h-9 text-xs font-semibold disabled:opacity-75 disabled:cursor-not-allowed"
                 />
               </div>
 
@@ -168,9 +172,9 @@ export default function TaxSettingsPage() {
                     disabled={!canEdit}
                     required
                     value={companyGstin}
-                    onChange={(e) => setCompanyGstin(e.target.value)}
-                    placeholder="e.g. 33AABCL0702C1ZG"
-                    className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl font-mono h-9 text-xs font-bold uppercase disabled:opacity-75 disabled:cursor-not-allowed"
+                    onChange={(e) => handleGstinChange(e.target.value)}
+                    placeholder="e.g. 33AAAAA0000A1Z5"
+                    className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl font-mono h-9 text-xs font-bold uppercase disabled:opacity-75 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -182,9 +186,9 @@ export default function TaxSettingsPage() {
                     disabled={!canEdit}
                     required
                     value={companyPan}
-                    onChange={(e) => setCompanyPan(e.target.value)}
-                    placeholder="e.g. AABCL0702C"
-                    className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl font-mono h-9 text-xs font-bold uppercase disabled:opacity-75 disabled:cursor-not-allowed"
+                    onChange={(e) => setCompanyPan(e.target.value.toUpperCase())}
+                    placeholder="e.g. AAAAA0000A"
+                    className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl font-mono h-9 text-xs font-bold uppercase disabled:opacity-75 disabled:cursor-not-allowed"
                   />
                 </div>
 
@@ -197,8 +201,8 @@ export default function TaxSettingsPage() {
                     required
                     value={companyMobile}
                     onChange={(e) => setCompanyMobile(e.target.value)}
-                    placeholder="e.g. +91 9360163523"
-                    className="bg-white dark:bg-slate-950 border border-slate-205 dark:border-slate-700 rounded-xl h-9 text-xs font-bold disabled:opacity-75 disabled:cursor-not-allowed"
+                    placeholder="e.g. +91 9876543210"
+                    className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl h-9 text-xs font-bold disabled:opacity-75 disabled:cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -218,9 +222,11 @@ export default function TaxSettingsPage() {
           {canEdit && (
             <Button
               type="submit"
+              disabled={saving}
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl flex items-center gap-1.5 px-6 py-2.5 shadow-md shadow-indigo-500/15 hover:shadow-indigo-500/25 transition-all text-xs cursor-pointer h-9"
             >
-              Save Configuration
+              <Save className="w-4 h-4" />
+              <span>{saving ? 'Saving...' : 'Save Configuration'}</span>
             </Button>
           )}
         </div>

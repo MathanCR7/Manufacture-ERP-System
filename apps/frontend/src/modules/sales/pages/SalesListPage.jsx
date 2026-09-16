@@ -10,6 +10,7 @@ import { jsPDF } from 'jspdf';
 import { Pagination } from '@/components/ui/Pagination';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import useAuthStore from '@/app/store/authStore';
+import useCompanyStore from '@/app/store/companyStore';
 
 export default function SalesListPage() {
   const navigate = useNavigate();
@@ -33,20 +34,12 @@ export default function SalesListPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  // Load Company & Tax Settings dynamically from localStorage
-  const savedSettings = localStorage.getItem('leonex_erp_tax_settings');
-  let compName = 'LEONEX SYSTEMS PRIVATE LIMITED';
-  let compAddr = 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
-  let compGstin = '33AABCL0702C1ZG';
-
-  if (savedSettings) {
-    try {
-      const parsed = JSON.parse(savedSettings);
-      if (parsed.companyName) compName = parsed.companyName;
-      if (parsed.companyAddress) compAddr = parsed.companyAddress;
-      if (parsed.companyGstin) compGstin = parsed.companyGstin;
-    } catch (e) { console.error(e); }
-  }
+  // Live Company & Tax Settings from store
+  const storeCompany = useCompanyStore((s) => s.company);
+  const fetchCompany = useCompanyStore((s) => s.fetchCompany);
+  const compName = storeCompany?.companyName || 'Company';
+  const compAddr = storeCompany?.companyAddress || 'Factory / Registered Office Address';
+  const compGstin = storeCompany?.companyGstin || '';
 
   const fetchSales = async () => {
     setLoading(true);
@@ -94,12 +87,13 @@ export default function SalesListPage() {
   }, [searchTerm]);
 
   // PDF compilers
-  const compileInvoiceA4PDF = (order, companySettings) => {
+  const compileInvoiceA4PDF = (order, settings) => {
     const doc = new jsPDF();
-    const companyName = companySettings?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
-    const companyAddress = companySettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
-    const companyGstin = companySettings?.companyGstin || '33AABCL0702C1ZG';
-    const companyMobile = companySettings?.companyMobile || '+91 9360163523';
+    const activeCompany = settings || storeCompany;
+    const companyName = activeCompany?.companyName || 'Company';
+    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = activeCompany?.companyGstin || '';
+    const companyMobile = activeCompany?.companyMobile || '';
 
     const customerGstin = order.customer?.gstin || order.taxRegNo || '';
     const customerState = customerGstin.trim().replace(/^GSTIN-/, '').substring(0, 2);
@@ -326,11 +320,12 @@ export default function SalesListPage() {
     return pdfBlob;
   };
 
-  const compileThermalBillPDF = (order, companySettings) => {
-    const companyName = companySettings?.companyName || 'LEONEX SYSTEMS PRIVATE LIMITED';
-    const companyAddress = companySettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Chennai, Tamil Nadu 600053';
-    const companyGstin = companySettings?.companyGstin || '33AABCL0702C1ZG';
-    const companyMobile = companySettings?.companyMobile || '+91 9360163523';
+  const compileThermalBillPDF = (order, settings) => {
+    const activeCompany = settings || storeCompany;
+    const companyName = activeCompany?.companyName || 'Company';
+    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = activeCompany?.companyGstin || '';
+    const companyMobile = activeCompany?.companyMobile || '';
 
     const items = order.items || [];
     const itemsCount = items.length;
@@ -616,16 +611,17 @@ export default function SalesListPage() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(5.5);
     doc.setTextColor(120, 120, 120);
-    doc.text('- Powered by Leonex ERP -', 40, curY, { align: 'center' });
+    doc.text(`- Powered by ${companyName || 'ERP System'} -`, 40, curY, { align: 'center' });
 
     return doc.output('blob');
   };
 
   useEffect(() => {
     if (selectedOrder) {
+      const activeSettings = companySettings || storeCompany;
       const blob = layoutMode === 'A4' 
-        ? compileInvoiceA4PDF(selectedOrder, companySettings) 
-        : compileThermalBillPDF(selectedOrder, companySettings);
+        ? compileInvoiceA4PDF(selectedOrder, activeSettings) 
+        : compileThermalBillPDF(selectedOrder, activeSettings);
       
       if (activePdfUrl) {
         URL.revokeObjectURL(activePdfUrl);

@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
+import useCompanyStore from '@/app/store/companyStore';
 
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -335,21 +336,14 @@ function ProductForm({ editId, onBack }) {
           });
           setCode(`FP-${String(maxNum + 1).padStart(6, '0')}`);
 
-          const saved = localStorage.getItem('leonex_erp_tax_settings');
-          if (saved) {
-            try {
-              const parsed = JSON.parse(saved);
-              if (parsed.taxes && Array.isArray(parsed.taxes)) {
-                const cgstTax = parsed.taxes.find(t => t.name.toUpperCase() === 'CGST');
-                const sgstTax = parsed.taxes.find(t => t.name.toUpperCase() === 'SGST');
-                const igstTax = parsed.taxes.find(t => t.name.toUpperCase() === 'IGST');
-                if (cgstTax) setCgst(Number(cgstTax.rate));
-                if (sgstTax) setSgst(Number(sgstTax.rate));
-                if (igstTax) setIgst(Number(igstTax.rate));
-              }
-            } catch (e) {
-              console.error('Error pre-populating tax in product', e);
-            }
+          const companySettings = useCompanyStore.getState().company;
+          if (companySettings?.taxes && Array.isArray(companySettings.taxes)) {
+            const cgstTax = companySettings.taxes.find(t => t.name.toUpperCase() === 'CGST');
+            const sgstTax = companySettings.taxes.find(t => t.name.toUpperCase() === 'SGST');
+            const igstTax = companySettings.taxes.find(t => t.name.toUpperCase() === 'IGST');
+            if (cgstTax) setCgst(Number(cgstTax.rate));
+            if (sgstTax) setSgst(Number(sgstTax.rate));
+            if (igstTax) setIgst(Number(igstTax.rate));
           }
         }
       } catch (err) {

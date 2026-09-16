@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
+import useCompanyStore from '@/app/store/companyStore';
 import { format } from 'date-fns';
 import DatePicker from '@/components/ui/DatePicker';
 import { Button } from '@/components/ui/button';
@@ -191,10 +192,11 @@ const handleDownloadPDF = (invoice, mode = 'download', pos = [], taxSettings = n
   const returnBase64 = mode === 'base64';
   const doc = new jsPDF();
   
-  const companyName = taxSettings?.companyName || 'Leonex pvt limited';
-  const companyAddress = taxSettings?.companyAddress || 'O.T, Madras Thiruvallur High Rd, opp. Stedeford Hospital, Krishnapuram Extension, Shobha Nagar, West Krishnapuram, Ambattur, Chennai, Tamil Nadu 600053';
-  const companyGstin = taxSettings?.companyGstin || 'BCLNU556863412';
-  const companyPan = taxSettings?.companyPan || (companyGstin.length >= 12 ? companyGstin.substring(2, 12) : 'BCLNU55686');
+  const storeCompany = useCompanyStore.getState().company || {};
+  const companyName = taxSettings?.companyName || storeCompany.companyName || 'Company';
+  const companyAddress = taxSettings?.companyAddress || storeCompany.companyAddress || 'Factory / Registered Office Address';
+  const companyGstin = taxSettings?.companyGstin || storeCompany.companyGstin || '';
+  const companyPan = taxSettings?.companyPan || storeCompany.companyPan || (companyGstin.length >= 12 ? companyGstin.substring(2, 12) : '');
 
   // Calculate totals
   const { taxRows, totalTaxable: taxable, isInterState, applyGst } = buildInvoiceTaxBreakdown({
@@ -1401,7 +1403,7 @@ Accounts Department`;
               </div>
               <div>
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Receiver Signature</p>
-                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">For {taxSettings?.companyName || 'Leonex pvt limited'}</p>
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300 mt-1">For {taxSettings?.companyName || useCompanyStore.getState().company?.companyName || 'Authorized Company'}</p>
               </div>
               <div className="border-t border-slate-200 dark:border-slate-800 border-dashed pt-2">
                 <p className="text-[10px] text-slate-400 text-center">Authorized Signatory (with Company Seal)</p>
