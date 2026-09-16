@@ -112,6 +112,19 @@ const AssetManagementPage = lazy(() => import('@/modules/asset-management/pages/
 // Finance Module
 const ExpensesPage = lazy(() => import('@/modules/finance/pages/ExpensesPage'));
 
+// Reports & Analytics Module Pages
+const RMConsumptionReportPage = lazy(() => import('@/pages/reports/RMConsumptionReportPage'));
+const ProductionBatchReportPage = lazy(() => import('@/pages/reports/ProductionBatchReportPage'));
+const ProductStockReportPage = lazy(() => import('@/pages/reports/ProductStockReportPage'));
+const SalesSummaryReportPage = lazy(() => import('@/pages/reports/SalesSummaryReportPage'));
+const ProductPerformanceReportPage = lazy(() => import('@/pages/reports/ProductPerformanceReportPage'));
+const PurchaseVendorReportPage = lazy(() => import('@/pages/reports/PurchaseVendorReportPage'));
+const QCLabReportPage = lazy(() => import('@/pages/reports/QCLabReportPage'));
+const WastageLossReportPage = lazy(() => import('@/pages/reports/WastageLossReportPage'));
+const StockAgingReportPage = lazy(() => import('@/pages/reports/StockAgingReportPage'));
+const OperatorProductivityReportPage = lazy(() => import('@/pages/reports/OperatorProductivityReportPage'));
+const ProfitabilityReportPage = lazy(() => import('@/pages/reports/ProfitabilityReportPage'));
+
 // Placeholder for missing modules
 const PlaceholderPage = ({ title }) => (
   <div className="flex h-64 items-center justify-center rounded-xl border border-dashed border-slate-300 dark:border-slate-700">
@@ -350,6 +363,29 @@ const AppRouter = () => {
               <Route path="/asset-management/invoice" element={<AssetManagementPage defaultTab="invoice" />} />
               <Route path="/asset-management/register" element={<AssetManagementPage defaultTab="register" />} />
               <Route path="/asset-management/reports" element={<AssetManagementPage defaultTab="reports" />} />
+            </Route>
+
+            {/* Reports & Analytics (Standard: Admin, Supervisor, Purchase Accountant) */}
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']} />}>
+              <Route path="/reports/rm-consumption" element={<RMConsumptionReportPage />} />
+              <Route path="/reports/production-batches" element={<ProductionBatchReportPage />} />
+              <Route path="/reports/product-stock" element={<ProductStockReportPage />} />
+              <Route path="/reports/sales-summary" element={<SalesSummaryReportPage />} />
+              <Route path="/reports/product-performance" element={<ProductPerformanceReportPage />} />
+              <Route path="/reports/purchase-vendor" element={<PurchaseVendorReportPage />} />
+              <Route path="/reports/qc-lab" element={<QCLabReportPage />} />
+              <Route path="/reports/wastage-loss" element={<WastageLossReportPage />} />
+              <Route path="/reports/stock-aging" element={<StockAgingReportPage />} />
+            </Route>
+
+            {/* Reports & Analytics (Operator Productivity: Admin & Supervisor) */}
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
+              <Route path="/reports/operator-productivity" element={<OperatorProductivityReportPage />} />
+            </Route>
+
+            {/* Reports & Analytics (Profitability: Admin & Purchase Accountant) */}
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'PURCHASE_ACCOUNTANT']} />}>
+              <Route path="/reports/profitability" element={<ProfitabilityReportPage />} />
             </Route>
 
             {/* Admin only */}

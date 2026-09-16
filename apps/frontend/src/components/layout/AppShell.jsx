@@ -819,6 +819,25 @@ const MENU_GROUPS = [
     ]
   },
   {
+    id: 'reports',
+    title: 'Reports & Analytics',
+    icon: FileText,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
+    items: [
+      { name: '🌾 RM Consumption', path: '/reports/rm-consumption', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '⚙️ Production Batches', path: '/reports/production-batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '📦 Product Stock', path: '/reports/product-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '💰 Sales Summary', path: '/reports/sales-summary', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '🏆 Product Performance', path: '/reports/product-performance', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '🛒 Purchase & Vendor', path: '/reports/purchase-vendor', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '🔬 QC / Lab Tests', path: '/reports/qc-lab', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '⚠️ Wastage & Loss', path: '/reports/wastage-loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '⏳ Stock Aging', path: '/reports/stock-aging', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '👷 Operator Productivity', path: '/reports/operator-productivity', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '📈 Profitability & Margin', path: '/reports/profitability', roles: ['MAIN_MASTER', 'PURCHASE_ACCOUNTANT'] },
+    ]
+  },
+  {
     id: 'system',
     title: 'System Config',
     icon: Settings,
@@ -844,6 +863,7 @@ const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'products' },
   { type: 'group', id: 'finance' },
   { type: 'group', id: 'sales' },
+  { type: 'group', id: 'reports' },
 
   { type: 'group', id: 'parties' },
   { type: 'group', id: 'itemSetup' },

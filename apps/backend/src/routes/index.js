@@ -54,6 +54,9 @@ router.use('/asset-management', authMiddleware, require('../modules/asset-manage
 // Finance Module
 router.use('/finance', authMiddleware, require('../modules/finance/finance.routes'));
 
+// Reports & Analytics Module
+router.use('/reports', authMiddleware, require('../modules/reports/reports.routes'));
+
 router.get('/health', (req, res) => res.status(200).json({ status: 'OK' }));
 
 module.exports = router;
