@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { 
   FlaskConical, Search, CheckCircle2, XCircle, AlertTriangle, Eye, 
-  ArrowUpRight, ClipboardList, Package, ChevronDown, X, Layers
+  ArrowUpRight, ClipboardList, X, Layers
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -85,21 +85,9 @@ function getMaterialsForLabTest(lt) {
   return materials;
 }
 
-// Compact, professional Materials Cell displaying first 2 items + "+X more" popover
-function MaterialsCell({ materials }) {
-  const [open, setOpen] = useState(false);
-  const popoverRef = useRef(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handleClickOutside = (e) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [open]);
+// Compact, professional Materials Cell displaying first 2 items + "+X more" direct link to view page
+function MaterialsCell({ materials, grnId }) {
+  const navigate = useNavigate();
 
   if (!materials || materials.length === 0) {
     return <span className="text-slate-400 italic text-xs">—</span>;
@@ -109,7 +97,7 @@ function MaterialsCell({ materials }) {
   const extraCount = materials.length - 2;
 
   return (
-    <div className="relative flex flex-col gap-1 py-0.5 max-w-[280px]">
+    <div className="flex flex-col gap-1 py-0.5 max-w-[280px]">
       {displayed.map((item, idx) => (
         <div key={idx} className="flex items-center gap-1.5 flex-wrap min-w-0">
           <span 
@@ -127,64 +115,22 @@ function MaterialsCell({ materials }) {
       ))}
 
       {extraCount > 0 && (
-        <div className="relative mt-0.5 inline-block">
+        <div className="mt-0.5">
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              setOpen(!open);
+              if (grnId) {
+                navigate(`/grn/view/${grnId}`);
+              }
             }}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
-            title="Click to view all materials"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 group"
+            title={`View all ${materials.length} items in report`}
           >
-            <Layers className="w-2.5 h-2.5 text-indigo-500" />
+            <Layers className="w-2.5 h-2.5 text-indigo-500 group-hover:text-indigo-600" />
             <span>+{extraCount} more</span>
-            <ChevronDown className={`w-2.5 h-2.5 text-indigo-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+            <ArrowUpRight className="w-2.5 h-2.5 text-indigo-400 group-hover:text-indigo-600 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </button>
-
-          {open && (
-            <div 
-              ref={popoverRef}
-              onClick={(e) => e.stopPropagation()}
-              className="absolute left-0 top-full mt-1.5 z-50 w-72 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-150"
-            >
-              <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-center gap-1.5">
-                  <Package className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                    All Materials in Test ({materials.length})
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              <div className="max-h-48 overflow-y-auto space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800/60 pr-1">
-                {materials.map((item, i) => (
-                  <div key={i} className="pt-1.5 first:pt-0 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate">
-                        {item.name}
-                      </div>
-                      {item.code && (
-                        <div className="text-[10px] font-mono text-slate-400">
-                          {item.code}
-                        </div>
-                      )}
-                    </div>
-                    <span className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
-                      #{i + 1}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -376,7 +322,7 @@ export default function LabResultsPage() {
                     <span className="text-slate-400 block font-semibold mb-1">
                       Materials / Items ({materials.length})
                     </span>
-                    <MaterialsCell materials={materials} />
+                    <MaterialsCell materials={materials} grnId={lt.grnId} />
                   </div>
                   <div>
                     <span className="text-slate-400 block font-semibold">PO Ref</span>
@@ -459,7 +405,7 @@ export default function LabResultsPage() {
                       <td className="px-4 py-2.5 font-mono font-bold text-violet-600 dark:text-violet-400">{lt.grn?.referenceNo}</td>
                       <td className="px-4 py-2.5 font-mono text-indigo-600 dark:text-indigo-400 font-semibold">{lt.grn?.po?.referenceNo}</td>
                       <td className="px-4 py-2.5 max-w-[280px]">
-                        <MaterialsCell materials={materials} />
+                        <MaterialsCell materials={materials} grnId={lt.grnId} />
                       </td>
                       <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300 font-bold truncate max-w-[150px]">{lt.grn?.po?.supplier?.name || '-'}</td>
                       <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400 font-semibold">{lt.tester?.name || '-'}</td>
