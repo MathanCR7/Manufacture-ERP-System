@@ -24,10 +24,10 @@ import _QRCode from 'react-qr-code';
 const QRCode = typeof _QRCode === 'function' ? _QRCode : (_QRCode?.default || _QRCode?.QRCode || 'div');
 
 const LAB_STATUS_CONFIG = {
-  PENDING_LAB:  { label: 'Pending Lab',   color: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400', icon: FlaskConical },
-  LAB_APPROVED: { label: 'Lab Approved',  color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400', icon: CheckCircle2 },
-  LAB_REJECTED: { label: 'Lab Rejected',  color: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400', icon: XCircle },
-  LAB_RESAMPLE: { label: 'Re-sample',     color: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400', icon: AlertTriangle },
+  PENDING_LAB:  { label: 'Pending Lab',   color: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400 border border-amber-300 dark:border-amber-700', icon: FlaskConical },
+  LAB_APPROVED: { label: 'Lab Approved',  color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700', icon: CheckCircle2 },
+  LAB_REJECTED: { label: 'Lab Rejected',  color: 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-400 border border-red-300 dark:border-red-700', icon: XCircle },
+  LAB_RESAMPLE: { label: 'Re-sample',     color: 'bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-400 border border-violet-300 dark:border-violet-700', icon: AlertTriangle },
 };
 
 function InfoRow({ icon: Icon, label, value }) {
@@ -44,12 +44,12 @@ function InfoRow({ icon: Icon, label, value }) {
 
 function LifecycleStep({ step, active, done, icon: Icon }) {
   return (
-    <div className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
+    <div className={`flex items-center gap-2 text-xs font-medium px-3 py-1.5 rounded-full border transition-all ${
       done ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:border-emerald-500/30'
-      : active ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/30'
+      : active ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400 dark:border-indigo-500/30 ring-1 ring-indigo-400'
       : 'bg-slate-50 text-slate-400 border-slate-200 dark:bg-slate-800 dark:border-slate-700'
     }`}>
-      <Icon className="w-3 h-3" />
+      <Icon className="w-3.5 h-3.5" />
       {step}
     </div>
   );
@@ -92,6 +92,20 @@ export default function PODetailPage() {
     enabled: !!id,
   });
 
+  // Fetch direct inventory batches for this PO
+  const { data: batchesData } = useQuery({
+    queryKey: ['inventory-batches-po', id],
+    queryFn: async () => {
+      try {
+        const res = await api.get(`/inventory?poId=${id}`);
+        return Array.isArray(res.data) ? res.data : [];
+      } catch {
+        return [];
+      }
+    },
+    enabled: !!id,
+  });
+
   const deleteMutation = useMutation({
     mutationFn: async () => { await api.delete(`/rm/po/${id}`); },
     onSuccess: () => {
@@ -109,6 +123,7 @@ export default function PODetailPage() {
       queryClient.invalidateQueries({ queryKey: ['po', id] });
       queryClient.invalidateQueries({ queryKey: ['pos'] });
       queryClient.invalidateQueries({ queryKey: ['grn-for-po-detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-batches-po', id] });
       queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
     }
   });
@@ -148,20 +163,36 @@ export default function PODetailPage() {
   const isPending = po.status === 'PENDING' || po.status === 'DRAFT';
   const isOrdered = po.status === 'ORDERED';
   const grn = po.grnReceives?.[0] || grnData;
+
+  // Resolve inventory batches from po, direct query, or grn
   const batches = (Array.isArray(po.inventoryBatches) && po.inventoryBatches.length > 0)
     ? po.inventoryBatches
-    : (Array.isArray(grn?.inventoryBatches) ? grn.inventoryBatches : []);
+    : ((Array.isArray(batchesData) && batchesData.length > 0)
+      ? batchesData
+      : (Array.isArray(grn?.inventoryBatches) ? grn.inventoryBatches : []));
+
   const labTest = grn?.labTest;
   const labCategoryParams = labTest?.categoryParams;
 
-  const isLabExempt = grn?.isExempt || (Array.isArray(po.items) && po.items.length > 0 && po.items.every(i => i.labTestRequired === false));
+  // Check if Lab Test is Exempt
+  const isLabExempt = 
+    grn?.isExempt === true ||
+    (Array.isArray(po.items) && po.items.length > 0 && po.items.every(i => i.labTestRequired === false)) ||
+    (Array.isArray(grn?.items) && grn.items.length > 0 && grn.items.every(i => i.labTestRequired === false));
+
   const hasBatches = Array.isArray(batches) && batches.length > 0;
   const hasPO = true;
   const hasGRN = !!grn;
   const hasLabTest = !!labTest;
-  const labApproved = labTest?.overallDecision === 'APPROVED';
-  const labRejected = labTest?.overallDecision === 'REJECTED';
-  const inInventory = hasBatches || grn?.inventoryStatus === 'UPLOADED' || (isLabExempt && (grn?.status === 'LAB_APPROVED' || po.status === 'APPROVED')) || labApproved;
+  const labApproved = labTest?.overallDecision === 'APPROVED' || (!isLabExempt && grn?.status === 'LAB_APPROVED');
+  const labRejected = labTest?.overallDecision === 'REJECTED' || grn?.status === 'LAB_REJECTED';
+
+  // In inventory condition
+  // - If exempt: directly updated into inventory once received / batches created / status uploaded
+  // - If lab required: only updated once lab inspection is APPROVED
+  const inInventory = isLabExempt
+    ? (hasBatches || hasGRN || po.status === 'APPROVED' || po.status === 'RECEIVED' || grn?.inventoryStatus === 'UPLOADED')
+    : (labApproved && (hasBatches || grn?.inventoryStatus === 'UPLOADED'));
 
   const qrData = JSON.stringify({
     poNumber: po.referenceNo,
@@ -172,6 +203,7 @@ export default function PODetailPage() {
     expectedDelivery: po.expectedDelivery,
     poAmount: po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount,
     paymentStatus: po.status,
+    labExempt: isLabExempt,
     ...(batches.length > 0 && {
       batchNumbers: batches.map(b => b.batchNumber).join(', '),
       inventoryStatus: 'STORED_IN_STOCK'
@@ -184,15 +216,13 @@ export default function PODetailPage() {
       receivedDate: grn.receivedDate,
       grnStatus: grn.status,
     }),
-    ...(labTest && {
+    ...(labTest && !isLabExempt && {
       labDecision: labTest.overallDecision,
       labNotes: labTest.labNotes,
       labParams: labCategoryParams,
     }),
     generatedAt: new Date().toISOString(),
   });
-
-  const labStatusCfg = grn ? (LAB_STATUS_CONFIG[grn.status] || (isLabExempt ? LAB_STATUS_CONFIG.LAB_APPROVED : LAB_STATUS_CONFIG.PENDING_LAB)) : null;
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -244,17 +274,48 @@ export default function PODetailPage() {
             <div className="flex items-center space-x-3 flex-wrap gap-2">
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">PO: {po.referenceNo || po.rmId}</h1>
               <StatusBadge status={po.status} />
-              {inInventory && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
-                  <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
-                  Inventory Updated
-                </span>
-              )}
-              {grn && labStatusCfg && !inInventory && (
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${labStatusCfg.color}`}>
-                  <labStatusCfg.icon className="w-3 h-3" />
-                  {labStatusCfg.label}
-                </span>
+
+              {/* Exact Badges based on Lab Policy: Exempt vs Required */}
+              {isLabExempt ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    Lab Exempt
+                  </span>
+                  {inInventory && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-800 dark:bg-teal-950/70 dark:text-teal-300 border border-teal-300 dark:border-teal-700">
+                      <PackageCheck className="w-3.5 h-3.5 text-teal-600" />
+                      Inventory Updated
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  {hasGRN && !labApproved && !labRejected && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                      <FlaskConical className="w-3.5 h-3.5 text-amber-600" />
+                      Pending Lab
+                    </span>
+                  )}
+                  {labApproved && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      Lab Approved
+                    </span>
+                  )}
+                  {labRejected && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-100 text-red-800 dark:bg-red-950/70 dark:text-red-300 border border-red-300 dark:border-red-700">
+                      <XCircle className="w-3.5 h-3.5 text-red-600" />
+                      Lab Rejected
+                    </span>
+                  )}
+                  {inInventory && (
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-800 dark:bg-teal-950/70 dark:text-teal-300 border border-teal-300 dark:border-teal-700">
+                      <PackageCheck className="w-3.5 h-3.5 text-teal-600" />
+                      Inventory Updated
+                    </span>
+                  )}
+                </>
               )}
             </div>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
@@ -284,7 +345,7 @@ export default function PODetailPage() {
                     <AlertDialogTitle>Receive Goods & Update Inventory?</AlertDialogTitle>
                     <AlertDialogDescription>
                       This will mark the purchase order as received.
-                      {isLabExempt ? ' Because this material does not require a lab test, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed directly to the lab quality inspection queue.'}
+                      {isLabExempt ? ' Because this material is lab exempt, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed to the lab quality inspection queue.'}
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -314,7 +375,7 @@ export default function PODetailPage() {
                   <AlertDialogTitle>Receive Goods & Update Inventory?</AlertDialogTitle>
                   <AlertDialogDescription>
                     This will mark the purchase order as received.
-                    {isLabExempt ? ' Because this material does not require a lab test, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed directly to the lab quality inspection queue.'}
+                    {isLabExempt ? ' Because this material is lab exempt, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed to the lab quality inspection queue.'}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -378,30 +439,61 @@ export default function PODetailPage() {
         </div>
       </div>
 
-      {/* Lifecycle Steps */}
+      {/* Procurement & Inventory Lifecycle Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
         <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-3">Procurement & Inventory Lifecycle</p>
         <div className="flex flex-wrap items-center gap-2">
-          <LifecycleStep step="PO Raised" active={hasPO && !hasGRN} done={hasGRN} icon={FileText} />
+          {/* Step 1: PO Raised */}
+          <LifecycleStep step="PO Raised" active={false} done={true} icon={FileText} />
+          
           <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-          <LifecycleStep step="GRN Received" active={hasGRN && !hasLabTest && !isLabExempt} done={hasLabTest || isLabExempt || hasGRN} icon={Truck} />
+          
+          {/* Step 2: GRN Received */}
+          <LifecycleStep 
+            step="GRN Received" 
+            active={isOrdered && !hasGRN} 
+            done={hasGRN || inInventory} 
+            icon={Truck} 
+          />
+          
           <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
+          
+          {/* Step 3: Lab Route (Exempt vs Lab Testing) */}
           {isLabExempt ? (
-            <LifecycleStep step="Lab Exempt (Direct)" active={false} done={hasGRN || inInventory} icon={ShieldCheck} />
+            <LifecycleStep 
+              step="Lab Exempt" 
+              active={false} 
+              done={hasGRN || inInventory} 
+              icon={ShieldCheck} 
+            />
           ) : (
-            <LifecycleStep step="Lab Testing" active={hasLabTest && !labApproved && !labRejected} done={labApproved || labRejected} icon={FlaskConical} />
+            <LifecycleStep 
+              step={labRejected ? "Lab Rejected" : (labApproved ? "Lab Approved" : "Lab Testing")} 
+              active={hasGRN && !labApproved && !labRejected} 
+              done={labApproved} 
+              icon={FlaskConical} 
+            />
           )}
+          
           <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-          <LifecycleStep step="Inventory Updated" active={hasGRN && !inInventory} done={inInventory} icon={BarChart3} />
+          
+          {/* Step 4: Inventory Updated */}
+          <LifecycleStep 
+            step="Inventory Updated" 
+            active={!isLabExempt && hasGRN && !labApproved && !labRejected} 
+            done={inInventory} 
+            icon={BarChart3} 
+          />
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left: Details */}
         <div className="md:col-span-2 space-y-6">
-          {/* Dedicated Updated Inventory & Stock Batches Card */}
-          {(inInventory || batches.length > 0 || (grn && (grn.status === 'LAB_APPROVED' || grn.inventoryStatus === 'UPLOADED'))) && (
-            <div className="bg-white dark:bg-slate-900 border-2 border-emerald-400/60 dark:border-emerald-700/60 rounded-xl p-6 shadow-md shadow-emerald-50 dark:shadow-none relative overflow-hidden">
+
+          {/* Section: Inventory Updated & Stock Batches (When Lab Exempt OR Lab Approved) */}
+          {inInventory && (
+            <div className="bg-white dark:bg-slate-900 border-2 border-emerald-400/70 dark:border-emerald-700/60 rounded-xl p-6 shadow-md shadow-emerald-50 dark:shadow-none relative overflow-hidden">
               <div className="absolute top-0 right-0 w-36 h-36 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
 
               <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -414,14 +506,24 @@ export default function PODetailPage() {
                       Updated Inventory & Stock Batches
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Raw material stock has been updated with assigned sequential batch traceability.
+                      {isLabExempt 
+                        ? 'Goods were lab-exempt and directly credited to warehouse stock with sequential batch tracking.' 
+                        : 'Goods passed quality lab testing and have been stored into raw material warehouse stock.'}
                     </p>
                   </div>
                 </div>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  Inventory Updated
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {isLabExempt && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      Lab Exempt
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    Inventory Updated
+                  </span>
+                </div>
               </div>
 
               {batches.length > 0 ? (
@@ -434,7 +536,7 @@ export default function PODetailPage() {
                       <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
                         <div>
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-sm font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                            <span className="font-mono text-sm font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
                               {batch.batchNumber}
                             </span>
                             <button
@@ -468,7 +570,7 @@ export default function PODetailPage() {
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-2 border-t border-slate-200/70 dark:border-slate-700/60 text-slate-600 dark:text-slate-300">
                         <div>
-                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Warehouse</span>
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Warehouse Location</span>
                           <span className="font-semibold text-slate-800 dark:text-slate-200">{batch.storageLocation || 'Main RM Warehouse'}</span>
                         </div>
                         <div>
@@ -480,7 +582,7 @@ export default function PODetailPage() {
                           <span className="font-medium">{batch.expiryDate ? format(new Date(batch.expiryDate), 'dd MMM yyyy') : 'No Expiry'}</span>
                         </div>
                         <div>
-                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Stock Added</span>
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Stock Added Date</span>
                           <span className="font-medium">{batch.createdAt ? format(new Date(batch.createdAt), 'dd MMM yyyy, HH:mm') : '—'}</span>
                         </div>
                       </div>
@@ -522,6 +624,44 @@ export default function PODetailPage() {
                   </Button>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Section: Lab Testing Queue Pending (When Lab Test Required and not yet approved) */}
+          {!isLabExempt && hasGRN && !labApproved && !labRejected && (
+            <div className="bg-amber-50/70 dark:bg-amber-950/20 border-2 border-amber-300 dark:border-amber-700/60 rounded-xl p-6 shadow-sm">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                    <FlaskConical className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-amber-900 dark:text-amber-200">
+                      Quality Lab Testing in Progress
+                    </h3>
+                    <p className="text-xs text-amber-700 dark:text-amber-400">
+                      Material must be tested and approved by QA/QC before inventory stock is updated.
+                    </p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-200 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                  <Clock className="w-3.5 h-3.5" />
+                  Pending Lab Test
+                </span>
+              </div>
+              <div className="mt-3 flex items-center justify-between pt-2 border-t border-amber-200 dark:border-amber-800/50 text-xs flex-wrap gap-2">
+                <span className="text-amber-800 dark:text-amber-300">
+                  GRN Reference: <strong className="font-mono">{grn.referenceNo}</strong>
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs border-amber-400 text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-950"
+                  onClick={() => navigate('/grn/lab-tests')}
+                >
+                  <FlaskConical className="w-3.5 h-3.5 mr-1" /> View in Lab Test Queue
+                </Button>
+              </div>
             </div>
           )}
 
@@ -809,8 +949,8 @@ export default function PODetailPage() {
             </div>
           )}
 
-          {/* Lab Test Results */}
-          {labTest && (
+          {/* Lab Test Results (Only if NOT exempt and lab test performed) */}
+          {!isLabExempt && labTest && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
               <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
                 <FlaskConical className="w-4 h-4 text-violet-500" /> Lab Test Results
@@ -911,14 +1051,14 @@ export default function PODetailPage() {
 
             <div className="w-full space-y-1.5 text-xs">
               {[
-                { label: 'PO Details', done: hasPO },
-                { label: 'GRN Receipt', done: hasGRN },
-                { label: isLabExempt ? 'Lab Exempt (Direct)' : 'Lab Results', done: isLabExempt ? (hasGRN || inInventory) : labApproved },
+                { label: 'PO Details', done: true },
+                { label: 'GRN Receipt', done: hasGRN || inInventory },
+                { label: isLabExempt ? 'Lab Exempt' : 'Lab Quality Test', done: isLabExempt ? (hasGRN || inInventory) : labApproved },
                 { label: 'Inventory Updated', done: inInventory },
               ].map(s => (
                 <div key={s.label} className={`flex items-center gap-2 px-2 py-1 rounded ${s.done ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-slate-400'}`}>
                   {s.done
-                    ? <CheckCircle2 className="w-3.5 h-3.5" />
+                    ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     : <Clock className="w-3.5 h-3.5" />
                   }
                   {s.label}
@@ -958,9 +1098,7 @@ export default function PODetailPage() {
                 { label: 'GRN NO', value: grn.referenceNo },
                 { label: 'RCVD DATE', value: grn.receivedDate ? format(new Date(grn.receivedDate), 'dd-MM-yyyy') : '—' },
               ] : []),
-              ...(labTest ? [
-                { label: 'LAB RESULT', value: labTest.overallDecision || '—' },
-              ] : []),
+              { label: 'QUALITY', value: isLabExempt ? 'LAB EXEMPT' : (labApproved ? 'LAB APPROVED' : (labRejected ? 'LAB REJECTED' : 'PENDING LAB')) },
               { label: 'PRINTED', value: format(new Date(), 'dd-MM-yyyy HH:mm') },
             ].map(({ label, value }) => (
               <div key={label} className="flex justify-between border-b border-gray-300 pb-0.5 items-center">

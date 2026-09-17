@@ -122,11 +122,12 @@ router.get('/',
   authenticateToken,
   async (req, res, next) => {
     try {
-      const { status, rawMaterialId, supplierId } = req.query;
+      const { status, rawMaterialId, supplierId, poId } = req.query;
       const where = {};
       if (status) where.status = status;
       if (rawMaterialId) where.rawMaterialId = rawMaterialId;
       if (supplierId) where.supplierId = supplierId;
+      if (poId) where.poId = poId;
 
       const batches = await prisma.inventoryBatch.findMany({
         where,
