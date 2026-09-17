@@ -808,6 +808,7 @@ router.get('/lab-results',
           testResults: true,
           grn: {
             include: {
+              items: true,
               po: { include: { supplier: true } },
               receiver: { select: { name: true } },
             }

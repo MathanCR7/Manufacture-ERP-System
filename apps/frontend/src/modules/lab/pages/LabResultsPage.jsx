@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { 
   FlaskConical, Search, CheckCircle2, XCircle, AlertTriangle, Eye, 
-  ArrowUpRight, ClipboardList
+  ArrowUpRight, ClipboardList, Package, ChevronDown, X, Layers
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,158 @@ function DecisionBadge({ decision }) {
   );
 }
 
+// Helper to extract all distinct materials from a lab test record
+function getMaterialsForLabTest(lt) {
+  const materials = [];
+  const seen = new Set();
+
+  const addMaterial = (name, code) => {
+    if (!name || typeof name !== 'string') return;
+    const cleanName = name.trim();
+    if (!cleanName) return;
+    const cleanCode = code ? String(code).trim() : null;
+    const key = `${cleanName.toLowerCase()}__${(cleanCode || '').toLowerCase()}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      materials.push({ name: cleanName, code: cleanCode });
+    }
+  };
+
+  // 1. From testResults
+  if (Array.isArray(lt.testResults) && lt.testResults.length > 0) {
+    lt.testResults.forEach(tr => {
+      addMaterial(tr.rmName, tr.rmId);
+    });
+  }
+
+  // 2. From grn.items
+  if (Array.isArray(lt.grn?.items) && lt.grn.items.length > 0) {
+    lt.grn.items.forEach(gi => {
+      addMaterial(gi.rmName, gi.rmId);
+    });
+  }
+
+  // 3. From grn.po.items (JSON array)
+  if (Array.isArray(lt.grn?.po?.items) && lt.grn.po.items.length > 0) {
+    lt.grn.po.items.forEach(pi => {
+      addMaterial(pi.name || pi.materialName || pi.rmName, pi.rmId || pi.materialCode || pi.code);
+    });
+  }
+
+  // 4. Fallback from grn.po.name
+  if (materials.length === 0 && lt.grn?.po?.name) {
+    addMaterial(lt.grn.po.name, lt.grn.po.rmId);
+  }
+
+  return materials;
+}
+
+// Compact, professional Materials Cell displaying first 2 items + "+X more" popover
+function MaterialsCell({ materials }) {
+  const [open, setOpen] = useState(false);
+  const popoverRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (e) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [open]);
+
+  if (!materials || materials.length === 0) {
+    return <span className="text-slate-400 italic text-xs">—</span>;
+  }
+
+  const displayed = materials.slice(0, 2);
+  const extraCount = materials.length - 2;
+
+  return (
+    <div className="relative flex flex-col gap-1 py-0.5 max-w-[280px]">
+      {displayed.map((item, idx) => (
+        <div key={idx} className="flex items-center gap-1.5 flex-wrap min-w-0">
+          <span 
+            className="font-semibold text-slate-800 dark:text-slate-200 text-xs truncate max-w-[190px]" 
+            title={item.name}
+          >
+            {item.name}
+          </span>
+          {item.code && (
+            <span className="font-mono text-[9px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded border border-slate-200/80 dark:border-slate-700/80 shrink-0">
+              {item.code}
+            </span>
+          )}
+        </div>
+      ))}
+
+      {extraCount > 0 && (
+        <div className="relative mt-0.5 inline-block">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpen(!open);
+            }}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95"
+            title="Click to view all materials"
+          >
+            <Layers className="w-2.5 h-2.5 text-indigo-500" />
+            <span>+{extraCount} more</span>
+            <ChevronDown className={`w-2.5 h-2.5 text-indigo-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+          </button>
+
+          {open && (
+            <div 
+              ref={popoverRef}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute left-0 top-full mt-1.5 z-50 w-72 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-150"
+            >
+              <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                    All Materials in Test ({materials.length})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="max-h-48 overflow-y-auto space-y-1.5 divide-y divide-slate-100 dark:divide-slate-800/60 pr-1">
+                {materials.map((item, i) => (
+                  <div key={i} className="pt-1.5 first:pt-0 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate">
+                        {item.name}
+                      </div>
+                      {item.code && (
+                        <div className="text-[10px] font-mono text-slate-400">
+                          {item.code}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-800 px-1.5 py-0.5 rounded shrink-0">
+                      #{i + 1}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LabResultsPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
@@ -62,9 +214,20 @@ export default function LabResultsPage() {
   }, [search, filter]);
 
   const filtered = labTests.filter(lt => {
-    const matchSearch = lt.grn?.referenceNo?.toLowerCase().includes(search.toLowerCase()) ||
+    const materials = getMaterialsForLabTest(lt);
+    const materialMatch = materials.some(m => 
+      (m.name && m.name.toLowerCase().includes(search.toLowerCase())) || 
+      (m.code && m.code.toLowerCase().includes(search.toLowerCase()))
+    );
+
+    const matchSearch = 
+      lt.grn?.referenceNo?.toLowerCase().includes(search.toLowerCase()) ||
       lt.grn?.po?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      lt.grn?.po?.referenceNo?.toLowerCase().includes(search.toLowerCase());
+      lt.grn?.po?.referenceNo?.toLowerCase().includes(search.toLowerCase()) ||
+      lt.grn?.po?.supplier?.name?.toLowerCase().includes(search.toLowerCase()) ||
+      lt.tester?.name?.toLowerCase().includes(search.toLowerCase()) ||
+      materialMatch;
+
     const matchFilter = filter === 'ALL' || lt.overallDecision === filter;
     return matchSearch && matchFilter;
   });
@@ -83,7 +246,7 @@ export default function LabResultsPage() {
       {/* Top Header Section */}
       <div className="flex flex-col gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-gradient-to-tr from-violet-650 to-indigo-650 dark:from-violet-500/20 dark:to-indigo-500/20 text-white dark:text-indigo-400 rounded-xl shadow-sm shrink-0">
+          <div className="p-2.5 bg-gradient-to-tr from-violet-600 to-indigo-600 dark:from-violet-500/20 dark:to-indigo-500/20 text-white dark:text-indigo-400 rounded-2xl shadow-sm shrink-0">
             <FlaskConical className="w-5 h-5" />
           </div>
           <div>
@@ -94,7 +257,7 @@ export default function LabResultsPage() {
 
         {/* Filters and Search Bar Area */}
         <div className="flex flex-col md:flex-row justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-sm">
-          <div className="flex rounded-xl p-1 bg-slate-105 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 w-full md:w-auto overflow-x-auto scrollbar-none gap-0.5">
+          <div className="flex rounded-xl p-1 bg-slate-100 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 w-full md:w-auto overflow-x-auto scrollbar-none gap-0.5">
             {['ALL', 'APPROVED', 'REJECTED', 'NEED_SAMPLE'].map(f => (
               <button
                 key={f}
@@ -113,11 +276,20 @@ export default function LabResultsPage() {
           <div className="relative w-full md:w-80">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <Input 
-              placeholder="Search reference, material, PO..." 
+              placeholder="Search reference, material, code, supplier..." 
               value={search} 
               onChange={e => setSearch(e.target.value)} 
-              className="pl-9 h-9 text-xs w-full bg-white dark:bg-slate-950 rounded-xl border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-indigo-500/20" 
+              className="pl-9 pr-8 h-9 text-xs w-full bg-white dark:bg-slate-950 rounded-xl border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-indigo-500/20" 
             />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -130,7 +302,7 @@ export default function LabResultsPage() {
             value: labTests.length, 
             icon: ClipboardList, 
             bg: 'bg-slate-50 dark:bg-slate-800/40', 
-            text: 'text-slate-650 dark:text-slate-350' 
+            text: 'text-slate-600 dark:text-slate-300' 
           },
           { 
             label: 'Approved', 
@@ -143,8 +315,8 @@ export default function LabResultsPage() {
             label: 'Rejected', 
             value: labTests.filter(l => l.overallDecision === 'REJECTED').length, 
             icon: XCircle, 
-            bg: 'bg-rose-50 dark:bg-rose-955/20', 
-            text: 'text-rose-600 dark:text-rose-455' 
+            bg: 'bg-rose-50 dark:bg-rose-950/20', 
+            text: 'text-rose-600 dark:text-rose-400' 
           },
           { 
             label: 'Re-sample', 
@@ -177,82 +349,87 @@ export default function LabResultsPage() {
           ))
         ) : paginatedLabTests.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 text-center shadow-sm">
-            <FlaskConical className="w-10 h-10 text-slate-350 mx-auto mb-2 opacity-50" />
+            <FlaskConical className="w-10 h-10 text-slate-300 mx-auto mb-2 opacity-50" />
             <p className="text-slate-500 dark:text-slate-400 font-bold text-sm">No lab results found</p>
           </div>
         ) : (
-          paginatedLabTests.map((lt) => (
-            <div key={lt.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-4 shadow-sm space-y-3 hover:shadow transition-shadow relative overflow-hidden">
-              <div className={`absolute top-0 left-0 right-0 h-1 ${
-                lt.overallDecision === 'APPROVED' ? 'bg-emerald-500' :
-                lt.overallDecision === 'REJECTED' ? 'bg-rose-500' : 'bg-amber-500'
-              }`} />
+          paginatedLabTests.map((lt) => {
+            const materials = getMaterialsForLabTest(lt);
 
-              <div className="flex justify-between items-start">
-                <div className="space-y-0.5">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">GRN Ref</span>
-                  <div className="font-mono font-bold text-violet-650 dark:text-violet-400 text-xs">{lt.grn?.referenceNo}</div>
-                </div>
-                <DecisionBadge decision={lt.overallDecision} />
-              </div>
+            return (
+              <div key={lt.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm space-y-3 hover:shadow transition-shadow relative overflow-hidden">
+                <div className={`absolute top-0 left-0 right-0 h-1 ${
+                  lt.overallDecision === 'APPROVED' ? 'bg-emerald-500' :
+                  lt.overallDecision === 'REJECTED' ? 'bg-rose-500' : 'bg-amber-500'
+                }`} />
 
-              <div className="grid grid-cols-2 gap-y-2 gap-x-2 text-[11px] border-t border-b border-slate-105 dark:border-slate-800 py-2.5">
-                <div className="col-span-2">
-                  <span className="text-slate-400 block font-semibold">Material</span>
-                  <div className="font-bold text-slate-800 dark:text-slate-200">{lt.grn?.po?.name}</div>
-                  <div className="text-[9px] text-slate-500 font-mono mt-0.5">{lt.grn?.po?.rmId}</div>
+                <div className="flex justify-between items-start">
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">GRN Ref</span>
+                    <div className="font-mono font-bold text-violet-600 dark:text-violet-400 text-xs">{lt.grn?.referenceNo}</div>
+                  </div>
+                  <DecisionBadge decision={lt.overallDecision} />
                 </div>
-                <div>
-                  <span className="text-slate-400 block font-semibold">PO Ref</span>
-                  <span className="font-mono text-slate-700 dark:text-slate-300 font-bold">{lt.grn?.po?.referenceNo}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block font-semibold">Supplier</span>
-                  <span className="text-slate-700 dark:text-slate-300 truncate block font-bold">{lt.grn?.po?.supplier?.name || '-'}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block font-semibold">Tested By</span>
-                  <span className="text-slate-700 dark:text-slate-350 block font-bold">{lt.tester?.name || '-'}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 block font-semibold">Test Date</span>
-                  <span className="text-slate-700 dark:text-slate-350 block font-bold">
-                    {lt.createdAt ? format(new Date(lt.createdAt), 'dd MMM yy HH:mm') : '-'}
-                  </span>
-                </div>
-              </div>
 
-              <div className="flex justify-between items-center pt-1.5">
-                <div className="text-[11px] text-slate-500 font-semibold">
-                  <span className="font-bold text-slate-800 dark:text-slate-200">{lt.testResults?.length || 0}</span> checks verified
+                <div className="grid grid-cols-2 gap-y-2.5 gap-x-2 text-[11px] border-t border-b border-slate-100 dark:border-slate-800 py-2.5">
+                  <div className="col-span-2">
+                    <span className="text-slate-400 block font-semibold mb-1">
+                      Materials / Items ({materials.length})
+                    </span>
+                    <MaterialsCell materials={materials} />
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold">PO Ref</span>
+                    <span className="font-mono text-slate-700 dark:text-slate-300 font-bold">{lt.grn?.po?.referenceNo}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold">Supplier</span>
+                    <span className="text-slate-700 dark:text-slate-300 truncate block font-bold">{lt.grn?.po?.supplier?.name || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold">Tested By</span>
+                    <span className="text-slate-700 dark:text-slate-300 block font-bold">{lt.tester?.name || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-semibold">Test Date</span>
+                    <span className="text-slate-700 dark:text-slate-300 block font-bold">
+                      {lt.createdAt ? format(new Date(lt.createdAt), 'dd MMM yy HH:mm') : '-'}
+                    </span>
+                  </div>
                 </div>
-                <Button 
-                  onClick={() => navigate(`/grn/view/${lt.grnId}`)} 
-                  className="bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 text-indigo-650 dark:text-indigo-400 rounded-xl px-3.5 py-1.5 h-8 text-xs font-bold flex items-center gap-1 border border-transparent shadow-none"
-                >
-                  View Report <ArrowUpRight className="w-3.5 h-3.5" />
-                </Button>
+
+                <div className="flex justify-between items-center pt-1.5">
+                  <div className="text-[11px] text-slate-500 font-semibold">
+                    <span className="font-bold text-slate-800 dark:text-slate-200">{lt.testResults?.length || 0}</span> checks verified
+                  </div>
+                  <Button 
+                    onClick={() => navigate(`/grn/view/${lt.grnId}`)} 
+                    className="bg-indigo-50/80 hover:bg-indigo-100 dark:bg-indigo-950/20 dark:hover:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl px-3.5 py-1.5 h-8 text-xs font-bold flex items-center gap-1 border border-transparent shadow-none"
+                  >
+                    View Report <ArrowUpRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
       {/* Desktop table view (visible only on screens md and larger) */}
-      <div className="hidden md:block bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
+      <div className="hidden md:block bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
-            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-555 dark:text-slate-455 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-widest text-[9px]">
+            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-widest text-[9px]">
               <tr>
-                <th className="px-4 py-3.5 font-bold">#</th>
+                <th className="px-4 py-3.5 font-bold w-10 text-center">#</th>
                 <th className="px-4 py-3.5 font-bold">GRN Ref</th>
                 <th className="px-4 py-3.5 font-bold">PO Ref</th>
-                <th className="px-4 py-3.5 font-bold">Material</th>
+                <th className="px-4 py-3.5 font-bold min-w-[200px] max-w-[280px]">Material / Items</th>
                 <th className="px-4 py-3.5 font-bold">Supplier</th>
                 <th className="px-4 py-3.5 font-bold">Tested By</th>
                 <th className="px-4 py-3.5 font-bold">Test Date</th>
-                <th className="px-4 py-3.5 font-bold">Parameters</th>
-                <th className="px-4 py-3.5 font-bold">Decision</th>
+                <th className="px-4 py-3.5 font-bold text-center">Parameters</th>
+                <th className="px-4 py-3.5 font-bold text-center">Decision</th>
                 <th className="px-4 py-3.5 font-bold text-center">Action</th>
               </tr>
             </thead>
@@ -268,46 +445,50 @@ export default function LabResultsPage() {
               ) : paginatedLabTests.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-12 text-center">
-                    <FlaskConical className="w-8 h-8 text-slate-350 mx-auto mb-2 opacity-50" />
+                    <FlaskConical className="w-8 h-8 text-slate-300 mx-auto mb-2 opacity-50" />
                     <p className="text-slate-500 dark:text-slate-400 font-bold text-sm">No lab results found</p>
                   </td>
                 </tr>
               ) : (
-                paginatedLabTests.map((lt, idx) => (
-                  <tr key={lt.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition-colors border-b border-slate-100 dark:border-slate-800/80">
-                    <td className="px-4 py-2.5 text-slate-400 font-mono">{(currentPage - 1) * ITEMS_PER_PAGE + idx + 1}</td>
-                    <td className="px-4 py-2.5 font-mono font-bold text-violet-650 dark:text-violet-400">{lt.grn?.referenceNo}</td>
-                    <td className="px-4 py-2.5 font-mono text-indigo-650 dark:text-indigo-400 font-semibold">{lt.grn?.po?.referenceNo}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="font-semibold text-slate-900 dark:text-slate-100">{lt.grn?.po?.name}</div>
-                      <div className="text-[9px] text-slate-450 font-mono mt-0.5">{lt.grn?.po?.rmId}</div>
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-650 dark:text-slate-400 font-bold truncate max-w-[150px]">{lt.grn?.po?.supplier?.name || '-'}</td>
-                    <td className="px-4 py-2.5 text-slate-650 dark:text-slate-400 font-semibold">{lt.tester?.name || '-'}</td>
-                    <td className="px-4 py-2.5 text-slate-650 dark:text-slate-405 font-medium">
-                      {lt.createdAt ? format(new Date(lt.createdAt), 'dd MMM yyyy HH:mm') : '-'}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-650 dark:text-slate-400 font-bold">{lt.testResults?.length || 0}</td>
-                    <td className="px-4 py-2.5"><DecisionBadge decision={lt.overallDecision} /></td>
-                    <td className="px-4 py-2.5 text-center">
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => navigate(`/grn/view/${lt.grnId}`)} 
-                        className="h-8 w-8 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-none"
-                      >
-                        <Eye className="w-4.5 h-4.5" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))
+                paginatedLabTests.map((lt, idx) => {
+                  const materials = getMaterialsForLabTest(lt);
+
+                  return (
+                    <tr key={lt.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors border-b border-slate-100 dark:border-slate-800/80">
+                      <td className="px-4 py-2.5 text-center text-slate-400 font-mono">{(currentPage - 1) * ITEMS_PER_PAGE + idx + 1}</td>
+                      <td className="px-4 py-2.5 font-mono font-bold text-violet-600 dark:text-violet-400">{lt.grn?.referenceNo}</td>
+                      <td className="px-4 py-2.5 font-mono text-indigo-600 dark:text-indigo-400 font-semibold">{lt.grn?.po?.referenceNo}</td>
+                      <td className="px-4 py-2.5 max-w-[280px]">
+                        <MaterialsCell materials={materials} />
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-700 dark:text-slate-300 font-bold truncate max-w-[150px]">{lt.grn?.po?.supplier?.name || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400 font-semibold">{lt.tester?.name || '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-600 dark:text-slate-400 font-medium whitespace-nowrap">
+                        {lt.createdAt ? format(new Date(lt.createdAt), 'dd MMM yyyy HH:mm') : '-'}
+                      </td>
+                      <td className="px-4 py-2.5 text-center font-bold text-slate-700 dark:text-slate-300">{lt.testResults?.length || 0}</td>
+                      <td className="px-4 py-2.5 text-center"><DecisionBadge decision={lt.overallDecision} /></td>
+                      <td className="px-4 py-2.5 text-center">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => navigate(`/grn/view/${lt.grnId}`)} 
+                          className="h-8 w-8 rounded-xl text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors shadow-none"
+                          title="View Full Quality Report"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
 
         {/* Footer info & Pagination Controls */}
-        <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
+        <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 flex flex-col sm:flex-row justify-between items-center gap-3">
           <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
             Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} lab records
           </div>
@@ -320,7 +501,7 @@ export default function LabResultsPage() {
             />
           </div>
 
-          <div className="text-[10px] text-slate-450 font-bold order-3">
+          <div className="text-[10px] text-slate-400 font-bold order-3">
             Matched Filters: {filtered.length} entries
           </div>
         </div>
