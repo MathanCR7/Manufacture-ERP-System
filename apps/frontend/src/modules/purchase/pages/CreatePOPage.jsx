@@ -6,7 +6,8 @@ import { format } from 'date-fns';
 import { 
   CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown, 
   Plus, Minus, AlertTriangle, FileText, CheckCircle2, Package, Tag, Calculator, 
-  Info, Trash2, Scale, Building2, CreditCard, ShieldCheck, ArrowRight, Layers 
+  Info, Trash2, Scale, Building2, CreditCard, ShieldCheck, ArrowRight, Layers,
+  Truck, Calendar, Clock
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import Swal from 'sweetalert2';
@@ -446,6 +447,16 @@ export default function CreatePOPage({ onBack }) {
     shipping: '0',
     otherCharges: '0',
     notes: '',
+
+    // Supplier Invoice & Logistics / E-Way Bill Details
+    supplierInvoiceNo: '',
+    supplierInvoiceDate: null,
+    transportMode: 'ROAD',
+    transporterName: '',
+    vehicleNumber: '',
+    ewayBillNo: '',
+    ewayBillDate: null,
+    tillDate: null,
   });
 
   const [items, setItems] = useState([]);
@@ -738,6 +749,16 @@ export default function CreatePOPage({ onBack }) {
       items: items,
       quotationId: location.state?.prefillFromQuotation?.quotationId || null,
       notes: formData.notes || null,
+
+      // Supplier Invoice & Logistics / E-Way Bill Details
+      supplierInvoiceNo: formData.supplierInvoiceNo?.trim() || null,
+      supplierInvoiceDate: formData.supplierInvoiceDate ? formData.supplierInvoiceDate.toISOString() : null,
+      transportMode: formData.transportMode || 'ROAD',
+      transporterName: formData.transporterName?.trim() || null,
+      vehicleNumber: formData.vehicleNumber?.trim()?.toUpperCase() || null,
+      ewayBillNo: formData.ewayBillNo?.trim() || null,
+      ewayBillDate: formData.ewayBillDate ? formData.ewayBillDate.toISOString() : null,
+      tillDate: formData.tillDate ? formData.tillDate.toISOString() : null,
     });
   };
 
@@ -936,7 +957,169 @@ export default function CreatePOPage({ onBack }) {
             )}
           </div>
 
-          {/* Card 2: Order Items & Raw Material Picker */}
+          {/* Card 2: Supplier Invoice & Transport / E-Way Bill Details */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                <Truck className="w-3.5 h-3.5 text-indigo-500" />
+                2. Supplier Invoice & Transport / E-Way Bill Details
+              </span>
+              <div className="flex items-center gap-2">
+                {grandTotal >= 50000 && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                    <ShieldCheck className="w-3 h-3 text-amber-500" />
+                    GST E-Way Bill Recommended (&ge; ₹50,000)
+                  </span>
+                )}
+                <span className="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:inline">
+                  Optional / Can be updated anytime
+                </span>
+              </div>
+            </div>
+
+            {/* Row 1: Supplier Invoice Information & Transport Mode */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start">
+              {/* Supplier Invoice No */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <FileText className="w-3 h-3 text-slate-400" />
+                  Supplier Invoice No
+                </Label>
+                <Input
+                  type="text"
+                  value={formData.supplierInvoiceNo}
+                  onChange={(e) => setFormData({ ...formData, supplierInvoiceNo: e.target.value })}
+                  placeholder="e.g. INV-2026-0042"
+                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-medium"
+                />
+              </div>
+
+              {/* Supplier Invoice Date */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-slate-400" />
+                  Supplier Invoice Date
+                </Label>
+                <DatePicker
+                  value={formData.supplierInvoiceDate}
+                  onChange={(date) => setFormData({ ...formData, supplierInvoiceDate: date })}
+                  modalTitle="Supplier Invoice Date"
+                  placeholder="Select Invoice Date..."
+                  triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
+                />
+              </div>
+
+              {/* Transport Mode */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Truck className="w-3 h-3 text-slate-400" />
+                  Transport Mode
+                </Label>
+                <div className="relative">
+                  <select
+                    value={formData.transportMode}
+                    onChange={(e) => setFormData({ ...formData, transportMode: e.target.value })}
+                    className="w-full h-9 px-3 py-1.5 text-xs border rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-xs"
+                  >
+                    <option value="ROAD">🚛 Road Transport</option>
+                    <option value="RAIL">🚆 Rail Express</option>
+                    <option value="AIR">✈️ Air Freight</option>
+                    <option value="SHIP">🚢 Ship / Maritime</option>
+                    <option value="OTHER">📦 Other / Courier</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Vehicle Number */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Truck className="w-3 h-3 text-slate-400" />
+                  Vehicle Number
+                </Label>
+                <Input
+                  type="text"
+                  value={formData.vehicleNumber}
+                  onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value.toUpperCase() })}
+                  placeholder="e.g. TN-01-AB-1234"
+                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-mono uppercase font-semibold"
+                />
+              </div>
+            </div>
+
+            {/* Row 2: Transporter Name & E-Way Bill Details */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start pt-1">
+              {/* Transporter / Carrier Name */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Building2 className="w-3 h-3 text-slate-400" />
+                  Transporter / Carrier
+                </Label>
+                <Input
+                  type="text"
+                  value={formData.transporterName}
+                  onChange={(e) => setFormData({ ...formData, transporterName: e.target.value })}
+                  placeholder="e.g. VRL / SafeXpress / Blue Dart"
+                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-medium"
+                />
+              </div>
+
+              {/* E-Way Bill Number */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-indigo-500" />
+                    E-Way Bill Number
+                  </Label>
+                  {formData.ewayBillNo && (
+                    <span className="text-[10px] font-mono text-slate-400 font-medium">
+                      {formData.ewayBillNo.length}/12
+                    </span>
+                  )}
+                </div>
+                <Input
+                  type="text"
+                  maxLength={16}
+                  value={formData.ewayBillNo}
+                  onChange={(e) => setFormData({ ...formData, ewayBillNo: e.target.value.replace(/\s+/g, '') })}
+                  placeholder="12-digit E-Way Bill No"
+                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-mono font-semibold tracking-wider text-indigo-600 dark:text-indigo-400"
+                />
+              </div>
+
+              {/* E-Way Bill Date */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Calendar className="w-3 h-3 text-slate-400" />
+                  E-Way Date
+                </Label>
+                <DatePicker
+                  value={formData.ewayBillDate}
+                  onChange={(date) => setFormData({ ...formData, ewayBillDate: date })}
+                  modalTitle="E-Way Bill Date"
+                  placeholder="Select E-Way Date..."
+                  triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
+                />
+              </div>
+
+              {/* Valid Till Date */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-slate-400" />
+                  Valid Till Date
+                </Label>
+                <DatePicker
+                  value={formData.tillDate}
+                  onChange={(date) => setFormData({ ...formData, tillDate: date })}
+                  modalTitle="Valid Till Date"
+                  placeholder="Select Till Date..."
+                  triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Order Items & Raw Material Picker */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
             
             {/* Raw Material Select Bar */}
@@ -952,7 +1135,7 @@ export default function CreatePOPage({ onBack }) {
                 <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                     <Package className="w-3.5 h-3.5 text-indigo-500" />
-                    2. Select Raw Material or Non-Inventory Item to Add <span className="text-rose-500">*</span>
+                    3. Select Raw Material or Non-Inventory Item to Add <span className="text-rose-500">*</span>
                   </Label>
                   <span className="text-[11px] text-slate-400 hidden sm:inline">
                     Browse Raw Materials & Non-Inventory Items with Category & UOM
@@ -1235,12 +1418,12 @@ export default function CreatePOPage({ onBack }) {
         {/* ═══ RIGHT COLUMN (4 cols on XL, 5 cols on LG): Additional Charges & Grand Total Summary ═══ */}
         <div className="lg:col-span-5 xl:col-span-4 space-y-3 lg:sticky lg:top-3">
           
-          {/* Card 3: Additional Charges & Taxes */}
+          {/* Card 4: Additional Charges & Taxes */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
             <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
               <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <Calculator className="w-3.5 h-3.5 text-indigo-500" />
-                3. Charges & Summary
+                4. Charges & Summary
               </span>
               <span className="text-[11px] font-mono text-slate-400">
                 INR (₹)

@@ -95,7 +95,15 @@ exports.getPOs = async (req, res, next) => {
       grandTotal: po.grandTotal,
       items: po.items,
       paymentStatus: po.paymentStatus || 'UNPAID',
-      paidAmount: parseFloat(po.paidAmount || 0)
+      paidAmount: parseFloat(po.paidAmount || 0),
+      supplierInvoiceNo: po.supplierInvoiceNo,
+      supplierInvoiceDate: po.supplierInvoiceDate,
+      transportMode: po.transportMode || 'ROAD',
+      transporterName: po.transporterName,
+      vehicleNumber: po.vehicleNumber,
+      ewayBillNo: po.ewayBillNo,
+      ewayBillDate: po.ewayBillDate,
+      tillDate: po.tillDate
     }));
 
     res.json(formattedPos);
@@ -198,6 +206,16 @@ const createPOSchema = z.object({
   grandTotal: z.coerce.number().optional(),
   items: z.any().optional(),
   quotationId: z.string().nullable().optional(),
+
+  // Supplier Invoice & Logistics / E-Way Bill Details
+  supplierInvoiceNo: z.string().trim().nullable().optional(),
+  supplierInvoiceDate: z.string().nullable().optional(),
+  transportMode: z.string().trim().nullable().optional(),
+  transporterName: z.string().trim().nullable().optional(),
+  vehicleNumber: z.string().trim().nullable().optional(),
+  ewayBillNo: z.string().trim().nullable().optional(),
+  ewayBillDate: z.string().nullable().optional(),
+  tillDate: z.string().nullable().optional(),
 });
 
 exports.createPO = async (req, res, next) => {
@@ -244,6 +262,14 @@ exports.createPO = async (req, res, next) => {
           igst: parsedData.igst || 0,
           grandTotal: parsedData.grandTotal || 0,
           items: parsedData.items || null,
+          supplierInvoiceNo: parsedData.supplierInvoiceNo || null,
+          supplierInvoiceDate: parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null,
+          transportMode: parsedData.transportMode || 'ROAD',
+          transporterName: parsedData.transporterName || null,
+          vehicleNumber: parsedData.vehicleNumber || null,
+          ewayBillNo: parsedData.ewayBillNo || null,
+          ewayBillDate: parsedData.ewayBillDate ? new Date(parsedData.ewayBillDate) : null,
+          tillDate: parsedData.tillDate ? new Date(parsedData.tillDate) : null,
         }
       });
 
@@ -323,6 +349,16 @@ const updatePOSchema = z.object({
   igst: z.coerce.number().optional(),
   grandTotal: z.coerce.number().optional(),
   items: z.any().optional(),
+
+  // Supplier Invoice & Logistics / E-Way Bill Details
+  supplierInvoiceNo: z.string().trim().nullable().optional(),
+  supplierInvoiceDate: z.string().nullable().optional(),
+  transportMode: z.string().trim().nullable().optional(),
+  transporterName: z.string().trim().nullable().optional(),
+  vehicleNumber: z.string().trim().nullable().optional(),
+  ewayBillNo: z.string().trim().nullable().optional(),
+  ewayBillDate: z.string().nullable().optional(),
+  tillDate: z.string().nullable().optional(),
 });
 
 exports.updatePO = async (req, res, next) => {
@@ -377,6 +413,15 @@ exports.updatePO = async (req, res, next) => {
     if (parsedData.igst !== undefined) updateData.igst = parsedData.igst;
     if (parsedData.grandTotal !== undefined) updateData.grandTotal = parsedData.grandTotal;
     if (parsedData.items !== undefined) updateData.items = parsedData.items;
+
+    if (parsedData.supplierInvoiceNo !== undefined) updateData.supplierInvoiceNo = parsedData.supplierInvoiceNo || null;
+    if (parsedData.supplierInvoiceDate !== undefined) updateData.supplierInvoiceDate = parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null;
+    if (parsedData.transportMode !== undefined) updateData.transportMode = parsedData.transportMode || 'ROAD';
+    if (parsedData.transporterName !== undefined) updateData.transporterName = parsedData.transporterName || null;
+    if (parsedData.vehicleNumber !== undefined) updateData.vehicleNumber = parsedData.vehicleNumber || null;
+    if (parsedData.ewayBillNo !== undefined) updateData.ewayBillNo = parsedData.ewayBillNo || null;
+    if (parsedData.ewayBillDate !== undefined) updateData.ewayBillDate = parsedData.ewayBillDate ? new Date(parsedData.ewayBillDate) : null;
+    if (parsedData.tillDate !== undefined) updateData.tillDate = parsedData.tillDate ? new Date(parsedData.tillDate) : null;
 
     const oldSnapshot = {
       referenceNo: existing.referenceNo,

@@ -19,6 +19,12 @@ import {
   Tag,
   Calculator,
   Info,
+  Truck,
+  Calendar,
+  Clock,
+  ShieldCheck,
+  Building2,
+  FileText,
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 
@@ -314,6 +320,16 @@ export default function EditPOPage({ id: propId, onBack }) {
       shipping: String(po.shipping ?? '0'),
       otherCharges: String(po.otherCharges ?? '0'),
       items: initialItems,
+
+      // Supplier Invoice & Logistics / E-Way Bill Details
+      supplierInvoiceNo: po.supplierInvoiceNo || '',
+      supplierInvoiceDate: po.supplierInvoiceDate ? new Date(po.supplierInvoiceDate) : null,
+      transportMode: po.transportMode || 'ROAD',
+      transporterName: po.transporterName || '',
+      vehicleNumber: po.vehicleNumber || '',
+      ewayBillNo: po.ewayBillNo || '',
+      ewayBillDate: po.ewayBillDate ? new Date(po.ewayBillDate) : null,
+      tillDate: po.tillDate ? new Date(po.tillDate) : null,
     });
   }, [po]);
 
@@ -445,6 +461,16 @@ export default function EditPOPage({ id: propId, onBack }) {
       igst: igstAmount,
       grandTotal: grandTotal,
       items: form.items,
+
+      // Supplier Invoice & Logistics / E-Way Bill Details
+      supplierInvoiceNo: form.supplierInvoiceNo?.trim() || null,
+      supplierInvoiceDate: form.supplierInvoiceDate ? form.supplierInvoiceDate.toISOString() : null,
+      transportMode: form.transportMode || 'ROAD',
+      transporterName: form.transporterName?.trim() || null,
+      vehicleNumber: form.vehicleNumber?.trim()?.toUpperCase() || null,
+      ewayBillNo: form.ewayBillNo?.trim() || null,
+      ewayBillDate: form.ewayBillDate ? form.ewayBillDate.toISOString() : null,
+      tillDate: form.tillDate ? form.tillDate.toISOString() : null,
     });
   };
 
@@ -614,6 +640,164 @@ export default function EditPOPage({ id: propId, onBack }) {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Logistics, Invoice & E-Way Bill Details */}
+          <div className="p-6 md:p-8 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+              <span className="text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <Truck className="w-4 h-4 text-indigo-500" />
+                Supplier Invoice & Transport / E-Way Bill Details
+              </span>
+              <div className="flex items-center gap-2">
+                {grandTotal >= 50000 && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                    <ShieldCheck className="w-3 h-3 text-amber-500" />
+                    GST E-Way Bill Recommended (&ge; ₹50,000)
+                  </span>
+                )}
+                <span className="text-xs text-slate-400">Optional / Post-Dispatch</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Supplier Invoice No */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <FileText className="w-3.5 h-3.5 text-slate-400" />
+                  Supplier Invoice No
+                </Label>
+                <Input
+                  type="text"
+                  value={form.supplierInvoiceNo || ''}
+                  onChange={(e) => setForm(prev => ({ ...prev, supplierInvoiceNo: e.target.value }))}
+                  placeholder="e.g. INV-2026-0042"
+                  className="h-10 text-xs rounded-xl"
+                />
+              </div>
+
+              {/* Supplier Invoice Date */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  Supplier Invoice Date
+                </Label>
+                <DatePicker
+                  value={form.supplierInvoiceDate}
+                  onChange={(date) => setForm(prev => ({ ...prev, supplierInvoiceDate: date }))}
+                  modalTitle="Supplier Invoice Date"
+                  placeholder="Select Invoice Date"
+                  triggerClassName="h-10 text-xs rounded-xl"
+                />
+              </div>
+
+              {/* Transport Mode */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Truck className="w-3.5 h-3.5 text-slate-400" />
+                  Transport Mode
+                </Label>
+                <div className="relative">
+                  <select
+                    value={form.transportMode || 'ROAD'}
+                    onChange={(e) => setForm(prev => ({ ...prev, transportMode: e.target.value }))}
+                    className="w-full h-10 px-3 py-1.5 text-xs border rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-xs"
+                  >
+                    <option value="ROAD">🚛 Road Transport</option>
+                    <option value="RAIL">🚆 Rail Express</option>
+                    <option value="AIR">✈️ Air Freight</option>
+                    <option value="SHIP">🚢 Ship / Maritime</option>
+                    <option value="OTHER">📦 Other / Courier</option>
+                  </select>
+                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Vehicle Number */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Truck className="w-3.5 h-3.5 text-slate-400" />
+                  Vehicle Number
+                </Label>
+                <Input
+                  type="text"
+                  value={form.vehicleNumber || ''}
+                  onChange={(e) => setForm(prev => ({ ...prev, vehicleNumber: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. TN-01-AB-1234"
+                  className="h-10 text-xs rounded-xl font-mono uppercase font-semibold"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-1">
+              {/* Transporter / Carrier Name */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Building2 className="w-3.5 h-3.5 text-slate-400" />
+                  Transporter / Carrier
+                </Label>
+                <Input
+                  type="text"
+                  value={form.transporterName || ''}
+                  onChange={(e) => setForm(prev => ({ ...prev, transporterName: e.target.value }))}
+                  placeholder="e.g. VRL / SafeXpress / Blue Dart"
+                  className="h-10 text-xs rounded-xl"
+                />
+              </div>
+
+              {/* E-Way Bill Number */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
+                    E-Way Bill Number
+                  </Label>
+                  {form.ewayBillNo && (
+                    <span className="text-[10px] font-mono text-slate-400 font-medium">
+                      {form.ewayBillNo.length}/12
+                    </span>
+                  )}
+                </div>
+                <Input
+                  type="text"
+                  maxLength={16}
+                  value={form.ewayBillNo || ''}
+                  onChange={(e) => setForm(prev => ({ ...prev, ewayBillNo: e.target.value.replace(/\s+/g, '') }))}
+                  placeholder="12-digit E-Way Bill No"
+                  className="h-10 text-xs rounded-xl font-mono font-semibold text-indigo-600 dark:text-indigo-400 tracking-wider"
+                />
+              </div>
+
+              {/* E-Way Bill Date */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                  E-Way Date
+                </Label>
+                <DatePicker
+                  value={form.ewayBillDate}
+                  onChange={(date) => setForm(prev => ({ ...prev, ewayBillDate: date }))}
+                  modalTitle="E-Way Bill Date"
+                  placeholder="Select E-Way Date"
+                  triggerClassName="h-10 text-xs rounded-xl"
+                />
+              </div>
+
+              {/* Valid Till Date */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  Valid Till Date
+                </Label>
+                <DatePicker
+                  value={form.tillDate}
+                  onChange={(date) => setForm(prev => ({ ...prev, tillDate: date }))}
+                  modalTitle="Valid Till Date"
+                  placeholder="Select Till Date"
+                  triggerClassName="h-10 text-xs rounded-xl"
+                />
+              </div>
+            </div>
           </div>
 
           {/* Items Section */}

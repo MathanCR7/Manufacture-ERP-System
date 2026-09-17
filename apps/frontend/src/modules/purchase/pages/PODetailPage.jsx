@@ -284,6 +284,81 @@ export default function PODetailPage() {
             <InfoRow icon={User} label="Supplier" value={po.supplier?.name || '—'} />
           </div>
 
+          {/* Supplier Invoice & Logistics / E-Way Bill Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <Truck className="w-4 h-4 text-indigo-500" /> Logistics, Invoice & E-Way Bill
+              </span>
+              {po.ewayBillNo && (
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800">
+                  E-Way Active
+                </span>
+              )}
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+              <InfoRow 
+                icon={FileText} 
+                label="Supplier Invoice No" 
+                value={po.supplierInvoiceNo || '—'} 
+              />
+              <InfoRow 
+                icon={Calendar} 
+                label="Supplier Invoice Date" 
+                value={po.supplierInvoiceDate ? format(new Date(po.supplierInvoiceDate), 'dd MMM yyyy') : '—'} 
+              />
+              <InfoRow 
+                icon={Truck} 
+                label="Transport Mode" 
+                value={
+                  po.transportMode === 'ROAD' ? '🚛 Road Transport' :
+                  po.transportMode === 'RAIL' ? '🚆 Rail Express' :
+                  po.transportMode === 'AIR' ? '✈️ Air Freight' :
+                  po.transportMode === 'SHIP' ? '🚢 Ship / Maritime' :
+                  (po.transportMode || '🚛 Road Transport')
+                } 
+              />
+              <InfoRow 
+                icon={Truck} 
+                label="Vehicle Number" 
+                value={po.vehicleNumber || '—'} 
+              />
+              <InfoRow 
+                icon={User} 
+                label="Transporter / Carrier" 
+                value={po.transporterName || '—'} 
+              />
+              <InfoRow 
+                icon={FileText} 
+                label="E-Way Bill Number" 
+                value={po.ewayBillNo ? (
+                  <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                    {po.ewayBillNo}
+                  </span>
+                ) : '—'} 
+              />
+              <InfoRow 
+                icon={Calendar} 
+                label="E-Way Bill Date" 
+                value={po.ewayBillDate ? format(new Date(po.ewayBillDate), 'dd MMM yyyy') : '—'} 
+              />
+              <InfoRow 
+                icon={Clock} 
+                label="Valid Till Date" 
+                value={po.tillDate ? (
+                  <span className="flex items-center gap-1.5">
+                    <span>{format(new Date(po.tillDate), 'dd MMM yyyy')}</span>
+                    {new Date(po.tillDate) < new Date() ? (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 font-bold">Expired</span>
+                    ) : (
+                      <span className="px-1.5 py-0.2 rounded text-[9px] bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 font-bold">Valid</span>
+                    )}
+                  </span>
+                ) : '—'} 
+              />
+            </div>
+          </div>
+
           {/* Financial Breakdown */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
@@ -525,6 +600,11 @@ export default function PODetailPage() {
               { label: 'ITEM', value: po.name },
               { label: 'QUANTITY', value: `${po.quantity} ${po.uom?.abbreviation || ''}` },
               { label: 'SUPPLIER', value: po.supplier?.name || '—' },
+              ...(po.supplierInvoiceNo ? [{ label: 'SUPP INV', value: po.supplierInvoiceNo }] : []),
+              ...(po.transportMode ? [{ label: 'TRANS MODE', value: po.transportMode }] : []),
+              ...(po.vehicleNumber ? [{ label: 'VEHICLE NO', value: po.vehicleNumber }] : []),
+              ...(po.ewayBillNo ? [{ label: 'E-WAY BILL', value: po.ewayBillNo }] : []),
+              ...(po.tillDate ? [{ label: 'VALID TILL', value: format(new Date(po.tillDate), 'dd-MM-yyyy') }] : []),
               { label: 'EXP. DELIVERY', value: format(new Date(po.expectedDelivery), 'dd-MM-yyyy') },
               { label: 'STATUS', value: po.status },
               ...(grn ? [

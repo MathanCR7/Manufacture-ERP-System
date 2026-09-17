@@ -223,7 +223,10 @@ export default function POListPage() {
       po.referenceNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       po.rmId?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       po.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      po.supplierName?.toLowerCase().includes(searchTerm.toLowerCase());
+      po.supplierName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      po.supplierInvoiceNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      po.ewayBillNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      po.vehicleNumber?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'ALL' || po.status === statusFilter;
     const matchesPayment = paymentFilter === 'ALL' || po.paymentStatus === paymentFilter;
@@ -325,7 +328,7 @@ export default function POListPage() {
               <Search className="w-4 h-4 text-slate-400 dark:text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <Input
                 type="text"
-                placeholder="Search PO, RM Code, Supplier..."
+                placeholder="Search PO, RM Code, Supplier, Invoice, E-Way Bill..."
                 className="pl-10 h-9.5 w-full text-xs bg-slate-100/70 dark:bg-slate-950 text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-slate-800 focus-visible:ring-indigo-500/20 rounded-xl shadow-xs transition-colors"
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
@@ -447,10 +450,24 @@ export default function POListPage() {
                     <TableCell className="py-2.5">
                       <button
                         onClick={() => navigate(`/purchase-orders/${po.id}`)}
-                        className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px] hover:underline cursor-pointer"
+                        className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px] hover:underline cursor-pointer block"
                       >
                         {po.referenceNo}
                       </button>
+                      {(po.supplierInvoiceNo || po.ewayBillNo) && (
+                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                          {po.supplierInvoiceNo && (
+                            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/60" title={`Supplier Invoice: ${po.supplierInvoiceNo}`}>
+                              Inv: {po.supplierInvoiceNo}
+                            </span>
+                          )}
+                          {po.ewayBillNo && (
+                            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60" title={`E-Way Bill: ${po.ewayBillNo}`}>
+                              E-Way
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="py-2.5 min-w-[220px]">
                       {po.items && Array.isArray(po.items) && po.items.length > 1 ? (

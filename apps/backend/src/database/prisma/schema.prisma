@@ -175,6 +175,16 @@ model RawMaterialPO {
   createdBy        String
   supplierId       String?             // <--- ADDED
   
+  // Supplier Invoice & Transport / E-Way Bill Details
+  supplierInvoiceNo   String?             @map("supplier_invoice_no")
+  supplierInvoiceDate DateTime?           @map("supplier_invoice_date")
+  transportMode       String?             @default("ROAD") @map("transport_mode")
+  transporterName     String?             @map("transporter_name")
+  vehicleNumber       String?             @map("vehicle_number")
+  ewayBillNo          String?             @map("eway_bill_no")
+  ewayBillDate        DateTime?           @map("eway_bill_date")
+  tillDate            DateTime?           @map("till_date")
+  
   // Financial & Tax Details
   subtotal         Decimal             @default(0.00)
   orderTax         Decimal             @default(0.00) @map("order_tax")
