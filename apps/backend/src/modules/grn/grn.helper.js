@@ -49,8 +49,12 @@ async function getNextBatchForRM(rmId, rmName, tx = prisma) {
  */
 async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
   // Check if GRN already exists for this PO
-  const existingGrn = await tx.gRNReceive.findFirst({ where: { poId: po.id } });
-  if (existingGrn) {
+  const existingGrn = await tx.gRNReceive.findFirst({
+    where: { poId: po.id },
+    include: { items: true, inventoryBatches: true }
+  });
+  
+  if (existingGrn && existingGrn.inventoryBatches && existingGrn.inventoryBatches.length > 0) {
     return { grn: existingGrn, alreadyExists: true };
   }
 
@@ -71,8 +75,6 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
   const grnStatus = isAllExempt ? 'LAB_APPROVED' : 'PENDING_LAB';
   const inventoryStatus = isAllExempt ? 'UPLOADED' : 'NOT_UPLOADED';
 
-  const referenceNo = await generateReferenceNo(tx, 'GRNReceive', 'GRN');
-
   const grnItemsData = parsedItems.map(item => ({
     rmId: item.rmId || item.code || po.rmId,
     rmName: item.name || item.materialName || po.name,
@@ -88,30 +90,40 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
     labTestRequired: item.labTestRequired !== false,
   }));
 
-  const grn = await tx.gRNReceive.create({
-    data: {
-      referenceNo,
-      poId: po.id,
-      receivedDate: new Date(),
-      amountPaid: po.grandTotal ? Number(po.grandTotal) : Number(po.amount || 0),
-      refundAmount: 0,
-      discrepancyNotes: null,
-      receivedBy: reqUserId,
-      status: grnStatus,
-      inventoryStatus: inventoryStatus,
-      isExempt: isAllExempt,
-      vehicleNumber: po.vehicleNumber || null,
-      transporterName: po.transporterName || null,
-      transportMode: po.transportMode || 'ROAD',
-      invoiceNumber: po.supplierInvoiceNo || null,
-      invoiceDate: po.supplierInvoiceDate ? new Date(po.supplierInvoiceDate) : null,
-      isShortDelivery: false,
-      items: {
-        create: grnItemsData
-      }
-    },
-    include: { items: true, po: { include: { supplier: true, uom: true } } }
-  });
+  let grn = existingGrn;
+  if (!grn) {
+    const referenceNo = await generateReferenceNo(tx, 'GRNReceive', 'GRN');
+    grn = await tx.gRNReceive.create({
+      data: {
+        referenceNo,
+        poId: po.id,
+        receivedDate: new Date(),
+        amountPaid: po.grandTotal ? Number(po.grandTotal) : Number(po.amount || 0),
+        refundAmount: 0,
+        discrepancyNotes: null,
+        receivedBy: reqUserId,
+        status: grnStatus,
+        inventoryStatus: inventoryStatus,
+        isExempt: isAllExempt,
+        vehicleNumber: po.vehicleNumber || null,
+        transporterName: po.transporterName || null,
+        transportMode: po.transportMode || 'ROAD',
+        invoiceNumber: po.supplierInvoiceNo || null,
+        invoiceDate: po.supplierInvoiceDate ? new Date(po.supplierInvoiceDate) : null,
+        isShortDelivery: false,
+        items: {
+          create: grnItemsData
+        }
+      },
+      include: { items: true, po: { include: { supplier: true, uom: true } } }
+    });
+  } else if (isAllExempt) {
+    grn = await tx.gRNReceive.update({
+      where: { id: grn.id },
+      data: { status: 'LAB_APPROVED', inventoryStatus: 'UPLOADED', isExempt: true },
+      include: { items: true, po: { include: { supplier: true, uom: true } } }
+    });
+  }
 
   // Direct inventory update for exempt items
   for (const item of grnItemsData) {

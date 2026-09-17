@@ -6,7 +6,8 @@ import { format } from 'date-fns';
 import {
   ArrowLeft, Trash2, User, Calendar, FileText, IndianRupee, Printer, Edit,
   QrCode, Package, FlaskConical, CheckCircle2, XCircle, AlertTriangle,
-  Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck
+  Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck, PackageCheck,
+  Copy, Check, ExternalLink, Boxes, RefreshCw
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -58,10 +59,9 @@ export default function PODetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const fromNotifications = location.state?.from === '/notifications';
   const queryClient = useQueryClient();
-  const [showQR, setShowQR] = useState(true);
   const [highlightActive, setHighlightActive] = useState(!!location.state?.highlight);
+  const [copiedBatch, setCopiedBatch] = useState(null);
 
   useEffect(() => {
     if (highlightActive) {
@@ -81,7 +81,7 @@ export default function PODetailPage() {
     }
   });
 
-  // Fetch GRN for this PO
+  // Fetch GRN for this PO fallback
   const { data: grnData } = useQuery({
     queryKey: ['grn-for-po-detail', id],
     queryFn: async () => {
@@ -99,6 +99,27 @@ export default function PODetailPage() {
       navigate('/purchase-orders');
     }
   });
+
+  const statusMutation = useMutation({
+    mutationFn: async (newStatus) => {
+      const res = await api.patch(`/grn/po/${id}/status`, { status: newStatus });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['po', id] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
+      queryClient.invalidateQueries({ queryKey: ['grn-for-po-detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+    }
+  });
+
+  const handleCopyBatch = (bNum) => {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(bNum);
+      setCopiedBatch(bNum);
+      setTimeout(() => setCopiedBatch(null), 2000);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -124,17 +145,23 @@ export default function PODetailPage() {
     );
   }
 
-  const isPending = po.status === 'PENDING';
-  const grn = grnData;
+  const isPending = po.status === 'PENDING' || po.status === 'DRAFT';
+  const isOrdered = po.status === 'ORDERED';
+  const grn = po.grnReceives?.[0] || grnData;
+  const batches = (Array.isArray(po.inventoryBatches) && po.inventoryBatches.length > 0)
+    ? po.inventoryBatches
+    : (Array.isArray(grn?.inventoryBatches) ? grn.inventoryBatches : []);
   const labTest = grn?.labTest;
   const labCategoryParams = labTest?.categoryParams;
 
+  const isLabExempt = grn?.isExempt || (Array.isArray(po.items) && po.items.length > 0 && po.items.every(i => i.labTestRequired === false));
+  const hasBatches = Array.isArray(batches) && batches.length > 0;
   const hasPO = true;
   const hasGRN = !!grn;
   const hasLabTest = !!labTest;
   const labApproved = labTest?.overallDecision === 'APPROVED';
   const labRejected = labTest?.overallDecision === 'REJECTED';
-  const inInventory = labApproved;
+  const inInventory = hasBatches || grn?.inventoryStatus === 'UPLOADED' || (isLabExempt && (grn?.status === 'LAB_APPROVED' || po.status === 'APPROVED')) || labApproved;
 
   const qrData = JSON.stringify({
     poNumber: po.referenceNo,
@@ -145,6 +172,10 @@ export default function PODetailPage() {
     expectedDelivery: po.expectedDelivery,
     poAmount: po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount,
     paymentStatus: po.status,
+    ...(batches.length > 0 && {
+      batchNumbers: batches.map(b => b.batchNumber).join(', '),
+      inventoryStatus: 'STORED_IN_STOCK'
+    }),
     ...(grn && {
       grnNumber: grn.referenceNo,
       actualReceivedQty: grn.items?.reduce((s, i) => s + Number(i.actualReceivedQty || 0), 0),
@@ -161,7 +192,7 @@ export default function PODetailPage() {
     generatedAt: new Date().toISOString(),
   });
 
-  const labStatusCfg = grn ? (LAB_STATUS_CONFIG[grn.status] || LAB_STATUS_CONFIG.PENDING_LAB) : null;
+  const labStatusCfg = grn ? (LAB_STATUS_CONFIG[grn.status] || (isLabExempt ? LAB_STATUS_CONFIG.LAB_APPROVED : LAB_STATUS_CONFIG.PENDING_LAB)) : null;
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -204,7 +235,7 @@ export default function PODetailPage() {
       <DashboardBackButton defaultBack="/purchase-orders" />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(location.state?.from || '/purchase-orders')} className="text-slate-500 rounded-full">
             <ArrowLeft className="w-5 h-5" />
@@ -213,7 +244,13 @@ export default function PODetailPage() {
             <div className="flex items-center space-x-3 flex-wrap gap-2">
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">PO: {po.referenceNo || po.rmId}</h1>
               <StatusBadge status={po.status} />
-              {grn && labStatusCfg && (
+              {inInventory && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                  <PackageCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  Inventory Updated
+                </span>
+              )}
+              {grn && labStatusCfg && !inInventory && (
                 <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${labStatusCfg.color}`}>
                   <labStatusCfg.icon className="w-3 h-3" />
                   {labStatusCfg.label}
@@ -225,15 +262,100 @@ export default function PODetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex space-x-2">
+
+        {/* Action Buttons */}
+        <div className="flex items-center flex-wrap gap-2">
           {isPending && (
-            <Button variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => navigate(`/purchase-orders/edit/${id}`)}>
-              <Edit className="w-4 h-4 mr-2" /> Edit
+            <>
+              <Button
+                variant="outline"
+                className="text-indigo-600 border-indigo-200 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300"
+                onClick={() => statusMutation.mutate('ORDERED')}
+                disabled={statusMutation.isPending}
+              >
+                🚀 Mark as Ordered
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium h-10 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors">
+                  <PackageCheck className="w-4 h-4 mr-1.5" /> Receive & Update Inventory
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Receive Goods & Update Inventory?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will mark the purchase order as received.
+                      {isLabExempt ? ' Because this material does not require a lab test, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed directly to the lab quality inspection queue.'}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => statusMutation.mutate('RECEIVED')}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      {statusMutation.isPending ? 'Processing...' : 'Confirm Receipt'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+              <Button variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50" onClick={() => navigate(`/purchase-orders/edit/${id}`)}>
+                <Edit className="w-4 h-4 mr-2" /> Edit
+              </Button>
+            </>
+          )}
+
+          {isOrdered && (
+            <AlertDialog>
+              <AlertDialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium h-10 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors">
+                <PackageCheck className="w-4 h-4 mr-1.5" /> Receive & Update Inventory
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Receive Goods & Update Inventory?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will mark the purchase order as received.
+                    {isLabExempt ? ' Because this material does not require a lab test, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed directly to the lab quality inspection queue.'}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => statusMutation.mutate('RECEIVED')}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    {statusMutation.isPending ? 'Processing...' : 'Confirm Receipt'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
+          {hasBatches && (
+            <Button
+              variant="outline"
+              className="border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 gap-1.5"
+              onClick={() => navigate('/rm/stock')}
+            >
+              <Boxes className="w-4 h-4" /> View in RM Stock
             </Button>
           )}
+
+          {!hasBatches && (po.status === 'RECEIVED' || po.status === 'APPROVED') && (
+            <Button
+              variant="outline"
+              className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 gap-1.5"
+              onClick={() => statusMutation.mutate('RECEIVED')}
+              disabled={statusMutation.isPending}
+            >
+              <RefreshCw className={`w-4 h-4 ${statusMutation.isPending ? 'animate-spin' : ''}`} />
+              Sync Inventory
+            </Button>
+          )}
+
           <Button variant="outline" onClick={() => window.print()} className="print:hidden gap-2">
             <Printer className="w-4 h-4" /> Print Label
           </Button>
+
           {isPending && (
             <AlertDialog>
               <AlertDialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium h-10 px-4 py-2 bg-red-600 hover:bg-red-700 text-white transition-colors">
@@ -257,22 +379,152 @@ export default function PODetailPage() {
       </div>
 
       {/* Lifecycle Steps */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4">
-        <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-3">Procurement Lifecycle</p>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-sm">
+        <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-3">Procurement & Inventory Lifecycle</p>
         <div className="flex flex-wrap items-center gap-2">
           <LifecycleStep step="PO Raised" active={hasPO && !hasGRN} done={hasGRN} icon={FileText} />
           <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-          <LifecycleStep step="GRN Received" active={hasGRN && !hasLabTest} done={hasLabTest} icon={Truck} />
+          <LifecycleStep step="GRN Received" active={hasGRN && !hasLabTest && !isLabExempt} done={hasLabTest || isLabExempt || hasGRN} icon={Truck} />
           <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-          <LifecycleStep step="Lab Testing" active={hasLabTest && !labApproved} done={labApproved || labRejected} icon={FlaskConical} />
+          {isLabExempt ? (
+            <LifecycleStep step="Lab Exempt (Direct)" active={false} done={hasGRN || inInventory} icon={ShieldCheck} />
+          ) : (
+            <LifecycleStep step="Lab Testing" active={hasLabTest && !labApproved && !labRejected} done={labApproved || labRejected} icon={FlaskConical} />
+          )}
           <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />
-          <LifecycleStep step="Inventory Updated" active={false} done={inInventory} icon={BarChart3} />
+          <LifecycleStep step="Inventory Updated" active={hasGRN && !inInventory} done={inInventory} icon={BarChart3} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left: Details */}
         <div className="md:col-span-2 space-y-6">
+          {/* Dedicated Updated Inventory & Stock Batches Card */}
+          {(inInventory || batches.length > 0 || (grn && (grn.status === 'LAB_APPROVED' || grn.inventoryStatus === 'UPLOADED'))) && (
+            <div className="bg-white dark:bg-slate-900 border-2 border-emerald-400/60 dark:border-emerald-700/60 rounded-xl p-6 shadow-md shadow-emerald-50 dark:shadow-none relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-36 h-36 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                    <PackageCheck className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                      Updated Inventory & Stock Batches
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Raw material stock has been updated with assigned sequential batch traceability.
+                    </p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-700">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  Inventory Updated
+                </span>
+              </div>
+
+              {batches.length > 0 ? (
+                <div className="space-y-3">
+                  {batches.map((batch, idx) => (
+                    <div
+                      key={batch.id || idx}
+                      className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 hover:border-emerald-400 dark:hover:border-emerald-600/70 transition-all shadow-sm"
+                    >
+                      <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-sm font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800">
+                              {batch.batchNumber}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyBatch(batch.batchNumber)}
+                              className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                              title="Copy Batch Number"
+                            >
+                              {copiedBatch === batch.batchNumber ? (
+                                <Check className="w-4 h-4 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
+                            </button>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              🟢 {batch.status || 'AVAILABLE'}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 font-medium mt-1">
+                            {batch.rawMaterialName || po.name} {batch.rmCategory ? `• ${batch.rmCategory}` : ''}
+                          </p>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-[11px] text-slate-400 block font-medium">Net Stock Stored</span>
+                          <p className="text-base font-extrabold text-slate-900 dark:text-white font-mono">
+                            {Number(batch.netQty || batch.receivedQty || 0).toLocaleString()} {po.uom?.abbreviation || 'KG'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-2 border-t border-slate-200/70 dark:border-slate-700/60 text-slate-600 dark:text-slate-300">
+                        <div>
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Warehouse</span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200">{batch.storageLocation || 'Main RM Warehouse'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Mfg Date</span>
+                          <span className="font-medium">{batch.mfgDate ? format(new Date(batch.mfgDate), 'dd MMM yyyy') : '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Expiry Date</span>
+                          <span className="font-medium">{batch.expiryDate ? format(new Date(batch.expiryDate), 'dd MMM yyyy') : 'No Expiry'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] uppercase tracking-wider text-slate-400 block">Stock Added</span>
+                          <span className="font-medium">{batch.createdAt ? format(new Date(batch.createdAt), 'dd MMM yyyy, HH:mm') : '—'}</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between pt-2.5 border-t border-dashed border-slate-200 dark:border-slate-700 text-xs flex-wrap gap-2">
+                        <span className="text-slate-500">
+                          GRN Reference: <strong className="font-mono text-slate-800 dark:text-slate-200">{grn?.referenceNo || 'Direct Inward'}</strong>
+                        </span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 gap-1.5 font-medium"
+                          onClick={() => navigate('/rm/stock')}
+                        >
+                          <Boxes className="w-3.5 h-3.5" /> View in RM Stock
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <div className="text-xs text-slate-700 dark:text-slate-300">
+                      <p className="font-semibold text-slate-900 dark:text-white">Inventory Stock Recorded</p>
+                      <p className="text-slate-500">
+                        Goods received and inventory stock credited under GRN {grn?.referenceNo || po.referenceNo}.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs border-emerald-300 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50"
+                    onClick={() => navigate('/rm/stock')}
+                  >
+                    <Boxes className="w-3.5 h-3.5 mr-1" /> View RM Stock
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Material & Item Details */}
           <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm transition-all duration-1000 ${highlightActive ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 shadow-md shadow-indigo-200 dark:shadow-indigo-900 bg-indigo-50/10 dark:bg-indigo-950/15 animate-pulse' : ''}`}>
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -329,8 +581,8 @@ export default function PODetailPage() {
                                 <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Required
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800">
-                                <ShieldCheck className="w-3 h-3 text-red-600" /> Lab Exempt (Direct)
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                <ShieldCheck className="w-3 h-3 text-emerald-600" /> Lab Exempt (Direct)
                               </span>
                             )}
                           </td>
@@ -350,9 +602,15 @@ export default function PODetailPage() {
                   <span className="text-slate-500 flex items-center gap-1">
                     <FlaskConical className="w-3.5 h-3.5 text-slate-400" /> Quality / Lab Inspection Policy:
                   </span>
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
-                    <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Test Required
-                  </span>
+                  {isLabExempt ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <ShieldCheck className="w-3 h-3 text-emerald-600" /> Lab Exempt (Direct to Inventory)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                      <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Test Required
+                    </span>
+                  )}
                 </div>
               </div>
             )}
@@ -637,24 +895,38 @@ export default function PODetailPage() {
               <span className="font-mono text-base font-bold tracking-wider text-slate-800 dark:text-slate-200">{po.referenceNo || po.rmId}</span>
             </div>
 
+            {batches.length > 0 && (
+              <div className="w-full p-2.5 rounded-lg bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-center">
+                <span className="text-[11px] uppercase tracking-wider text-emerald-700 dark:text-emerald-300 font-bold block">
+                  Active Stock Batch
+                </span>
+                <span className="font-mono text-xs font-bold text-emerald-800 dark:text-emerald-200">
+                  {batches[0].batchNumber}
+                </span>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block mt-0.5 font-medium">
+                  {Number(batches[0].netQty || batches[0].receivedQty || 0)} {po.uom?.abbreviation || 'KG'} AVAILABLE
+                </span>
+              </div>
+            )}
+
             <div className="w-full space-y-1.5 text-xs">
               {[
                 { label: 'PO Details', done: hasPO },
                 { label: 'GRN Receipt', done: hasGRN },
-                { label: 'Lab Results', done: hasLabTest },
-                { label: 'Inventory', done: inInventory },
+                { label: isLabExempt ? 'Lab Exempt (Direct)' : 'Lab Results', done: isLabExempt ? (hasGRN || inInventory) : labApproved },
+                { label: 'Inventory Updated', done: inInventory },
               ].map(s => (
-                <div key={s.label} className={`flex items-center gap-2 px-2 py-1 rounded ${s.done ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                <div key={s.label} className={`flex items-center gap-2 px-2 py-1 rounded ${s.done ? 'text-emerald-600 dark:text-emerald-400 font-medium' : 'text-slate-400'}`}>
                   {s.done
-                    ? <CheckCircle2 className="w-3 h-3" />
-                    : <Clock className="w-3 h-3" />
+                    ? <CheckCircle2 className="w-3.5 h-3.5" />
+                    : <Clock className="w-3.5 h-3.5" />
                   }
                   {s.label}
                 </div>
               ))}
             </div>
 
-            <p className="text-xs text-center text-slate-400">Scan to view all accumulated details</p>
+            <p className="text-xs text-center text-slate-400">Scan to view all accumulated procurement & stock details</p>
           </div>
         </div>
       </div>
@@ -673,6 +945,7 @@ export default function PODetailPage() {
               { label: 'REF NO', value: po.referenceNo || po.rmId },
               { label: 'ITEM', value: po.name },
               { label: 'QUANTITY', value: `${po.quantity} ${po.uom?.abbreviation || ''}` },
+              ...(batches.length > 0 ? [{ label: 'BATCH NO', value: batches.map(b => b.batchNumber).join(', ') }] : []),
               { label: 'SUPPLIER', value: po.supplier?.name || '—' },
               ...(po.supplierInvoiceNo ? [{ label: 'SUPP INV', value: po.supplierInvoiceNo }] : []),
               ...(po.transportMode ? [{ label: 'TRANS MODE', value: po.transportMode }] : []),

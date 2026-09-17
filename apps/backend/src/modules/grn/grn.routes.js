@@ -46,7 +46,13 @@ router.patch('/po/:id/status',
 
       const updated = await prisma.rawMaterialPO.findUnique({
         where: { id },
-        include: { supplier: true, uom: true, user: { select: { name: true } } }
+        include: {
+          supplier: true,
+          uom: true,
+          user: { select: { name: true } },
+          inventoryBatches: { include: { uom: true }, orderBy: { createdAt: 'desc' } },
+          grnReceives: { include: { items: true, inventoryBatches: true, labTest: { include: { testResults: true } } }, orderBy: { createdAt: 'desc' } }
+        }
       });
 
       // Audit log
