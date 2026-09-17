@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { Package, Search, AlertTriangle, RefreshCw, Clock, FileSpreadsheet } from 'lucide-react';
@@ -10,13 +11,27 @@ import { Pagination } from '@/components/ui/Pagination';
 import RMHistoryDrawer from '@/modules/purchase/components/RMHistoryDrawer';
 
 export default function RMStockPage() {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Extract navigation parameters from URL query string or route state
+  const codeParam = searchParams.get('code') || location.state?.rmCode || '';
+  const nameParam = searchParams.get('name') || location.state?.rmName || '';
+  const materialIdParam = searchParams.get('materialId') || location.state?.materialId || '';
+  const shouldOpenHistory = searchParams.get('openHistory') === 'true' || location.state?.openHistory === true;
+  const batchParam = searchParams.get('batch') || location.state?.batchNumber || null;
+  const initialTabParam = searchParams.get('tab') || location.state?.initialTab || 'grn';
+
+  const [searchTerm, setSearchTerm] = useState(codeParam || nameParam || '');
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
   const queryClient = useQueryClient();
 
   // History Drawer State
-  const [selectedMaterialId, setSelectedMaterialId] = useState(null);
+  const [selectedMaterialId, setSelectedMaterialId] = useState(materialIdParam || null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [drawerInitialTab, setDrawerInitialTab] = useState(initialTabParam || 'grn');
+  const [drawerTargetBatch, setDrawerTargetBatch] = useState(batchParam || null);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -34,19 +49,63 @@ export default function RMStockPage() {
     staleTime: 0,                   // never treat data as fresh — always revalidate
   });
 
+  // Automatically handle incoming redirect parameters to pre-fill search & open history
+  useEffect(() => {
+    if (codeParam) {
+      setSearchTerm(codeParam);
+    } else if (nameParam) {
+      setSearchTerm(nameParam);
+    }
+  }, [codeParam, nameParam]);
+
+  useEffect(() => {
+    if (shouldOpenHistory) {
+      // Find matching item in loaded stock, or fallback to provided ID/code
+      let targetId = materialIdParam || codeParam;
+      if (stock && stock.length > 0) {
+        const match = stock.find(item =>
+          (materialIdParam && item.id === materialIdParam) ||
+          (codeParam && item.code?.toLowerCase() === codeParam.toLowerCase()) ||
+          (nameParam && item.name?.toLowerCase() === nameParam.toLowerCase())
+        );
+        if (match) {
+          targetId = match.id;
+        }
+      }
+
+      if (targetId) {
+        setSelectedMaterialId(targetId);
+        setDrawerInitialTab(initialTabParam || 'grn');
+        setDrawerTargetBatch(batchParam || null);
+        setIsHistoryOpen(true);
+      }
+    }
+  }, [shouldOpenHistory, materialIdParam, codeParam, nameParam, batchParam, initialTabParam, stock]);
+
   const handleManualRefresh = () => {
     queryClient.invalidateQueries({ queryKey: ['rm-stock'] });
     refetch();
   };
 
-  const handleOpenHistory = (materialId) => {
+  const handleOpenHistory = (materialId, tab = 'timeline', batch = null) => {
     setSelectedMaterialId(materialId);
+    setDrawerInitialTab(tab);
+    setDrawerTargetBatch(batch);
     setIsHistoryOpen(true);
   };
 
   const handleCloseHistory = () => {
     setIsHistoryOpen(false);
     setSelectedMaterialId(null);
+    setDrawerTargetBatch(null);
+
+    // Clean up query params so drawer does not reopen involuntarily on refresh
+    if (searchParams.get('openHistory')) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('openHistory');
+      newParams.delete('batch');
+      navigate({ search: newParams.toString() ? `?${newParams.toString()}` : '' }, { replace: true, state: {} });
+    }
   };
 
   const handleExportAllStockExcel = () => {
@@ -208,15 +267,22 @@ export default function RMStockPage() {
                 paginatedStock.map((item, idx) => {
                   const calculatedIndex = (currentPage - 1) * ITEMS_PER_PAGE + idx + 1;
                   const isLowStock = item.availableQuantity <= item.alertLevel;
+                  const isSelected = (selectedMaterialId === item.id) || (codeParam && item.code === codeParam);
                   return (
                     <tr 
                       key={item.id} 
                       onClick={() => handleOpenHistory(item.id)}
-                      className="hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none cursor-pointer group"
+                      className={`hover:bg-indigo-50/40 dark:hover:bg-indigo-950/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none cursor-pointer group ${
+                        isSelected ? 'bg-indigo-50/40 dark:bg-indigo-950/30' : ''
+                      }`}
                     >
                       <td className="px-4 py-2.5 text-center text-slate-400 font-semibold">{calculatedIndex}</td>
                       <td className="px-4 py-2.5 font-mono font-bold text-slate-900 dark:text-white">
-                        <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] inline-block border dark:border-slate-750 group-hover:border-indigo-300 dark:group-hover:border-indigo-700 transition-colors">
+                        <span className={`px-2 py-0.5 rounded text-[10px] inline-block border transition-colors ${
+                          isSelected
+                            ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 font-black'
+                            : 'bg-slate-100 dark:bg-slate-800 dark:border-slate-750 group-hover:border-indigo-300 dark:group-hover:border-indigo-700'
+                        }`}>
                           {item.code}
                         </span>
                       </td>
@@ -295,6 +361,8 @@ export default function RMStockPage() {
         materialId={selectedMaterialId}
         isOpen={isHistoryOpen}
         onClose={handleCloseHistory}
+        initialTab={drawerInitialTab}
+        targetBatch={drawerTargetBatch}
       />
     </div>
   );

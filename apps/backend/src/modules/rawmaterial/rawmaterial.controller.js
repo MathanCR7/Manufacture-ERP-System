@@ -938,8 +938,13 @@ exports.getMaterialHistory = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const rm = await prisma.rawMaterial.findUnique({
-      where: { id },
+    const rm = await prisma.rawMaterial.findFirst({
+      where: {
+        OR: [
+          { id },
+          { code: id }
+        ]
+      },
       include: {
         category: true,
         uoms: true
@@ -1157,6 +1162,7 @@ exports.getMaterialHistory = async (req, res, next) => {
       where: {
         OR: [
           { rawMaterialId: rm.id },
+          ...(rm.code ? [{ rawMaterialId: rm.code }] : []),
           { rawMaterialName: { equals: rm.name, mode: 'insensitive' } }
         ]
       },

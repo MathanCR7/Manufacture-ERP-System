@@ -23,13 +23,6 @@ import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import _QRCode from 'react-qr-code';
 const QRCode = typeof _QRCode === 'function' ? _QRCode : (_QRCode?.default || _QRCode?.QRCode || 'div');
 
-const LAB_STATUS_CONFIG = {
-  PENDING_LAB:  { label: 'Pending Lab',   color: 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-400 border border-amber-300 dark:border-amber-700', icon: FlaskConical },
-  LAB_APPROVED: { label: 'Lab Approved',  color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700', icon: CheckCircle2 },
-  LAB_REJECTED: { label: 'Lab Rejected',  color: 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-400 border border-red-300 dark:border-red-700', icon: XCircle },
-  LAB_RESAMPLE: { label: 'Re-sample',     color: 'bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-400 border border-violet-300 dark:border-violet-700', icon: AlertTriangle },
-};
-
 function InfoRow({ icon: Icon, label, value }) {
   return (
     <div className="flex items-start space-x-3 py-3 border-b border-slate-100 dark:border-slate-800 last:border-0">
@@ -194,6 +187,29 @@ export default function PODetailPage() {
     ? (hasBatches || hasGRN || po.status === 'APPROVED' || po.status === 'RECEIVED' || grn?.inventoryStatus === 'UPLOADED')
     : (labApproved && (hasBatches || grn?.inventoryStatus === 'UPLOADED'));
 
+  // Link directly to RM Stock with drawer open
+  const handleViewInStock = (batch = null) => {
+    const targetBatch = batch || (batches.length > 0 ? batches[0] : null);
+    const rawMatId = targetBatch?.rawMaterialId || po.rmId;
+    const rawMatCode = po.rmId;
+    const rawMatName = targetBatch?.rawMaterialName || po.name;
+    const batchNum = targetBatch?.batchNumber;
+
+    navigate(
+      `/rm/stock?code=${encodeURIComponent(rawMatCode)}&name=${encodeURIComponent(rawMatName)}&materialId=${encodeURIComponent(rawMatId)}&openHistory=true${batchNum ? `&batch=${encodeURIComponent(batchNum)}` : ''}`,
+      {
+        state: {
+          materialId: rawMatId,
+          rmCode: rawMatCode,
+          rmName: rawMatName,
+          batchNumber: batchNum,
+          openHistory: true,
+          initialTab: 'grn'
+        }
+      }
+    );
+  };
+
   const qrData = JSON.stringify({
     poNumber: po.referenceNo,
     supplierName: po.supplier?.name || '',
@@ -298,7 +314,7 @@ export default function PODetailPage() {
                     </span>
                   )}
                   {labApproved && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                       Lab Approved
                     </span>
@@ -394,8 +410,8 @@ export default function PODetailPage() {
           {hasBatches && (
             <Button
               variant="outline"
-              className="border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 gap-1.5"
-              onClick={() => navigate('/rm/stock')}
+              className="border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 gap-1.5 font-medium"
+              onClick={() => handleViewInStock(batches[0])}
             >
               <Boxes className="w-4 h-4" /> View in RM Stock
             </Button>
@@ -595,7 +611,7 @@ export default function PODetailPage() {
                           variant="outline"
                           size="sm"
                           className="h-7 text-xs border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 gap-1.5 font-medium"
-                          onClick={() => navigate('/rm/stock')}
+                          onClick={() => handleViewInStock(batch)}
                         >
                           <Boxes className="w-3.5 h-3.5" /> View in RM Stock
                         </Button>
@@ -617,10 +633,10 @@ export default function PODetailPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="text-xs border-emerald-300 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50"
-                    onClick={() => navigate('/rm/stock')}
+                    className="text-xs border-emerald-300 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 gap-1"
+                    onClick={() => handleViewInStock()}
                   >
-                    <Boxes className="w-3.5 h-3.5 mr-1" /> View RM Stock
+                    <Boxes className="w-3.5 h-3.5" /> View RM Stock
                   </Button>
                 </div>
               )}
@@ -744,11 +760,11 @@ export default function PODetailPage() {
                   </span>
                   {isLabExempt ? (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                      <ShieldCheck className="w-3 h-3 text-emerald-600" /> Lab Exempt (Direct to Inventory)
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Lab Exempt (Direct to Inventory)
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
-                      <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Test Required
+                      <FlaskConical className="w-3.5 h-3.5 text-violet-500" /> Lab Test Required
                     </span>
                   )}
                 </div>

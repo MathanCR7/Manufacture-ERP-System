@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -35,10 +35,23 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
+export default function RMHistoryDrawer({ 
+  materialId, 
+  isOpen, 
+  onClose,
+  initialTab = 'timeline',
+  targetBatch = null
+}) {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('timeline');
+  const [activeTab, setActiveTab] = useState(initialTab || 'timeline');
   const [isExpanded, setIsExpanded] = useState(false);
+
+  // Sync activeTab when initialTab or isOpen changes
+  useEffect(() => {
+    if (isOpen && initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [isOpen, initialTab, materialId]);
 
   // Fetch full history from backend
   const { data, isLoading, isFetching, error, refetch } = useQuery({
@@ -342,6 +355,12 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                       {material.category}
                     </span>
                   )}
+                  {targetBatch && (
+                    <span className="text-[11px] font-mono font-bold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 flex items-center gap-1 shadow-xs animate-pulse">
+                      <Warehouse className="w-3 h-3" />
+                      Batch: {targetBatch}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                   Comprehensive audit trail • Purchases, Gate Inward, QC Reports, Batches, Adjustments & Usages
@@ -533,7 +552,7 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                         {[
                           { id: 'timeline', label: 'All Timeline', count: timeline.length, icon: Clock },
                           { id: 'purchases', label: 'Purchases (POs)', count: purchases.length, icon: ShoppingCart },
-                          { id: 'grn', label: 'GRN & Batches', count: grnReceipts.length, icon: Truck },
+                          { id: 'grn', label: 'GRN & Batches', count: Math.max(grnReceipts.length, batches.length), icon: Truck },
                           { id: 'lab', label: 'Lab & QC Reports', count: labReports.length, icon: ShieldCheck },
                           { id: 'adjustments', label: 'Stock Adjustments', count: stockAdjustments.length, icon: RotateCcw },
                           { id: 'waste', label: 'RM Wastage', count: wasteRecords.length, icon: Trash2 },
@@ -582,20 +601,38 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
 
                         <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
                           {timeline.map((event) => {
+                            const isTargetBatch = targetBatch && (
+                              event.metadata?.batchNumber === targetBatch ||
+                              (typeof event.title === 'string' && event.title.includes(targetBatch)) ||
+                              (typeof event.subtitle === 'string' && event.subtitle.includes(targetBatch))
+                            );
                             return (
                               <div key={event.id} className="relative group">
                                 {/* Circle icon node */}
-                                <div className="absolute -left-6 top-1 w-5 h-5 rounded-full bg-white dark:bg-slate-900 border-2 border-slate-300 dark:border-slate-700 flex items-center justify-center group-hover:border-indigo-500 transition-colors shadow-xs">
+                                <div className={`absolute -left-6 top-1 w-5 h-5 rounded-full bg-white dark:bg-slate-900 border-2 flex items-center justify-center transition-colors shadow-xs ${
+                                  isTargetBatch
+                                    ? 'border-emerald-500 ring-2 ring-emerald-500/40'
+                                    : 'border-slate-300 dark:border-slate-700 group-hover:border-indigo-500'
+                                }`}>
                                   {getTimelineIcon(event.type)}
                                 </div>
 
                                 {/* Event Card */}
-                                <div className="p-3.5 sm:p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800/80 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 transition-all space-y-2">
+                                <div className={`p-3.5 sm:p-4 rounded-2xl border transition-all space-y-2 ${
+                                  isTargetBatch
+                                    ? 'bg-emerald-50/50 dark:bg-emerald-950/40 border-2 border-emerald-500 shadow-md shadow-emerald-500/10 ring-1 ring-emerald-500/20'
+                                    : 'bg-white dark:bg-slate-800/40 border-slate-200 dark:border-slate-800/80 shadow-xs hover:border-slate-300 dark:hover:border-slate-700'
+                                }`}>
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <span className="text-xs font-bold text-slate-900 dark:text-white">
                                         {event.title}
                                       </span>
+                                      {isTargetBatch && (
+                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-emerald-600 text-white flex items-center gap-1 shadow-xs">
+                                          <CheckCircle2 className="w-3 h-3" /> Target Batch Event
+                                        </span>
+                                      )}
                                       {event.status && (
                                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                                           {event.status}
@@ -795,118 +832,271 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
 
                     {/* 3. GRN & INWARD BATCHES TAB */}
                     {activeTab === 'grn' && (
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                            GRN Receipts & Inward Batches ({grnReceipts.length})
-                          </h3>
-                        </div>
-
-                        {grnReceipts.length === 0 ? (
-                          <div className="py-8 text-center text-xs text-slate-400 border border-dashed rounded-2xl">
-                            No GRN inward receipts found for this material.
+                      <div className="space-y-6">
+                        {/* 1. Inventory Batches Section */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                              <Warehouse className="w-3.5 h-3.5 text-emerald-600" />
+                              Inventory Stock Batches ({batches.length})
+                            </h3>
+                            {targetBatch && (
+                              <span className="text-[11px] font-mono font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-300 dark:border-emerald-800">
+                                Target: {targetBatch}
+                              </span>
+                            )}
                           </div>
-                        ) : (
-                          <div className="space-y-3">
-                            {grnReceipts.map((grn) => (
-                              <div key={grn.id} className="p-4 rounded-2xl bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <button
-                                      type="button"
-                                      onClick={() => window.open(`/grn/view/${grn.grnId || grn.id}`, '_blank')}
-                                      className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
-                                      title="Open GRN in new tab"
-                                    >
-                                      <span>{grn.referenceNo}</span>
-                                      <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
-                                    </button>
-                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-900">
-                                      Gate Entry: {grn.grnStatus}
-                                    </span>
-                                    {grn.inventoryStatus === 'UPLOADED' && (
-                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
-                                        Uploaded to Stock
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-xs text-slate-500 font-mono">
-                                    Received: {formatDate(grn.receivedDate)}
-                                  </span>
-                                </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                                  <div>
-                                    <span className="text-[10px] text-slate-400 block font-semibold">PO Reference</span>
-                                    {grn.poId ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => window.open(`/purchase-orders/${grn.poId}`, '_blank')}
-                                        className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
-                                        title="Open PO in new tab"
-                                      >
-                                        <span>{grn.poReferenceNo}</span>
-                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
-                                      </button>
-                                    ) : (
-                                      <span className="font-medium text-slate-800 dark:text-slate-200">{grn.poReferenceNo}</span>
-                                    )}
-                                  </div>
-                                  <div>
-                                    <span className="text-[10px] text-slate-400 block font-semibold">Supplier</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">{grn.supplierName}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[10px] text-slate-400 block font-semibold">Expected / Received</span>
-                                    <span className="font-bold text-slate-900 dark:text-white">
-                                      {grn.expectedQty} / {grn.actualReceivedQty} {material?.unit}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="text-[10px] text-slate-400 block font-semibold">Receiver</span>
-                                    <span className="font-medium text-slate-800 dark:text-slate-200">{grn.receivedByName}</span>
-                                  </div>
-                                </div>
-
-                                {(grn.challanNumber || grn.invoiceNumber || grn.vehicleNumber) && (
-                                  <div className="flex flex-wrap items-center gap-3 pt-2 text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80">
-                                    {grn.challanNumber && <span>Challan: <strong className="text-slate-700 dark:text-slate-300">{grn.challanNumber}</strong></span>}
-                                    {grn.invoiceNumber && <span>Invoice: <strong className="text-slate-700 dark:text-slate-300">{grn.invoiceNumber}</strong></span>}
-                                    {grn.vehicleNumber && <span>Vehicle: <strong className="text-slate-700 dark:text-slate-300">{grn.vehicleNumber}</strong></span>}
-                                    {grn.driverName && <span>Driver: <strong className="text-slate-700 dark:text-slate-300">{grn.driverName}</strong></span>}
-                                  </div>
-                                )}
-
-                                {/* Linked Inventory Batch */}
-                                {grn.batch && (
-                                  <div className="p-2.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/50 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                                    <div className="flex items-center gap-2">
-                                      <Warehouse className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                                      <div>
+                          {batches.length === 0 ? (
+                            <div className="py-6 text-center text-xs text-slate-400 border border-dashed rounded-2xl">
+                              No inventory stock batches recorded yet for this material.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 gap-3">
+                              {/* Sort batches so targetBatch is prioritized first */}
+                              {[...batches].sort((a, b) => {
+                                if (targetBatch) {
+                                  if (a.batchNumber === targetBatch) return -1;
+                                  if (b.batchNumber === targetBatch) return 1;
+                                }
+                                return new Date(b.createdAt) - new Date(a.createdAt);
+                              }).map((batch) => {
+                                const isTarget = targetBatch && (
+                                  batch.batchNumber === targetBatch ||
+                                  (typeof batch.batchNumber === 'string' && batch.batchNumber.toLowerCase().includes(targetBatch.toLowerCase()))
+                                );
+                                return (
+                                  <div
+                                    key={batch.id}
+                                    className={`p-4 rounded-2xl transition-all space-y-3 ${
+                                      isTarget
+                                        ? 'bg-emerald-50/80 dark:bg-emerald-950/40 border-2 border-emerald-500 shadow-md shadow-emerald-500/10 ring-2 ring-emerald-500/20'
+                                        : 'bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 shadow-xs'
+                                    }`}
+                                  >
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="font-mono font-bold text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
+                                          <Warehouse className="w-4 h-4 text-emerald-600" />
+                                          {batch.batchNumber}
+                                        </span>
+                                        {isTarget && (
+                                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-md bg-emerald-600 text-white flex items-center gap-1 shadow-xs">
+                                            <CheckCircle2 className="w-3 h-3" />
+                                            Selected PO Batch
+                                          </span>
+                                        )}
+                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                          batch.status === 'AVAILABLE'
+                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                            : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                                        }`}>
+                                          {batch.status || 'AVAILABLE'}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-slate-500 font-mono">
+                                          Stored: {formatDate(batch.createdAt)}
+                                        </span>
                                         <button
                                           type="button"
-                                          onClick={() => window.open(`/qr-lifecycle/${encodeURIComponent(grn.batch.batchNumber)}`, '_blank')}
-                                          className="font-mono font-bold text-emerald-800 dark:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
-                                          title="Open Inventory Batch in new tab"
+                                          onClick={() => window.open(`/qr-lifecycle/${encodeURIComponent(batch.batchNumber)}`, '_blank')}
+                                          className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100/60 dark:bg-emerald-950/60 hover:bg-emerald-200/60 px-2.5 py-1 rounded-lg transition-colors cursor-pointer border border-emerald-200 dark:border-emerald-800"
+                                          title="View Batch QR & Lifecycle"
                                         >
-                                          <span>{grn.batch.batchNumber}</span>
-                                          <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                          <span>QR Traceability</span>
+                                          <ArrowUpRight className="w-3 h-3" />
                                         </button>
-                                        <span className="text-[10px] text-emerald-700 dark:text-emerald-400 ml-2">Location: {grn.batch.storageLocation}</span>
                                       </div>
                                     </div>
-                                    <div className="text-right text-[11px] text-emerald-700 dark:text-emerald-300">
-                                      Net Qty: <strong>{grn.batch.netQty} {material?.unit}</strong>
-                                      {grn.batch.expiryDate && (
-                                        <span className="ml-2 font-mono">Exp: {formatShortDate(grn.batch.expiryDate)}</span>
-                                      )}
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">Net Stock Quantity</span>
+                                        <span className="font-black text-slate-900 dark:text-white text-sm">
+                                          {batch.netQty?.toLocaleString()} <span className="text-xs font-semibold text-slate-500">{batch.uom || material?.unit}</span>
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">Storage Location</span>
+                                        <span className="font-semibold text-slate-800 dark:text-slate-200">{batch.storageLocation || 'Main RM Warehouse'}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">PO Reference</span>
+                                        {batch.poId ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => window.open(`/purchase-orders/${batch.poId}`, '_blank')}
+                                            className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                            title="Open PO in new tab"
+                                          >
+                                            <span>{batch.poReferenceNo}</span>
+                                            <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                          </button>
+                                        ) : (
+                                          <span className="font-medium text-slate-800 dark:text-slate-200">{batch.poReferenceNo || 'Direct / Exemption'}</span>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">Expiry Date</span>
+                                        <span className="font-mono text-slate-700 dark:text-slate-300">
+                                          {batch.expiryDate ? formatShortDate(batch.expiryDate) : 'No Expiry'}
+                                        </span>
+                                      </div>
                                     </div>
+
+                                    {(batch.grnReferenceNo && batch.grnReferenceNo !== 'N/A') && (
+                                      <div className="pt-1 text-[11px] text-slate-500 flex items-center gap-2">
+                                        <span>Linked GRN: <strong className="text-slate-700 dark:text-slate-300 font-mono">{batch.grnReferenceNo}</strong></span>
+                                        {batch.supplierName && batch.supplierName !== 'N/A' && (
+                                          <span>• Supplier: <strong className="text-slate-700 dark:text-slate-300">{batch.supplierName}</strong></span>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                            ))}
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 2. GRN Inward Receipts Section */}
+                        <div className="space-y-3 pt-2">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                              <Truck className="w-3.5 h-3.5 text-teal-600" />
+                              GRN Gate Inward Receipts ({grnReceipts.length})
+                            </h3>
                           </div>
-                        )}
+
+                          {grnReceipts.length === 0 ? (
+                            <div className="py-6 text-center text-xs text-slate-400 border border-dashed rounded-2xl">
+                              No GRN inward receipts found for this material.
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {grnReceipts.map((grn) => {
+                                const isTargetGRN = targetBatch && (
+                                  grn.batch?.batchNumber === targetBatch ||
+                                  (typeof grn.batch?.batchNumber === 'string' && grn.batch.batchNumber.toLowerCase().includes(targetBatch.toLowerCase()))
+                                );
+                                return (
+                                  <div
+                                    key={grn.id}
+                                    className={`p-4 rounded-2xl transition-all space-y-3 ${
+                                      isTargetGRN
+                                        ? 'bg-emerald-50/50 dark:bg-emerald-950/30 border-2 border-emerald-500 shadow-sm'
+                                        : 'bg-white dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 shadow-xs'
+                                    }`}
+                                  >
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <button
+                                          type="button"
+                                          onClick={() => window.open(`/grn/view/${grn.grnId || grn.id}`, '_blank')}
+                                          className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                          title="Open GRN in new tab"
+                                        >
+                                          <span>{grn.referenceNo}</span>
+                                          <ArrowUpRight className="w-3.5 h-3.5 opacity-70" />
+                                        </button>
+                                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-900">
+                                          Gate Entry: {grn.grnStatus}
+                                        </span>
+                                        {grn.inventoryStatus === 'UPLOADED' && (
+                                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300">
+                                            Uploaded to Stock
+                                          </span>
+                                        )}
+                                        {isTargetGRN && (
+                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-600 text-white">
+                                            Matched Batch
+                                          </span>
+                                        )}
+                                      </div>
+                                      <span className="text-xs text-slate-500 font-mono">
+                                        Received: {formatDate(grn.receivedDate)}
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">PO Reference</span>
+                                        {grn.poId ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => window.open(`/purchase-orders/${grn.poId}`, '_blank')}
+                                            className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5 cursor-pointer"
+                                            title="Open PO in new tab"
+                                          >
+                                            <span>{grn.poReferenceNo}</span>
+                                            <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                          </button>
+                                        ) : (
+                                          <span className="font-medium text-slate-800 dark:text-slate-200">{grn.poReferenceNo}</span>
+                                        )}
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">Supplier</span>
+                                        <span className="font-medium text-slate-800 dark:text-slate-200">{grn.supplierName}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">Expected / Received</span>
+                                        <span className="font-bold text-slate-900 dark:text-white">
+                                          {grn.expectedQty} / {grn.actualReceivedQty} {material?.unit}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <span className="text-[10px] text-slate-400 block font-semibold">Receiver</span>
+                                        <span className="font-medium text-slate-800 dark:text-slate-200">{grn.receivedByName}</span>
+                                      </div>
+                                    </div>
+
+                                    {(grn.challanNumber || grn.invoiceNumber || grn.vehicleNumber) && (
+                                      <div className="flex flex-wrap items-center gap-3 pt-2 text-[11px] text-slate-500 bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80">
+                                        {grn.challanNumber && <span>Challan: <strong className="text-slate-700 dark:text-slate-300">{grn.challanNumber}</strong></span>}
+                                        {grn.invoiceNumber && <span>Invoice: <strong className="text-slate-700 dark:text-slate-300">{grn.invoiceNumber}</strong></span>}
+                                        {grn.vehicleNumber && <span>Vehicle: <strong className="text-slate-700 dark:text-slate-300">{grn.vehicleNumber}</strong></span>}
+                                        {grn.driverName && <span>Driver: <strong className="text-slate-700 dark:text-slate-300">{grn.driverName}</strong></span>}
+                                      </div>
+                                    )}
+
+                                    {/* Linked Inventory Batch */}
+                                    {grn.batch && (
+                                      <div className={`p-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs ${
+                                        isTargetGRN
+                                          ? 'bg-emerald-100/60 dark:bg-emerald-950/60 border-emerald-400 dark:border-emerald-700 ring-1 ring-emerald-500/30'
+                                          : 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-100 dark:border-emerald-900/50'
+                                      }`}>
+                                        <div className="flex items-center gap-2">
+                                          <Warehouse className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                                          <div>
+                                            <button
+                                              type="button"
+                                              onClick={() => window.open(`/qr-lifecycle/${encodeURIComponent(grn.batch.batchNumber)}`, '_blank')}
+                                              className="font-mono font-bold text-emerald-800 dark:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                              title="Open Inventory Batch in new tab"
+                                            >
+                                              <span>{grn.batch.batchNumber}</span>
+                                              <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                            </button>
+                                            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 ml-2">Location: {grn.batch.storageLocation}</span>
+                                          </div>
+                                        </div>
+                                        <div className="text-right text-[11px] text-emerald-700 dark:text-emerald-300">
+                                          Net Qty: <strong>{grn.batch.netQty} {material?.unit}</strong>
+                                          {grn.batch.expiryDate && (
+                                            <span className="ml-2 font-mono">Exp: {formatShortDate(grn.batch.expiryDate)}</span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
 
