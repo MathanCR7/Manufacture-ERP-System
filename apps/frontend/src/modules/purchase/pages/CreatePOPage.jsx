@@ -464,35 +464,7 @@ export default function CreatePOPage({ onBack }) {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const isFromQuotation = !!location.state?.prefillFromQuotation;
 
-  // Prefill from RM Quotation if navigated via "Turn into Direct Order"
-  useEffect(() => {
-    if (location.state?.prefillFromQuotation) {
-      const q = location.state.prefillFromQuotation;
-      setFormData(prev => ({
-        ...prev,
-        selectedSupplier: q.supplier || prev.selectedSupplier,
-        discount: String(q.discount || 0),
-        shipping: String(q.shipping || 0),
-        otherCharges: String(q.otherCharges || 0),
-      }));
-
-      if (q.items && Array.isArray(q.items)) {
-        const prefilled = q.items.map(it => ({
-          id: it.materialId || Math.random().toString(),
-          rmId: it.materialCode || 'RM-ITEM',
-          name: it.materialName || 'Raw Material',
-          category: it.category || 'General',
-          quantity: Number(it.quantity) || 1,
-          unitPrice: Number(it.unitPrice) || 0,
-          uomLabel: (it.unit || 'units').toUpperCase(),
-          uomId: '',
-          gstApplicable: it.gstApplicable ?? true,
-          gstPercentage: Number(it.gstRate) || 18,
-        }));
-        setItems(prefilled);
-      }
-    }
-  }, [location.state]);
+  // Note: Full quotation prefill effect is executed below after suppliers and allUoms queries are loaded
 
   const { data: poRefData, isFetching: isRotatingPo } = useQuery({
     queryKey: ['generatePoRef'],
@@ -578,6 +550,60 @@ export default function CreatePOPage({ onBack }) {
       return response.data;
     },
   });
+
+  // Prefill from RM Quotation if navigated via "Turn into Direct Order"
+  useEffect(() => {
+    if (location.state?.prefillFromQuotation) {
+      const q = location.state.prefillFromQuotation;
+
+      // Match full supplier details (GSTIN, Address, Phone)
+      const matchedSupplier = suppliers.find(s => s.id === (q.supplierId || q.supplier?.id)) || q.supplier;
+
+      // Default expectedDelivery to today + 7 days if not set
+      const defaultDelivery = new Date();
+      defaultDelivery.setDate(defaultDelivery.getDate() + 7);
+
+      setFormData(prev => ({
+        ...prev,
+        selectedSupplier: matchedSupplier || prev.selectedSupplier,
+        expectedDelivery: prev.expectedDelivery || defaultDelivery,
+        discount: String(q.discount || 0),
+        shipping: String(q.shipping || 0),
+        otherCharges: String(q.otherCharges || 0),
+        notes: q.supplierNote ? `Supplier Quotation Note: ${q.supplierNote}` : prev.notes,
+      }));
+
+      if (q.items && Array.isArray(q.items)) {
+        const prefilled = q.items.map(it => {
+          const itemType = it.itemType || 'RAW_MATERIAL';
+          const isNonInv = itemType === 'NON_INVENTORY';
+
+          // Match UOM
+          const rawUnit = (it.unit || (isNonInv ? 'pcs' : 'kg')).trim().toLowerCase();
+          const matchedUom = allUoms.find(u => 
+            (u.abbreviation || '').toLowerCase() === rawUnit ||
+            (u.name || '').toLowerCase() === rawUnit
+          );
+
+          return {
+            id: it.materialId || Math.random().toString(),
+            rmId: it.materialCode || (isNonInv ? 'NI-ITEM' : 'RM-ITEM'),
+            name: it.materialName || (isNonInv ? 'Non-Inventory Item' : 'Raw Material'),
+            itemType: itemType,
+            category: it.category || (isNonInv ? 'Non-Inventory' : 'General'),
+            quantity: Number(it.quantity) || 1,
+            unitPrice: Number(it.unitPrice) || 0,
+            uomLabel: matchedUom ? matchedUom.abbreviation.toUpperCase() : (it.unit || (isNonInv ? 'PCS' : 'KG')).toUpperCase(),
+            uomId: matchedUom ? matchedUom.id : '',
+            gstApplicable: it.gstApplicable ?? true,
+            gstPercentage: Number(it.gstRate) || 18,
+            labTestRequired: !isNonInv, // Non-inventory items do not require lab testing
+          };
+        });
+        setItems(prefilled);
+      }
+    }
+  }, [location.state, suppliers, allUoms]);
 
   const { data: rmUoms = [] } = useQuery({
     queryKey: ['uoms', formData.selectedRm?.id],
@@ -829,6 +855,28 @@ export default function CreatePOPage({ onBack }) {
           </Button>
         </div>
       </div>
+
+      {/* Quotation Import Banner */}
+      {isFromQuotation && (
+        <div className="p-3 bg-gradient-to-r from-purple-50 via-indigo-50 to-purple-50 dark:from-purple-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-indigo-600 text-white font-bold shrink-0 shadow-xs">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="font-extrabold text-indigo-700 dark:text-indigo-300">
+                Prefilled from Supplier Quotation: {location.state.prefillFromQuotation.referenceNo || 'Quote Response'}
+              </span>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Supplier details, negotiated item prices (inventory & non-inventory), tax rates, and charges have been automatically populated.
+              </p>
+            </div>
+          </div>
+          <span className="px-2.5 py-1 rounded-xl bg-purple-100 text-purple-700 dark:bg-purple-900/60 dark:text-purple-300 font-extrabold text-[10px] uppercase border border-purple-200 dark:border-purple-800 shrink-0">
+            Direct Order Mode
+          </span>
+        </div>
+      )}
 
       {/* Error alert if any */}
       {errorMsg && (

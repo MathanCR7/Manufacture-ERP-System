@@ -636,7 +636,7 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                                     {event.type === 'INVENTORY_BATCH' && event.metadata?.batchNumber && (
                                       <button
                                         type="button"
-                                        onClick={() => window.open(`/inventory/list?search=${event.metadata.batchNumber}`, '_blank')}
+                                        onClick={() => window.open(`/qr-lifecycle/${encodeURIComponent(event.metadata.batchNumber)}`, '_blank')}
                                         className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline cursor-pointer"
                                       >
                                         <span>View Batch ({event.metadata.batchNumber})</span>
@@ -885,7 +885,7 @@ export default function RMHistoryDrawer({ materialId, isOpen, onClose }) {
                                       <div>
                                         <button
                                           type="button"
-                                          onClick={() => window.open(`/inventory/list?search=${grn.batch.batchNumber}`, '_blank')}
+                                          onClick={() => window.open(`/qr-lifecycle/${encodeURIComponent(grn.batch.batchNumber)}`, '_blank')}
                                           className="font-mono font-bold text-emerald-800 dark:text-emerald-300 hover:underline inline-flex items-center gap-1 cursor-pointer"
                                           title="Open Inventory Batch in new tab"
                                         >

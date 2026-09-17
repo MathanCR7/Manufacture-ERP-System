@@ -336,8 +336,8 @@ export default function ReceiveDeliveryPage() {
               Go to Lab Testing Queue
             </Button>
           ) : (
-            <Button onClick={() => navigate('/inventory/batches')} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-              View Inventory Batches
+            <Button onClick={() => navigate('/rm/stock')} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              View RM Stock
             </Button>
           )}
         </div>

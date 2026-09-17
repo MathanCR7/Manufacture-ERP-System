@@ -53,6 +53,8 @@ export default function SupplierQuotationPublicPage() {
             quotationItemId: qi.id,
             materialName: qi.materialName,
             materialCode: qi.materialCode,
+            itemType: qi.itemType || 'RAW_MATERIAL',
+            category: qi.category || '',
             quantity: Number(qi.quantity),
             unit: qi.unit,
             gstApplicable: qi.gstApplicable,
@@ -530,8 +532,17 @@ export default function SupplierQuotationPublicPage() {
                       return (
                         <tr key={item.quotationItemId} className="hover:bg-slate-850/50">
                           <td className="px-4 py-3.5 text-center font-mono text-slate-500">{idx + 1}</td>
-                          <td className="px-4 py-3.5 font-bold text-slate-100">
-                            {item.materialName}
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-100">{item.materialName}</span>
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                item.itemType === 'NON_INVENTORY'
+                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                  : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                              }`}>
+                                {item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'Raw Material'}
+                              </span>
+                            </div>
                             {item.materialCode && <span className="block text-[11px] font-mono text-slate-500">{item.materialCode}</span>}
                           </td>
                           <td className="px-4 py-3.5 text-right font-mono text-indigo-400 font-bold">{item.quantity}</td>
@@ -554,7 +565,16 @@ export default function SupplierQuotationPublicPage() {
                         <div className="flex justify-between items-start">
                           <div>
                             <span className="text-[10px] text-slate-500 font-mono font-bold block">ITEM #{idx + 1}</span>
-                            <span className="font-extrabold text-slate-100 text-sm">{item.materialName}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-extrabold text-slate-100 text-sm">{item.materialName}</span>
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                item.itemType === 'NON_INVENTORY'
+                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                  : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                              }`}>
+                                {item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'Raw Material'}
+                              </span>
+                            </div>
                             {item.materialCode && (
                               <span className="block text-[11px] font-mono text-slate-500">{item.materialCode}</span>
                             )}
@@ -654,7 +674,16 @@ export default function SupplierQuotationPublicPage() {
                         <tr key={item.quotationItemId} className="hover:bg-slate-850/50 transition-colors">
                           <td className="px-4 py-3.5 text-center font-mono text-slate-500">{index + 1}</td>
                           <td className="px-4 py-3.5">
-                            <div className="font-bold text-slate-100">{item.materialName}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-100">{item.materialName}</span>
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                item.itemType === 'NON_INVENTORY'
+                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                  : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                              }`}>
+                                {item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'Raw Material'}
+                              </span>
+                            </div>
                             {item.materialCode && (
                               <div className="text-[11px] font-mono text-slate-500">{item.materialCode}</div>
                             )}
@@ -728,7 +757,16 @@ export default function SupplierQuotationPublicPage() {
                         <div className="flex justify-between items-start">
                           <div>
                             <span className="text-[10px] text-slate-500 font-mono font-bold block">ITEM #{index + 1}</span>
-                            <span className="font-extrabold text-slate-100 text-sm">{item.materialName}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-extrabold text-slate-100 text-sm">{item.materialName}</span>
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                item.itemType === 'NON_INVENTORY'
+                                  ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                  : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                              }`}>
+                                {item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'Raw Material'}
+                              </span>
+                            </div>
                             {item.materialCode && (
                               <span className="block text-[11px] font-mono text-slate-500">{item.materialCode}</span>
                             )}

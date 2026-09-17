@@ -497,7 +497,6 @@ model RawMaterial {
   productBOMs ProductBOM[]
   productionBatchRMUsages ProductionBatchRMUsage[]
   productionLossMaterials ProductionLossMaterial[]
-  rmQuotationItems RMQuotationItem[]
 }
 
 model RMStockAdjustment {
@@ -1787,13 +1786,14 @@ model RMQuotationItem {
   materialId    String              @map("material_id")
   materialName  String              @map("material_name")
   materialCode  String?             @map("material_code")
+  itemType      String?             @default("RAW_MATERIAL") @map("item_type")
+  category      String?
   quantity      Decimal
   unit          String
   gstApplicable Boolean             @default(true) @map("gst_applicable")
   gstRate       Decimal             @default(18.00) @map("gst_rate")
 
   quotation     RMQuotation         @relation(fields: [quotationId], references: [id], onDelete: Cascade)
-  material      RawMaterial         @relation(fields: [materialId], references: [id])
   responseItems RMQuotationResponseItem[]
 
   @@map("rm_quotation_items")

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { useNavigate } from 'react-router-dom';
@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { 
   Plus, Search, RefreshCw, X, ChevronDown, ChevronRight, Calendar, Clock, 
   Send, FileText, CheckCircle2, AlertTriangle, Building2, Package, Tag, 
-  ArrowUpDown, ExternalLink, ArrowRight, ShieldCheck, Mail, Info, Filter, Trash2, RotateCcw
+  ArrowUpDown, ExternalLink, ArrowRight, ShieldCheck, Mail, Info, Filter, Trash2, RotateCcw, Boxes
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 
@@ -136,16 +136,24 @@ function MultiSupplierSelect({ suppliers, selectedIds, onChange, onAddNew }) {
   );
 }
 
-// Searchable Raw Material Dropdown Component
-function RawMaterialSelect({ rawMaterials, value, onChange }) {
+// Searchable Catalog Item (Raw Material & Non-Inventory) Dropdown Component
+function QuotationItemSelect({ items, value, onChange }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [typeTab, setTypeTab] = useState('ALL'); // 'ALL' | 'RAW_MATERIAL' | 'NON_INVENTORY'
   const containerRef = useRef(null);
 
-  const filtered = rawMaterials.filter(rm =>
-    rm.name.toLowerCase().includes(search.toLowerCase()) || 
-    (rm.code && rm.code.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filtered = items.filter(it => {
+    const matchesTab = typeTab === 'ALL' || it.itemType === typeTab;
+    const matchesSearch = 
+      it.name.toLowerCase().includes(search.toLowerCase()) || 
+      (it.code && it.code.toLowerCase().includes(search.toLowerCase())) ||
+      (it.categoryName && it.categoryName.toLowerCase().includes(search.toLowerCase()));
+    return matchesTab && matchesSearch;
+  });
+
+  const rmCount = items.filter(it => it.itemType === 'RAW_MATERIAL').length;
+  const nonInvCount = items.filter(it => it.itemType === 'NON_INVENTORY').length;
 
   useEffect(() => {
     const handler = (e) => {
@@ -170,35 +178,90 @@ function RawMaterialSelect({ rawMaterials, value, onChange }) {
         }`}
       >
         <span className={value ? 'text-slate-900 dark:text-white truncate font-medium text-xs' : 'text-slate-400 text-xs'}>
-          {value ? `${value.name} (${value.code || 'N/A'})` : 'Select Raw Material to Add...'}
+          {value ? `${value.name} (${value.code || 'N/A'})` : 'Select Inventory (Raw Material) or Non-Inventory Item to Add...'}
         </span>
         <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${open ? 'rotate-180 text-indigo-500' : ''}`} />
       </button>
 
       {open && (
         <div className="absolute z-50 mt-2 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-200">
-          <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search Material Name or Code..."
-              className="w-full px-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white"
-              autoFocus
-            />
+          <div className="p-2.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 space-y-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search Item Name, Code, or Category..."
+                className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-white"
+                autoFocus
+              />
+            </div>
+
+            {/* Filter Tabs */}
+            <div className="flex gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl text-[11px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setTypeTab('ALL')}
+                className={`flex-1 py-1 rounded-lg transition-all ${
+                  typeTab === 'ALL'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                All ({items.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setTypeTab('RAW_MATERIAL')}
+                className={`flex-1 py-1 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                  typeTab === 'RAW_MATERIAL'
+                    ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <span>🌾 RM ({rmCount})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTypeTab('NON_INVENTORY')}
+                className={`flex-1 py-1 rounded-lg transition-all flex items-center justify-center gap-1 ${
+                  typeTab === 'NON_INVENTORY'
+                    ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-xs font-bold'
+                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <span>🚫 Non-Inv ({nonInvCount})</span>
+              </button>
+            </div>
           </div>
+
           <ul className="max-h-60 overflow-y-auto p-1 divide-y divide-slate-100 dark:divide-slate-800/40">
             {filtered.length === 0 ? (
-              <li className="px-4 py-6 text-xs text-slate-400 text-center">No materials found</li>
+              <li className="px-4 py-6 text-xs text-slate-400 text-center">No items found</li>
             ) : (
-              filtered.map(rm => (
+              filtered.map(it => (
                 <li
-                  key={rm.id}
-                  onClick={() => { onChange(rm); setOpen(false); setSearch(''); }}
-                  className="px-3.5 py-2 rounded-xl text-xs cursor-pointer hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300 transition-colors flex items-center justify-between"
+                  key={`${it.itemType}-${it.id}`}
+                  onClick={() => { onChange(it); setOpen(false); setSearch(''); }}
+                  className="px-3.5 py-2.5 rounded-xl text-xs cursor-pointer hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950/40 dark:hover:text-indigo-300 transition-colors flex items-center justify-between gap-2"
                 >
-                  <span className="font-bold text-slate-800 dark:text-slate-200">{rm.name}</span>
-                  <span className="font-mono text-slate-400 text-[11px]">{rm.code}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase shrink-0 ${
+                      it.itemType === 'NON_INVENTORY'
+                        ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                        : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                    }`}>
+                      {it.itemType === 'NON_INVENTORY' ? 'Non-Inv' : 'RM'}
+                    </span>
+                    <div className="truncate">
+                      <div className="font-bold text-slate-800 dark:text-slate-200 truncate">{it.name}</div>
+                      <div className="text-[10px] text-slate-400 font-mono truncate">
+                        {it.code ? `${it.code} • ` : ''}{it.categoryName || 'General'}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="font-mono text-slate-400 text-[11px] shrink-0">{it.displayUom || 'units'}</span>
                 </li>
               ))
             )}
@@ -315,6 +378,38 @@ export default function RMQuotationPage() {
     }
   });
 
+  // Fetch Non-Inventory items from /item-setup/non-inventory-item
+  const { data: nonInventoryItems = [] } = useQuery({
+    queryKey: ['nonInventoryItems'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/item-setup/non-inventory-item');
+        return res.data || [];
+      } catch (err) {
+        return [];
+      }
+    }
+  });
+
+  // Unified purchasable catalog (Inventory Raw Materials + Non-Inventory Items)
+  const purchasableItems = useMemo(() => {
+    const rmList = (rawMaterials || []).map(rm => ({
+      ...rm,
+      itemType: 'RAW_MATERIAL',
+      categoryName: rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || 'General',
+      displayUom: rm.consumptionUnit || rm.unit || rm.unitId || 'Kg'
+    }));
+
+    const nonInvList = (nonInventoryItems || []).map(ni => ({
+      ...ni,
+      itemType: 'NON_INVENTORY',
+      categoryName: ni.category || 'Non-Inventory',
+      displayUom: ni.unitId || 'pcs'
+    }));
+
+    return [...rmList, ...nonInvList];
+  }, [rawMaterials, nonInventoryItems]);
+
   // Fetch Suppliers
   const { data: suppliers = [] } = useQuery({
     queryKey: ['suppliers'],
@@ -364,21 +459,23 @@ export default function RMQuotationPage() {
     setQuotationItems([]);
   };
 
-  const handleAddMaterialItem = (rm) => {
-    if (!rm) return;
-    if (quotationItems.some(it => it.materialId === rm.id)) {
-      Swal.fire('Already Added', 'This raw material is already in the request table.', 'info');
+  const handleAddQuotationItem = (item) => {
+    if (!item) return;
+    if (quotationItems.some(it => it.materialId === item.id)) {
+      Swal.fire('Already Added', 'This item is already in the request table.', 'info');
       return;
     }
 
     setQuotationItems([
       ...quotationItems,
       {
-        materialId: rm.id,
-        materialName: rm.name,
-        materialCode: rm.code,
+        materialId: item.id,
+        materialName: item.name,
+        materialCode: item.code,
+        itemType: item.itemType || 'RAW_MATERIAL',
+        category: item.categoryName || item.category || 'General',
         quantity: 1,
-        unit: rm.consumptionUnit || rm.unit || 'Kg',
+        unit: item.displayUom || item.consumptionUnit || item.unit || 'Kg',
         gstApplicable: true
       }
     ]);
@@ -409,7 +506,7 @@ export default function RMQuotationPage() {
     }
 
     if (quotationItems.length === 0) {
-      Swal.fire('Missing Items', 'Please add at least one raw material item to the request table.', 'warning');
+      Swal.fire('Missing Items', 'Please add at least one item (inventory or non-inventory) to the request table.', 'warning');
       return;
     }
 
@@ -424,6 +521,8 @@ export default function RMQuotationPage() {
         materialId: it.materialId,
         materialName: it.materialName,
         materialCode: it.materialCode,
+        itemType: it.itemType || 'RAW_MATERIAL',
+        category: it.category || 'General',
         quantity: Number(it.quantity) || 1,
         unit: it.unit,
         gstApplicable: it.gstApplicable
@@ -437,13 +536,18 @@ export default function RMQuotationPage() {
   const handleTurnIntoDirectOrder = (quotation, supplierRow, response) => {
     if (!response) return;
 
+    // Resolve complete supplier details from master list for tax & delivery
+    const matchedSupplier = suppliers.find(s => s.id === (supplierRow.supplierId || supplierRow.supplier?.id)) || supplierRow.supplier;
+
     // Match response items with quotation items
     const prefilledItems = response.items.map(ri => {
       const qItem = quotation.items.find(qi => qi.id === ri.quotationItemId);
       return {
         materialId: qItem?.materialId,
-        materialName: qItem?.materialName || 'Raw Material',
+        materialName: qItem?.materialName || 'Item',
         materialCode: qItem?.materialCode || '',
+        itemType: qItem?.itemType || 'RAW_MATERIAL',
+        category: qItem?.category || 'General',
         quantity: Number(qItem?.quantity) || 1,
         unit: qItem?.unit || 'Kg',
         unitPrice: Number(ri.unitPrice) || 0,
@@ -455,7 +559,7 @@ export default function RMQuotationPage() {
 
     const prefillState = {
       quotationId: quotation.id,
-      supplier: supplierRow.supplier,
+      supplier: matchedSupplier,
       supplierId: supplierRow.supplierId,
       items: prefilledItems,
       discount: Number(response.discount) || 0,
@@ -654,7 +758,14 @@ export default function RMQuotationPage() {
                         </td>
                         <td className="px-4 py-4">
                           <span className="font-extrabold text-indigo-600 dark:text-indigo-400 font-mono text-sm">{q.quotationNo}</span>
-                          <div className="text-[11px] text-slate-400 mt-0.5">{q.items?.length || 0} material items requested</div>
+                          <div className="text-[11px] text-slate-400 mt-0.5">
+                            {q.items?.length || 0} items requested 
+                            {q.items?.some(i => i.itemType === 'NON_INVENTORY') && (
+                              <span className="ml-1 text-purple-600 dark:text-purple-400 font-semibold">
+                                ({q.items.filter(i => i.itemType === 'NON_INVENTORY').length} non-inv)
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-4 font-mono text-slate-600 dark:text-slate-400">
                           {format(new Date(q.createdAt), 'dd MMM yyyy')}
@@ -689,16 +800,76 @@ export default function RMQuotationPage() {
                         </td>
                       </tr>
 
-                      {/* EXPANDED PER-SUPPLIER BREAKDOWN ROW */}
+                      {/* EXPANDED QUOTATION BREAKDOWN ROW */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={9} className="px-6 py-4 bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200 dark:border-slate-800">
-                            <div className="space-y-3">
-                              
-                              <div className="flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          <td colSpan={9} className="px-6 py-5 bg-slate-50/80 dark:bg-slate-950/60 border-y border-slate-200 dark:border-slate-800 space-y-6">
+                            
+                            {/* SECTION 1: REQUESTED ITEMS (INVENTORY + NON-INVENTORY) */}
+                            <div className="space-y-2.5">
+                              <div className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                                <Boxes className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                <span>Requested Items Catalog ({q.items?.length || 0})</span>
+                              </div>
+                              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
+                                <table className="w-full text-left text-xs">
+                                  <thead className="bg-slate-100/70 dark:bg-slate-950 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-200 dark:border-slate-800">
+                                    <tr>
+                                      <th className="px-4 py-2.5 w-10 text-center">#</th>
+                                      <th className="px-4 py-2.5 w-32">Type</th>
+                                      <th className="px-4 py-2.5">Item Name & Code</th>
+                                      <th className="px-4 py-2.5">Category</th>
+                                      <th className="px-4 py-2.5 text-center w-32">Quantity</th>
+                                      <th className="px-4 py-2.5 text-center w-28">GST Applicable</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                                    {q.items?.length === 0 ? (
+                                      <tr>
+                                        <td colSpan={6} className="px-4 py-4 text-center text-slate-400 italic">No item details found</td>
+                                      </tr>
+                                    ) : (
+                                      q.items?.map((it, idx) => (
+                                        <tr key={it.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-850/60">
+                                          <td className="px-4 py-2.5 text-center font-mono text-slate-400">{idx + 1}</td>
+                                          <td className="px-4 py-2.5">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold uppercase ${
+                                              it.itemType === 'NON_INVENTORY'
+                                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                                : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                                            }`}>
+                                              {it.itemType === 'NON_INVENTORY' ? '🚫 Non-Inventory' : '🌾 Raw Material'}
+                                            </span>
+                                          </td>
+                                          <td className="px-4 py-2.5">
+                                            <div className="font-bold text-slate-800 dark:text-slate-200">{it.materialName}</div>
+                                            {it.materialCode && <div className="text-[10px] font-mono text-slate-400">{it.materialCode}</div>}
+                                          </td>
+                                          <td className="px-4 py-2.5 text-slate-500 font-mono text-xs">{it.category || 'General'}</td>
+                                          <td className="px-4 py-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                            {it.quantity} {it.unit}
+                                          </td>
+                                          <td className="px-4 py-2.5 text-center">
+                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                              it.gstApplicable ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400' : 'bg-slate-100 text-slate-500'
+                                            }`}>
+                                              {it.gstApplicable ? 'Yes' : 'No'}
+                                            </span>
+                                          </td>
+                                        </tr>
+                                      ))
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+
+                            {/* SECTION 2: SUPPLIER RESPONSES COMPARISON */}
+                            <div className="space-y-2.5">
+                              <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
                                 <div className="flex items-center gap-2">
                                   <Building2 className="w-4 h-4 text-indigo-500" />
-                                  <span>Supplier Responses Breakdown for {q.quotationNo}</span>
+                                  <span>Supplier Quotes & Pricing for {q.quotationNo}</span>
                                 </div>
 
                                 <button
@@ -711,7 +882,7 @@ export default function RMQuotationPage() {
                                 </button>
                               </div>
 
-                              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-inner">
+                              <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
                                 <table className="w-full text-left text-xs">
                                   <thead className="bg-slate-100 dark:bg-slate-950 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-200 dark:border-slate-800">
                                     <tr>
@@ -954,29 +1125,40 @@ export default function RMQuotationPage() {
                 </div>
               </div>
 
-              {/* SECTION B: SELECT RAW MATERIAL TO ADD */}
+              {/* SECTION B: SELECT ITEMS TO ADD (INVENTORY & NON-INVENTORY) */}
               <div className="bg-slate-50/80 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xs">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
-                  <Package className="w-4 h-4" />
-                  <span>Select Raw Material to Add</span>
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+                    <Package className="w-4 h-4" />
+                    <span>Select Items to Add (Inventory & Non-Inventory)</span>
+                  </h3>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                    <span className="inline-flex items-center gap-1 font-medium">
+                      <span className="w-2 h-2 rounded-full bg-indigo-500"></span> Raw Material
+                    </span>
+                    <span className="inline-flex items-center gap-1 font-medium">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span> Non-Inventory
+                    </span>
+                  </div>
+                </div>
 
                 <div className="w-full">
-                  <RawMaterialSelect
-                    rawMaterials={rawMaterials}
+                  <QuotationItemSelect
+                    items={purchasableItems}
                     value={null}
-                    onChange={handleAddMaterialItem}
+                    onChange={handleAddQuotationItem}
                   />
                 </div>
 
                 {/* Responsive Requested Items Table */}
                 <div className="border border-slate-200/80 dark:border-slate-800/80 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-inner">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[480px] sm:min-w-full text-left text-xs">
+                    <table className="w-full min-w-[540px] sm:min-w-full text-left text-xs">
                       <thead className="bg-slate-100/80 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
                         <tr>
                           <th className="px-3 py-2.5 w-10 text-center">#</th>
-                          <th className="px-3 py-2.5">Material Details</th>
+                          <th className="px-3 py-2.5 w-24">Type</th>
+                          <th className="px-3 py-2.5">Item Details</th>
                           <th className="px-3 py-2.5 w-24 sm:w-28 text-center">Quantity</th>
                           <th className="px-3 py-2.5 w-16 sm:w-20">Unit</th>
                           <th className="px-3 py-2.5 text-center w-24 sm:w-28">GST Applicable</th>
@@ -986,8 +1168,8 @@ export default function RMQuotationPage() {
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
                         {quotationItems.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="px-4 py-8 text-center text-slate-400 italic">
-                              No raw materials added yet. Select a material above to add to request.
+                            <td colSpan={7} className="px-4 py-8 text-center text-slate-400 italic">
+                              No items added yet. Select a raw material or non-inventory item above to add to request.
                             </td>
                           </tr>
                         ) : (
@@ -995,8 +1177,19 @@ export default function RMQuotationPage() {
                             <tr key={index} className="hover:bg-slate-50 dark:hover:bg-slate-850/60 transition-colors">
                               <td className="px-3 py-2.5 text-center font-mono text-slate-400">{index + 1}</td>
                               <td className="px-3 py-2.5">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase ${
+                                  item.itemType === 'NON_INVENTORY'
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                    : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                                }`}>
+                                  {item.itemType === 'NON_INVENTORY' ? 'Non-Inv' : 'RM'}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2.5">
                                 <div className="font-bold text-slate-800 dark:text-slate-200">{item.materialName}</div>
-                                {item.materialCode && <div className="text-[10px] font-mono text-slate-400">{item.materialCode}</div>}
+                                <div className="text-[10px] font-mono text-slate-400">
+                                  {item.materialCode ? `${item.materialCode} • ` : ''}{item.category || 'General'}
+                                </div>
                               </td>
                               <td className="px-3 py-2.5">
                                 <Input

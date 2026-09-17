@@ -310,7 +310,8 @@ const AppRouter = () => {
             {/* Inventory Management */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']} />}>
               <Route path="/inventory/upload" element={<InventoryUploadPage />} />
-              <Route path="/inventory/list" element={<InventoryUploadPage />} />
+              <Route path="/inventory/list" element={<Navigate to="/rm/stock" replace />} />
+              <Route path="/inventory/batches" element={<Navigate to="/rm/stock" replace />} />
             </Route>
 
             {/* RM Stock */}

@@ -243,12 +243,35 @@ const createQuotation = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'No valid suppliers found' });
     }
 
-    // Fetch materials beforehand to avoid query roundtrips inside the transaction block
+    // Fetch materials and non-inventory items beforehand
     const materialIds = items.map(i => i.materialId).filter(Boolean);
-    const dbMaterials = await prisma.rawMaterial.findMany({
-      where: { id: { in: materialIds } }
+    const [dbMaterials, dbNonInv] = await Promise.all([
+      prisma.rawMaterial.findMany({
+        where: { id: { in: materialIds } },
+        include: { category: true }
+      }),
+      prisma.nonInventoryItem.findMany({
+        where: { id: { in: materialIds } }
+      })
+    ]);
+
+    const materialMap = new Map();
+    dbMaterials.forEach(m => {
+      materialMap.set(m.id, {
+        name: m.name,
+        code: m.code,
+        itemType: 'RAW_MATERIAL',
+        category: m.category?.name || 'General'
+      });
     });
-    const materialMap = new Map(dbMaterials.map(m => [m.id, m]));
+    dbNonInv.forEach(ni => {
+      materialMap.set(ni.id, {
+        name: ni.name,
+        code: ni.code,
+        itemType: 'NON_INVENTORY',
+        category: ni.category || 'Non-Inventory'
+      });
+    });
 
     // 1. Create RMQuotation Header & Items in Transaction
     const newQuotation = await prisma.$transaction(async (tx) => {
@@ -265,14 +288,18 @@ const createQuotation = async (req, res, next) => {
 
       // Create RMQuotationItems
       for (const item of items) {
-        let materialName = item.materialName || 'Raw Material';
+        let materialName = item.materialName || 'Item';
         let materialCode = item.materialCode || null;
+        let itemType = item.itemType || 'RAW_MATERIAL';
+        let category = item.category || null;
 
         if (item.materialId) {
-          const rm = materialMap.get(item.materialId);
-          if (rm) {
-            materialName = rm.name;
-            materialCode = rm.code;
+          const matched = materialMap.get(item.materialId);
+          if (matched) {
+            materialName = matched.name;
+            materialCode = matched.code;
+            itemType = matched.itemType;
+            category = matched.category;
           }
         }
 
@@ -282,6 +309,8 @@ const createQuotation = async (req, res, next) => {
             materialId: item.materialId,
             materialName,
             materialCode,
+            itemType,
+            category,
             quantity: item.quantity || 1,
             unit: item.unit || 'Kg',
             gstApplicable: item.gstApplicable !== undefined ? Boolean(item.gstApplicable) : true,

@@ -49,7 +49,7 @@ const search = async (req, res, next) => {
         customers: customers.map(c => ({ ...c, type: 'CUSTOMER', label: c.name, subtitle: c.email, link: `/parties/customers` })),
         rawMaterials: rawMaterials.map(r => ({ ...r, type: 'RM', label: r.name, subtitle: r.code, link: `/setup/raw-material` })),
         purchaseReturns: purchaseReturns.map(r => ({ ...r, type: 'RETURN', label: r.referenceNo, subtitle: r.status, link: `/purchase-return/list` })),
-        inventoryBatches: inventoryBatches.map(b => ({ ...b, type: 'BATCH', label: b.batchNumber, subtitle: b.rawMaterialName, link: `/inventory/list` })),
+        inventoryBatches: inventoryBatches.map(b => ({ ...b, type: 'BATCH', label: b.batchNumber, subtitle: b.rawMaterialName, link: `/qr-lifecycle/${encodeURIComponent(b.batchNumber)}` })),
         rmWastes: rmWastes.map(r => ({ ...r, type: 'RM_WASTE', label: r.referenceNo, subtitle: r.note || 'Waste Record', link: `/waste/raw-material/edit/${r.id}` })),
       }
     });
