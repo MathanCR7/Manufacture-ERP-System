@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Building2,
   FileText,
+  FlaskConical,
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 
@@ -300,6 +301,7 @@ export default function EditPOPage({ id: propId, onBack }) {
         uomId: po.uomId || '',
         gstApplicable: false,
         gstPercentage: 0,
+        labTestRequired: true,
       }];
     }
     setForm({
@@ -375,6 +377,7 @@ export default function EditPOPage({ id: propId, onBack }) {
       uomId: uomId,
       gstApplicable: true,
       gstPercentage: 18,
+      labTestRequired: true,
     };
     setForm(prev => ({
       ...prev,
@@ -836,6 +839,7 @@ export default function EditPOPage({ id: propId, onBack }) {
                       <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-right w-36">Unit Price (₹)</th>
                       <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-center w-36">GST Status</th>
                       <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-center w-28">GST Rate</th>
+                      <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-center w-36">Lab Test Status</th>
                       <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-right w-40">Subtotal (₹)</th>
                       <th className="px-5 py-4 font-bold tracking-wide uppercase text-xs text-center w-20">Action</th>
                     </tr>
@@ -933,6 +937,37 @@ export default function EditPOPage({ id: propId, onBack }) {
                                 <option value={28}>28%</option>
                               </select>
                             </td>
+                            <td className="px-5 py-4 text-center">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setForm(prev => ({
+                                    ...prev,
+                                    items: prev.items.map(it => it.id === item.id ? { ...it, labTestRequired: it.labTestRequired === false ? true : false } : it)
+                                  }));
+                                }}
+                                className={twMerge(
+                                  "h-8 px-2.5 text-[11px] font-bold rounded-lg shadow-sm transition-all inline-flex items-center gap-1.5 cursor-pointer",
+                                  item.labTestRequired !== false
+                                    ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 hover:bg-indigo-100"
+                                    : "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/60 dark:text-red-300 dark:border-red-800 hover:bg-red-100"
+                                )}
+                                title={item.labTestRequired !== false ? "Click to exempt from lab test" : "Click to require lab test"}
+                              >
+                                {item.labTestRequired !== false ? (
+                                  <>
+                                    <FlaskConical className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                    <span>Lab Required</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <ShieldCheck className="w-3.5 h-3.5 text-red-600 dark:text-red-400" />
+                                    <span>Lab Exempt</span>
+                                  </>
+                                )}
+                              </Button>
+                            </td>
                             <td className="px-5 py-4 text-right font-bold text-slate-900 dark:text-white">
                               ₹{itemSubtotal.toLocaleString('en-IN', {minimumFractionDigits: 2})}
                             </td>
@@ -954,7 +989,7 @@ export default function EditPOPage({ id: propId, onBack }) {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={8} className="px-5 py-12 text-center">
+                        <td colSpan={9} className="px-5 py-12 text-center">
                           <div className="flex flex-col items-center justify-center max-w-sm mx-auto text-slate-400 dark:text-slate-500">
                             <div className="w-16 h-16 rounded-full bg-slate-50 dark:bg-slate-800/50 flex items-center justify-center mb-4">
                               <Search className="w-8 h-8 text-slate-300 dark:text-slate-600" />

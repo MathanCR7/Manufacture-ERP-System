@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -91,41 +91,59 @@ export default function LabTestPage() {
 
   const canEditDecision = ['MAIN_MASTER', 'LAB_ASSISTANT'].includes(user?.role) && grn?.status === 'PENDING_LAB';
 
-  // Populate results from GRN items once loaded
+  // Filter items: Separate test-required items from exempt items
+  const testRequiredItems = useMemo(() => {
+    return (grn?.items || []).filter(item => item.labTestRequired !== false);
+  }, [grn?.items]);
+
+  const exemptItems = useMemo(() => {
+    return (grn?.items || []).filter(item => item.labTestRequired === false);
+  }, [grn?.items]);
+
+  // Reset results and form when grnId route param changes so clicking navigation loads immediately
   useEffect(() => {
-    if (grn?.items && results.length === 0) {
-      if (grn.labTest) {
-        setOverallDecision(grn.labTest.overallDecision || 'APPROVED');
-        setLabNotes(grn.labTest.labNotes || '');
-        setResults(grn.items.map(item => {
-          const matchingResult = grn.labTest.testResults?.find(tr => tr.grnItemId === item.id);
-          return {
-            grnItemId: item.id,
-            rmId: item.rmId,
-            rmName: item.rmName,
-            expiryDate: matchingResult ? format(new Date(matchingResult.expiryDate), 'yyyy-MM-dd') : format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-            testNotes: matchingResult?.testNotes || '',
-            passed: matchingResult?.passed ?? true,
-            needTesting: matchingResult?.needTesting ?? true,
-            rmLabCategoryId: matchingResult?.rmLabCategoryId || '',
-            categoryParams: matchingResult?.categoryParams || {},
-          };
-        }));
-      } else {
-        setResults(grn.items.map(item => ({
+    setResults([]);
+    setSubmitted(false);
+    setError('');
+  }, [grnId]);
+
+  // Populate results strictly for items that require lab testing
+  useEffect(() => {
+    if (!grn?.items) return;
+
+    if (grn.labTest) {
+      setOverallDecision(grn.labTest.overallDecision || 'APPROVED');
+      setLabNotes(grn.labTest.labNotes || '');
+      setResults(testRequiredItems.map(item => {
+        const matchingResult = grn.labTest.testResults?.find(tr => tr.grnItemId === item.id);
+        return {
           grnItemId: item.id,
           rmId: item.rmId,
           rmName: item.rmName,
-          expiryDate: format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
-          testNotes: '',
-          passed: true,
-          needTesting: true,
-          rmLabCategoryId: '',
-          categoryParams: {},
-        })));
-      }
+          actualReceivedQty: item.actualReceivedQty,
+          expiryDate: matchingResult?.expiryDate ? format(new Date(matchingResult.expiryDate), 'yyyy-MM-dd') : format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+          testNotes: matchingResult?.testNotes || '',
+          passed: matchingResult?.passed ?? true,
+          needTesting: matchingResult?.needTesting ?? true,
+          rmLabCategoryId: matchingResult?.rmLabCategoryId || '',
+          categoryParams: matchingResult?.categoryParams || {},
+        };
+      }));
+    } else {
+      setResults(testRequiredItems.map(item => ({
+        grnItemId: item.id,
+        rmId: item.rmId,
+        rmName: item.rmName,
+        actualReceivedQty: item.actualReceivedQty,
+        expiryDate: format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+        testNotes: '',
+        passed: true,
+        needTesting: true,
+        rmLabCategoryId: '',
+        categoryParams: {},
+      })));
     }
-  }, [grn]);
+  }, [grn?.id, testRequiredItems]);
 
   const mutation = useMutation({
     mutationFn: async (data) => { const res = await api.post('/grn/lab-test', data); return res.data; },
@@ -191,20 +209,34 @@ export default function LabTestPage() {
       }
     }
     
+    const activeResults = results.map(r => ({
+      grnItemId: r.grnItemId,
+      rmId: r.rmId,
+      rmName: r.rmName,
+      expiryDate: r.expiryDate,
+      testNotes: r.testNotes,
+      passed: r.needTesting === false ? true : r.passed,
+      needTesting: r.needTesting !== false,
+      rmLabCategoryId: r.needTesting && r.rmLabCategoryId ? r.rmLabCategoryId : null,
+      categoryParams: r.needTesting && Object.keys(r.categoryParams || {}).length > 0 ? r.categoryParams : null,
+    }));
+
+    const exemptResults = exemptItems.map(item => ({
+      grnItemId: item.id,
+      rmId: item.rmId,
+      rmName: item.rmName,
+      expiryDate: format(new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
+      testNotes: 'Lab Test Exempt — directly uploaded to inventory at receipt',
+      passed: true,
+      needTesting: false,
+      rmLabCategoryId: null,
+      categoryParams: null,
+    }));
+
     mutation.mutate({
       grnId,
       isDraft,
-      testResults: results.map(r => ({
-        grnItemId: r.grnItemId,
-        rmId: r.rmId,
-        rmName: r.rmName,
-        expiryDate: r.expiryDate,
-        testNotes: r.testNotes,
-        passed: r.needTesting === false ? true : r.passed,
-        needTesting: r.needTesting !== false,
-        rmLabCategoryId: r.needTesting && r.rmLabCategoryId ? r.rmLabCategoryId : null,
-        categoryParams: r.needTesting && Object.keys(r.categoryParams || {}).length > 0 ? r.categoryParams : null,
-      })),
+      testResults: [...activeResults, ...exemptResults],
       overallDecision,
       labNotes,
       // Root fallback for compatibility
@@ -309,55 +341,100 @@ export default function LabTestPage() {
               </h3>
             </div>
             <div className="p-6 space-y-6">
-              {grn.items?.map((item, idx) => (
-                <div key={item.id} className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 space-y-5 bg-slate-50/30 dark:bg-slate-950/20 hover:border-slate-350 dark:hover:border-slate-700 transition-all duration-200 relative overflow-hidden group">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-                    <div>
-                      <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg">{item.rmName}</h4>
-                      <p className="text-xs text-slate-400 font-mono mt-0.5">{item.rmId}</p>
+              {/* Lab Exempt Materials Notice (if any) */}
+              {exemptItems.length > 0 && (
+                <div className="p-4 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/25 border border-emerald-200/80 dark:border-emerald-800/60 flex items-start gap-3 shadow-sm">
+                  <div className="p-2 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 shrink-0">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-300">
+                        {exemptItems.length} Material{exemptItems.length > 1 ? 's' : ''} Lab-Exempt · Already in Inventory Stock
+                      </h4>
+                      <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">No testing required</span>
                     </div>
-                    <div className="text-left sm:text-right text-xs sm:text-sm">
-                      <span className="text-slate-400">Received Quantity: </span>
-                      <span className="font-extrabold text-slate-900 dark:text-slate-100">{Number(item.actualReceivedQty).toLocaleString()}</span>
-                      {Number(item.returnQty) > 0 && (
-                        <span className="text-xs text-red-500 font-semibold ml-2">(Return: {Number(item.returnQty)})</span>
-                      )}
+                    <p className="text-xs text-emerald-700/85 dark:text-emerald-400/85">
+                      Marked Lab Exempt in the PO and credited directly to raw material stock upon delivery receipt:
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-0.5">
+                      {exemptItems.map(it => (
+                        <span key={it.id} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 border border-emerald-200 dark:border-emerald-800 shadow-2xs">
+                          <span>{it.rmName}</span>
+                          <span className="font-mono text-[10px] text-slate-400">({it.rmId})</span>
+                          <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">• Qty: {Number(it.actualReceivedQty)}</span>
+                        </span>
+                      ))}
                     </div>
                   </div>
+                </div>
+              )}
 
-                  {/* Testing Need Toggle */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-250/60 dark:border-slate-800 shadow-sm">
-                    <div>
-                      <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">Testing Requirement</span>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Specify if this raw material needs lab evaluation</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        disabled={!canEditDecision}
-                        onClick={() => updateResult(idx, 'needTesting', true)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
-                          results[idx]?.needTesting !== false
-                            ? 'bg-indigo-600 text-white border-indigo-605 shadow-sm shadow-indigo-500/10'
-                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-805'
-                        } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
-                      >
-                        <FlaskConical className="w-3.5 h-3.5" /> Lab Test Required
-                      </button>
-                      <button
-                        type="button"
-                        disabled={!canEditDecision}
-                        onClick={() => updateResult(idx, 'needTesting', false)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
-                          results[idx]?.needTesting === false
-                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/10'
-                            : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-805'
-                        } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
-                      >
-                        <XCircle className="w-3.5 h-3.5" /> No Lab Test
-                      </button>
-                    </div>
+              {/* If all items in this delivery were exempt */}
+              {testRequiredItems.length === 0 ? (
+                <div className="py-12 text-center space-y-3 bg-slate-50/50 dark:bg-slate-900/50 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800">
+                  <div className="w-12 h-12 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto">
+                    <CheckCircle2 className="w-6 h-6" />
                   </div>
+                  <h4 className="text-base font-bold text-slate-800 dark:text-slate-100">All Materials in this Delivery are Lab Test Exempt</h4>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    No items require laboratory testing. Materials have been directly uploaded to inventory stock.
+                  </p>
+                  <Button variant="outline" size="sm" onClick={() => navigate('/grn/list')} className="mt-2 text-xs rounded-xl">
+                    Return to Deliveries
+                  </Button>
+                </div>
+              ) : (
+                /* ONLY render test cards for items that actually require lab testing! */
+                testRequiredItems.map((item, idx) => (
+                  <div key={item.id} className="border border-slate-200 dark:border-slate-800 rounded-2xl p-5 sm:p-6 space-y-5 bg-slate-50/30 dark:bg-slate-950/20 hover:border-slate-350 dark:hover:border-slate-700 transition-all duration-200 relative overflow-hidden group">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <div>
+                        <h4 className="font-bold text-slate-800 dark:text-slate-100 text-base sm:text-lg">{item.rmName}</h4>
+                        <p className="text-xs text-slate-400 font-mono mt-0.5">{item.rmId}</p>
+                      </div>
+                      <div className="text-left sm:text-right text-xs sm:text-sm">
+                        <span className="text-slate-400">Received Quantity: </span>
+                        <span className="font-extrabold text-slate-900 dark:text-slate-100">{Number(item.actualReceivedQty).toLocaleString()}</span>
+                        {Number(item.returnQty) > 0 && (
+                          <span className="text-xs text-red-500 font-semibold ml-2">(Return: {Number(item.returnQty)})</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Testing Need Toggle */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-250/60 dark:border-slate-800 shadow-sm">
+                      <div>
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider block">Testing Requirement</span>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Specify if this raw material needs lab evaluation</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          disabled={!canEditDecision}
+                          onClick={() => updateResult(idx, 'needTesting', true)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
+                            results[idx]?.needTesting !== false
+                              ? 'bg-indigo-600 text-white border-indigo-605 shadow-sm shadow-indigo-500/10'
+                              : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-805'
+                          } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
+                        >
+                          <FlaskConical className="w-3.5 h-3.5" /> Lab Test Required
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!canEditDecision}
+                          onClick={() => updateResult(idx, 'needTesting', false)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border active:scale-95 ${
+                            results[idx]?.needTesting === false
+                              ? 'bg-amber-600 text-white border-amber-600 shadow-sm shadow-amber-500/10'
+                              : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-805'
+                          } ${!canEditDecision ? 'opacity-55 cursor-not-allowed' : ''}`}
+                        >
+                          <XCircle className="w-3.5 h-3.5" /> No Lab Test
+                        </button>
+                      </div>
+                    </div>
 
                   {/* Testing Fields */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -507,7 +584,8 @@ export default function LabTestPage() {
                     </div>
                   )}
                 </div>
-              ))}
+              ))
+            )}
             </div>
           </div>
 

@@ -613,6 +613,10 @@ model GRNReceive {
   inventoryStatus   String   @default("NOT_UPLOADED") // NOT_UPLOADED / UPLOADED
   status            String   @default("PENDING_LAB") // PENDING_LAB, LAB_APPROVED, LAB_REJECTED, LAB_RESAMPLE
   receivedBy        String
+  transporterName   String?
+  lrNumber          String?
+  transportMode     String?  @default("ROAD")
+  isExempt          Boolean  @default(false)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -621,7 +625,7 @@ model GRNReceive {
   items           GRNReceiveItem[]
   labTest         GRNLabTest?
   purchaseReturns PurchaseReturn[]
-  inventoryBatch  InventoryBatch?
+  inventoryBatches InventoryBatch[]
 
   @@index([poId])
   @@index([receivedBy])
@@ -636,6 +640,15 @@ model GRNReceiveItem {
   expectedQty       Decimal  @default(0)
   actualReceivedQty Decimal  @default(0)
   returnQty         Decimal  @default(0)
+  batchNumber       String?
+  mfgDate           DateTime?
+  expiryDate        DateTime?
+  inspectionStatus  String?  @default("ACCEPTED")
+  coaRequired       Boolean  @default(false)
+  coaNumber         String?
+  rejectedQty       Decimal  @default(0)
+  rejectionReason   String?  @db.Text
+  labTestRequired   Boolean  @default(true)
   createdAt         DateTime @default(now())
 
   grn         GRNReceive       @relation(fields: [grnId], references: [id], onDelete: Cascade)
@@ -733,7 +746,7 @@ model InventoryBatch {
   id              String   @id @default(uuid())
   batchNumber     String   @unique // RM-YYYYMMDD-POID-GRNID
   poId            String
-  grnId           String   @unique // one batch per GRN
+  grnId           String
   rawMaterialId   String
   rawMaterialName String
   rmCategory      String?
@@ -744,6 +757,7 @@ model InventoryBatch {
   uomId           String
   storageLocation String?
   expiryDate      DateTime?
+  mfgDate         DateTime?
   status          String   @default("AVAILABLE") // AVAILABLE / DEPLETED / RETURNED
   addedBy         String
   createdAt       DateTime @default(now())

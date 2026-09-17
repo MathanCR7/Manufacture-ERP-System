@@ -3,7 +3,11 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { format } from 'date-fns';
-import { ArrowLeft, Package, Truck, FlaskConical, CheckCircle2, XCircle, AlertTriangle, Clock, QrCode } from 'lucide-react';
+import { 
+  ArrowLeft, Package, Truck, FlaskConical, CheckCircle2, XCircle, 
+  AlertTriangle, Clock, QrCode, ShieldCheck, Calendar, Tag, FileText, 
+  Layers, Check, Sparkles, Building2
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useRef } from 'react';
@@ -36,6 +40,7 @@ function QRDisplay({ text }) {
 const GRN_STATUS_MAP = {
   PENDING_LAB: { label: 'Pending Lab', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400', Icon: Clock },
   LAB_APPROVED: { label: 'Lab Approved', cls: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400', Icon: CheckCircle2 },
+  LAB_EXEMPT: { label: 'Lab Exempt (Direct Stock)', cls: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400', Icon: ShieldCheck },
   LAB_REJECTED: { label: 'Lab Rejected', cls: 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400', Icon: XCircle },
   LAB_RESAMPLE: { label: 'Need Resample', cls: 'bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-400', Icon: AlertTriangle },
 };
@@ -64,7 +69,8 @@ export default function GRNViewPage() {
     enabled: !!grnId,
   });
 
-  const status = grn ? (GRN_STATUS_MAP[grn.status] || GRN_STATUS_MAP.PENDING_LAB) : null;
+  const isExempt = grn?.isExempt || (grn?.items && grn.items.length > 0 && grn.items.every(i => i.labTestRequired === false));
+  const status = grn ? (isExempt ? GRN_STATUS_MAP.LAB_EXEMPT : (GRN_STATUS_MAP[grn.status] || GRN_STATUS_MAP.PENDING_LAB)) : null;
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
@@ -126,6 +132,66 @@ export default function GRNViewPage() {
             </div>
           </div>
 
+          {/* Logistics, Transport & Invoice Information Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6 space-y-4 shadow-sm">
+            <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <Truck className="w-5 h-5 text-indigo-500" /> Transport, Logistics & Supplier Invoice
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 text-xs sm:text-sm">
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">Vehicle Number</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                  {grn.vehicleNumber || grn.po?.vehicleNumber || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">Transporter</span>
+                <span className="font-medium text-slate-800 dark:text-slate-200">
+                  {grn.transporterName || grn.po?.transporterName || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">Transport Mode</span>
+                <span className="font-medium text-slate-800 dark:text-slate-200">
+                  {grn.transportMode === 'ROAD' ? '🚛 Road Transport' :
+                   grn.transportMode === 'RAIL' ? '🚆 Rail Freight' :
+                   grn.transportMode === 'AIR' ? '✈️ Air Cargo' :
+                   grn.transportMode === 'SHIP' ? '🚢 Maritime' : (grn.transportMode || '🚛 Road')}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">LR / E-Way Bill No</span>
+                <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                  {grn.lrNumber || grn.po?.ewayBillNo || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">Supplier Invoice No</span>
+                <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                  {grn.invoiceNumber || grn.po?.supplierInvoiceNo || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">Supplier Invoice Date</span>
+                <span className="font-medium text-slate-800 dark:text-slate-200">
+                  {(grn.invoiceDate || grn.po?.supplierInvoiceDate) ? format(new Date(grn.invoiceDate || grn.po?.supplierInvoiceDate), 'dd MMM yyyy') : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">Driver / Carrier Contact</span>
+                <span className="font-medium text-slate-800 dark:text-slate-200">
+                  {grn.driverName || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-500 block mb-0.5 text-xs">Quality Clearance</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {isExempt ? '🛡️ Lab Exempt' : '🔬 Lab Inspection Required'}
+                </span>
+              </div>
+            </div>
+          </div>
+
           {/* Items */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
             <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800">
@@ -136,28 +202,116 @@ export default function GRNViewPage() {
             
             {/* Desktop Table View */}
             <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/50">
+              <table className="w-full text-xs sm:text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/50 text-xs">
                   <tr>
-                    <th className="px-6 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">RM ID</th>
-                    <th className="px-6 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Material</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Expected</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Actual Received</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Return Qty</th>
-                    <th className="px-6 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Net Received</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Item & RM ID</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600 dark:text-slate-400">Batch / Lot #</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Expected</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Actual Recv</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Variance</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600 dark:text-slate-400">Rejected / Returned</th>
+                    <th className="px-4 py-3 text-center font-semibold text-slate-600 dark:text-slate-400">Inspection</th>
+                    <th className="px-4 py-3 text-center font-semibold text-slate-600 dark:text-slate-400">Lab Policy</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                   {grn.items?.map(item => {
-                    const net = Number(item.actualReceivedQty) - Number(item.returnQty || 0);
+                    const expected = Number(item.expectedQty || 0);
+                    const received = Number(item.actualReceivedQty || 0);
+                    const rejected = Number(item.rejectedQty || item.returnQty || 0);
+                    const variance = received - expected;
+                    const itemExempt = item.labTestRequired === false;
+
                     return (
                       <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30">
-                        <td className="px-6 py-4 font-mono text-xs text-slate-500">{item.rmId}</td>
-                        <td className="px-6 py-4 font-medium text-slate-900 dark:text-slate-100">{item.rmName}</td>
-                        <td className="px-6 py-4 text-right text-slate-600 dark:text-slate-400">{Number(item.expectedQty).toLocaleString()}</td>
-                        <td className="px-6 py-4 text-right font-semibold text-slate-900 dark:text-slate-100">{Number(item.actualReceivedQty).toLocaleString()}</td>
-                        <td className="px-6 py-4 text-right text-red-500">{Number(item.returnQty || 0).toLocaleString()}</td>
-                        <td className="px-6 py-4 text-right font-bold text-emerald-600 dark:text-emerald-400">{net.toLocaleString()}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-slate-900 dark:text-slate-100">{item.rmName}</div>
+                          <div className="font-mono text-[11px] text-slate-500">{item.rmId}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {item.batchNumber ? (
+                            <div>
+                              <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded text-[11px]">
+                                {item.batchNumber}
+                              </span>
+                              {item.mfgDate && (
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  Mfg: {format(new Date(item.mfgDate), 'dd/MM/yyyy')}
+                                </div>
+                              )}
+                              {item.expiryDate && (
+                                <div className="text-[10px] text-rose-500 mt-0.5">
+                                  Exp: {format(new Date(item.expiryDate), 'dd/MM/yyyy')}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-600 dark:text-slate-400 font-medium">
+                          {expected.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-slate-100">
+                          {received.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold">
+                          {variance < 0 ? (
+                            <span className="text-rose-600 dark:text-rose-400 font-bold bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded text-[10px]">
+                              Short: {variance.toFixed(2)}
+                            </span>
+                          ) : variance > 0 ? (
+                            <span className="text-amber-600 dark:text-amber-400 font-bold bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded text-[10px]">
+                              +{variance.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                              Exact
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {rejected > 0 ? (
+                            <div>
+                              <span className="font-bold text-rose-600">{rejected.toLocaleString()}</span>
+                              {item.rejectionReason && (
+                                <div className="text-[10px] text-slate-400 italic mt-0.5 truncate max-w-[120px]" title={item.rejectionReason}>
+                                  {item.rejectionReason}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">0</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            item.inspectionStatus === 'ACCEPTED'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200'
+                              : item.inspectionStatus === 'REJECTED'
+                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200'
+                          }`}>
+                            {item.inspectionStatus || 'ACCEPTED'}
+                          </span>
+                          {item.coaRequired && (
+                            <div className="text-[9px] font-mono text-indigo-500 mt-0.5">
+                              COA: {item.coaNumber || 'Attached'}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {itemExempt ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200">
+                              <ShieldCheck className="w-3 h-3 text-red-600" /> Lab Exempt
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200">
+                              <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Required
+                            </span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -327,6 +481,44 @@ export default function GRNViewPage() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Inventory Batches Created */}
+          {Array.isArray(grn.inventoryBatches) && grn.inventoryBatches.length > 0 && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+              <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <Package className="w-5 h-5 text-emerald-500" /> Active Inventory Batches
+                </h3>
+                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 font-bold border border-emerald-200">
+                  {grn.inventoryBatches.length} Batches In Stock
+                </span>
+              </div>
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                {grn.inventoryBatches.map(b => (
+                  <div key={b.id} className="p-4 sm:px-6 flex items-center justify-between flex-wrap gap-3 text-xs sm:text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <div>
+                      <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm sm:text-base">
+                        {b.batchNumber}
+                      </div>
+                      <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                        <span>Material: <strong className="text-slate-700 dark:text-slate-300">{b.rawMaterialName}</strong></span>
+                        {b.mfgDate && <span>· Mfg: {format(new Date(b.mfgDate), 'dd/MM/yyyy')}</span>}
+                        {b.expiryDate && <span>· Exp: {format(new Date(b.expiryDate), 'dd/MM/yyyy')}</span>}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
+                        {Number(b.quantity).toLocaleString()} {b.uom || ''}
+                      </span>
+                      <div className="text-[11px] text-emerald-600 font-semibold mt-0.5 flex items-center justify-end gap-1">
+                        <Check className="w-3 h-3" /> In Stock
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import {
   ArrowLeft, Trash2, User, Calendar, FileText, IndianRupee, Printer, Edit,
   QrCode, Package, FlaskConical, CheckCircle2, XCircle, AlertTriangle,
-  Clock, ChevronRight, Truck, Tag, BarChart3
+  Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -273,15 +273,89 @@ export default function PODetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left: Details */}
         <div className="md:col-span-2 space-y-6">
-          {/* Material Details */}
+          {/* Material & Item Details */}
           <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm transition-all duration-1000 ${highlightActive ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 shadow-md shadow-indigo-200 dark:shadow-indigo-900 bg-indigo-50/10 dark:bg-indigo-950/15 animate-pulse' : ''}`}>
-            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
-              <Package className="w-4 h-4 text-indigo-500" /> Material Details
-            </h3>
-            <InfoRow icon={FileText} label="Raw Material Name" value={po.name} />
-            <InfoRow icon={Tag} label="RM Code / ID" value={po.rmId} />
-            <InfoRow icon={Package} label="Quantity" value={`${po.quantity} ${po.uom?.abbreviation || ''}`} />
-            <InfoRow icon={User} label="Supplier" value={po.supplier?.name || '—'} />
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <Package className="w-4 h-4 text-indigo-500" /> Material & Ordered Items
+              </h3>
+              <div className="text-xs text-slate-500">
+                Supplier: <span className="font-semibold text-slate-700 dark:text-slate-300">{po.supplier?.name || '—'}</span>
+              </div>
+            </div>
+
+            {Array.isArray(po.items) && po.items.length > 0 ? (
+              <div className="space-y-3">
+                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="py-2.5 px-3">Item & Code</th>
+                        <th className="py-2.5 px-3">Type</th>
+                        <th className="py-2.5 px-3 text-right">Qty</th>
+                        <th className="py-2.5 px-3 text-right">Unit Price</th>
+                        <th className="py-2.5 px-3 text-right">Total</th>
+                        <th className="py-2.5 px-3 text-center">Quality / Lab Route</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {po.items.map((item, idx) => (
+                        <tr key={item.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                          <td className="py-2.5 px-3">
+                            <div className="font-medium text-slate-900 dark:text-white">{item.name}</div>
+                            <div className="text-[11px] font-mono text-slate-400">{item.rmId || item.code || '—'}</div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                              item.itemType === 'NON_INVENTORY'
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                            }`}>
+                              {item.itemType === 'NON_INVENTORY' ? '🚫 Non-Inv' : '🌾 Raw Mat'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-medium">
+                            {item.quantity} {item.uomLabel || item.uom || ''}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
+                            ₹{Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-semibold text-slate-900 dark:text-white font-mono">
+                            ₹{Number(item.total || ((item.quantity || 0) * (item.unitPrice || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            {item.labTestRequired !== false ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                                <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Required
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200 dark:border-red-800">
+                                <ShieldCheck className="w-3 h-3 text-red-600" /> Lab Exempt (Direct)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <InfoRow icon={FileText} label="Raw Material Name" value={po.name} />
+                <InfoRow icon={Tag} label="RM Code / ID" value={po.rmId} />
+                <InfoRow icon={Package} label="Quantity" value={`${po.quantity} ${po.uom?.abbreviation || ''}`} />
+                <InfoRow icon={User} label="Supplier" value={po.supplier?.name || '—'} />
+                <div className="flex items-center justify-between pt-3 text-xs">
+                  <span className="text-slate-500 flex items-center gap-1">
+                    <FlaskConical className="w-3.5 h-3.5 text-slate-400" /> Quality / Lab Inspection Policy:
+                  </span>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
+                    <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Test Required
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Supplier Invoice & Logistics / E-Way Bill Card */}

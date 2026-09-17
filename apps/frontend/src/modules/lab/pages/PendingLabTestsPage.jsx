@@ -196,10 +196,19 @@ export default function PendingLabTestsPage() {
                   <div className="space-y-1.5">
                     {grn.items?.map(item => (
                       <div key={item.id} className="flex items-center justify-between text-[11px] p-2 bg-slate-50 dark:bg-slate-800/30 rounded-lg border border-slate-100 dark:border-slate-800">
-                        <div className="flex items-center gap-2">
-                          <Package className="w-3.5 h-3.5 text-slate-400" />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="font-bold text-slate-750 dark:text-slate-350">{item.rmName}</span>
                           <span className="text-slate-400 font-mono text-[10px]">{item.rmId}</span>
+                          {item.labTestRequired === false ? (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                              🛡️ Exempt (In Inventory)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-400 border border-violet-200 dark:border-violet-800">
+                              🔬 Test Required
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-3 text-slate-500 font-medium">
                           <span>Expected: {Number(item.expectedQty).toFixed(2)}</span>

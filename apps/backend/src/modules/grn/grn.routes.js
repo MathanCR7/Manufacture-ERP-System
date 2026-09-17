@@ -8,6 +8,42 @@ const { generateReferenceNo } = require('../../utils/referenceGenerator');
 
 const router = express.Router();
 
+// ─────────────────────── HELPER: SEQUENTIAL BATCH NUMBER PER RAW MATERIAL ───────────────────────
+async function getNextBatchForRM(rmId, rmName) {
+  const cleanName = (rmName || 'RM')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 8);
+
+  const invCount = await prisma.inventoryBatch.count({
+    where: {
+      OR: [
+        { rawMaterialId: rmId },
+        { rawMaterialName: { equals: rmName, mode: 'insensitive' } }
+      ]
+    }
+  });
+
+  const grnCount = await prisma.gRNReceiveItem.count({
+    where: {
+      OR: [
+        { rmId: rmId },
+        { rmName: { equals: rmName, mode: 'insensitive' } }
+      ],
+      batchNumber: { not: null }
+    }
+  });
+
+  const nextSeq = Math.max(invCount, grnCount) + 1;
+  const batchNumber = `BATCH-${cleanName || 'RM'}-${String(nextSeq).padStart(3, '0')}`;
+  return {
+    sequence: nextSeq,
+    batchNumber,
+    nextBatchNumber: batchNumber,
+    batchLabel: `Batch ${nextSeq}`,
+  };
+}
+
 // ─────────────────────── PO STATUS UPDATE ───────────────────────
 // PATCH /api/grn/po/:id/status — Update PO status (PENDING → ORDERED → RECEIVED)
 const updateStatusSchema = z.object({
@@ -117,6 +153,13 @@ router.get('/upcoming',
             amountPaid: grn?.amountPaid || null,
             refundAmount: grn?.refundAmount || null,
             items: po.items,
+            vehicleNumber: po.vehicleNumber || null,
+            transporterName: po.transporterName || null,
+            transportMode: po.transportMode || 'ROAD',
+            ewayBillNo: po.ewayBillNo || null,
+            ewayBillDate: po.ewayBillDate || null,
+            supplierInvoiceNo: po.supplierInvoiceNo || null,
+            supplierInvoiceDate: po.supplierInvoiceDate || null,
           };
         })
         // Exclude LAB_REJECTED entries from upcoming deliveries
@@ -129,21 +172,56 @@ router.get('/upcoming',
   }
 );
 
+// ─────────────────────── NEXT BATCH PER RAW MATERIAL ───────────────────────
+// GET /api/grn/next-batch/:rmId — Get next sequential batch number for a raw material
+router.get('/next-batch/:rmId',
+  authenticateToken,
+  async (req, res, next) => {
+    try {
+      const { rmId } = req.params;
+      const { rmName } = req.query;
+      const result = await getNextBatchForRM(rmId, rmName);
+      res.json(result);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // ─────────────────────── GRN RECEIVE DELIVERY ───────────────────────
 // POST /api/grn/receive — Submit a receive delivery form
 const receiveSchema = z.object({
   poId: z.string().uuid(),
   receivedDate: z.string().min(1),
+  // Transport details
+  vehicleNumber: z.string().optional().nullable(),
+  driverName: z.string().optional().nullable(),
+  transporterName: z.string().optional().nullable(),
+  transportMode: z.string().optional().nullable(),
+  lrNumber: z.string().optional().nullable(),
+  invoiceNumber: z.string().optional().nullable(),
+  invoiceDate: z.string().optional().nullable(),
+  challanNumber: z.string().optional().nullable(),
+
   items: z.array(z.object({
     rmId: z.string().min(1),
     rmName: z.string().min(1),
     expectedQty: z.coerce.number().nonnegative(),
     actualReceivedQty: z.coerce.number().nonnegative(),
     returnQty: z.coerce.number().nonnegative().default(0),
+    batchNumber: z.string().optional().nullable(),
+    mfgDate: z.string().optional().nullable(),
+    expiryDate: z.string().optional().nullable(),
+    inspectionStatus: z.string().optional().nullable().default('ACCEPTED'),
+    coaRequired: z.boolean().default(false),
+    coaNumber: z.string().optional().nullable(),
+    rejectedQty: z.coerce.number().nonnegative().default(0),
+    rejectionReason: z.string().optional().nullable(),
+    labTestRequired: z.boolean().default(true),
   })).min(1),
   amountPaid: z.coerce.number().nonnegative(),
   refundAmount: z.coerce.number().nonnegative().default(0),
-  discrepancyNotes: z.string().optional(),
+  discrepancyNotes: z.string().optional().nullable(),
 });
 
 router.post('/receive',
@@ -164,6 +242,11 @@ router.post('/receive',
       const existingGrn = await prisma.gRNReceive.findFirst({ where: { poId: data.poId } });
       if (existingGrn) return res.status(409).json({ error: 'Delivery already received for this PO. GRN ID: ' + existingGrn.id });
 
+      // Check if all items in this receipt are exempt from lab testing
+      const isAllExempt = data.items.every(item => item.labTestRequired === false);
+      const initialStatus = isAllExempt ? 'LAB_APPROVED' : 'PENDING_LAB';
+      const initialInvStatus = isAllExempt ? 'UPLOADED' : 'NOT_UPLOADED';
+
       const { grn, pr } = await prisma.$transaction(async (tx) => {
         const referenceNo = await generateReferenceNo(tx, 'GRNReceive', 'GRN');
 
@@ -176,23 +259,107 @@ router.post('/receive',
             refundAmount: data.refundAmount,
             discrepancyNotes: data.discrepancyNotes || null,
             receivedBy: req.user.id,
-            status: 'PENDING_LAB',
+            status: initialStatus,
+            inventoryStatus: initialInvStatus,
+            isExempt: isAllExempt,
+            vehicleNumber: data.vehicleNumber || null,
+            driverName: data.driverName || null,
+            transporterName: data.transporterName || null,
+            transportMode: data.transportMode || 'ROAD',
+            lrNumber: data.lrNumber || null,
+            invoiceNumber: data.invoiceNumber || null,
+            invoiceDate: data.invoiceDate ? new Date(data.invoiceDate) : null,
+            challanNumber: data.challanNumber || null,
+            isShortDelivery: data.items.some(i => Number(i.actualReceivedQty) < Number(i.expectedQty)),
             items: {
               create: data.items.map(item => ({
                 rmId: item.rmId,
                 rmName: item.rmName,
                 expectedQty: item.expectedQty,
                 actualReceivedQty: item.actualReceivedQty,
-                returnQty: item.returnQty || 0,
+                returnQty: item.returnQty || item.rejectedQty || 0,
+                batchNumber: item.batchNumber || null,
+                mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
+                expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+                inspectionStatus: item.inspectionStatus || 'ACCEPTED',
+                coaRequired: !!item.coaRequired,
+                coaNumber: item.coaNumber || null,
+                rejectedQty: item.rejectedQty || 0,
+                rejectionReason: item.rejectionReason || null,
+                labTestRequired: item.labTestRequired !== false,
               }))
             }
           },
           include: { items: true, po: { include: { supplier: true, uom: true } } }
         });
 
-        // Check if any item has returnQty > 0
+        // FOR ALL ITEMS THAT ARE LAB TEST EXEMPT: DIRECT INVENTORY UPDATE AT RECEIPT!
+        for (const item of data.items) {
+          if (item.labTestRequired === false) {
+            const acceptedQty = Math.max(0, Number(item.actualReceivedQty) - Number(item.rejectedQty || item.returnQty || 0));
+            if (acceptedQty <= 0) continue;
+
+            // Strategy 1: Match RawMaterial
+            let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+            if (!rm && item.rmName) {
+              rm = await tx.rawMaterial.findFirst({ where: { name: { equals: item.rmName, mode: 'insensitive' } } });
+            }
+            if (!rm && po.name) {
+              rm = await tx.rawMaterial.findFirst({ where: { name: { equals: po.name, mode: 'insensitive' } } });
+            }
+
+            if (rm) {
+              await tx.rawMaterial.update({
+                where: { id: rm.id },
+                data: { currentStock: { increment: acceptedQty } }
+              });
+
+              // Create InventoryBatch per item
+              let batchNum = item.batchNumber;
+              if (!batchNum) {
+                const auto = await getNextBatchForRM(item.rmId, item.rmName);
+                batchNum = auto.batchNumber;
+              }
+              const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
+              if (clash) {
+                batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
+              }
+
+              const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
+
+              await tx.inventoryBatch.create({
+                data: {
+                  batchNumber: batchNum,
+                  poId: g.poId,
+                  grnId: g.id,
+                  rawMaterialId: rm.id,
+                  rawMaterialName: item.rmName || rm.name,
+                  rmCategory: category?.name || null,
+                  supplierId: po.supplierId || null,
+                  receivedQty: item.actualReceivedQty,
+                  sampleQty: 0,
+                  netQty: acceptedQty,
+                  uomId: po.uomId,
+                  storageLocation: null,
+                  mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
+                  expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+                  status: 'AVAILABLE',
+                  addedBy: req.user.id,
+                }
+              });
+              console.log(`[EXEMPT ITEM] InventoryBatch ${batchNum} directly created at receipt for ${item.rmName} (+${acceptedQty})`);
+            }
+          }
+        }
+
+        // If all items in this PO are exempt from lab test: mark PO as APPROVED
+        if (isAllExempt) {
+          await tx.rawMaterialPO.update({ where: { id: data.poId }, data: { status: 'APPROVED' } });
+        }
+
+        // Check if any item has returnQty > 0 or rejectedQty > 0
         const returnItems = data.items
-          .filter(item => Number(item.returnQty || 0) > 0)
+          .filter(item => Number(item.returnQty || item.rejectedQty || 0) > 0)
           .map(item => {
             let itemUom = '';
             if (po.items && Array.isArray(po.items)) {
@@ -203,7 +370,8 @@ router.post('/receive',
             return {
               rmId: item.rmId,
               rmName: item.rmName,
-              returnQty: Number(item.returnQty),
+              returnQty: Number(item.rejectedQty || item.returnQty),
+              reason: item.rejectionReason || 'Rejected during receipt inspection',
               uom: itemUom || g.po?.uom?.abbreviation || null,
             };
           });
@@ -254,7 +422,13 @@ router.post('/receive',
         console.error('GRN notification error:', e.message);
       }
 
-      res.status(201).json(grn);
+      res.status(201).json({
+        ...grn,
+        isExempt: isAllExempt,
+        message: isAllExempt
+          ? 'Material(s) are Lab Test Exempt. Delivery logged and uploaded directly to inventory stock!'
+          : 'GRN submitted. Items requiring lab testing have been queued for Lab Assistant.'
+      });
     } catch (error) {
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       next(error);
@@ -280,6 +454,7 @@ router.get('/receive/:id',
           items: true,
           po: { include: { supplier: true, uom: true, user: { select: { name: true } } } },
           receiver: { select: { name: true, role: true } },
+          inventoryBatches: true,
           labTest: {
             include: {
               testResults: {
@@ -313,6 +488,7 @@ router.get('/receive',
           items: true,
           po: { include: { supplier: true, uom: true } },
           receiver: { select: { name: true } },
+          inventoryBatches: true,
           labTest: { select: { id: true, status: true, overallDecision: true, overrideReason: true, labNotes: true, sampleQty: true, categoryParams: true, testedBy: true, approvedBy: true, approvedAt: true, createdAt: true, updatedAt: true } },
         }
       });
@@ -421,6 +597,12 @@ router.post('/lab-test',
           // If approved, update RM stock for each item
           if (data.overallDecision === 'APPROVED') {
             for (const item of grn.items) {
+              // Skip items that were marked labTestRequired === false (already stocked at receipt!)
+              if (item.labTestRequired === false) {
+                console.log(`[LAB APPROVED] Skipping stock update for EXEMPT item (already stocked at receipt): ${item.rmName}`);
+                continue;
+              }
+
               // Find test result of this item to see if it passed or did not need testing
               const trResult = data.testResults.find(tr => tr.grnItemId === item.id);
               const isPassed = trResult ? (trResult.needTesting === false || trResult.passed === true) : true;
@@ -480,55 +662,67 @@ router.post('/lab-test',
               }
             }
 
-            // Auto-create InventoryBatch if not already created
-            const existingBatch = await tx.inventoryBatch.findUnique({ where: { grnId: grn.id } });
-            if (!existingBatch) {
-              const totalReceived = grn.items.reduce((s, i) => s + Number(i.actualReceivedQty) - Number(i.returnQty || 0), 0);
-              const sampleQty = Number(data.sampleQty || grn.labTest?.sampleQty || 0);
-              const netQty = Math.max(0, totalReceived - sampleQty);
-
-              const now = new Date();
-              const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-              const poShort = (grn.poId || '').slice(-6).toUpperCase();
-              const grnShort = (grn.id || '').slice(-6).toUpperCase();
-              let batchNumber = `RM-${dateStr}-${poShort}-${grnShort}`;
-
-              const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber } });
-              if (clash) {
-                batchNumber = `${batchNumber}-${Date.now().toString().slice(-4)}`;
+            // Auto-create InventoryBatch for each approved item
+            for (const item of grn.items) {
+              // Skip items that were marked labTestRequired === false (batch already created at receipt!)
+              if (item.labTestRequired === false) {
+                console.log(`[LAB APPROVED] Skipping batch creation for EXEMPT item (batch already created at receipt): ${item.rmName}`);
+                continue;
               }
 
-              const firstItem = grn.items[0];
-              let firstRm = firstItem ? await tx.rawMaterial.findFirst({ where: { code: firstItem.rmId } }) : null;
-              if (!firstRm && grn.po?.name) {
-                firstRm = await tx.rawMaterial.findFirst({ where: { name: { equals: grn.po.name, mode: 'insensitive' } } });
-              }
-              if (!firstRm && firstItem?.rmName) {
-                firstRm = await tx.rawMaterial.findFirst({ where: { name: { equals: firstItem.rmName, mode: 'insensitive' } } });
-              }
-              const category = firstRm ? await tx.rMCategory.findUnique({ where: { id: firstRm.categoryId } }) : null;
-              const firstExpiry = data.testResults?.[0]?.expiryDate ? new Date(data.testResults[0].expiryDate) : null;
+              const trResult = data.testResults.find(tr => tr.grnItemId === item.id);
+              const isPassed = trResult ? (trResult.needTesting === false || trResult.passed === true) : true;
+              if (!isPassed) continue;
 
-              await tx.inventoryBatch.create({
-                data: {
-                  batchNumber,
-                  poId: grn.poId,
-                  grnId: grn.id,
-                  rawMaterialId: firstRm?.id || firstItem?.rmId || 'unknown',
-                  rawMaterialName: grn.po?.name || firstItem?.rmName || 'Unknown',
-                  rmCategory: category?.name || null,
-                  supplierId: grn.po?.supplierId || null,
-                  receivedQty: totalReceived,
-                  sampleQty,
-                  netQty,
-                  uomId: grn.po?.uomId,
-                  storageLocation: null,
-                  expiryDate: firstExpiry,
-                  status: 'AVAILABLE',
-                  addedBy: req.user.id,
-                }
+              let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+              if (!rm && item.rmName) {
+                rm = await tx.rawMaterial.findFirst({ where: { name: { equals: item.rmName, mode: 'insensitive' } } });
+              }
+              if (!rm && grn.po?.name) {
+                rm = await tx.rawMaterial.findFirst({ where: { name: { equals: grn.po.name, mode: 'insensitive' } } });
+              }
+
+              const existingBatch = await tx.inventoryBatch.findFirst({
+                where: { grnId: grn.id, rawMaterialId: rm ? rm.id : item.rmId }
               });
-              console.log(`[LAB APPROVED] InventoryBatch ${batchNumber} automatically uploaded for GRN ${grn.referenceNo || grn.id}`);
+
+              if (!existingBatch) {
+                let batchNum = item.batchNumber;
+                if (!batchNum) {
+                  const auto = await getNextBatchForRM(item.rmId, item.rmName);
+                  batchNum = auto.batchNumber;
+                }
+                const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
+                if (clash) {
+                  batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
+                }
+
+                const netQty = Math.max(0, Number(item.actualReceivedQty) - Number(item.returnQty || item.rejectedQty || 0));
+                const category = rm ? await tx.rMCategory.findUnique({ where: { id: rm.categoryId } }) : null;
+                const finalExpiry = trResult?.expiryDate ? new Date(trResult.expiryDate) : (item.expiryDate || null);
+
+                await tx.inventoryBatch.create({
+                  data: {
+                    batchNumber: batchNum,
+                    poId: grn.poId,
+                    grnId: grn.id,
+                    rawMaterialId: rm?.id || item.rmId || 'unknown',
+                    rawMaterialName: item.rmName || grn.po?.name || 'Unknown',
+                    rmCategory: category?.name || null,
+                    supplierId: grn.po?.supplierId || null,
+                    receivedQty: item.actualReceivedQty,
+                    sampleQty: Number(data.sampleQty || 0),
+                    netQty,
+                    uomId: grn.po?.uomId || rm?.unitId,
+                    storageLocation: null,
+                    mfgDate: item.mfgDate || null,
+                    expiryDate: finalExpiry,
+                    status: 'AVAILABLE',
+                    addedBy: req.user.id,
+                  }
+                });
+                console.log(`[LAB APPROVED] InventoryBatch ${batchNum} created for item ${item.rmName}`);
+              }
             }
 
             // Update PO status to APPROVED
@@ -640,4 +834,6 @@ router.get('/lab-results',
   }
 );
 
+router.getNextBatchForRM = getNextBatchForRM;
 module.exports = router;
+module.exports.getNextBatchForRM = getNextBatchForRM;

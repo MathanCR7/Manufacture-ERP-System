@@ -942,7 +942,7 @@ exports.getMaterialHistory = async (req, res, next) => {
                 testResults: true
               }
             },
-            inventoryBatch: {
+            inventoryBatches: {
               include: {
                 uom: true,
                 adder: { select: { id: true, name: true } }
@@ -973,7 +973,7 @@ exports.getMaterialHistory = async (req, res, next) => {
                 testResults: true
               }
             },
-            inventoryBatch: {
+            inventoryBatches: {
               include: {
                 uom: true,
                 adder: { select: { id: true, name: true } }
@@ -1059,7 +1059,7 @@ exports.getMaterialHistory = async (req, res, next) => {
                 testResults: true
               }
             },
-            inventoryBatch: {
+            inventoryBatches: {
               include: {
                 uom: true,
                 adder: { select: { id: true, name: true } }
@@ -1075,7 +1075,7 @@ exports.getMaterialHistory = async (req, res, next) => {
     const formattedGRN = grnItems.map(item => {
       const grn = item.grn;
       const lab = grn?.labTest;
-      const batch = grn?.inventoryBatch;
+      const batch = grn?.inventoryBatches?.[0];
       return {
         id: item.id,
         grnId: grn?.id,

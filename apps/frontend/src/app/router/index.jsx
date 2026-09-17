@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import React, { Component, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from '@/components/guards/ProtectedRoute';
 import RoleGuard from '@/components/guards/RoleGuard';
@@ -150,9 +150,62 @@ const DashboardRouteWrapper = ({ children }) => {
   return <Navigate to={getRedirectPathByRole(user.role)} replace />;
 };
 
+class RouteErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[RouteErrorBoundary] Caught error:', error, errorInfo);
+    const isChunkError = 
+      error?.message?.includes('dynamically imported module') ||
+      error?.message?.includes('Loading chunk') ||
+      error?.message?.includes('Failed to fetch') ||
+      error?.name === 'ChunkLoadError';
+
+    if (isChunkError) {
+      const lastReload = sessionStorage.getItem('chunk_reload_time');
+      const now = Date.now();
+      if (!lastReload || now - Number(lastReload) > 10000) {
+        sessionStorage.setItem('chunk_reload_time', String(now));
+        window.location.reload();
+      }
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
+          <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-indigo-100 dark:border-indigo-900/50">
+            <RotateCw className="w-6 h-6 animate-spin-hover" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Page Update Available</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md">
+            This module has been updated. Please click below to refresh and load the latest version.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition-all active:scale-95 flex items-center gap-2"
+          >
+            <RotateCw className="w-3.5 h-3.5" /> Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const AppRouter = () => {
   return (
-    <Suspense fallback={
+    <RouteErrorBoundary>
+      <Suspense fallback={
       <div className="flex h-[80vh] items-center justify-center bg-[#F4F3FF] dark:bg-slate-950 rounded-2xl">
         <div className="text-center space-y-4">
           <RotateCw className="w-10 h-10 text-indigo-600 animate-spin mx-auto" />
@@ -399,6 +452,7 @@ const AppRouter = () => {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+    </RouteErrorBoundary>
   );
 };
 

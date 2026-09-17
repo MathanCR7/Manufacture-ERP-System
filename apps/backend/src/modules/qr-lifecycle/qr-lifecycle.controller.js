@@ -42,7 +42,7 @@ const getLifecycle = async (req, res, next) => {
         po: { include: { user: { select: { name: true, role: true } }, supplier: { select: { name: true } }, uom: true } },
         items: true,
         labTest: { include: { testResults: true, tester: { select: { name: true } } } },
-        inventoryBatch: { include: { uom: true } },
+        inventoryBatches: { include: { uom: true } },
         purchaseReturns: true,
         receiver: { select: { name: true, role: true } }
       }
@@ -61,7 +61,7 @@ const getLifecycle = async (req, res, next) => {
             include: {
               items: true,
               labTest: { include: { testResults: true, tester: { select: { name: true } } } },
-              inventoryBatch: { include: { uom: true } },
+              inventoryBatches: { include: { uom: true } },
               purchaseReturns: true,
               receiver: { select: { name: true, role: true } }
             }
@@ -128,9 +128,9 @@ const getLifecycle = async (req, res, next) => {
         searchedId: searchId,
         originalPayload: parsedData,
         po: grn.po,
-        grn: { ...grn, po: undefined, labTest: undefined, inventoryBatch: undefined },
+        grn: { ...grn, po: undefined, labTest: undefined, inventoryBatches: undefined },
         lab: grn.labTest,
-        inventory: grn.inventoryBatch,
+        inventory: grn.inventoryBatches?.[0] || null,
         purchaseReturns: grn.purchaseReturns || [],
       };
     } else if (po) {
@@ -139,9 +139,9 @@ const getLifecycle = async (req, res, next) => {
         searchedId: searchId,
         originalPayload: parsedData,
         po: { ...po, grnReceives: undefined },
-        grn: firstGrn ? { ...firstGrn, labTest: undefined, inventoryBatch: undefined } : null,
+        grn: firstGrn ? { ...firstGrn, labTest: undefined, inventoryBatches: undefined } : null,
         lab: firstGrn?.labTest || null,
-        inventory: firstGrn?.inventoryBatch || null,
+        inventory: firstGrn?.inventoryBatches?.[0] || null,
         purchaseReturns: firstGrn?.purchaseReturns || [],
         allGrns: po.grnReceives,
       };
@@ -150,7 +150,7 @@ const getLifecycle = async (req, res, next) => {
         searchedId: searchId,
         originalPayload: parsedData,
         po: batch.po,
-        grn: batch.grn ? { ...batch.grn, labTest: undefined, inventoryBatch: undefined } : null,
+        grn: batch.grn ? { ...batch.grn, labTest: undefined, inventoryBatches: undefined } : null,
         lab: batch.grn?.labTest || null,
         inventory: { ...batch, po: undefined, grn: undefined },
         purchaseReturns: batch.grn?.purchaseReturns || [],

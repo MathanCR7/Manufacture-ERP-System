@@ -6,7 +6,8 @@ import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
   Search, FileText, Package, CheckCircle2,
-  XCircle, AlertTriangle, Clock, RefreshCw, BarChart3, QrCode, Printer, Eye
+  XCircle, AlertTriangle, Clock, RefreshCw, BarChart3, QrCode, Printer, Eye,
+  ShieldCheck, FlaskConical, Sparkles
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SortSelect } from '@/components/ui/SortSelect';
@@ -21,6 +22,7 @@ const QRCode = typeof _QRCode === 'function' ? _QRCode : (_QRCode?.default || _Q
 const LAB_STATUS_CONFIG = {
   PENDING_LAB:    { label: 'Pending Lab',   color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20', icon: Clock,         rowClass: '' },
   LAB_APPROVED:   { label: 'Lab Approved',  color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', icon: CheckCircle2, rowClass: '' },
+  LAB_EXEMPT:     { label: 'Lab Exempt',    color: 'bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30', icon: ShieldCheck,   rowClass: '' },
   LAB_REJECTED:   { label: 'Lab Rejected',  color: 'bg-red-505/10 text-red-600 dark:text-red-400 border-red-500/20', icon: XCircle,   rowClass: 'bg-red-50/20 dark:bg-red-950/10 border-l-4 border-l-red-400' },
   LAB_RESAMPLE:   { label: 'Re-sample',     color: 'bg-purple-500/10 text-purple-650 dark:text-purple-400 border-purple-500/20', icon: AlertTriangle, rowClass: 'bg-purple-50/20 dark:bg-purple-950/10' },
 };
@@ -140,7 +142,14 @@ const GRNListPage = () => {
   ];
 
   const filtered = grns.filter(g => {
-    if (filterLabStatus && g.status !== filterLabStatus) return false;
+    if (filterLabStatus) {
+      if (filterLabStatus === 'LAB_EXEMPT') {
+        const isExempt = g.isExempt || (g.items && g.items.length > 0 && g.items.every(i => i.labTestRequired === false));
+        if (!isExempt) return false;
+      } else if (g.status !== filterLabStatus) {
+        return false;
+      }
+    }
     if (filterInvStatus) {
       const isUploaded = g.inventoryStatus === 'UPLOADED' || g.status === 'LAB_APPROVED';
       const effectiveInv = isUploaded ? 'UPLOADED' : (g.inventoryStatus || 'NOT_UPLOADED');
@@ -269,7 +278,11 @@ const GRNListPage = () => {
           className="border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-bold h-9 pr-8"
         >
           <option value="">All Lab Decisions</option>
-          {Object.entries(LAB_STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+          <option value="LAB_EXEMPT">🛡️ Lab Exempt (Direct Stock)</option>
+          <option value="PENDING_LAB">⏳ Pending Lab</option>
+          <option value="LAB_APPROVED">✅ Lab Approved</option>
+          <option value="LAB_REJECTED">❌ Lab Rejected</option>
+          <option value="LAB_RESAMPLE">⚠️ Re-sample</option>
         </select>
 
         <select
@@ -330,9 +343,10 @@ const GRNListPage = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {paginatedGRNs.map(grn => {
-                  const labCfg = LAB_STATUS_CONFIG[grn.status] || LAB_STATUS_CONFIG.PENDING_LAB;
+                  const isExempt = grn.isExempt || (grn.items && grn.items.length > 0 && grn.items.every(i => i.labTestRequired === false));
+                  const labCfg = isExempt ? LAB_STATUS_CONFIG.LAB_EXEMPT : (LAB_STATUS_CONFIG[grn.status] || LAB_STATUS_CONFIG.PENDING_LAB);
                   const LabIcon = labCfg.icon;
-                  const isUploaded = grn.inventoryStatus === 'UPLOADED' || grn.status === 'LAB_APPROVED';
+                  const isUploaded = grn.inventoryStatus === 'UPLOADED' || grn.status === 'LAB_APPROVED' || isExempt;
                   const invStatus = isUploaded ? 'UPLOADED' : (grn.inventoryStatus || 'NOT_UPLOADED');
                   const invCfg = INV_STATUS_CONFIG[invStatus];
                   const isRejected = grn.status === 'LAB_REJECTED';
@@ -360,33 +374,46 @@ const GRNListPage = () => {
                       </td>
                       <td className="px-4 py-2.5 text-xs font-semibold text-slate-900 dark:text-white whitespace-nowrap">{grn.po?.supplier?.name || '—'}</td>
                       
-                      {/* Consolidated Received Materials */}
+                      {/* Consolidated Received Materials & Batch Tracking */}
                       <td className="px-4 py-2.5">
-                        <div className="flex flex-col gap-1 max-w-[320px]">
+                        <div className="flex flex-col gap-1.5 max-w-[340px]">
                           {grn.items && grn.items.length > 0 ? (
                             grn.items.map(item => {
                               const itemExpected = Number(item.expectedQty || 0);
                               const itemReceived = Number(item.actualReceivedQty || 0);
-                              const itemShortfall = Math.max(0, itemExpected - itemReceived);
+                              const itemVariance = itemReceived - itemExpected;
                               const itemUom = grn.po?.uom?.abbreviation || '';
 
                               return (
-                                <div key={item.id || item.rmId} className="flex items-center justify-between gap-3 text-[11px] bg-slate-50 dark:bg-slate-700/30 border border-slate-100 dark:border-slate-800 rounded-lg px-2 py-0.5">
-                                  <div className="flex flex-col">
-                                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[150px]">{item.rmName}</span>
-                                    <span className="text-[9px] text-slate-400">
-                                      Recv: <strong className="text-slate-750 dark:text-slate-300">{itemReceived.toFixed(2)}</strong> / {itemExpected.toFixed(2)} {itemUom}
-                                    </span>
+                                <div key={item.id || item.rmId} className="flex items-center justify-between gap-2.5 text-[11px] bg-slate-50 dark:bg-slate-700/30 border border-slate-100 dark:border-slate-800 rounded-lg px-2.5 py-1">
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-[160px]">{item.rmName}</span>
+                                    <div className="flex items-center gap-1.5 text-[9px] text-slate-500 flex-wrap">
+                                      <span>Recv: <strong className="text-slate-700 dark:text-slate-300">{itemReceived.toFixed(2)}</strong> / {itemExpected.toFixed(2)} {itemUom}</span>
+                                      {item.batchNumber && (
+                                        <span className="font-mono text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-950/60 px-1 rounded">
+                                          {item.batchNumber}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                  {itemShortfall > 0 ? (
-                                    <span className="text-[9px] font-bold text-rose-500 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/30 px-1 py-0.2 rounded">
-                                      -{itemShortfall.toFixed(2)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] text-emerald-600 dark:text-emerald-450 bg-emerald-50 dark:bg-emerald-950/30 px-1 py-0.2 rounded font-bold">
-                                      Ok
-                                    </span>
-                                  )}
+                                  
+                                  {/* Variance Badge */}
+                                  <div className="shrink-0">
+                                    {itemVariance < 0 ? (
+                                      <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/40 px-1.5 py-0.5 rounded">
+                                        Short: {itemVariance.toFixed(2)}
+                                      </span>
+                                    ) : itemVariance > 0 ? (
+                                      <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/40 px-1.5 py-0.5 rounded">
+                                        +{itemVariance.toFixed(2)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/40 px-1.5 py-0.5 rounded font-bold">
+                                        Exact
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })
