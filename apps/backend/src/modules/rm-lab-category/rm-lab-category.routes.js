@@ -127,6 +127,33 @@ router.get('/',
         orderBy: { name: 'asc' },
         include: { requiredResults: { orderBy: { paramName: 'asc' } } },
       });
+
+      // Auto-seed missing default categories if any are missing
+      if (categories.length < RM_LAB_CATEGORIES.length) {
+        for (const cat of RM_LAB_CATEGORIES) {
+          const exists = categories.some(c => c.code === cat.code);
+          if (!exists) {
+            try {
+              await prisma.rMLabCategory.create({
+                data: {
+                  name: cat.name,
+                  code: cat.code,
+                  labTests: cat.labTests,
+                  acceptableResults: cat.acceptableResults,
+                  rmExamples: cat.rmExamples,
+                },
+              });
+            } catch (e) {
+              // ignore duplicate key
+            }
+          }
+        }
+        categories = await prisma.rMLabCategory.findMany({
+          orderBy: { name: 'asc' },
+          include: { requiredResults: { orderBy: { paramName: 'asc' } } },
+        });
+      }
+
       res.json(categories);
     } catch (error) {
       next(error);

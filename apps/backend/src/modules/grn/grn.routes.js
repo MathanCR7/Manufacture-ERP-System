@@ -523,8 +523,48 @@ router.post('/lab-test',
 
       if (!data.isDraft) {
         for (const tr of data.testResults) {
-          if (tr.needTesting !== false && !tr.rmLabCategoryId) {
-            return res.status(400).json({ error: `RM Lab Category is required for material: ${tr.rmName}` });
+          if (tr.needTesting !== false) {
+            if (!tr.rmLabCategoryId) {
+              return res.status(400).json({ error: `RM Lab Category is required for material: ${tr.rmName}` });
+            }
+
+            const cat = await prisma.rMLabCategory.findUnique({
+              where: { id: tr.rmLabCategoryId },
+              include: { requiredResults: true }
+            });
+            if (!cat) {
+              return res.status(400).json({ error: `Selected RM Lab Category not found for material: ${tr.rmName}` });
+            }
+
+            const params = tr.categoryParams || {};
+
+            // If category has requiredResults defined, all must be filled
+            if (cat.requiredResults && cat.requiredResults.length > 0) {
+              for (const p of cat.requiredResults) {
+                const val = params[p.paramName];
+                if (val === undefined || val === null || String(val).trim() === '') {
+                  return res.status(400).json({
+                    error: `RM test parameter "${p.paramName}" is mandatory and cannot be empty for ${tr.rmName}.`
+                  });
+                }
+              }
+            } else if (cat.labTests && cat.labTests.length > 0) {
+              for (const testName of cat.labTests) {
+                const val = params[testName];
+                if (val === undefined || val === null || String(val).trim() === '') {
+                  return res.status(400).json({
+                    error: `RM test parameter "${testName}" is mandatory and cannot be empty for ${tr.rmName}.`
+                  });
+                }
+              }
+            } else {
+              const nonEmpties = Object.values(params).filter(v => v !== undefined && v !== null && String(v).trim() !== '');
+              if (nonEmpties.length === 0) {
+                return res.status(400).json({
+                  error: `RM test parameters are required and cannot be empty for ${tr.rmName}.`
+                });
+              }
+            }
           }
         }
       }
