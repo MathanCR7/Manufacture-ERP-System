@@ -6,48 +6,14 @@ const roleMiddleware = require('../../middlewares/role.middleware');
 const workflowNotifications = require('../notifications/workflow.notifications');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 
+const { getNextBatchForRM, receivePOAndProcess } = require('./grn.helper');
+
 const router = express.Router();
 
-// ─────────────────────── HELPER: SEQUENTIAL BATCH NUMBER PER RAW MATERIAL ───────────────────────
-async function getNextBatchForRM(rmId, rmName) {
-  const cleanName = (rmName || 'RM')
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 8);
-
-  const invCount = await prisma.inventoryBatch.count({
-    where: {
-      OR: [
-        { rawMaterialId: rmId },
-        { rawMaterialName: { equals: rmName, mode: 'insensitive' } }
-      ]
-    }
-  });
-
-  const grnCount = await prisma.gRNReceiveItem.count({
-    where: {
-      OR: [
-        { rmId: rmId },
-        { rmName: { equals: rmName, mode: 'insensitive' } }
-      ],
-      batchNumber: { not: null }
-    }
-  });
-
-  const nextSeq = Math.max(invCount, grnCount) + 1;
-  const batchNumber = `BATCH-${cleanName || 'RM'}-${String(nextSeq).padStart(3, '0')}`;
-  return {
-    sequence: nextSeq,
-    batchNumber,
-    nextBatchNumber: batchNumber,
-    batchLabel: `Batch ${nextSeq}`,
-  };
-}
-
 // ─────────────────────── PO STATUS UPDATE ───────────────────────
-// PATCH /api/grn/po/:id/status — Update PO status (PENDING → ORDERED → RECEIVED)
+// PATCH /api/grn/po/:id/status — Update PO status (PENDING / DRAFT → ORDERED → RECEIVED)
 const updateStatusSchema = z.object({
-  status: z.enum(['PENDING', 'ORDERED', 'RECEIVED']),
+  status: z.enum(['PENDING', 'ORDERED', 'RECEIVED', 'DRAFT']),
 });
 
 router.patch('/po/:id/status',
@@ -56,15 +22,30 @@ router.patch('/po/:id/status',
   async (req, res, next) => {
     try {
       const { id } = req.params;
-      const { status } = updateStatusSchema.parse(req.body);
+      let { status } = updateStatusSchema.parse(req.body);
+      if (status === 'DRAFT') status = 'PENDING';
 
-      const existing = await prisma.rawMaterialPO.findUnique({ where: { id }, include: { supplier: true } });
+      const existing = await prisma.rawMaterialPO.findUnique({ where: { id }, include: { supplier: true, uom: true } });
       if (!existing) return res.status(404).json({ error: 'Purchase Order not found' });
       if (existing.status === 'DELETED') return res.status(409).json({ error: 'Cannot update a deleted PO' });
 
-      const updated = await prisma.rawMaterialPO.update({
+      let finalStatus = status;
+
+      // If status is transitioning to RECEIVED, run the receipt & lab/inventory process
+      if (status === 'RECEIVED') {
+        const procResult = await prisma.$transaction(async (tx) => {
+          return await receivePOAndProcess({ po: existing, reqUserId: req.user.id, tx });
+        });
+        finalStatus = procResult.finalPoStatus || 'RECEIVED';
+      } else {
+        await prisma.rawMaterialPO.update({
+          where: { id },
+          data: { status: finalStatus }
+        });
+      }
+
+      const updated = await prisma.rawMaterialPO.findUnique({
         where: { id },
-        data: { status },
         include: { supplier: true, uom: true, user: { select: { name: true } } }
       });
 
@@ -77,26 +58,24 @@ router.patch('/po/:id/status',
           tableName: 'RawMaterialPO',
           recordId: id,
           oldValue: { status: existing.status },
-          newValue: { status },
+          newValue: { status: finalStatus },
           ip: clientIp,
         }
       });
 
-      // Notify Material Receiver if status changed to RECEIVED
-      if (status === 'RECEIVED') {
-        try {
-          await workflowNotifications.triggerPOStatusChanged?.({
-            poId: id,
-            referenceNo: updated.referenceNo,
-            rmName: updated.name,
-            newStatus: status,
-            actorName: req.user.name || req.user.email,
-            actorId: req.user.id,
-            actorRole: req.user.role,
-          });
-        } catch (e) {
-          console.error('Notification error on status change:', e.message);
-        }
+      // Notify Material Receiver if status changed to ORDERED or RECEIVED
+      try {
+        await workflowNotifications.triggerPOStatusChanged?.({
+          poId: id,
+          referenceNo: updated.referenceNo,
+          rmName: updated.name,
+          newStatus: finalStatus,
+          actorName: req.user.name || req.user.email,
+          actorId: req.user.id,
+          actorRole: req.user.role,
+        });
+      } catch (e) {
+        console.error('Notification error on status change:', e.message);
       }
 
       res.json(updated);
@@ -108,14 +87,14 @@ router.patch('/po/:id/status',
 );
 
 // ─────────────────────── UPCOMING DELIVERIES ───────────────────────
-// GET /api/grn/upcoming — All POs with status RECEIVED (upcoming deliveries for Material Receiver)
+// GET /api/grn/upcoming — Only POs with status ORDERED (awaiting delivery for Material Receiver)
 router.get('/upcoming',
   authenticateToken,
   roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']),
   async (req, res, next) => {
     try {
       const pos = await prisma.rawMaterialPO.findMany({
-        where: { status: { in: ['RECEIVED', 'APPROVED'] } },
+        where: { status: 'ORDERED' },
         orderBy: { updatedAt: 'desc' },
         include: { supplier: true, uom: true, user: { select: { name: true } } }
       });
@@ -236,7 +215,7 @@ router.post('/receive',
         include: { supplier: true, uom: true }
       });
       if (!po) return res.status(404).json({ error: 'Purchase Order not found' });
-      if (po.status !== 'RECEIVED') return res.status(409).json({ error: 'PO must be in RECEIVED status to log delivery' });
+      if (!['ORDERED', 'RECEIVED'].includes(po.status)) return res.status(409).json({ error: 'PO must be in ORDERED or RECEIVED status to log delivery' });
 
       // Check if GRN already submitted for this PO
       const existingGrn = await prisma.gRNReceive.findFirst({ where: { poId: data.poId } });
@@ -352,10 +331,11 @@ router.post('/receive',
           }
         }
 
-        // If all items in this PO are exempt from lab test: mark PO as APPROVED
-        if (isAllExempt) {
-          await tx.rawMaterialPO.update({ where: { id: data.poId }, data: { status: 'APPROVED' } });
-        }
+        // Update PO status: APPROVED if all exempt, otherwise RECEIVED
+        await tx.rawMaterialPO.update({
+          where: { id: data.poId },
+          data: { status: isAllExempt ? 'APPROVED' : 'RECEIVED' }
+        });
 
         // Check if any item has returnQty > 0 or rejectedQty > 0
         const returnItems = data.items

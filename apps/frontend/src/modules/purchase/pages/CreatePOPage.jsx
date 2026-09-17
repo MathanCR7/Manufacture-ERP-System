@@ -440,7 +440,7 @@ export default function CreatePOPage({ onBack }) {
   const [formData, setFormData] = useState({
     selectedRm: null,
     selectedSupplier: null,
-    purchaseStatus: 'Pending',
+    purchaseStatus: 'Draft',
     paymentStatus: 'Pending',
     expectedDelivery: null,
     discount: '0',
@@ -720,10 +720,28 @@ export default function CreatePOPage({ onBack }) {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['pos'] });
+      queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stock'] });
+
+      let successMsg = `Order Reference: ${data.referenceNo || data.id}`;
+      if (formData.purchaseStatus === 'Draft') {
+        successMsg += ' has been saved as Draft. You can review and mark it as Ordered later.';
+      } else if (formData.purchaseStatus === 'Ordered') {
+        successMsg += ' has been placed as Ordered and is now visible in Upcoming Deliveries.';
+      } else if (formData.purchaseStatus === 'Received') {
+        const hasLabItem = items.some(i => i.labTestRequired !== false);
+        if (hasLabItem) {
+          successMsg += ' has been marked as Received and routed directly to the Lab Testing queue without going to upcoming deliveries.';
+        } else {
+          successMsg += ' has been marked as Received and stock with batch numbers has been directly updated in inventory.';
+        }
+      }
+
       Swal.fire({
         icon: 'success',
-        title: 'Purchase Order Created!',
-        text: `Order Reference: ${data.referenceNo || data.id}`,
+        title: formData.purchaseStatus === 'Draft' ? 'PO Saved as Draft!' : formData.purchaseStatus === 'Received' ? 'PO Received & Processed!' : 'Purchase Order Placed!',
+        text: successMsg,
         confirmButtonColor: '#4f46e5',
       }).then(() => {
         navigate('/purchase-orders', { replace: true });
@@ -755,7 +773,12 @@ export default function CreatePOPage({ onBack }) {
     const firstItem = items[0];
     const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
+    let normalizedStatus = 'PENDING';
+    if (formData.purchaseStatus === 'Ordered') normalizedStatus = 'ORDERED';
+    else if (formData.purchaseStatus === 'Received') normalizedStatus = 'RECEIVED';
+
     createMutation.mutate({
+      status: normalizedStatus,
       rmId: firstItem.rmId,
       name: firstItem.name,
       quantity: totalQuantity,
@@ -954,9 +977,9 @@ export default function CreatePOPage({ onBack }) {
                     onChange={(e) => setFormData({ ...formData, purchaseStatus: e.target.value })}
                     className="w-full h-9 px-3 py-1.5 text-xs border rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-xs"
                   >
-                    <option value="Pending">Pending</option>
-                    <option value="Ordered">Ordered</option>
-                    <option value="Received">Received</option>
+                    <option value="Draft">Draft (Pending)</option>
+                    <option value="Ordered">Ordered (Awaiting Delivery)</option>
+                    <option value="Received">Received (Direct Receive)</option>
                   </select>
                   <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                 </div>

@@ -1061,7 +1061,7 @@ export default function EditPOPage({ id: propId, onBack }) {
                     disabled 
                     className="w-full h-10 px-3.5 py-2 text-sm border rounded-xl bg-slate-100 dark:bg-slate-800 border-slate-205 dark:border-slate-800 text-slate-500 dark:text-slate-400 shadow-sm appearance-none font-medium cursor-not-allowed"
                   >
-                    <option value="PENDING">Pending</option>
+                    <option value="PENDING">Draft</option>
                     <option value="ORDERED">Ordered</option>
                     <option value="RECEIVED">Received</option>
                     <option value="APPROVED">Approved</option>

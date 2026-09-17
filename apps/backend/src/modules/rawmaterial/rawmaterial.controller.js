@@ -3,6 +3,7 @@ const prisma = require('../../database/prisma');
 const { generateRmId } = require('../../utils/rmIdGenerator');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 const workflowNotifications = require('../notifications/workflow.notifications');
+const { receivePOAndProcess } = require('../grn/grn.helper');
 
 const isUuid = (value) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -194,6 +195,8 @@ const createPOSchema = z.object({
   expectedDelivery: z.string().min(1),
   supplierId: z.string().uuid().optional(),
   
+  status: z.enum(['PENDING', 'ORDERED', 'RECEIVED', 'DRAFT']).optional().default('PENDING'),
+  
   // Financial details
   subtotal: z.coerce.number().optional(),
   orderTax: z.coerce.number().optional(),
@@ -227,6 +230,9 @@ exports.createPO = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid UOM provided' });
     }
     
+    let targetStatus = (parsedData.status || 'PENDING').toUpperCase();
+    if (targetStatus === 'DRAFT') targetStatus = 'PENDING';
+
     const referenceNo = await generateReferenceNo(prisma, 'RawMaterialPO', 'PO');
 
     const createdPO = await prisma.$transaction(async (tx) => {
@@ -240,6 +246,8 @@ exports.createPO = async (req, res, next) => {
         }
       });
 
+      const initialPoStatus = targetStatus === 'RECEIVED' ? 'RECEIVED' : targetStatus;
+
       const po = await tx.rawMaterialPO.create({
         data: {
           referenceNo,
@@ -250,7 +258,7 @@ exports.createPO = async (req, res, next) => {
           uomId: resolvedUomId,
           expectedDelivery: new Date(parsedData.expectedDelivery),
           supplierId: parsedData.supplierId,
-          status: 'PENDING',
+          status: initialPoStatus,
           createdBy: req.user.id,
           subtotal: parsedData.subtotal || 0,
           orderTax: parsedData.orderTax || 0,
@@ -289,6 +297,11 @@ exports.createPO = async (req, res, next) => {
           where: { id: parsedData.quotationId },
           data: { status: 'CONVERTED' }
         });
+      }
+
+      // If status is RECEIVED, execute direct receipt, batch creation, and lab/inventory routing
+      if (targetStatus === 'RECEIVED') {
+        await receivePOAndProcess({ po, reqUserId: req.user.id, tx });
       }
 
       return po;

@@ -27,7 +27,7 @@ import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
 const STATUS_ORDER = ['PENDING', 'ORDERED', 'RECEIVED'];
 const STATUS_LABELS = {
-  PENDING: 'Pending',
+  PENDING: 'Draft',
   ORDERED: 'Ordered',
   RECEIVED: 'Received',
   APPROVED: 'Approved',
@@ -69,6 +69,8 @@ function StatusAdvanceButton({ po }) {
     try {
       await api.patch(`/grn/po/${po.id}/status`, { status: nextStatus });
       queryClient.invalidateQueries({ queryKey: ['pos'] });
+      queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
     } catch (err) {
       console.error('Failed to advance PO status:', err);
     } finally {
@@ -76,14 +78,20 @@ function StatusAdvanceButton({ po }) {
     }
   };
 
+  const actionTitle = nextStatus === 'ORDERED' 
+    ? 'Advance to Ordered (makes order visible in Upcoming Deliveries)'
+    : 'Mark as Received (auto-routes to Lab Test or updates Inventory Stock)';
+
+  const actionText = nextStatus === 'ORDERED' ? 'Order' : 'Receive';
+
   return (
     <button
       onClick={handleAdvance}
       disabled={loading}
-      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800 transition-all cursor-pointer disabled:opacity-50 shrink-0"
-      title={`Advance to ${STATUS_LABELS[nextStatus]}`}
+      className="inline-flex items-center gap-0.5 px-2 py-0.5 text-[9px] font-extrabold rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/60 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800 transition-all cursor-pointer disabled:opacity-50 shrink-0"
+      title={actionTitle}
     >
-      <span>{STATUS_LABELS[nextStatus]}</span>
+      <span>{actionText}</span>
       <ChevronRight className="w-2.5 h-2.5" />
     </button>
   );
@@ -349,7 +357,7 @@ export default function POListPage() {
                     className="bg-transparent text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
                   >
                     <option value="ALL" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">All Statuses</option>
-                    <option value="PENDING" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Pending</option>
+                    <option value="PENDING" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Draft</option>
                     <option value="ORDERED" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Ordered</option>
                     <option value="RECEIVED" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Received</option>
                     <option value="APPROVED" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 font-bold">Approved</option>
