@@ -762,9 +762,24 @@ export default function CreatePOPage({ onBack }) {
       return;
     }
     if (!formData.expectedDelivery) {
-      setErrorMsg('Expected Delivery Date is required.');
+      setErrorMsg(formData.purchaseStatus === 'Received' ? 'Received Date is required.' : 'Expected Delivery Date is required.');
       return;
     }
+
+    if (formData.purchaseStatus === 'Received') {
+      const now = new Date();
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      if (new Date(formData.expectedDelivery) > endOfToday) {
+        setErrorMsg('When Purchase Status is "Received", the date can only be today or a previous day. It cannot be tomorrow or any future date.');
+        return;
+      }
+    }
+
+    if (formData.supplierInvoiceDate && new Date(formData.supplierInvoiceDate) > endOfToday) {
+      setErrorMsg('Supplier Invoice Date cannot be in the future (tomorrow or later).');
+      return;
+    }
+
     if (!formData.selectedSupplier) {
       setErrorMsg('Please select a Supplier.');
       return;
@@ -952,17 +967,33 @@ export default function CreatePOPage({ onBack }) {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 items-start">
-              {/* Expected Delivery Date */}
+              {/* Expected Delivery Date / Received Date */}
               <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                  Expected Delivery <span className="text-rose-500">*</span>
-                </Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                    {formData.purchaseStatus === 'Received' ? 'Received Date' : 'Expected Delivery'} <span className="text-rose-500">*</span>
+                  </Label>
+                  {formData.purchaseStatus === 'Received' && (
+                    <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200/80 dark:border-amber-800/80">
+                      Today or past dates only
+                    </span>
+                  )}
+                </div>
                 <DatePicker
                   value={formData.expectedDelivery}
                   onChange={(date) => setFormData({ ...formData, expectedDelivery: date })}
-                  modalTitle="Expected Delivery"
-                  placeholder="Select Date..."
+                  modalTitle={formData.purchaseStatus === 'Received' ? 'Received Date' : 'Expected Delivery Date'}
+                  placeholder={formData.purchaseStatus === 'Received' ? 'Select Received Date...' : 'Select Date...'}
                   triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
+                  disabled={
+                    formData.purchaseStatus === 'Received'
+                      ? (date) => {
+                          const endOfToday = new Date();
+                          endOfToday.setHours(23, 59, 59, 999);
+                          return date > endOfToday;
+                        }
+                      : undefined
+                  }
                 />
               </div>
 
@@ -974,7 +1005,26 @@ export default function CreatePOPage({ onBack }) {
                 <div className="relative">
                   <select 
                     value={formData.purchaseStatus}
-                    onChange={(e) => setFormData({ ...formData, purchaseStatus: e.target.value })}
+                    onChange={(e) => {
+                      const newStatus = e.target.value;
+                      setFormData(prev => {
+                        let updatedDelivery = prev.expectedDelivery;
+                        const now = new Date();
+                        const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+                        if (newStatus === 'Received') {
+                          // When switching to Received, if no date or date is tomorrow or future, clamp to today
+                          if (!updatedDelivery || new Date(updatedDelivery) > endOfToday) {
+                            updatedDelivery = new Date();
+                          }
+                        }
+                        return {
+                          ...prev,
+                          purchaseStatus: newStatus,
+                          expectedDelivery: updatedDelivery
+                        };
+                      });
+                    }}
                     className="w-full h-9 px-3 py-1.5 text-xs border rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-xs"
                   >
                     <option value="Draft">Draft (Pending)</option>
@@ -1078,6 +1128,11 @@ export default function CreatePOPage({ onBack }) {
                   modalTitle="Supplier Invoice Date"
                   placeholder="Select Invoice Date..."
                   triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
+                  disabled={(date) => {
+                    const endOfToday = new Date();
+                    endOfToday.setHours(23, 59, 59, 999);
+                    return date > endOfToday;
+                  }}
                 />
               </div>
 

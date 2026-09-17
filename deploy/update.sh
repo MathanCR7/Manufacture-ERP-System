@@ -16,7 +16,6 @@ echo "✅ Synced to: $CURRENT_COMMIT"
 echo "⚙️ [2/5] Updating Backend (dependencies, prisma schema, db push)..."
 cd /var/www/manufacture-erp/apps/backend
 npm install
-sudo -u postgres psql -d erp_manufacture -c "ALTER TABLE rm_quotation_items DROP CONSTRAINT IF EXISTS rm_quotation_items_material_id_fkey;" 2>/dev/null || true
 npx prisma generate
 npx prisma db push --accept-data-loss
 

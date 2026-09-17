@@ -251,6 +251,17 @@ exports.createPO = async (req, res, next) => {
     let targetStatus = (parsedData.status || 'PENDING').toUpperCase();
     if (targetStatus === 'DRAFT') targetStatus = 'PENDING';
 
+    if (targetStatus === 'RECEIVED') {
+      const deliveryDate = new Date(parsedData.expectedDelivery);
+      const now = new Date();
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      if (deliveryDate > endOfToday) {
+        return res.status(400).json({
+          error: 'When Purchase Status is Received, the date can only be today or a previous day (cannot be tomorrow or future dates).'
+        });
+      }
+    }
+
     const referenceNo = await generateReferenceNo(prisma, 'RawMaterialPO', 'PO');
 
     const createdPO = await prisma.$transaction(async (tx) => {
