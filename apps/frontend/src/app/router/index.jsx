@@ -103,8 +103,7 @@ const OrderListPage = lazy(() => import('@/modules/production/pages/OrderListPag
 const OrderStatusPage = lazy(() => import('@/modules/production/pages/OrderStatusPage'));
 
 // Forecasting Module Pages
-const ForecastByOrderPage = lazy(() => import('@/modules/production/pages/ForecastByOrderPage'));
-const ForecastByProductPage = lazy(() => import('@/modules/production/pages/ForecastByProductPage'));
+const PredictiveForecastingHubPage = lazy(() => import('@/modules/production/pages/PredictiveForecastingHubPage'));
 
 // Asset Management Module
 const AssetManagementPage = lazy(() => import('@/modules/asset-management/pages/AssetManagementPage'));
@@ -380,8 +379,11 @@ const AppRouter = () => {
 
             {/* Forecasting */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
-              <Route path="/forecasting/by-order" element={<ForecastByOrderPage />} />
-              <Route path="/forecasting/by-product" element={<ForecastByProductPage />} />
+              <Route path="/forecasting" element={<Navigate to="/forecasting/calendar" replace />} />
+              <Route path="/forecasting/:section" element={<PredictiveForecastingHubPage />} />
+              <Route path="/forecasting/by-order" element={<Navigate to="/forecasting/stock" replace />} />
+              <Route path="/forecasting/by-product" element={<Navigate to="/forecasting/stock" replace />} />
+              <Route path="/forecasting/ai-studio" element={<Navigate to="/forecasting/calendar" replace />} />
             </Route>
 
             {/* Finance & Accounts */}

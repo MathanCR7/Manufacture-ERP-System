@@ -1,8 +1,191 @@
 const express = require('express');
 const prisma = require('../../database/prisma');
 const authenticateToken = require('../../middlewares/auth.middleware');
+const forecastingController = require('./forecasting.controller');
 
 const router = express.Router();
+
+const { extractERPPayload } = require('./forecastDataExtractor');
+const forecastAIService = require('./forecastAIService');
+const { getLiveHolidays } = require('./liveHolidayService');
+
+// GET /api/forecasting/comprehensive - Multi-Domain Predictive Forecasting
+router.get('/comprehensive', authenticateToken, (req, res, next) => {
+  forecastingController.getComprehensiveForecast(req, res, next);
+});
+
+// POST /api/forecasting/what-if - Dynamic Scenario Simulation
+router.post('/what-if', authenticateToken, (req, res, next) => {
+  forecastingController.simulateWhatIf(req, res, next);
+});
+
+// GET /api/forecasting/payload - Extract live Section 3 Payload from PostgreSQL
+router.get('/payload', authenticateToken, async (req, res, next) => {
+  try {
+    const payload = await extractERPPayload(req.query);
+    res.json({ success: true, payload });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/forecasting/ai-predict - Execute Master Prompt via AI or Quantitative Engine
+router.post('/ai-predict', authenticateToken, async (req, res, next) => {
+  try {
+    let payload = req.body?.payload;
+    if (!payload) {
+      payload = await extractERPPayload(req.body);
+    }
+    const result = await forecastAIService.runForecastingPrompt(payload, {
+      apiKey: req.body?.apiKey || req.headers['x-gemini-key'] || process.env.GEMINI_API_KEY,
+      horizonDays: req.body?.horizonDays || 30
+    });
+    res.json({ success: true, result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/forecasting/prompt - Return exact Master System Prompt
+router.get('/prompt', authenticateToken, (req, res) => {
+  res.json({
+    success: true,
+    prompt: forecastAIService.getMasterPrompt()
+  });
+});
+
+// ============================================================================
+// CALENDAR EVENTS & HOLIDAYS (PostgreSQL Database Persisted)
+// ============================================================================
+
+// GET /api/forecasting/calendar/events - Fetch events from PostgreSQL filtered by user role visibility
+router.get('/calendar/events', authenticateToken, async (req, res, next) => {
+  try {
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    const allEvents = await prisma.$queryRawUnsafe(
+      `SELECT id, title, date, time, priority, note, notified, 
+              "createdBy", "creatorName", "creatorRole", "allowedRoles", 
+              "createdAt", "updatedAt" 
+       FROM "OperationsCalendarEvent" 
+       ORDER BY date ASC, time ASC`
+    );
+
+    // Visibility filtering:
+    // MAIN_MASTER / ADMIN can see all events
+    // Other roles can see events if:
+    // 1. createdBy === userId
+    // 2. allowedRoles includes 'ALL' or is empty/null
+    // 3. allowedRoles includes user's role
+    const filteredEvents = allEvents.filter(ev => {
+      if (!userRole || userRole === 'MAIN_MASTER' || userRole === 'ADMIN') return true;
+      if (ev.createdBy === userId) return true;
+      
+      let roles = ev.allowedRoles;
+      if (typeof roles === 'string') {
+        try { roles = JSON.parse(roles); } catch { roles = ['ALL']; }
+      }
+      if (!Array.isArray(roles) || roles.length === 0 || roles.includes('ALL')) return true;
+      return roles.includes(userRole);
+    });
+
+    res.json({ success: true, events: filteredEvents });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/forecasting/calendar/events - Add event with user details and role visibility
+router.post('/calendar/events', authenticateToken, async (req, res, next) => {
+  try {
+    const { id, title, date, time, priority, note, allowedRoles } = req.body;
+    const eventId = id || `ue-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const eventTitle = title || 'Scheduled Event';
+    const eventDate = date;
+    const eventTime = time || null;
+    const eventPriority = priority || 'Medium';
+    const eventNote = note || '';
+    const userId = req.user?.id || 'system';
+    const creatorName = req.user?.name || req.user?.email || 'System User';
+    const creatorRole = req.user?.role || 'SUPERVISOR';
+    const rolesList = Array.isArray(allowedRoles) && allowedRoles.length > 0 ? allowedRoles : ['ALL'];
+    const rolesJson = JSON.stringify(rolesList);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "OperationsCalendarEvent" 
+       (id, title, date, time, priority, note, notified, "createdBy", "creatorName", "creatorRole", "allowedRoles", "createdAt", "updatedAt")
+       VALUES ($1, $2, $3, $4, $5, $6, false, $7, $8, $9, $10::jsonb, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) DO UPDATE SET 
+         title = $2, date = $3, time = $4, priority = $5, note = $6, 
+         "creatorName" = $8, "creatorRole" = $9, "allowedRoles" = $10::jsonb, "updatedAt" = CURRENT_TIMESTAMP`,
+      eventId, eventTitle, eventDate, eventTime, eventPriority, eventNote, userId, creatorName, creatorRole, rolesJson
+    );
+
+    res.json({
+      success: true,
+      event: {
+        id: eventId,
+        title: eventTitle,
+        date: eventDate,
+        time: eventTime,
+        priority: eventPriority,
+        note: eventNote,
+        allowedRoles: rolesList,
+        createdBy: userId,
+        creatorName,
+        creatorRole,
+        notified: false
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/forecasting/calendar/events/:id - Update event with role visibility
+router.put('/calendar/events/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { title, date, time, priority, note, allowedRoles } = req.body;
+    const rolesList = Array.isArray(allowedRoles) && allowedRoles.length > 0 ? allowedRoles : ['ALL'];
+    const rolesJson = JSON.stringify(rolesList);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE "OperationsCalendarEvent"
+       SET title = $1, date = $2, time = $3, priority = $4, note = $5, "allowedRoles" = $6::jsonb, notified = false, "updatedAt" = CURRENT_TIMESTAMP
+       WHERE id = $7`,
+      title, date, time || null, priority || 'Medium', note || '', rolesJson, id
+    );
+
+    res.json({ success: true, message: 'Event updated successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/forecasting/calendar/events/:id - Remove event from PostgreSQL
+router.delete('/calendar/events/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    await prisma.$executeRawUnsafe('DELETE FROM "OperationsCalendarEvent" WHERE id = $1', id);
+    res.json({ success: true, message: 'Event deleted successfully' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/forecasting/calendar/holidays - Live Official Gazette Holidays from Real-Time Public Feeds
+router.get('/calendar/holidays', async (req, res, next) => {
+  try {
+    const year = parseInt(req.query.year, 10) || 2026;
+    const forceRefresh = req.query.refresh === 'true';
+    const result = await getLiveHolidays(year, forceRefresh);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Helper to compute current stock for a product, taking openingStock into account
 const getProductStock = async (productId) => {

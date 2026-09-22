@@ -746,8 +746,14 @@ const MENU_GROUPS = [
     icon: TrendingUp,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
     items: [
-      { name: '📈 Forecast by Order', path: '/forecasting/by-order', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
-      { name: '🔮 Forecast by Product', path: '/forecasting/by-product', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] }
+      { name: '📅 Future Calendar', path: '/forecasting/calendar', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '📦 Stock & Reorder Points', path: '/forecasting/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '👥 Workforce & Capacity', path: '/forecasting/workforce', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '💰 Cash Flow & Payables', path: '/forecasting/cashflow', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '🚚 Vendor & Lead-Time', path: '/forecasting/vendor', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '⚙️ Production & WIP Yield', path: '/forecasting/production', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '🧪 What-If Scenarios', path: '/forecasting/what-if', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+      { name: '🔄 Returns & Rejections', path: '/forecasting/returns', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] }
     ]
   },
   {

@@ -1,0 +1,1136 @@
+{
+  "forecastHorizon": {
+    "generatedAt": "2026-09-22T07:24:05.701Z",
+    "horizonDays": 30,
+    "startDate": "2026-09-22",
+    "endDate": "2026-10-22"
+  },
+  "inventoryStockForecast": [
+    {
+      "skuCode": "FP-000003",
+      "skuName": "MANGO KULFI SLICE",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 60,
+      "reorderPointCalculated": 120,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 600
+    },
+    {
+      "skuCode": "FP-000005",
+      "skuName": "DOUBLE CHOCOLATE CASSATA",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 35,
+      "reorderPointCalculated": 70,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 350
+    },
+    {
+      "skuCode": "FP-000006",
+      "skuName": "BUTTERSCOTCH CHIKKI TUB (1 LTR)",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 30,
+      "reorderPointCalculated": 60,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 300
+    },
+    {
+      "skuCode": "FP-000008",
+      "skuName": "JEERA MASALA SODA ICE POPS",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 100,
+      "reorderPointCalculated": 200,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 1000
+    },
+    {
+      "skuCode": "FP-000009",
+      "skuName": "GULKAND PISTA DELIGHT STICK",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000010",
+      "skuName": "CARAMEL FUDGE TUB (1 LTR)",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 25,
+      "reorderPointCalculated": 50,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 250
+    },
+    {
+      "skuCode": "FP-000011",
+      "skuName": "MANGO TUB (1 LTR)",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 25,
+      "reorderPointCalculated": 50,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 250
+    },
+    {
+      "skuCode": "FP-000012",
+      "skuName": "KESAR PISTA STICK",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000013",
+      "skuName": "STRAWBERRY CUP (S)",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 75,
+      "reorderPointCalculated": 150,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 750
+    },
+    {
+      "skuCode": "FP-000015",
+      "skuName": "RAJBHOG PREMIUM CUP",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000016",
+      "skuName": "BLUEBERRY SLICE KULFI",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000017",
+      "skuName": "PINEAPPLE ICE CANDY POP",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 100,
+      "reorderPointCalculated": 200,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 1000
+    },
+    {
+      "skuCode": "FP-000018",
+      "skuName": "ORANGE ICE CANDY POP",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 100,
+      "reorderPointCalculated": 200,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 1000
+    },
+    {
+      "skuCode": "FP-000019",
+      "skuName": "BUTTERSCOTCH SUNDAE CUP",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000020",
+      "skuName": "LITCHI JELLY CUP",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000021",
+      "skuName": "GEMS CHOCOLATE SUNDAE CUP",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000025",
+      "skuName": "TUTTI FRUTTI PREMIUM CUP",
+      "currentStock": 1,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 4,
+      "projectedStockoutDate": "2026-09-26",
+      "stockStatus": "Low Stock",
+      "recommendedReorderQuantity": 499
+    },
+    {
+      "skuCode": "FP-000022",
+      "skuName": "GULKAND MATKA KULFI",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 40,
+      "reorderPointCalculated": 80,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 400
+    },
+    {
+      "skuCode": "FP-000024",
+      "skuName": "BLACK CURRANT TUB (1 LTR)",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 25,
+      "reorderPointCalculated": 50,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 250
+    },
+    {
+      "skuCode": "FP-000023",
+      "skuName": "CARAMEL SLICE KULFI",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000026",
+      "skuName": "DELICIOUS KULFI BAR - DELUXE EDITION",
+      "currentStock": 0,
+      "dailyVelocity": 0.317,
+      "safetyStockRecommended": 5,
+      "reorderPointCalculated": 6,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 20
+    },
+    {
+      "skuCode": "FP-000004",
+      "skuName": "STRAWBERRY SUNDAE CUP",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 75,
+      "reorderPointCalculated": 150,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 750
+    },
+    {
+      "skuCode": "FP-000002",
+      "skuName": "KESAR PISTA MATKA KULFI",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 40,
+      "reorderPointCalculated": 80,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 400
+    },
+    {
+      "skuCode": "FP-000001",
+      "skuName": "MALAI KULFI STICK",
+      "currentStock": 148,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 592,
+      "projectedStockoutDate": null,
+      "stockStatus": "Overstocked",
+      "recommendedReorderQuantity": 352
+    },
+    {
+      "skuCode": "FP-000014",
+      "skuName": "ALMOND FUDGE STICK",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 500
+    },
+    {
+      "skuCode": "FP-000027",
+      "skuName": "DSF",
+      "currentStock": 0,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 10,
+      "reorderPointCalculated": 11,
+      "daysOfInventoryRemaining": 0,
+      "projectedStockoutDate": "2026-09-22",
+      "stockStatus": "Stockout Imminent",
+      "recommendedReorderQuantity": 100
+    },
+    {
+      "skuCode": "FP-000007",
+      "skuName": "BLUEBERRY PREMIUM CUP",
+      "currentStock": 25,
+      "dailyVelocity": 0.25,
+      "safetyStockRecommended": 50,
+      "reorderPointCalculated": 100,
+      "daysOfInventoryRemaining": 100,
+      "projectedStockoutDate": "2026-12-31",
+      "stockStatus": "Low Stock",
+      "recommendedReorderQuantity": 475
+    }
+  ],
+  "workforceCapacityForecast": {
+    "projectedWorkloadHours": 399,
+    "availableStaffHours": 456.8,
+    "capacityUtilizationPercent": 87.3,
+    "staffShortfallOrSurplus": 57.8,
+    "recommendedShiftCoverage": [
+      {
+        "role": "PRODUCTION_STAFF",
+        "currentHeadcount": 1,
+        "requiredHeadcount": 2
+      },
+      {
+        "role": "LAB_ASSISTANT",
+        "currentHeadcount": 1,
+        "requiredHeadcount": 1
+      },
+      {
+        "role": "SUPERVISOR",
+        "currentHeadcount": 1,
+        "requiredHeadcount": 1
+      }
+    ],
+    "stageBottlenecks": [
+      {
+        "stageName": "Pasteurization",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "Ageing",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "VAT",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "Mixing",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "CF - Cont. Freezer",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "BF - Bath Freezer",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "CM - Candy Machine",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "Manual Weight",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "HT - Hardening Tunner",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "PACKING",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "LABLE AND PRINTING",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "Freezing",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "QC",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      },
+      {
+        "stageName": "Storage",
+        "standardHours": 1.5,
+        "projectedHours": 28.5,
+        "riskLevel": "LOW"
+      }
+    ]
+  },
+  "cashFlowForecast": {
+    "projectedInflowsReceivables": 1666.98,
+    "projectedOutflowsPayables": 590.14,
+    "projectedOperatingExpenses": 415,
+    "netLiquidityImpact": 661.84,
+    "cashDeficitRisk": false,
+    "weeklyBreakdown": [
+      {
+        "week": "Week 1",
+        "expectedInflows": 598.78,
+        "expectedPayables": 448.54,
+        "netCashFlow": 46.49
+      },
+      {
+        "week": "Week 2",
+        "expectedInflows": 0,
+        "expectedPayables": 0,
+        "netCashFlow": -103.75
+      },
+      {
+        "week": "Week 3",
+        "expectedInflows": 0,
+        "expectedPayables": 0,
+        "netCashFlow": -103.75
+      },
+      {
+        "week": "Week 4",
+        "expectedInflows": 1068.2,
+        "expectedPayables": 141.6,
+        "netCashFlow": 822.85
+      }
+    ],
+    "topOverdueOrAtRiskAccounts": []
+  },
+  "vendorLeadTimeForecast": [
+    {
+      "supplierName": "Supplier 3",
+      "historicalAvgLeadTimeDays": 9.5,
+      "promisedAvgLeadTimeDays": 2,
+      "leadTimeVarianceDays": 7.5,
+      "onTimeDeliveryRatePercent": 16.7,
+      "qualityAcceptanceRatePercent": 100,
+      "vendorRiskScore": 0.33,
+      "recommendedLeadTimeBufferDays": 8
+    },
+    {
+      "supplierName": "Supplier 2",
+      "historicalAvgLeadTimeDays": 1,
+      "promisedAvgLeadTimeDays": 1,
+      "leadTimeVarianceDays": 0,
+      "onTimeDeliveryRatePercent": 0,
+      "qualityAcceptanceRatePercent": 100,
+      "vendorRiskScore": 0.4,
+      "recommendedLeadTimeBufferDays": 0
+    },
+    {
+      "supplierName": "Supplier 1",
+      "historicalAvgLeadTimeDays": 7,
+      "promisedAvgLeadTimeDays": 6,
+      "leadTimeVarianceDays": 1,
+      "onTimeDeliveryRatePercent": 100,
+      "qualityAcceptanceRatePercent": 98,
+      "vendorRiskScore": 0.01,
+      "recommendedLeadTimeBufferDays": 1
+    }
+  ],
+  "manufacturingProductionForecast": [
+    {
+      "productId": "eaa8a459-a2a6-4e94-aaf0-df9462a09259",
+      "productName": "MANGO KULFI SLICE",
+      "projectedWIPCycleTimeHours": 4.83,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.4,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 0.6,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "MANGO",
+          "currentStock": 10,
+          "requiredForBatch": 1.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "FERRERO ROCHER",
+          "currentStock": 0,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "8d5ede5f-ce25-4c0b-9074-d8234db11b63",
+      "productName": "DOUBLE CHOCOLATE CASSATA",
+      "projectedWIPCycleTimeHours": 6.67,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.52,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 3.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1.3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 0.8,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "DARK CHOCO CHIP",
+          "currentStock": 5,
+          "requiredForBatch": 0.6,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "HIDE & SEEK BISCUITS",
+          "currentStock": 0,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "36a07212-9112-4aa0-8f13-92efec1bf06e",
+      "productName": "BUTTERSCOTCH CHIKKI TUB (1 LTR)",
+      "projectedWIPCycleTimeHours": 14.33,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 2.2,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 17.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 6,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 4,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "BUTTERSCOTCH",
+          "currentStock": 10,
+          "requiredForBatch": 2,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "GREEN TEA MATCHA",
+          "currentStock": 1,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "acb6ce0d-c2df-4760-9c1a-b845719fe2ab",
+      "productName": "JEERA MASALA SODA ICE POPS",
+      "projectedWIPCycleTimeHours": 1.67,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.03,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1.8,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "F17 APPLE GREEN FCF",
+          "currentStock": 500,
+          "requiredForBatch": 0.1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "CITRIC ACID",
+          "currentStock": 5,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "bf3e4b14-c533-4dc2-b8fc-ac7a43f677cc",
+      "productName": "GULKAND PISTA DELIGHT STICK",
+      "projectedWIPCycleTimeHours": 4.42,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.54,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 0.8,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "GUAVA JELLY",
+          "currentStock": 3,
+          "requiredForBatch": 0.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "PISTA",
+          "currentStock": 3,
+          "requiredForBatch": 0.3,
+          "sufficiency": "Sufficient"
+        }
+      ]
+    },
+    {
+      "productId": "c2d61efa-0a62-4518-84c0-0a7bf5cc4321",
+      "productName": "CARAMEL FUDGE TUB (1 LTR)",
+      "projectedWIPCycleTimeHours": 12.17,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 2.1,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 17.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 6,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 4,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "F20 RASPBERRY RED FCF",
+          "currentStock": 500,
+          "requiredForBatch": 2.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "GREEN TEA MATCHA",
+          "currentStock": 1,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "2c2c0a4d-dc02-4037-8b20-da8ffc58ae98",
+      "productName": "MANGO TUB (1 LTR)",
+      "projectedWIPCycleTimeHours": 12.17,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 2.31,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 17.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 6,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 4,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "MANGO",
+          "currentStock": 10,
+          "requiredForBatch": 4,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "GREEN TEA MATCHA",
+          "currentStock": 1,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "5eb6e9bb-5c9b-4f3c-85d3-fd06afdcd770",
+      "productName": "KESAR PISTA STICK",
+      "projectedWIPCycleTimeHours": 5.25,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.55,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 0.8,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "PISTA",
+          "currentStock": 3,
+          "requiredForBatch": 0.3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "PINEAPPLE JELLY",
+          "currentStock": 2,
+          "requiredForBatch": 0.3,
+          "sufficiency": "Sufficient"
+        }
+      ]
+    },
+    {
+      "productId": "2871d197-acc7-46f0-82ab-93d8bf47c926",
+      "productName": "STRAWBERRY CUP (S)",
+      "projectedWIPCycleTimeHours": 3.08,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.41,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 0.6,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "STRAWBERRY",
+          "currentStock": 10,
+          "requiredForBatch": 0.8,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "CHILLY FLAKES",
+          "currentStock": 0.5,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "eb69383e-6262-4511-9b34-8ceea22f5baa",
+      "productName": "RAJBHOG PREMIUM CUP",
+      "projectedWIPCycleTimeHours": 4.33,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.88,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 4,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 1,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "RAJBHOG",
+          "currentStock": 0.5,
+          "requiredForBatch": 0.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "CASHEW",
+          "currentStock": 15,
+          "requiredForBatch": 0.3,
+          "sufficiency": "Sufficient"
+        }
+      ]
+    },
+    {
+      "productId": "0e86d71e-f1d2-4b75-8532-8ddc9613d4ad",
+      "productName": "BLUEBERRY SLICE KULFI",
+      "projectedWIPCycleTimeHours": 4.58,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.47,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 0.6,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "BLUEBERRY",
+          "currentStock": 5,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "FERRERO ROCHER",
+          "currentStock": 0,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "512a7e7d-65e0-4f4a-8291-2dedabecca61",
+      "productName": "PINEAPPLE ICE CANDY POP",
+      "projectedWIPCycleTimeHours": 1.58,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.08,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1.8,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "PINEAPPLE",
+          "currentStock": 10,
+          "requiredForBatch": 0.8,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "CITRIC ACID",
+          "currentStock": 5,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "7ebffa78-6ca0-42c3-ab43-a3609545ab88",
+      "productName": "ORANGE ICE CANDY POP",
+      "projectedWIPCycleTimeHours": 1.58,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.07,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1.8,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "ORANGE",
+          "currentStock": 10,
+          "requiredForBatch": 0.8,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "CITRIC ACID",
+          "currentStock": 5,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "68eccb0a-0db3-494a-a0d7-de67b2bf50b5",
+      "productName": "BUTTERSCOTCH SUNDAE CUP",
+      "projectedWIPCycleTimeHours": 3.08,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.34,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SMP",
+          "currentStock": 150,
+          "requiredForBatch": 2.5,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "VANASPATHI",
+          "currentStock": 0,
+          "requiredForBatch": 0.5,
+          "sufficiency": "Shortage"
+        },
+        {
+          "rawMaterialName": "BUTTERSCOTCH",
+          "currentStock": 10,
+          "requiredForBatch": 1,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "SALT",
+          "currentStock": 1,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    },
+    {
+      "productId": "43c8ee93-36f0-41b0-ba27-285057da809a",
+      "productName": "LITCHI JELLY CUP",
+      "projectedWIPCycleTimeHours": 3.5,
+      "projectedYieldPercent": 105,
+      "projectedOutputQuantity": 50,
+      "expectedRawMaterialVarianceCost": 0.15,
+      "highRiskComponents": [
+        {
+          "rawMaterialName": "SUGAR WHITE",
+          "currentStock": 150,
+          "requiredForBatch": 1.3,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "LITCHII",
+          "currentStock": 5,
+          "requiredForBatch": 0.8,
+          "sufficiency": "Sufficient"
+        },
+        {
+          "rawMaterialName": "CHILLY FLAKES",
+          "currentStock": 0.5,
+          "requiredForBatch": 50,
+          "sufficiency": "Shortage"
+        }
+      ]
+    }
+  ],
+  "whatIfScenarioForecasts": [
+    {
+      "scenarioName": "Price Optimization (+10% Price Surge)",
+      "parametersChanged": {
+        "factor": "Price",
+        "variationPercent": "+10%"
+      },
+      "projectedDemandImpactPercent": -5,
+      "projectedGrossMarginImpactPercent": 4.2,
+      "recommendation": "Net margin expansion. Feasible without critical loss of sales volume."
+    },
+    {
+      "scenarioName": "Competitive Price Reduction (-10% Discount)",
+      "parametersChanged": {
+        "factor": "Price",
+        "variationPercent": "-10%"
+      },
+      "projectedDemandImpactPercent": 8.5,
+      "projectedGrossMarginImpactPercent": -5.2,
+      "recommendation": "Drives unit velocity but compresses gross margins. Only deploy for clearance or market capture."
+    },
+    {
+      "scenarioName": "Promotional Festival Campaign (+25% Surge)",
+      "parametersChanged": {
+        "factor": "Demand Lift",
+        "variationPercent": "+25%"
+      },
+      "projectedDemandImpactPercent": 25,
+      "projectedGrossMarginImpactPercent": 1.8,
+      "recommendation": "Procure 25% surplus raw materials 2 weeks in advance to avert imminent stockouts."
+    },
+    {
+      "scenarioName": "Raw Material Inflation (+15% Input Cost Shock)",
+      "parametersChanged": {
+        "factor": "RM Rates",
+        "variationPercent": "+15%"
+      },
+      "projectedDemandImpactPercent": 0,
+      "projectedGrossMarginImpactPercent": -6.8,
+      "recommendation": "Substantial margin compression. Recommend triggering dynamic catalogue price adjustments."
+    },
+    {
+      "scenarioName": "Severe RM Supply Cost Shock (+30% Spike)",
+      "parametersChanged": {
+        "factor": "RM Rates",
+        "variationPercent": "+30%"
+      },
+      "projectedDemandImpactPercent": -2,
+      "projectedGrossMarginImpactPercent": -13.5,
+      "recommendation": "Severe risk of operating loss on low-margin SKUs. Immediately renegotiate vendor contracts or implement surcharge."
+    },
+    {
+      "scenarioName": "Demand Contraction (-15% Market Slowdown)",
+      "parametersChanged": {
+        "factor": "Demand Volume",
+        "variationPercent": "-15%"
+      },
+      "projectedDemandImpactPercent": -15,
+      "projectedGrossMarginImpactPercent": -3.5,
+      "recommendation": "Scale down production batch schedules to prevent overstocking and working capital lockup."
+    }
+  ],
+  "returnsReverseLogisticsForecast": {
+    "projectedSalesReturnRatePercent": 0,
+    "projectedSalesReturnUnits": 0,
+    "projectedPurchaseReturnRatePercent": 0,
+    "estimatedRefundLiabilityAmount": 450,
+    "primaryRejectionDrivers": [
+      "Lab QA SNF / Fat parameter mismatch",
+      "Cold-chain transport transit damage",
+      "Expiry buffer shortfall on delivery"
+    ]
+  }
+}

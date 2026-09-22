@@ -12,6 +12,7 @@ import {
   TrendingDown, CheckCircle2, AlertCircle, XCircle, Clock, Users, ExternalLink
 } from 'lucide-react';
 import useAuthStore from '@/app/store/authStore';
+import MiniOperationsCalendar from '@/modules/production/components/MiniOperationsCalendar';
 
 // Helper to format currency
 const formatCurrency = (val) => {
@@ -878,6 +879,9 @@ export default function DashboardPage() {
 
         {/* Right 1/3 Sidebar Column */}
         <div className="space-y-6">
+
+          {/* Mini Operations Calendar Widget (Redirects to Full Calendar on Click) */}
+          <MiniOperationsCalendar />
 
           {/* ----------------------------------------------------
               SECTION 9: SYSTEM ALERTS FEED
