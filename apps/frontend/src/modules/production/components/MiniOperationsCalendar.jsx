@@ -120,7 +120,7 @@ export default function MiniOperationsCalendar({ className = '' }) {
   // Navigate to full calendar
   const handleGoToFullCalendar = (date = null) => {
     const target = date || selectedDate || todayStr;
-    navigate(`/forecasting/calendar?date=${target}`);
+    navigate(`/calendar?date=${target}`);
   };
 
   return (

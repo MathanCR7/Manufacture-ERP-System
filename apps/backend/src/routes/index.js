@@ -43,7 +43,7 @@ router.use('/qr-lifecycle', require('../modules/qr-lifecycle/qr-lifecycle.routes
 router.use('/products', authMiddleware, require('../modules/production/products.routes'));
 router.use('/production', authMiddleware, require('../modules/production/production.routes'));
 router.use('/orders', authMiddleware, require('../modules/production/orders.routes'));
-router.use('/forecasting', authMiddleware, require('../modules/production/forecasting.routes'));
+router.use('/forecasting', authMiddleware, require('../modules/forecasting/forecasting.routes'));
 
 // Sales Module
 router.use('/sales', authMiddleware, require('../modules/sales/sales.routes'));

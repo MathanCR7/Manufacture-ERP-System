@@ -1,0 +1,2437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ERP Operations Calendar Console</title>
+  
+  <!-- Google Fonts: Space Grotesk (headers/brand), IBM Plex Sans (body/UI), IBM Plex Mono (IDs/tabular) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ==========================================================================
+       1. CSS TOKENS & INDUSTRIAL DESIGN SYSTEM
+       ========================================================================== */
+    :root {
+      /* Base Industrial Light Palette (Cool Grey-White, Graphite Ink) */
+      --bg-base: #f4f5f8;
+      --bg-surface: #ffffff;
+      --bg-subtle: #ebedf2;
+      --bg-hover: #e2e5eb;
+      --border-color: #d1d5db;
+      --border-subtle: #e5e7eb;
+      --text-main: #111827;
+      --text-muted: #4b5563;
+      --text-subtle: #6b7280;
+
+      /* Module Accent Colors */
+      --mod-resource: #2563eb;       /* Steel Blue */
+      --mod-resource-bg: #eff6ff;
+      --mod-resource-border: #bfdbfe;
+      
+      --mod-production: #d97706;     /* Amber / Rust */
+      --mod-production-bg: #fffbeb;
+      --mod-production-border: #fde68a;
+
+      --mod-project: #7c3aed;        /* Plum / Violet */
+      --mod-project-bg: #f5f3ff;
+      --mod-project-border: #ddd6fe;
+
+      --mod-supply: #059669;         /* Forest / Emerald Green */
+      --mod-supply-bg: #ecfdf5;
+      --mod-supply-border: #a7f3d0;
+
+      /* Status Border Stripe Colors */
+      --stat-delayed: #dc2626;       /* Red */
+      --stat-completed: #16a34a;     /* Green */
+      --stat-unassigned: #d97706;    /* Amber */
+      --stat-inprogress: #2563eb;    /* Blue */
+      --stat-scheduled: #64748b;     /* Grey */
+
+      /* Shadows & Layout Metrics */
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.08), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
+      --shadow-drawer: -4px 0 25px rgba(0, 0, 0, 0.12);
+      
+      --rail-width: 280px;
+      --topbar-height: 64px;
+      --radius-sm: 4px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+
+      /* Typography */
+      --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-body: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'IBM Plex Mono', monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-base: #0f1318;
+        --bg-surface: #171d24;
+        --bg-subtle: #1f2732;
+        --bg-hover: #293442;
+        --border-color: #2b3644;
+        --border-subtle: #222b37;
+        --text-main: #f3f4f6;
+        --text-muted: #9ca3af;
+        --text-subtle: #6b7280;
+
+        --mod-resource: #3b82f6;
+        --mod-resource-bg: rgba(37, 99, 235, 0.15);
+        --mod-resource-border: rgba(59, 130, 246, 0.35);
+
+        --mod-production: #f59e0b;
+        --mod-production-bg: rgba(217, 119, 6, 0.15);
+        --mod-production-border: rgba(245, 158, 11, 0.35);
+
+        --mod-project: #a78bfa;
+        --mod-project-bg: rgba(124, 58, 237, 0.15);
+        --mod-project-border: rgba(167, 139, 250, 0.35);
+
+        --mod-supply: #10b981;
+        --mod-supply-bg: rgba(5, 150, 105, 0.15);
+        --mod-supply-border: rgba(16, 185, 129, 0.35);
+
+        --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+        --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+        --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.6);
+        --shadow-drawer: -6px 0 35px rgba(0, 0, 0, 0.6);
+      }
+    }
+
+    /* Reset & Base Setup */
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-body);
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, select, textarea {
+      font-family: inherit;
+      color: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: none;
+      transition: background-color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+    }
+
+    /* Accessibility Focus States */
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--mod-resource);
+      outline-offset: 2px;
+    }
+
+    /* ==========================================================================
+       2. LAYOUT STRUCTURE (TOP BAR, LEFT RAIL, MAIN VIEWPORT)
+       ========================================================================== */
+    .app-container {
+      display: flex;
+      flex: 1;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Top Navigation Bar */
+    .top-bar {
+      height: var(--topbar-height);
+      background-color: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      gap: 16px;
+      z-index: 20;
+    }
+
+    .brand-section {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .menu-toggle-btn {
+      display: none;
+      padding: 8px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+    }
+    .menu-toggle-btn:hover {
+      background-color: var(--bg-subtle);
+    }
+
+    .brand-title {
+      font-family: var(--font-display);
+      font-size: 1.05rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-tag {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      background-color: var(--bg-subtle);
+      color: var(--text-muted);
+      border: 1px solid var(--border-subtle);
+    }
+
+    /* Top Controls (Nav, Views, Search, New Event) */
+    .nav-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .date-nav-group {
+      display: flex;
+      align-items: center;
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .nav-arrow-btn {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .nav-arrow-btn:hover {
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+    }
+
+    .today-btn {
+      padding: 0 10px;
+      height: 28px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      color: var(--text-main);
+    }
+    .today-btn:hover {
+      background-color: var(--bg-surface);
+    }
+
+    .current-period-display {
+      font-family: var(--font-display);
+      font-size: 1.15rem;
+      font-weight: 700;
+      min-width: 170px;
+      text-align: center;
+      letter-spacing: -0.01em;
+    }
+
+    /* View Switcher */
+    .view-toggle-group {
+      display: flex;
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 3px;
+      gap: 3px;
+    }
+
+    .view-btn {
+      padding: 5px 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+    }
+    .view-btn.active {
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Search Bar */
+    .search-wrapper {
+      position: relative;
+      width: 220px;
+    }
+
+    .search-input {
+      width: 100%;
+      height: 34px;
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0 10px 0 32px;
+      font-size: 0.82rem;
+      outline: none;
+      transition: all 0.15s ease;
+    }
+    .search-input:focus {
+      background-color: var(--bg-surface);
+      border-color: var(--mod-resource);
+      box-shadow: 0 0 0 1px var(--mod-resource);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      color: var(--text-subtle);
+      pointer-events: none;
+    }
+
+    /* New Event Button */
+    .btn-primary {
+      height: 36px;
+      padding: 0 14px;
+      background-color: var(--text-main);
+      color: var(--bg-surface);
+      border-radius: var(--radius-md);
+      font-size: 0.82rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: var(--shadow-sm);
+    }
+    .btn-primary:hover {
+      opacity: 0.9;
+    }
+
+    /* ==========================================================================
+       3. LEFT RAIL (MODULE FILTERS & STATUS STRIPE LEGEND)
+       ========================================================================== */
+    .left-rail {
+      width: var(--rail-width);
+      background-color: var(--bg-surface);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+      z-index: 15;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .rail-section {
+      padding: 18px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .rail-section-header {
+      font-family: var(--font-display);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-subtle);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .module-filter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .module-filter-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+      background-color: transparent;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+    }
+    .module-filter-item:hover {
+      background-color: var(--bg-subtle);
+    }
+    .module-filter-item.active {
+      border-color: var(--border-color);
+      background-color: var(--bg-subtle);
+    }
+
+    .module-info-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .module-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .module-name {
+      font-size: 0.83rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    .module-meta-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .module-count {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background-color: var(--bg-hover);
+      color: var(--text-muted);
+    }
+
+    .custom-checkbox {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--text-main);
+      cursor: pointer;
+    }
+
+    /* Status Stripe Legend */
+    .status-legend-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.78rem;
+    }
+
+    .status-legend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-muted);
+    }
+
+    .status-indicator-bar {
+      width: 4px;
+      height: 16px;
+      border-radius: 2px;
+    }
+
+    .rail-footer-stats {
+      margin-top: auto;
+      padding: 14px 16px;
+      background-color: var(--bg-subtle);
+      border-top: 1px solid var(--border-subtle);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .rail-footer-stats strong {
+      color: var(--text-main);
+      font-family: var(--font-mono);
+    }
+
+    /* ==========================================================================
+       4. CALENDAR WORKSPACE (MONTH GRID & LIST/AGENDA)
+       ========================================================================== */
+    .calendar-workspace {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background-color: var(--bg-base);
+    }
+
+    /* Month View Grid */
+    .month-view-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .weekday-header-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background-color: var(--border-color);
+      border: 1px solid var(--border-color);
+      border-bottom: none;
+      border-radius: var(--radius-md) var(--radius-md) 0 0;
+      overflow: hidden;
+    }
+
+    .weekday-header-cell {
+      background-color: var(--bg-surface);
+      padding: 10px 12px;
+      font-family: var(--font-display);
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-subtle);
+      text-align: right;
+    }
+
+    .month-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background-color: var(--border-color);
+      border: 1px solid var(--border-color);
+      border-radius: 0 0 var(--radius-md) var(--radius-md);
+      overflow: hidden;
+      flex: 1;
+      min-height: 600px;
+    }
+
+    .day-cell {
+      background-color: var(--bg-surface);
+      min-height: 105px;
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      transition: background-color 0.12s ease;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .day-cell:hover {
+      background-color: var(--bg-subtle);
+    }
+
+    .day-cell.other-month {
+      background-color: var(--bg-base);
+      opacity: 0.65;
+    }
+
+    .day-cell.today {
+      background-color: rgba(37, 99, 235, 0.04);
+    }
+
+    .day-cell.drag-over {
+      background-color: var(--bg-hover);
+      outline: 2px dashed var(--mod-resource);
+      outline-offset: -2px;
+    }
+
+    .day-cell-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .day-number {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+    }
+
+    .day-cell.today .day-number {
+      background-color: var(--mod-resource);
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .day-cell-add-btn {
+      opacity: 0;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      background-color: var(--bg-hover);
+      color: var(--text-main);
+      font-size: 0.85rem;
+      transition: opacity 0.15s ease;
+    }
+
+    .day-cell:hover .day-cell-add-btn {
+      opacity: 1;
+    }
+
+    .events-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow-y: auto;
+      flex: 1;
+      max-height: 110px;
+    }
+
+    /* Event Chip on Month Grid */
+    .event-chip {
+      padding: 4px 6px;
+      border-radius: var(--radius-sm);
+      font-size: 0.73rem;
+      line-height: 1.25;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: grab;
+      border-left: 3.5px solid transparent;
+      border-top: 1px solid transparent;
+      border-right: 1px solid transparent;
+      border-bottom: 1px solid transparent;
+      user-select: none;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.1s ease, box-shadow 0.1s ease;
+    }
+
+    .event-chip:active {
+      cursor: grabbing;
+    }
+
+    .event-chip:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .event-chip.dragging {
+      opacity: 0.4;
+    }
+
+    .event-chip-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .event-chip-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-main);
+    }
+
+    .event-chip-ref {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    /* List / Agenda View */
+    .list-view-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      max-width: 1000px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .agenda-day-group {
+      background-color: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .agenda-day-header {
+      padding: 10px 16px;
+      background-color: var(--bg-subtle);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.85rem;
+    }
+
+    .agenda-day-title {
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .agenda-day-badge {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      background-color: var(--bg-hover);
+      color: var(--text-muted);
+    }
+
+    .agenda-events-list {
+      display: flex;
+      flex-direction: column;
+      divide-y: 1px solid var(--border-subtle);
+    }
+
+    .agenda-event-row {
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      cursor: pointer;
+      border-left: 4px solid transparent;
+      transition: background-color 0.12s ease;
+    }
+    .agenda-event-row:hover {
+      background-color: var(--bg-subtle);
+    }
+
+    .agenda-event-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .agenda-mod-pill {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .agenda-event-title-wrap {
+      min-width: 0;
+    }
+
+    .agenda-event-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-main);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .agenda-event-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      margin-top: 2px;
+      display: flex;
+      gap: 12px;
+    }
+
+    .agenda-event-status-badge {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      flex-shrink: 0;
+    }
+
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--text-subtle);
+      font-size: 0.88rem;
+    }
+
+    /* ==========================================================================
+       5. SLIDE-IN RIGHT-SIDE DRAWER (ADD / EDIT EVENT)
+       ========================================================================== */
+    .drawer-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(2px);
+      z-index: 99;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    .drawer-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .event-drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 460px;
+      max-width: 100vw;
+      height: 100vh;
+      background-color: var(--bg-surface);
+      border-left: 1px solid var(--border-color);
+      box-shadow: var(--shadow-drawer);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+    }
+
+    .event-drawer.open {
+      transform: translateX(0);
+    }
+
+    .drawer-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background-color: var(--bg-surface);
+    }
+
+    .drawer-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .drawer-title {
+      font-family: var(--font-display);
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+
+    .drawer-close-btn {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+      font-size: 1.2rem;
+    }
+    .drawer-close-btn:hover {
+      background-color: var(--bg-subtle);
+      color: var(--text-main);
+    }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* Module Picker Grid */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-label {
+      font-size: 0.76rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-subtle);
+    }
+
+    .module-picker-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .module-choice-btn {
+      padding: 8px 10px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      text-align: left;
+      transition: all 0.15s ease;
+      background-color: var(--bg-subtle);
+      color: var(--text-muted);
+    }
+
+    .module-choice-btn.selected {
+      border-color: currentColor;
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* Status Pills */
+    .status-picker-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .status-pill-btn {
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1.5px solid var(--border-color);
+      background-color: var(--bg-subtle);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-pill-btn.selected {
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .form-control {
+      width: 100%;
+      height: 38px;
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0 12px;
+      font-size: 0.85rem;
+      outline: none;
+      transition: all 0.15s ease;
+    }
+    .form-control:focus {
+      background-color: var(--bg-surface);
+      border-color: var(--mod-resource);
+      box-shadow: 0 0 0 1px var(--mod-resource);
+    }
+
+    .form-control-mono {
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+    }
+
+    /* Dynamic Module-Specific Field Set Box */
+    .module-specific-box {
+      padding: 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-color);
+      background-color: var(--bg-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .module-box-header {
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* Linked ERP Record Simulation Panel */
+    .linked-erp-panel {
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background-color: rgba(37, 99, 235, 0.05);
+      border: 1px dashed var(--mod-resource);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .linked-erp-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--mod-resource);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .linked-erp-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      line-height: 1.35;
+    }
+
+    .linked-erp-ref {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    /* Drawer Footer */
+    .drawer-footer {
+      padding: 16px 20px;
+      border-top: 1px solid var(--border-color);
+      background-color: var(--bg-surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .drawer-footer-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-secondary {
+      height: 36px;
+      padding: 0 14px;
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+    .btn-secondary:hover {
+      background-color: var(--bg-hover);
+    }
+
+    .btn-danger {
+      height: 36px;
+      padding: 0 14px;
+      background-color: transparent;
+      border: 1px solid #fca5a5;
+      color: #dc2626;
+      border-radius: var(--radius-md);
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .btn-danger:hover {
+      background-color: #fee2e2;
+    }
+
+    /* ==========================================================================
+       6. NOTIFICATION TOASTS
+       ========================================================================== */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 1000;
+      pointer-events: none;
+    }
+
+    .toast {
+      pointer-events: auto;
+      min-width: 280px;
+      max-width: 400px;
+      padding: 12px 16px;
+      border-radius: var(--radius-md);
+      background-color: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      border-left: 4px solid var(--mod-resource);
+      box-shadow: var(--shadow-lg);
+      font-size: 0.82rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      animation: slideInToast 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    @keyframes slideInToast {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .toast.success { border-left-color: var(--stat-completed); }
+    .toast.reschedule { border-left-color: var(--mod-production); }
+    .toast.delete { border-left-color: var(--stat-delayed); }
+
+    .toast-content {
+      flex: 1;
+    }
+
+    .toast-title {
+      font-weight: 700;
+      font-size: 0.82rem;
+      margin-bottom: 2px;
+    }
+
+    .toast-msg {
+      font-size: 0.76rem;
+      color: var(--text-muted);
+      line-height: 1.3;
+    }
+
+    /* ==========================================================================
+       7. RESPONSIVE BREAKPOINTS (< 880px)
+       ========================================================================== */
+    @media (max-width: 880px) {
+      .menu-toggle-btn {
+        display: flex;
+      }
+
+      .left-rail {
+        position: fixed;
+        top: var(--topbar-height);
+        left: 0;
+        bottom: 0;
+        transform: translateX(-100%);
+        box-shadow: var(--shadow-lg);
+      }
+
+      .left-rail.open {
+        transform: translateX(0);
+      }
+
+      .search-wrapper {
+        width: 150px;
+      }
+
+      .brand-tag {
+        display: none;
+      }
+
+      .current-period-display {
+        min-width: 130px;
+        font-size: 1rem;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .top-bar {
+        padding: 0 10px;
+        gap: 8px;
+      }
+
+      .search-wrapper {
+        display: none;
+      }
+
+      .btn-primary span {
+        display: none;
+      }
+
+      .month-view-container {
+        padding: 8px;
+      }
+
+      .month-grid {
+        min-height: 480px;
+      }
+
+      .day-cell {
+        min-height: 75px;
+        padding: 4px;
+      }
+
+      .event-chip-ref {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ==========================================================================
+       TOP BAR
+       ========================================================================== -->
+  <header class="top-bar">
+    <div class="brand-section">
+      <button class="menu-toggle-btn" id="menuToggleBtn" aria-label="Toggle Navigation Rail">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+
+      <div class="brand-title">
+        <span>ERP Operations Console</span>
+        <span class="brand-tag">OPS-CAL</span>
+      </div>
+    </div>
+
+    <!-- Center Navigation -->
+    <div class="nav-controls">
+      <div class="date-nav-group">
+        <button class="nav-arrow-btn" id="prevPeriodBtn" title="Previous Month">‹</button>
+        <button class="today-btn" id="todayBtn">Today</button>
+        <button class="nav-arrow-btn" id="nextPeriodBtn" title="Next Month">›</button>
+      </div>
+
+      <div class="current-period-display" id="periodDisplay">September 2026</div>
+    </div>
+
+    <!-- Right Controls: View Switcher, Search & New Event -->
+    <div class="nav-controls">
+      <div class="view-toggle-group">
+        <button class="view-btn active" id="monthViewBtn">Month</button>
+        <button class="view-btn" id="listViewBtn">Agenda</button>
+      </div>
+
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" class="search-input" id="searchInput" placeholder="Search work orders, IDs..." />
+      </div>
+
+      <button class="btn-primary" id="newEventBtn">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        <span>New Event</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ==========================================================================
+       MAIN APP CONTAINER
+       ========================================================================== -->
+  <div class="app-container">
+
+    <!-- LEFT RAIL: MODULE FILTERS & STATUS STRIPE LEGEND -->
+    <aside class="left-rail" id="leftRail">
+      <div class="rail-section">
+        <div class="rail-section-header">
+          <span>ERP Modules</span>
+          <span style="font-size: 0.65rem; color: var(--text-subtle);">Multi-layer</span>
+        </div>
+
+        <div class="module-filter-list" id="moduleFilterList">
+          <!-- Dynamically Rendered Module Filters -->
+        </div>
+      </div>
+
+      <div class="rail-section">
+        <div class="rail-section-header">
+          <span>Status Stripe Legend</span>
+        </div>
+
+        <div class="status-legend-list">
+          <div class="status-legend-item">
+            <span class="status-indicator-bar" style="background-color: var(--stat-delayed);"></span>
+            <span>Delayed</span>
+          </div>
+          <div class="status-legend-item">
+            <span class="status-indicator-bar" style="background-color: var(--stat-completed);"></span>
+            <span>Completed</span>
+          </div>
+          <div class="status-legend-item">
+            <span class="status-indicator-bar" style="background-color: var(--stat-unassigned);"></span>
+            <span>Unassigned</span>
+          </div>
+          <div class="status-legend-item">
+            <span class="status-indicator-bar" style="background-color: var(--stat-inprogress);"></span>
+            <span>In Progress</span>
+          </div>
+          <div class="status-legend-item">
+            <span class="status-indicator-bar" style="background-color: var(--stat-scheduled);"></span>
+            <span>Scheduled</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Rail Footer Stats -->
+      <div class="rail-footer-stats">
+        <div>Active Filter Events: <strong id="activeEventCount">0</strong></div>
+        <div>Total Database Records: <strong id="totalEventCount">0</strong></div>
+        <div style="font-size: 0.68rem; color: var(--text-subtle); margin-top: 4px;">LocalStorage Synced • Drag to reschedule</div>
+      </div>
+    </aside>
+
+    <!-- CALENDAR WORKSPACE -->
+    <main class="calendar-workspace">
+      <!-- Month Grid Container -->
+      <div class="month-view-container" id="monthViewContainer">
+        <div class="weekday-header-grid">
+          <div class="weekday-header-cell">Sun</div>
+          <div class="weekday-header-cell">Mon</div>
+          <div class="weekday-header-cell">Tue</div>
+          <div class="weekday-header-cell">Wed</div>
+          <div class="weekday-header-cell">Thu</div>
+          <div class="weekday-header-cell">Fri</div>
+          <div class="weekday-header-cell">Sat</div>
+        </div>
+        <div class="month-grid" id="monthGrid">
+          <!-- Dynamically populated day cells -->
+        </div>
+      </div>
+
+      <!-- List / Agenda View Container -->
+      <div class="list-view-container" id="listViewContainer" style="display: none;">
+        <!-- Dynamically populated day groups -->
+      </div>
+    </main>
+
+  </div>
+
+  <!-- ==========================================================================
+       RIGHT-SIDE SLIDE-IN DRAWER (ADD / EDIT EVENT)
+       ========================================================================== -->
+  <div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+  <div class="event-drawer" id="eventDrawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+    <div class="drawer-header">
+      <div class="drawer-title-group">
+        <span class="module-dot" id="drawerModuleDot"></span>
+        <h2 class="drawer-title" id="drawerTitle">Create Operational Event</h2>
+      </div>
+      <button class="drawer-close-btn" id="drawerCloseBtn" aria-label="Close Drawer">✕</button>
+    </div>
+
+    <form class="drawer-body" id="eventForm">
+      <input type="hidden" id="eventIdInput" />
+
+      <!-- Module Selector -->
+      <div class="form-group">
+        <label class="form-label">ERP Source Module</label>
+        <div class="module-picker-grid" id="modulePickerGrid">
+          <!-- Dynamically Populated Module Options -->
+        </div>
+      </div>
+
+      <!-- Title & Date -->
+      <div class="form-group">
+        <label class="form-label" for="eventTitleInput">Event Title</label>
+        <input type="text" id="eventTitleInput" class="form-control" placeholder="e.g. CNC Line 1 Calibration" required />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="eventDateInput">Scheduled Date</label>
+        <input type="date" id="eventDateInput" class="form-control form-control-mono" required />
+      </div>
+
+      <!-- Status Picker -->
+      <div class="form-group">
+        <label class="form-label">Operational Status</label>
+        <div class="status-picker-pills" id="statusPickerPills">
+          <!-- Populated dynamically with status pill buttons -->
+        </div>
+      </div>
+
+      <!-- Module-Specific Fields (Dynamically Swapped) -->
+      <div class="form-group">
+        <label class="form-label">Module Relational Data</label>
+        <div class="module-specific-box" id="moduleSpecificFields">
+          <!-- Swapped dynamically on module change -->
+        </div>
+      </div>
+
+      <!-- Linked ERP Record Simulated Card (Shown when editing) -->
+      <div class="linked-erp-panel" id="linkedRecordPanel" style="display: none;">
+        <div class="linked-erp-title">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+          </svg>
+          <span>Linked ERP Master Record</span>
+        </div>
+        <div class="linked-erp-desc" id="linkedRecordDesc">
+          Direct sync with active manufacturing database. Downstream inventory and shift logs auto-update on save.
+        </div>
+      </div>
+    </form>
+
+    <div class="drawer-footer">
+      <button type="button" class="btn-danger" id="deleteEventBtn" style="display: none;">Delete</button>
+      <div class="drawer-footer-right" style="margin-left: auto;">
+        <button type="button" class="btn-secondary" id="cancelDrawerBtn">Cancel</button>
+        <button type="submit" form="eventForm" class="btn-primary" id="saveEventBtn">Save Record</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ==========================================================================
+       8. JAVASCRIPT APPLICATION CORE (VANILLA JS, NO BUILD STEP)
+       ========================================================================== */
+  -->
+  <script>
+    (function() {
+      'use strict';
+
+      /* ========================================================================
+         SECTION 1: MODULE & STATUS CONFIGURATION
+         ======================================================================== */
+      const MODULES = {
+        resource: {
+          id: 'resource',
+          name: 'Resource Scheduling',
+          color: '#2563eb',
+          bgColor: 'var(--mod-resource-bg)',
+          borderColor: 'var(--mod-resource-border)',
+          fields: [
+            { key: 'resourceId', label: 'Resource ID', type: 'text', placeholder: 'e.g. MCH-014 / EMP-2210', mono: true, required: true },
+            { key: 'resourceType', label: 'Resource Type', type: 'select', options: ['Human', 'Machine'], required: true },
+            { key: 'capacityLimit', label: 'Capacity Limit', type: 'text', placeholder: 'e.g. 8 units / 40 hrs', required: true },
+            { key: 'workingHours', label: 'Working Hours', type: 'text', placeholder: 'e.g. 06:00–14:00', required: true },
+            { key: 'shiftException', label: 'Shift Exception', type: 'text', placeholder: 'e.g. Overtime approved (+2.5h)', required: false }
+          ]
+        },
+        production: {
+          id: 'production',
+          name: 'Production Plan',
+          color: '#d97706',
+          bgColor: 'var(--mod-production-bg)',
+          borderColor: 'var(--mod-production-border)',
+          fields: [
+            { key: 'workOrderNo', label: 'Work Order #', type: 'text', placeholder: 'e.g. WO-88231', mono: true, required: true },
+            { key: 'routingStage', label: 'Routing Stage', type: 'select', options: ['Cutting', 'Machining', 'Assembly', 'Quality Check', 'Packing', 'Dispatch'], required: true },
+            { key: 'setupTimeMinutes', label: 'Setup Time (minutes)', type: 'number', placeholder: '45', required: true },
+            { key: 'runTimeMinutes', label: 'Run Time (minutes)', type: 'number', placeholder: '180', required: true },
+            { key: 'downtimeBlock', label: 'Down-Time Block', type: 'text', placeholder: 'Reason or "none"', required: false }
+          ]
+        },
+        project: {
+          id: 'project',
+          name: 'Project Management',
+          color: '#7c3aed',
+          bgColor: 'var(--mod-project-bg)',
+          borderColor: 'var(--mod-project-border)',
+          fields: [
+            { key: 'taskName', label: 'Task Name', type: 'text', placeholder: 'e.g. Line 2 Safety Certification', required: true },
+            { key: 'taskDependency', label: 'Task Dependency', type: 'text', placeholder: 'e.g. Depends on WO-88231 completion', required: false },
+            { key: 'milestone', label: 'Milestone', type: 'select', options: ['No', 'Yes'], required: true },
+            { key: 'assignedTeam', label: 'Assigned Team / Resource', type: 'text', placeholder: 'e.g. Engineering QA Squad', required: true }
+          ]
+        },
+        supply: {
+          id: 'supply',
+          name: 'Supply Chain / Logistics',
+          color: '#059669',
+          bgColor: 'var(--mod-supply-bg)',
+          borderColor: 'var(--mod-supply-border)',
+          fields: [
+            { key: 'referenceNo', label: 'PO / SO Reference', type: 'text', placeholder: 'e.g. PO-44092 / SO-11823', mono: true, required: true },
+            { key: 'movementType', label: 'Movement Type', type: 'select', options: ['PO ETA (Inbound)', 'SO Shipping Window', 'Carrier Pickup', 'Dock Allocation'], required: true },
+            { key: 'carrier', label: 'Carrier', type: 'text', placeholder: 'e.g. APL Logistics / BlueDart', required: true },
+            { key: 'dockLocation', label: 'Dock / Location', type: 'text', placeholder: 'e.g. Bay-04 / North Yard', required: true }
+          ]
+        }
+      };
+
+      const STATUSES = {
+        Scheduled: { label: 'Scheduled', color: 'var(--stat-scheduled)', dot: '#64748b' },
+        'In Progress': { label: 'In Progress', color: 'var(--stat-inprogress)', dot: '#2563eb' },
+        Unassigned: { label: 'Unassigned', color: 'var(--stat-unassigned)', dot: '#d97706' },
+        Delayed: { label: 'Delayed', color: 'var(--stat-delayed)', dot: '#dc2626' },
+        Completed: { label: 'Completed', color: 'var(--stat-completed)', dot: '#16a34a' }
+      };
+
+      /* ========================================================================
+         SECTION 2: STATE MANAGEMENT
+         ======================================================================== */
+      const STORAGE_KEY = 'ERP_OPERATIONS_CONSOLE_EVENTS_V1';
+
+      const state = {
+        currentDate: new Date(), // Viewed month
+        activeView: 'month',     // 'month' or 'list'
+        activeModules: {
+          resource: true,
+          production: true,
+          project: true,
+          supply: true
+        },
+        searchQuery: '',
+        events: [],
+        editingEventId: null,
+        drawerSelectedModule: 'resource',
+        drawerSelectedStatus: 'Scheduled'
+      };
+
+      /* Utility: zero-padded date helper */
+      function formatISODate(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+      }
+
+      function escapeHTML(str) {
+        if (!str && str !== 0) return '';
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      /* ========================================================================
+         SECTION 3: SEED DATA GENERATOR
+         ======================================================================== */
+      function generateSeedEvents() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = now.getMonth();
+
+        const makeDate = (dayOffset) => {
+          const d = new Date(y, m, now.getDate() + dayOffset);
+          return formatISODate(d);
+        };
+
+        return [
+          {
+            id: 'evt-1',
+            module: 'resource',
+            title: 'CNC Mill A Annual Safety Recertification',
+            date: makeDate(-2),
+            status: 'Completed',
+            resourceId: 'MCH-014',
+            resourceType: 'Machine',
+            capacityLimit: '8 units / 40 hrs',
+            workingHours: '08:00–16:00',
+            shiftException: 'Maintenance shift override'
+          },
+          {
+            id: 'evt-2',
+            module: 'production',
+            title: 'High-Precision Flange Cutting & Trimming',
+            date: makeDate(-1),
+            status: 'Delayed',
+            workOrderNo: 'WO-88210',
+            routingStage: 'Cutting',
+            setupTimeMinutes: 30,
+            runTimeMinutes: 150,
+            downtimeBlock: 'Blade overhaul (45m)'
+          },
+          {
+            id: 'evt-3',
+            module: 'production',
+            title: 'Gearbox Housing Batch Machining Line 2',
+            date: makeDate(0),
+            status: 'In Progress',
+            workOrderNo: 'WO-88231',
+            routingStage: 'Machining',
+            setupTimeMinutes: 45,
+            runTimeMinutes: 240,
+            downtimeBlock: 'none'
+          },
+          {
+            id: 'evt-4',
+            module: 'resource',
+            title: 'Night Shift Robotic Welding Cells Roster',
+            date: makeDate(0),
+            status: 'In Progress',
+            resourceId: 'EMP-2210',
+            resourceType: 'Human',
+            capacityLimit: '12 operators',
+            workingHours: '22:00–06:00',
+            shiftException: 'Overtime approved (+2.5h)'
+          },
+          {
+            id: 'evt-5',
+            module: 'project',
+            title: 'Line 3 Robotic Interlock Commissioning',
+            date: makeDate(2),
+            status: 'In Progress',
+            taskName: 'PLC safety gateway validation',
+            taskDependency: 'Depends on WO-88231 completion',
+            milestone: 'Yes',
+            assignedTeam: 'Automation & EHS Squad'
+          },
+          {
+            id: 'evt-6',
+            module: 'supply',
+            title: 'Raw Alloy Plate Delivery (Bay 04)',
+            date: makeDate(3),
+            status: 'Scheduled',
+            referenceNo: 'PO-44092',
+            movementType: 'PO ETA (Inbound)',
+            carrier: 'APL Logistics Heavy Freight',
+            dockLocation: 'Dock Bay-04 / North Yard'
+          },
+          {
+            id: 'evt-7',
+            module: 'production',
+            title: 'Hydraulic Pump Final Assembly & Leak Test',
+            date: makeDate(4),
+            status: 'Scheduled',
+            workOrderNo: 'WO-88245',
+            routingStage: 'Assembly',
+            setupTimeMinutes: 20,
+            runTimeMinutes: 180,
+            downtimeBlock: 'none'
+          },
+          {
+            id: 'evt-8',
+            module: 'project',
+            title: 'ISO-9001 Line Audit Evidence Package',
+            date: makeDate(7),
+            status: 'Unassigned',
+            taskName: 'Compile batch QA inspection forms',
+            taskDependency: 'Depends on WO-88245 completion',
+            milestone: 'Yes',
+            assignedTeam: 'Unassigned / QA Lead'
+          },
+          {
+            id: 'evt-9',
+            module: 'supply',
+            title: 'Export Container Dispatch - Order SO-11823',
+            date: makeDate(9),
+            status: 'Scheduled',
+            referenceNo: 'SO-11823',
+            movementType: 'Carrier Pickup',
+            carrier: 'Maersk Line Intermodal',
+            dockLocation: 'Outbound Dock 2'
+          },
+          {
+            id: 'evt-10',
+            module: 'resource',
+            title: 'Die-Casting Maintenance Standby',
+            date: makeDate(12),
+            status: 'Scheduled',
+            resourceId: 'MCH-089',
+            resourceType: 'Machine',
+            capacityLimit: '12 units / 48 hrs',
+            workingHours: '06:00–14:00',
+            shiftException: 'Standard Shift'
+          }
+        ];
+      }
+
+      /* Persistence Wrappers */
+      function loadEventsFromStorage() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return parsed;
+            }
+          }
+        } catch (e) {
+          console.warn('LocalStorage read error, seeding defaults:', e);
+        }
+        const seeds = generateSeedEvents();
+        saveEventsToStorage(seeds);
+        return seeds;
+      }
+
+      function saveEventsToStorage(events) {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(events));
+        } catch (e) {
+          console.error('LocalStorage write error:', e);
+          showToast('Storage Error', 'Could not persist calendar records to localStorage.', 'delete');
+        }
+      }
+
+      /* ========================================================================
+         SECTION 4: FILTERING & SEARCH
+         ======================================================================== */
+      function getFilteredEvents() {
+        const query = state.searchQuery.trim().toLowerCase();
+
+        return state.events.filter(ev => {
+          // Module filter
+          if (!state.activeModules[ev.module]) return false;
+
+          // Search filter across title and all fields
+          if (query) {
+            const matchesTitle = (ev.title || '').toLowerCase().includes(query);
+            const matchesStatus = (ev.status || '').toLowerCase().includes(query);
+            const matchesFields = Object.keys(ev).some(key => {
+              if (key === 'id' || key === 'module') return false;
+              return String(ev[key] || '').toLowerCase().includes(query);
+            });
+            if (!matchesTitle && !matchesStatus && !matchesFields) return false;
+          }
+
+          return true;
+        });
+      }
+
+      /* ========================================================================
+         SECTION 5: RAIL RENDERING (MODULE CHECKBOXES & COUNTS)
+         ======================================================================== */
+      function renderRail() {
+        const list = document.getElementById('moduleFilterList');
+        list.innerHTML = '';
+
+        Object.values(MODULES).forEach(mod => {
+          const isActive = !!state.activeModules[mod.id];
+          const count = state.events.filter(e => e.module === mod.id).length;
+
+          const item = document.createElement('div');
+          item.className = `module-filter-item ${isActive ? 'active' : ''}`;
+          item.setAttribute('data-module', mod.id);
+
+          item.innerHTML = `
+            <div class="module-info-left">
+              <span class="module-dot" style="background-color: ${mod.color};"></span>
+              <span class="module-name">${escapeHTML(mod.name)}</span>
+            </div>
+            <div class="module-meta-right">
+              <span class="module-count">${count}</span>
+              <input type="checkbox" class="custom-checkbox" ${isActive ? 'checked' : ''} />
+            </div>
+          `;
+
+          // Clicking toggle
+          item.addEventListener('click', (e) => {
+            const chk = item.querySelector('.custom-checkbox');
+            if (e.target !== chk) {
+              chk.checked = !chk.checked;
+            }
+            state.activeModules[mod.id] = chk.checked;
+            item.classList.toggle('active', chk.checked);
+            renderCalendarViews();
+            updateFooterCounts();
+          });
+
+          list.appendChild(item);
+        });
+
+        updateFooterCounts();
+      }
+
+      function updateFooterCounts() {
+        const filtered = getFilteredEvents();
+        document.getElementById('activeEventCount').textContent = filtered.length;
+        document.getElementById('totalEventCount').textContent = state.events.length;
+      }
+
+      /* ========================================================================
+         SECTION 6: MONTH GRID VIEW RENDERING
+         ======================================================================== */
+      function renderMonthView() {
+        const grid = document.getElementById('monthGrid');
+        grid.innerHTML = '';
+
+        const year = state.currentDate.getFullYear();
+        const month = state.currentDate.getMonth();
+
+        // Month Boundaries
+        const firstDayOfMonth = new Date(year, month, 1).getDay();
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const daysInPrevMonth = new Date(year, month, 0).getDate();
+
+        const todayISO = formatISODate(new Date());
+        const filteredEvents = getFilteredEvents();
+
+        // Index events by date for O(1) lookup
+        const eventsByDate = {};
+        filteredEvents.forEach(ev => {
+          if (!eventsByDate[ev.date]) eventsByDate[ev.date] = [];
+          eventsByDate[ev.date].push(ev);
+        });
+
+        // 42 cells total (6 weeks x 7 days)
+        const totalCells = 42;
+        let dayCounter = 1;
+        let nextMonthCounter = 1;
+
+        for (let i = 0; i < totalCells; i++) {
+          const cell = document.createElement('div');
+          cell.className = 'day-cell';
+
+          let cellDateStr = '';
+          let isCurrentMonth = true;
+
+          if (i < firstDayOfMonth) {
+            // Previous month tail days
+            const prevD = daysInPrevMonth - (firstDayOfMonth - i - 1);
+            cell.classList.add('other-month');
+            const d = new Date(year, month - 1, prevD);
+            cellDateStr = formatISODate(d);
+            isCurrentMonth = false;
+          } else if (dayCounter <= daysInMonth) {
+            // Current month days
+            const d = new Date(year, month, dayCounter);
+            cellDateStr = formatISODate(d);
+            if (cellDateStr === todayISO) {
+              cell.classList.add('today');
+            }
+            dayCounter++;
+          } else {
+            // Next month days
+            const d = new Date(year, month + 1, nextMonthCounter);
+            cellDateStr = formatISODate(d);
+            cell.classList.add('other-month');
+            nextMonthCounter++;
+            isCurrentMonth = false;
+          }
+
+          cell.setAttribute('data-date', cellDateStr);
+
+          // Top Header of Cell
+          const cellTop = document.createElement('div');
+          cellTop.className = 'day-cell-top';
+          cellTop.innerHTML = `
+            <span class="day-number">${new Date(cellDateStr + 'T00:00:00').getDate()}</span>
+            <button class="day-cell-add-btn" title="Add event on this date">+</button>
+          `;
+
+          // Quick add on +
+          cellTop.querySelector('.day-cell-add-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            openDrawer(null, cellDateStr);
+          });
+
+          // Clicking cell opens drawer
+          cell.addEventListener('click', () => {
+            openDrawer(null, cellDateStr);
+          });
+
+          // Drag & drop dropzone listeners
+          setupDropZone(cell, cellDateStr);
+
+          // Events stack
+          const stack = document.createElement('div');
+          stack.className = 'events-stack';
+
+          const dayEvents = eventsByDate[cellDateStr] || [];
+          dayEvents.forEach(ev => {
+            const chip = createEventChip(ev);
+            stack.appendChild(chip);
+          });
+
+          cell.appendChild(cellTop);
+          cell.appendChild(stack);
+          grid.appendChild(cell);
+        }
+      }
+
+      function createEventChip(ev) {
+        const mod = MODULES[ev.module] || MODULES.resource;
+        const stat = STATUSES[ev.status] || STATUSES.Scheduled;
+
+        const chip = document.createElement('div');
+        chip.className = 'event-chip';
+        chip.draggable = true;
+        chip.setAttribute('data-event-id', ev.id);
+
+        // Layered Styling: Module tint background + Status stripe border
+        chip.style.backgroundColor = mod.bgColor;
+        chip.style.borderColor = mod.borderColor;
+        chip.style.borderLeftColor = stat.color;
+
+        // Specific relational identifier summary badge
+        let refText = '';
+        if (ev.module === 'resource' && ev.resourceId) refText = ev.resourceId;
+        else if (ev.module === 'production' && ev.workOrderNo) refText = ev.workOrderNo;
+        else if (ev.module === 'project' && ev.milestone === 'Yes') refText = '★ M-Stone';
+        else if (ev.module === 'supply' && ev.referenceNo) refText = ev.referenceNo;
+
+        chip.innerHTML = `
+          <span class="event-chip-dot" style="background-color: ${mod.color};"></span>
+          <span class="event-chip-title" title="${escapeHTML(ev.title)}">${escapeHTML(ev.title)}</span>
+          ${refText ? `<span class="event-chip-ref">${escapeHTML(refText)}</span>` : ''}
+        `;
+
+        // Click to view/edit
+        chip.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openDrawer(ev.id);
+        });
+
+        // Drag handlers
+        chip.addEventListener('dragstart', (e) => {
+          chip.classList.add('dragging');
+          e.dataTransfer.setData('text/plain', ev.id);
+          e.dataTransfer.effectAllowed = 'move';
+        });
+
+        chip.addEventListener('dragend', () => {
+          chip.classList.remove('dragging');
+        });
+
+        return chip;
+      }
+
+      /* Drag and Drop Zone setup */
+      function setupDropZone(cell, targetDate) {
+        cell.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          cell.classList.add('drag-over');
+        });
+
+        cell.addEventListener('dragleave', (e) => {
+          if (!cell.contains(e.relatedTarget)) {
+            cell.classList.remove('drag-over');
+          }
+        });
+
+        cell.addEventListener('drop', (e) => {
+          e.preventDefault();
+          cell.classList.remove('drag-over');
+          const eventId = e.dataTransfer.getData('text/plain');
+          if (!eventId) return;
+
+          const targetEvent = state.events.find(ev => ev.id === eventId);
+          if (!targetEvent) return;
+
+          if (targetEvent.date !== targetDate) {
+            const oldDate = targetEvent.date;
+            targetEvent.date = targetDate;
+            saveEventsToStorage(state.events);
+            renderCalendarViews();
+            updateFooterCounts();
+
+            // Downstream confirmation toast simulation
+            showToast(
+              'Schedule Rescheduled & Recalculated',
+              `"${targetEvent.title}" moved to ${targetDate}. Downstream ERP routing & capacity buffers synced.`,
+              'reschedule'
+            );
+          }
+        });
+      }
+
+      /* ========================================================================
+         SECTION 7: AGENDA / LIST VIEW RENDERING
+         ======================================================================== */
+      function renderListView() {
+        const container = document.getElementById('listViewContainer');
+        container.innerHTML = '';
+
+        const filteredEvents = getFilteredEvents();
+
+        if (filteredEvents.length === 0) {
+          container.innerHTML = `
+            <div class="empty-state">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin: 0 auto 12px; color: var(--text-subtle);">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+              <div style="font-weight: 700; margin-bottom: 4px;">No Operational Events Found</div>
+              <div>Try enabling more ERP modules or clearing your search term.</div>
+            </div>
+          `;
+          return;
+        }
+
+        // Group by Date in ascending order
+        const grouped = {};
+        filteredEvents.forEach(ev => {
+          if (!grouped[ev.date]) grouped[ev.date] = [];
+          grouped[ev.date].push(ev);
+        });
+
+        const sortedDates = Object.keys(grouped).sort();
+
+        sortedDates.forEach(dateStr => {
+          const dateObj = new Date(dateStr + 'T00:00:00');
+          const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' });
+          const formattedDate = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+          const groupEl = document.createElement('div');
+          groupEl.className = 'agenda-day-group';
+
+          groupEl.innerHTML = `
+            <div class="agenda-day-header">
+              <div class="agenda-day-title">
+                <span>${escapeHTML(dayName)}</span>
+                <span style="color: var(--text-muted); font-weight: 500;">${escapeHTML(formattedDate)}</span>
+              </div>
+              <span class="agenda-day-badge">${grouped[dateStr].length} event${grouped[dateStr].length > 1 ? 's' : ''}</span>
+            </div>
+            <div class="agenda-events-list"></div>
+          `;
+
+          const listEl = groupEl.querySelector('.agenda-events-list');
+
+          grouped[dateStr].forEach(ev => {
+            const mod = MODULES[ev.module] || MODULES.resource;
+            const stat = STATUSES[ev.status] || STATUSES.Scheduled;
+
+            const row = document.createElement('div');
+            row.className = 'agenda-event-row';
+            row.style.borderLeftColor = stat.color;
+
+            // Relational details subtitle
+            let details = '';
+            if (ev.module === 'resource') {
+              details = `ID: ${ev.resourceId || 'N/A'} • Type: ${ev.resourceType || 'Human'} • Hours: ${ev.workingHours || 'Standard'}`;
+            } else if (ev.module === 'production') {
+              details = `WO: ${ev.workOrderNo || 'N/A'} • Stage: ${ev.routingStage || 'General'} • Setup: ${ev.setupTimeMinutes || 0}m / Run: ${ev.runTimeMinutes || 0}m`;
+            } else if (ev.module === 'project') {
+              details = `Task: ${ev.taskName || 'Deliverable'} • Milestone: ${ev.milestone || 'No'} • Team: ${ev.assignedTeam || 'General'}`;
+            } else if (ev.module === 'supply') {
+              details = `Ref: ${ev.referenceNo || 'PO/SO'} • Move: ${ev.movementType || 'Logistics'} • Dock: ${ev.dockLocation || 'Standard'}`;
+            }
+
+            row.innerHTML = `
+              <div class="agenda-event-main">
+                <span class="agenda-mod-pill" style="background-color: ${mod.bgColor}; color: ${mod.color}; border: 1px solid ${mod.borderColor};">
+                  <span class="module-dot" style="background-color: ${mod.color}; width: 6px; height: 6px;"></span>
+                  <span>${escapeHTML(mod.name)}</span>
+                </span>
+                <div class="agenda-event-title-wrap">
+                  <div class="agenda-event-title">${escapeHTML(ev.title)}</div>
+                  <div class="agenda-event-sub">${escapeHTML(details)}</div>
+                </div>
+              </div>
+              <div class="agenda-event-status-badge" style="border-left: 3px solid ${stat.color};">
+                ${escapeHTML(ev.status)}
+              </div>
+            `;
+
+            row.addEventListener('click', () => {
+              openDrawer(ev.id);
+            });
+
+            listEl.appendChild(row);
+          });
+
+          container.appendChild(groupEl);
+        });
+      }
+
+      function renderCalendarViews() {
+        // Period Title update
+        const periodFmt = state.currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        document.getElementById('periodDisplay').textContent = periodFmt;
+
+        if (state.activeView === 'month') {
+          document.getElementById('monthViewContainer').style.display = 'flex';
+          document.getElementById('listViewContainer').style.display = 'none';
+          renderMonthView();
+        } else {
+          document.getElementById('monthViewContainer').style.display = 'none';
+          document.getElementById('listViewContainer').style.display = 'flex';
+          renderListView();
+        }
+      }
+
+      /* ========================================================================
+         SECTION 8: RIGHT-SIDE SLIDE-IN DRAWER & RELATIONAL FIELD SWAPPING
+         ======================================================================== */
+      function openDrawer(eventId = null, presetDate = null) {
+        state.editingEventId = eventId;
+        const drawer = document.getElementById('eventDrawer');
+        const backdrop = document.getElementById('drawerBackdrop');
+        const deleteBtn = document.getElementById('deleteEventBtn');
+        const linkedPanel = document.getElementById('linkedRecordPanel');
+        const titleEl = document.getElementById('drawerTitle');
+
+        let targetEvent = null;
+        if (eventId) {
+          targetEvent = state.events.find(e => e.id === eventId);
+        }
+
+        if (targetEvent) {
+          titleEl.textContent = 'Edit Operational Record';
+          deleteBtn.style.display = 'block';
+          linkedPanel.style.display = 'flex';
+          state.drawerSelectedModule = targetEvent.module;
+          state.drawerSelectedStatus = targetEvent.status;
+
+          document.getElementById('eventIdInput').value = targetEvent.id;
+          document.getElementById('eventTitleInput').value = targetEvent.title || '';
+          document.getElementById('eventDateInput').value = targetEvent.date || '';
+
+          // Update linked ERP simulation description
+          const mod = MODULES[targetEvent.module];
+          let ref = targetEvent.workOrderNo || targetEvent.resourceId || targetEvent.referenceNo || targetEvent.taskName || targetEvent.id;
+          document.getElementById('linkedRecordDesc').innerHTML = `
+            Master Record: <span class="linked-erp-ref">${escapeHTML(ref)}</span><br>
+            Linked to ERP Module <strong>${escapeHTML(mod.name)}</strong>. Any changes trigger linked resource scheduling recalculated events.
+          `;
+        } else {
+          titleEl.textContent = 'New Operational Event';
+          deleteBtn.style.display = 'none';
+          linkedPanel.style.display = 'none';
+          state.drawerSelectedModule = 'resource';
+          state.drawerSelectedStatus = 'Scheduled';
+
+          document.getElementById('eventIdInput').value = '';
+          document.getElementById('eventTitleInput').value = '';
+          document.getElementById('eventDateInput').value = presetDate || formatISODate(new Date());
+        }
+
+        // Render Module Picker Options
+        renderDrawerModulePicker();
+        // Render Status Pills
+        renderDrawerStatusPills();
+        // Swap module-specific inputs
+        renderModuleSpecificFields(targetEvent);
+
+        drawer.classList.add('open');
+        backdrop.classList.add('open');
+        document.getElementById('eventTitleInput').focus();
+      }
+
+      function closeDrawer() {
+        const drawer = document.getElementById('eventDrawer');
+        const backdrop = document.getElementById('drawerBackdrop');
+        drawer.classList.remove('open');
+        backdrop.classList.remove('open');
+        state.editingEventId = null;
+      }
+
+      function renderDrawerModulePicker() {
+        const grid = document.getElementById('modulePickerGrid');
+        grid.innerHTML = '';
+
+        const currentMod = MODULES[state.drawerSelectedModule];
+        document.getElementById('drawerModuleDot').style.backgroundColor = currentMod.color;
+
+        Object.values(MODULES).forEach(mod => {
+          const isSelected = mod.id === state.drawerSelectedModule;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `module-choice-btn ${isSelected ? 'selected' : ''}`;
+          if (isSelected) {
+            btn.style.borderColor = mod.color;
+            btn.style.color = mod.color;
+          }
+
+          btn.innerHTML = `
+            <span class="module-dot" style="background-color: ${mod.color};"></span>
+            <span>${escapeHTML(mod.name)}</span>
+          `;
+
+          btn.addEventListener('click', () => {
+            state.drawerSelectedModule = mod.id;
+            renderDrawerModulePicker();
+            renderModuleSpecificFields();
+          });
+
+          grid.appendChild(btn);
+        });
+      }
+
+      function renderDrawerStatusPills() {
+        const container = document.getElementById('statusPickerPills');
+        container.innerHTML = '';
+
+        Object.keys(STATUSES).forEach(statusKey => {
+          const stat = STATUSES[statusKey];
+          const isSelected = statusKey === state.drawerSelectedStatus;
+
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `status-pill-btn ${isSelected ? 'selected' : ''}`;
+          if (isSelected) {
+            btn.style.borderColor = stat.dot;
+            btn.style.boxShadow = `0 0 0 1px ${stat.dot}`;
+          }
+
+          btn.innerHTML = `
+            <span class="module-dot" style="background-color: ${stat.dot}; width: 6px; height: 6px;"></span>
+            <span>${escapeHTML(stat.label)}</span>
+          `;
+
+          btn.addEventListener('click', () => {
+            state.drawerSelectedStatus = statusKey;
+            renderDrawerStatusPills();
+          });
+
+          container.appendChild(btn);
+        });
+      }
+
+      function renderModuleSpecificFields(existingEventData = null) {
+        const container = document.getElementById('moduleSpecificFields');
+        container.innerHTML = '';
+
+        const mod = MODULES[state.drawerSelectedModule];
+
+        const header = document.createElement('div');
+        header.className = 'module-box-header';
+        header.style.color = mod.color;
+        header.innerHTML = `
+          <span class="module-dot" style="background-color: ${mod.color};"></span>
+          <span>${escapeHTML(mod.name)} Specifications</span>
+        `;
+        container.appendChild(header);
+
+        mod.fields.forEach(f => {
+          const group = document.createElement('div');
+          group.className = 'form-group';
+
+          const label = document.createElement('label');
+          label.className = 'form-label';
+          label.textContent = f.label + (f.required ? ' *' : '');
+          group.appendChild(label);
+
+          const existingVal = existingEventData ? existingEventData[f.key] : '';
+
+          if (f.type === 'select') {
+            const select = document.createElement('select');
+            select.className = 'form-control';
+            select.name = f.key;
+            if (f.required) select.required = true;
+
+            f.options.forEach(opt => {
+              const option = document.createElement('option');
+              option.value = opt;
+              option.textContent = opt;
+              if (existingVal === opt) option.selected = true;
+              select.appendChild(option);
+            });
+            group.appendChild(select);
+          } else {
+            const input = document.createElement('input');
+            input.type = f.type || 'text';
+            input.className = `form-control ${f.mono ? 'form-control-mono' : ''}`;
+            input.name = f.key;
+            input.placeholder = f.placeholder || '';
+            if (f.required) input.required = true;
+            if (existingVal !== undefined && existingVal !== null) {
+              input.value = existingVal;
+            }
+            group.appendChild(input);
+          }
+
+          container.appendChild(group);
+        });
+      }
+
+      function handleSaveEvent(e) {
+        e.preventDefault();
+
+        const form = document.getElementById('eventForm');
+        if (!form.checkValidity()) {
+          form.reportValidity();
+          return;
+        }
+
+        const id = document.getElementById('eventIdInput').value;
+        const title = document.getElementById('eventTitleInput').value.trim();
+        const date = document.getElementById('eventDateInput').value;
+
+        if (!title || !date) return;
+
+        const eventObj = {
+          id: id || 'evt-' + Date.now(),
+          module: state.drawerSelectedModule,
+          title: title,
+          date: date,
+          status: state.drawerSelectedStatus
+        };
+
+        // Extract module specific fields
+        const mod = MODULES[state.drawerSelectedModule];
+        mod.fields.forEach(f => {
+          const el = form.querySelector(`[name="${f.key}"]`);
+          if (el) {
+            eventObj[f.key] = f.type === 'number' ? Number(el.value) : el.value.trim();
+          }
+        });
+
+        if (id) {
+          // Edit
+          const idx = state.events.findIndex(e => e.id === id);
+          if (idx !== -1) {
+            state.events[idx] = eventObj;
+          }
+          showToast('Record Updated', `Successfully updated "${eventObj.title}". Downstream MRP buffers refreshed.`, 'success');
+        } else {
+          // Add
+          state.events.push(eventObj);
+          showToast('Record Created', `Scheduled "${eventObj.title}" in ${mod.name}.`, 'success');
+        }
+
+        saveEventsToStorage(state.events);
+        closeDrawer();
+        renderRail();
+        renderCalendarViews();
+      }
+
+      function handleDeleteEvent() {
+        if (!state.editingEventId) return;
+        const target = state.events.find(e => e.id === state.editingEventId);
+        const name = target ? target.title : 'Record';
+
+        if (confirm(`Are you sure you want to remove the operational event "${name}"?`)) {
+          state.events = state.events.filter(e => e.id !== state.editingEventId);
+          saveEventsToStorage(state.events);
+          closeDrawer();
+          renderRail();
+          renderCalendarViews();
+          showToast('Record Deleted', `"${name}" removed from scheduling console.`, 'delete');
+        }
+      }
+
+      /* ========================================================================
+         SECTION 9: TOAST NOTIFICATIONS HELPER
+         ======================================================================== */
+      function showToast(title, message, type = 'success') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+
+        toast.innerHTML = `
+          <div class="toast-content">
+            <div class="toast-title">${escapeHTML(title)}</div>
+            <div class="toast-msg">${escapeHTML(message)}</div>
+          </div>
+        `;
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateX(20px)';
+          setTimeout(() => toast.remove(), 250);
+        }, 3500);
+      }
+
+      /* ========================================================================
+         SECTION 10: EVENT LISTENERS & INITIALIZATION
+         ======================================================================== */
+      function initEventListeners() {
+        // Period Navigation
+        document.getElementById('prevPeriodBtn').addEventListener('click', () => {
+          state.currentDate.setMonth(state.currentDate.getMonth() - 1);
+          renderCalendarViews();
+        });
+
+        document.getElementById('nextPeriodBtn').addEventListener('click', () => {
+          state.currentDate.setMonth(state.currentDate.getMonth() + 1);
+          renderCalendarViews();
+        });
+
+        document.getElementById('todayBtn').addEventListener('click', () => {
+          state.currentDate = new Date();
+          renderCalendarViews();
+        });
+
+        // View Mode Toggles
+        document.getElementById('monthViewBtn').addEventListener('click', () => {
+          state.activeView = 'month';
+          document.getElementById('monthViewBtn').classList.add('active');
+          document.getElementById('listViewBtn').classList.remove('active');
+          renderCalendarViews();
+        });
+
+        document.getElementById('listViewBtn').addEventListener('click', () => {
+          state.activeView = 'list';
+          document.getElementById('listViewBtn').classList.add('active');
+          document.getElementById('monthViewBtn').classList.remove('active');
+          renderCalendarViews();
+        });
+
+        // Search Input
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+          state.searchQuery = e.target.value;
+          renderCalendarViews();
+          updateFooterCounts();
+        });
+
+        // New Event Button
+        document.getElementById('newEventBtn').addEventListener('click', () => {
+          openDrawer(null, formatISODate(new Date()));
+        });
+
+        // Drawer Close & Backdrop
+        document.getElementById('drawerCloseBtn').addEventListener('click', closeDrawer);
+        document.getElementById('cancelDrawerBtn').addEventListener('click', closeDrawer);
+        document.getElementById('drawerBackdrop').addEventListener('click', closeDrawer);
+
+        // Escape Key for Drawer
+        window.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape') {
+            closeDrawer();
+            const rail = document.getElementById('leftRail');
+            if (rail.classList.contains('open')) rail.classList.remove('open');
+          }
+        });
+
+        // Form Submit & Delete
+        document.getElementById('eventForm').addEventListener('submit', handleSaveEvent);
+        document.getElementById('deleteEventBtn').addEventListener('click', handleDeleteEvent);
+
+        // Mobile Rail Toggle
+        document.getElementById('menuToggleBtn').addEventListener('click', () => {
+          document.getElementById('leftRail').classList.toggle('open');
+        });
+      }
+
+      function initApp() {
+        state.events = loadEventsFromStorage();
+        renderRail();
+        renderCalendarViews();
+        initEventListeners();
+      }
+
+      // Start application when DOM is ready
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initApp);
+      } else {
+        initApp();
+      }
+    })();
+  </script>
+</body>
+</html>

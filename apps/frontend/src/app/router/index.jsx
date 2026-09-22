@@ -103,7 +103,17 @@ const OrderListPage = lazy(() => import('@/modules/production/pages/OrderListPag
 const OrderStatusPage = lazy(() => import('@/modules/production/pages/OrderStatusPage'));
 
 // Forecasting Module Pages
-const PredictiveForecastingHubPage = lazy(() => import('@/modules/production/pages/PredictiveForecastingHubPage'));
+const StockForecastingPage = lazy(() => import('@/modules/forecasting/pages/StockForecastingPage'));
+const WorkforceForecastingPage = lazy(() => import('@/modules/forecasting/pages/WorkforceForecastingPage'));
+const CashFlowForecastingPage = lazy(() => import('@/modules/forecasting/pages/CashFlowForecastingPage'));
+const VendorForecastingPage = lazy(() => import('@/modules/forecasting/pages/VendorForecastingPage'));
+const ProductionYieldForecastingPage = lazy(() => import('@/modules/forecasting/pages/ProductionYieldForecastingPage'));
+const WhatIfForecastingPage = lazy(() => import('@/modules/forecasting/pages/WhatIfForecastingPage'));
+const ReturnsForecastingPage = lazy(() => import('@/modules/forecasting/pages/ReturnsForecastingPage'));
+const PredictiveForecastingHubPage = lazy(() => import('@/modules/forecasting/pages/PredictiveForecastingHubPage'));
+
+// Operations Calendar Module Pages
+const OperationsCalendarPage = lazy(() => import('@/modules/calendar/pages/OperationsCalendarPage'));
 
 // Asset Management Module
 const AssetManagementPage = lazy(() => import('@/modules/asset-management/pages/AssetManagementPage'));
@@ -377,13 +387,28 @@ const AppRouter = () => {
               <Route path="/orders/status" element={<OrderStatusPage />} />
             </Route>
 
+            {/* Operations Calendar */}
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
+              <Route path="/calendar" element={<OperationsCalendarPage />} />
+            </Route>
+
             {/* Forecasting */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
-              <Route path="/forecasting" element={<Navigate to="/forecasting/calendar" replace />} />
+              <Route path="/forecasting" element={<Navigate to="/forecasting/stock" replace />} />
+              <Route path="/forecasting/calendar" element={<Navigate to="/calendar" replace />} />
+              <Route path="/forecasting/stock" element={<StockForecastingPage />} />
+              <Route path="/forecasting/inventory" element={<StockForecastingPage />} />
+              <Route path="/forecasting/workforce" element={<WorkforceForecastingPage />} />
+              <Route path="/forecasting/cashflow" element={<CashFlowForecastingPage />} />
+              <Route path="/forecasting/vendor" element={<VendorForecastingPage />} />
+              <Route path="/forecasting/production" element={<ProductionYieldForecastingPage />} />
+              <Route path="/forecasting/what-if" element={<WhatIfForecastingPage />} />
+              <Route path="/forecasting/whatif" element={<WhatIfForecastingPage />} />
+              <Route path="/forecasting/returns" element={<ReturnsForecastingPage />} />
               <Route path="/forecasting/:section" element={<PredictiveForecastingHubPage />} />
               <Route path="/forecasting/by-order" element={<Navigate to="/forecasting/stock" replace />} />
               <Route path="/forecasting/by-product" element={<Navigate to="/forecasting/stock" replace />} />
-              <Route path="/forecasting/ai-studio" element={<Navigate to="/forecasting/calendar" replace />} />
+              <Route path="/forecasting/ai-studio" element={<Navigate to="/forecasting/stock" replace />} />
             </Route>
 
             {/* Finance & Accounts */}

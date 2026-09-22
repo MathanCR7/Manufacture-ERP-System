@@ -1848,3 +1848,51 @@ model RMQuotationResponseItem {
 
   @@map("rm_quotation_response_items")
 }
+
+model OperationsCalendarEvent {
+  id           String    @id @default(uuid())
+  title        String    @db.VarChar(255)
+  date         String    @db.VarChar(20)
+  time         String?   @db.VarChar(20)
+  status       String    @default("Scheduled") @db.VarChar(50)
+  priority     String    @default("Medium") @db.VarChar(20)
+  module       String    @default("production") @db.VarChar(50)
+
+  // Production Plan Fields
+  workOrderNo       String?  @db.VarChar(100)
+  routingStage      String?  @db.VarChar(100)
+  setupTimeMinutes  Int?     @default(0)
+  runTimeMinutes    Int?     @default(0)
+  downtimeBlock     String?  @db.VarChar(255)
+
+  // Resource Scheduling Fields
+  resourceId        String?  @db.VarChar(100)
+  resourceType      String?  @db.VarChar(50)
+  capacityLimit     String?  @db.VarChar(100)
+  workingHours      String?  @db.VarChar(100)
+  shiftException    String?  @db.VarChar(255)
+
+  // Project Management Fields
+  taskName          String?  @db.VarChar(255)
+  taskDependency    String?  @db.VarChar(255)
+  milestone         String?  @default("No") @db.VarChar(20)
+  assignedTeam      String?  @db.VarChar(100)
+
+  // Supply Chain / Logistics Fields
+  referenceNo       String?  @db.VarChar(100)
+  movementType      String?  @db.VarChar(100)
+  carrier           String?  @db.VarChar(100)
+  dockLocation      String?  @db.VarChar(100)
+
+  // Notes & System
+  note         String?   @db.Text
+  notified     Boolean   @default(false)
+  createdBy    String?   @map("createdBy") @db.VarChar(100)
+  creatorName  String?   @map("creatorName") @db.VarChar(255)
+  creatorRole  String?   @map("creatorRole") @db.VarChar(100)
+  allowedRoles Json?     @default("[\"ALL\"]") @map("allowedRoles")
+  createdAt    DateTime  @default(now()) @map("createdAt")
+  updatedAt    DateTime  @updatedAt @map("updatedAt")
+
+  @@map("OperationsCalendarEvent")
+}

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import useAuthStore from '@/app/store/authStore';
 import MiniOperationsCalendar from '@/modules/production/components/MiniOperationsCalendar';
+import OperationsCalendar from '@/modules/calendar/components/OperationsCalendar';
 
 // Helper to format currency
 const formatCurrency = (val) => {
@@ -1390,6 +1391,24 @@ export default function DashboardPage() {
 
         </div>
       )}
+
+      {/* ----------------------------------------------------
+          SECTION 9: OPERATIONS & SHIFT CALENDAR
+         ---------------------------------------------------- */}
+      <div className="pt-2">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+              Operations & Shift Calendar
+            </h2>
+          </div>
+          <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+            Live Gazette Holidays & PostgreSQL Persisted Events
+          </span>
+        </div>
+        <OperationsCalendar fullScreen={false} />
+      </div>
 
     </div>
   );

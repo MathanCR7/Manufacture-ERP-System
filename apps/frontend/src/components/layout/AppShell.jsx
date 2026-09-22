@@ -7,7 +7,7 @@ import {
   User, LogOut, ChevronDown, ChevronRight, ChevronLeft, Plus, Minus,
   Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText, Bell, Info, CheckCircle2,
   AlertTriangle, TrendingUp, Layers, Camera, Upload, Image, VideoOff, HardDrive,
-  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity, Mail
+  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity, Mail, Calendar
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import useLanguageStore from '@/app/store/languageStore';
@@ -746,7 +746,6 @@ const MENU_GROUPS = [
     icon: TrendingUp,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
     items: [
-      { name: '📅 Future Calendar', path: '/forecasting/calendar', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
       { name: '📦 Stock & Reorder Points', path: '/forecasting/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
       { name: '👥 Workforce & Capacity', path: '/forecasting/workforce', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
       { name: '💰 Cash Flow & Payables', path: '/forecasting/cashflow', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
@@ -859,6 +858,7 @@ const MENU_GROUPS = [
 
 const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'dashboards' },
+  { type: 'link', id: 'calendar' },
   { type: 'group', id: 'assetManagement' },
   { type: 'group', id: 'purchases' },
   { type: 'group', id: 'lab' },
@@ -1598,6 +1598,39 @@ const AppShell = () => {
                   </div>
                 );
               }
+              if (layoutItem.id === 'calendar') {
+                const isCalendarActive = location.pathname === '/calendar';
+                return (
+                  <div key="calendar" className={`mb-2 w-full flex transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-2' : 'px-4'}`}>
+                    <Link 
+                      to="/calendar" 
+                      className={`flex items-center rounded-xl transition-all duration-200 group/btn relative ${
+                        isSidebarCollapsed ? 'w-12 h-12 justify-center px-0' : 'w-full px-4 py-3 hover:translate-x-1'
+                      } ${
+                        isCalendarActive 
+                          ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400 font-medium shadow-sm border border-indigo-100 dark:border-indigo-900/30' 
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-slate-200 border border-transparent'
+                      }`}
+                      title={isSidebarCollapsed ? "Operations Calendar" : undefined}
+                    >
+                      <Calendar className={`w-5 h-5 flex-shrink-0 transition-colors ${
+                        isSidebarCollapsed ? '' : 'mr-3'
+                      } ${isCalendarActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 group-hover/btn:text-indigo-500'}`} />
+                      
+                      <span className={`transition-all duration-300 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis ${
+                        isSidebarCollapsed ? 'w-0 opacity-0' : 'w-full opacity-100'
+                      }`}>
+                        Operations Calendar
+                      </span>
+
+                      {/* Subtle active indicator dot in collapsed mode */}
+                      {isSidebarCollapsed && isCalendarActive && (
+                        <span className="absolute right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-indigo-650 dark:bg-indigo-400 shadow-sm" />
+                      )}
+                    </Link>
+                  </div>
+                );
+              }
               if (layoutItem.id === 'notifications') {
                 return showNotifications && (
                   <div key="notifications" className={`mb-3 w-full flex transition-all duration-300 ${isSidebarCollapsed ? 'justify-center px-2' : 'px-4'}`}>
@@ -2043,7 +2076,7 @@ const AppShell = () => {
         </header>
 
         {/* --- Main Content Area --- */}
-        <main className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8">
+        <main className={`flex-1 min-w-0 ${location.pathname.startsWith('/calendar') ? 'p-0 m-0 overflow-hidden flex flex-col bg-[#f4f5f8] dark:bg-[#0f1318]' : 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8'}`}>
           <Outlet />
         </main>
       </div>
