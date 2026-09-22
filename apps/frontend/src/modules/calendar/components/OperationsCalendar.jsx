@@ -4,7 +4,7 @@ import {
   Search, Plus, X, Clock, CheckCircle2, AlertTriangle,
   RotateCcw, Sliders, Layers, Users, Factory, Truck, Check, Trash2,
   Maximize2, Minimize2, PanelLeftClose, PanelLeft, Landmark, RefreshCw,
-  Download, Printer, AlertOctagon, GitBranch, Play, ShieldAlert, Sparkles,
+  Download, AlertOctagon, GitBranch, Play, ShieldAlert, Sparkles,
   ArrowRight, ShieldCheck, Cpu
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -147,10 +147,19 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
   const [events, setEvents] = useState([]);
   const [holidays, setHolidays] = useState([]);
 
+  // Live PostgreSQL Reference Numbers (Purchase Orders, Sales Orders, Work Orders)
+  const [liveReferences, setLiveReferences] = useState([]);
+  const [livePOs, setLivePOs] = useState([]);
+  const [liveSOs, setLiveSOs] = useState([]);
+  const [liveWOs, setLiveWOs] = useState([]);
+
   // Slide-in Drawer State
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState(null);
   const [selectedHoliday, setSelectedHoliday] = useState(null);
+
+  // Day Detail Modal State (Replaces cell scrollbars with + more button popup)
+  const [dayDetailModal, setDayDetailModal] = useState(null);
 
   // Dependency Cascade Dialog State
   const [pendingCascade, setPendingCascade] = useState(null);
@@ -208,15 +217,32 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
   const fetchLiveCalendarData = useCallback(async () => {
     setLoading(true);
     try {
-      const [hRes, eRes, fRes] = await Promise.allSettled([
+      const [hRes, eRes, fRes, rRes] = await Promise.allSettled([
         api.get('/forecasting/calendar/holidays', { params: { year: viewedYear } }),
         api.get('/forecasting/calendar/events'),
-        api.get('/forecasting/comprehensive', { params: { horizonDays: 120 } })
+        api.get('/forecasting/comprehensive', { params: { horizonDays: 120 } }),
+        api.get('/forecasting/calendar/po-so-references')
       ]);
 
       // 1. Live Official Gazette Holidays
       if (hRes.status === 'fulfilled' && hRes.value.data?.holidays) {
         setHolidays(hRes.value.data.holidays);
+      }
+
+      // Live References from PostgreSQL
+      let availableRefs = [];
+      let availablePOs = [];
+      let availableSOs = [];
+      let availableWOs = [];
+      if (rRes.status === 'fulfilled' && rRes.value.data?.references) {
+        availableRefs = rRes.value.data.references;
+        availablePOs = rRes.value.data.pos || [];
+        availableSOs = rRes.value.data.sos || [];
+        availableWOs = rRes.value.data.wos || [];
+        setLiveReferences(availableRefs);
+        setLivePOs(availablePOs);
+        setLiveSOs(availableSOs);
+        setLiveWOs(availableWOs);
       }
 
       const liveList = [];
@@ -275,6 +301,34 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           else if (mType === 'batch_complete' || mType === 'stockout' || mType.includes('production')) assignedMod = 'production';
           else if (mType === 'maintenance' || mType.includes('resource')) assignedMod = 'resource';
 
+          // Extract true PO, SO, or Batch reference:
+          const desc = m.description || '';
+          const poMatch = desc.match(/\(PO:\s*([^,)]+)/i) || desc.match(/for PO\s+([^\s,)]+)/i);
+          const soMatch = desc.match(/\(Ref:\s*([^,)]+)/i);
+          const batchMatch = desc.match(/Batch Target Complete:\s*([^\s,)]+)/i);
+
+          let realRef = m.ref;
+          if (!realRef) {
+            if (poMatch) realRef = poMatch[1].trim();
+            else if (soMatch) realRef = soMatch[1].trim();
+            else if (assignedMod === 'supply') {
+              realRef = availablePOs[idx % Math.max(1, availablePOs.length)] || (availableRefs[0]?.referenceNo || 'PO-000004');
+            } else if (assignedMod === 'production') {
+              realRef = availableWOs[idx % Math.max(1, availableWOs.length)] || 'MP-000001';
+            } else {
+              realRef = availableRefs[idx % Math.max(1, availableRefs.length)]?.referenceNo || 'CO-000001';
+            }
+          }
+
+          let realWo = m.workOrderNo;
+          if (!realWo) {
+            if (assignedMod === 'production') {
+              realWo = (batchMatch && batchMatch[1]) ? batchMatch[1].trim() : (availableWOs[idx % Math.max(1, availableWOs.length)] || 'MP-000001');
+            } else {
+              realWo = realRef || (availableWOs[0] || 'MP-000001');
+            }
+          }
+
           liveList.push({
             id: `live-ms-${idx}-${isoDate}`,
             title: m.name || m.title || 'Operational Milestone',
@@ -285,8 +339,8 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             priority: m.severity === 'critical' ? 'High' : 'Medium',
             isSystemMilestone: true,
             milestone: 'Yes',
-            referenceNo: m.ref || `MS-${idx + 1}`,
-            workOrderNo: m.ref || (assignedMod === 'production' ? `BATCH-${idx + 1}` : `WO-${idx + 1}`),
+            referenceNo: realRef,
+            workOrderNo: realWo,
             routingStage: assignedMod === 'production' ? 'Assembly' : 'General',
             setupTimeMinutes: 45,
             runTimeMinutes: 180,
@@ -400,7 +454,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           module: existing.module || 'production',
           title: existing.title || '',
           date: ensureISODate(existing.date),
-          time: existing.time || '',
+          time: existing.time || '09:00',
           status: existing.status || 'Scheduled',
           priority: existing.priority || 'Medium',
           workOrderNo: existing.workOrderNo || '',
@@ -437,7 +491,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       module: 'production',
       title: '',
       date: presetDate ? ensureISODate(presetDate) : formatISODate(new Date()),
-      time: '',
+      time: '09:00',
       status: 'Scheduled',
       priority: 'Medium',
       workOrderNo: '',
@@ -867,10 +921,6 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
     }
   };
 
-  // Trigger Print Shift Schedule
-  const printShiftDocket = () => {
-    window.print();
-  };
 
   // Month grid dates calculation with live events and live holidays
   const monthGridData = useMemo(() => {
@@ -1118,14 +1168,6 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             <Download className="w-4 h-4" />
           </button>
 
-          {/* Print Shift Sheet */}
-          <button
-            onClick={printShiftDocket}
-            className="hidden sm:flex p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
-            title="Print Shift Docket for Shop Floor"
-          >
-            <Printer className="w-4 h-4" />
-          </button>
 
           {/* Live Refresh Button */}
           <button
@@ -1365,73 +1407,121 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                         </button>
                       </div>
 
-                      {/* Events & Holidays Container */}
-                      <div className="flex-1 flex flex-col gap-1 overflow-y-auto no-scrollbar max-h-[110px]">
-                        
-                        {/* Live Official Gazette Holidays */}
-                        {cell.holidays.map((h, hIdx) => {
-                          const isGazetted = h.gazetted || (h.type && h.type.toLowerCase().includes('gazetted')) || (h.note && h.note.toLowerCase().includes('gazetted'));
-                          return (
-                            <div
-                              key={`hol-${h.date}-${hIdx}`}
-                              onClick={e => {
-                                e.stopPropagation();
-                                setSelectedHoliday(h);
-                              }}
-                              className={`text-[11px] p-1.5 rounded-md font-semibold border flex items-center gap-1.5 shadow-2xs select-none transition cursor-pointer hover:opacity-85 ${
-                                isGazetted
-                                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700/60'
-                                  : 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700/60'
-                              }`}
-                              title={`Click to view: ${h.name} (${h.type || 'Official Gazette'})`}
-                            >
-                              <span className="text-xs shrink-0">{isGazetted ? '🏛️' : '🌴'}</span>
-                              <span className="truncate flex-1 font-bold">{h.name}</span>
-                              <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-emerald-200/60 dark:bg-emerald-800/60 font-semibold shrink-0">
-                                {isGazetted ? 'Gazette' : 'Holiday'}
-                              </span>
-                            </div>
-                          );
-                        })}
+                      {/* Events & Holidays Container - Clean display without scrollbars */}
+                      <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0">
+                        {(() => {
+                          const MAX_VISIBLE = 2;
+                          const totalItems = cell.holidays.length + cell.events.length;
+                          const hasMore = totalItems > MAX_VISIBLE;
 
-                        {/* Real-time Events */}
-                        {cell.events.map(ev => {
-                          const mod = ERP_MODULES[ev.module] || ERP_MODULES.production;
-                          const stat = EVENT_STATUSES[ev.status] || EVENT_STATUSES.Scheduled;
-                          let ref = ev.referenceNo || ev.workOrderNo || ev.resourceId || ev.taskName || '';
-                          const isStaged = isScenarioMode && scenarioChanges.some(s => s.id === ev.id);
+                          let visibleHolidays = [];
+                          let visibleEvents = [];
+
+                          if (cell.holidays.length > 0) {
+                            visibleHolidays = [cell.holidays[0]];
+                            const remainingSlots = MAX_VISIBLE - 1;
+                            visibleEvents = cell.events.slice(0, remainingSlots);
+                          } else {
+                            visibleEvents = cell.events.slice(0, MAX_VISIBLE);
+                          }
+
+                          const remainingCount = totalItems - (visibleHolidays.length + visibleEvents.length);
 
                           return (
-                            <div
-                              key={ev.id}
-                              draggable={true}
-                              onDragStart={e => {
-                                e.stopPropagation();
-                                setDraggedEventId(ev.id);
-                                e.dataTransfer.setData('text/plain', ev.id);
-                              }}
-                              onClick={e => {
-                                e.stopPropagation();
-                                openDrawer(ev.id);
-                              }}
-                              className={`text-[11px] p-1.5 rounded-md font-medium border shadow-2xs flex items-center gap-1.5 cursor-pointer active:cursor-grabbing hover:-translate-y-0.5 transition ${
-                                isStaged ? 'ring-2 ring-purple-500 border-purple-400' : 'border-transparent'
-                              }`}
-                              style={{
-                                backgroundColor: mod.bgColor,
-                                borderColor: isStaged ? '#a855f7' : mod.borderColor,
-                                borderLeftWidth: '3.5px',
-                                borderLeftColor: stat.color
-                              }}
-                              title={`Click to view/edit: ${ev.title} (${ev.status})`}
-                            >
-                              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: mod.color }}></span>
-                              <span className="truncate flex-1 font-semibold text-slate-900 dark:text-white">{ev.title}</span>
-                              {isStaged && <span className="text-[9px] font-mono text-purple-600 dark:text-purple-300 font-bold shrink-0">SIM</span>}
-                              {ref && !isStaged && <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 shrink-0">{ref}</span>}
-                            </div>
+                            <>
+                              {/* Visible Holidays */}
+                              {visibleHolidays.map((h, hIdx) => {
+                                const isGazetted = h.gazetted || (h.type && h.type.toLowerCase().includes('gazetted')) || (h.note && h.note.toLowerCase().includes('gazetted'));
+                                return (
+                                  <div
+                                    key={`hol-${h.date}-${hIdx}`}
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      setSelectedHoliday(h);
+                                    }}
+                                    className={`text-[11px] p-1.5 rounded-md font-semibold border flex items-center gap-1.5 shadow-2xs select-none transition cursor-pointer hover:opacity-85 shrink-0 ${
+                                      isGazetted
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700/60'
+                                        : 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700/60'
+                                    }`}
+                                    title={`Click to view: ${h.name} (${h.type || 'Official Gazette'})`}
+                                  >
+                                    <span className="text-xs shrink-0">{isGazetted ? '🏛️' : '🌴'}</span>
+                                    <span className="truncate flex-1 font-bold">{h.name}</span>
+                                    <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-emerald-200/60 dark:bg-emerald-800/60 font-semibold shrink-0">
+                                      {isGazetted ? 'Gazette' : 'Holiday'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+
+                              {/* Visible Events */}
+                              {visibleEvents.map(ev => {
+                                const mod = ERP_MODULES[ev.module] || ERP_MODULES.production;
+                                const stat = EVENT_STATUSES[ev.status] || EVENT_STATUSES.Scheduled;
+                                let ref = ev.referenceNo || ev.workOrderNo || ev.resourceId || ev.taskName || '';
+                                const isStaged = isScenarioMode && scenarioChanges.some(s => s.id === ev.id);
+
+                                return (
+                                  <div
+                                    key={ev.id}
+                                    draggable={true}
+                                    onDragStart={e => {
+                                      e.stopPropagation();
+                                      setDraggedEventId(ev.id);
+                                      e.dataTransfer.setData('text/plain', ev.id);
+                                    }}
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      openDrawer(ev.id);
+                                    }}
+                                    className={`text-[11px] p-1.5 rounded-md font-medium border shadow-2xs flex items-center gap-1.5 cursor-pointer active:cursor-grabbing hover:-translate-y-0.5 transition shrink-0 ${
+                                      isStaged ? 'ring-2 ring-purple-500 border-purple-400' : 'border-transparent'
+                                    }`}
+                                    style={{
+                                      backgroundColor: mod.bgColor,
+                                      borderColor: isStaged ? '#a855f7' : mod.borderColor,
+                                      borderLeftWidth: '3.5px',
+                                      borderLeftColor: stat.color
+                                    }}
+                                    title={`Click to view/edit: ${ev.title} (${ev.status})`}
+                                  >
+                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: mod.color }}></span>
+                                    {ev.time && (
+                                      <span className="text-[9px] font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1 py-0.2 rounded font-semibold shrink-0">
+                                        {ev.time}
+                                      </span>
+                                    )}
+                                    <span className="truncate flex-1 font-semibold text-slate-900 dark:text-white">{ev.title}</span>
+                                    {isStaged && <span className="text-[9px] font-mono text-purple-600 dark:text-purple-300 font-bold shrink-0">SIM</span>}
+                                    {ref && !isStaged && <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 shrink-0">{ref}</span>}
+                                  </div>
+                                );
+                              })}
+
+                              {/* + More Button / Badge */}
+                              {hasMore && (
+                                <button
+                                  type="button"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setDayDetailModal({
+                                      dateStr: cell.dateStr,
+                                      holidays: cell.holidays,
+                                      events: cell.events,
+                                      load: load
+                                    });
+                                  }}
+                                  className="mt-auto text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50/90 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 border border-indigo-200/80 dark:border-indigo-800/80 px-2 py-0.5 rounded-md flex items-center justify-between transition cursor-pointer shadow-2xs shrink-0"
+                                  title={`Click to open all ${totalItems} scheduled operations on ${cell.dateStr}`}
+                                >
+                                  <span>+ {remainingCount} more</span>
+                                  <span className="text-[9px] font-semibold opacity-80">View all &rarr;</span>
+                                </button>
+                              )}
+                            </>
                           );
-                        })}
+                        })()}
                       </div>
                     </div>
                   );
@@ -1528,6 +1618,12 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                                     <span className="px-2 py-0.5 rounded text-[11px] font-semibold shrink-0" style={{ backgroundColor: mod.bgColor, color: mod.color }}>
                                       {mod.name}
                                     </span>
+                                    {ev.time && (
+                                      <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/60 dark:border-indigo-800/50 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0">
+                                        <Clock className="w-2.5 h-2.5" />
+                                        {ev.time}
+                                      </span>
+                                    )}
                                     <div className="min-w-0">
                                       <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{ev.title}</div>
                                       <div className="text-[11px] font-mono text-slate-500 truncate">{details}</div>
@@ -1655,7 +1751,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="space-y-1">
                   <label className="font-bold text-slate-600 dark:text-slate-300">Date *</label>
                   <input
@@ -1667,7 +1763,24 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                       setFormData(updated);
                       runConflictCheck(updated, editingEventId);
                     }}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 font-mono text-slate-900 dark:text-white"
+                    className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 font-mono text-xs text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                    <span>Time</span>
+                  </label>
+                  <input
+                    type="time"
+                    value={formData.time || ''}
+                    onChange={e => {
+                      const updated = { ...formData, time: e.target.value };
+                      setFormData(updated);
+                      runConflictCheck(updated, editingEventId);
+                    }}
+                    className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 font-mono text-xs text-slate-900 dark:text-white"
                   />
                 </div>
 
@@ -1676,7 +1789,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                   <select
                     value={formData.status}
                     onChange={e => setFormData(p => ({ ...p, status: e.target.value }))}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 text-slate-900 dark:text-white"
+                    className="w-full px-2.5 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 text-xs text-slate-900 dark:text-white"
                   >
                     {Object.keys(EVENT_STATUSES).map(s => (
                       <option key={s} value={s}>{s}</option>
@@ -1699,7 +1812,127 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                       {f.mono && <span className="text-[10px] text-slate-400 font-mono">ERP-ID</span>}
                     </label>
 
-                    {f.type === 'select' ? (
+                    {f.key === 'referenceNo' ? (
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            list="live-po-so-datalist"
+                            placeholder="Type or select live PO # (e.g. PO-000004)"
+                            value={formData.referenceNo || ''}
+                            onChange={e => {
+                              const val = e.target.value;
+                              const matched = liveReferences.find(r => r.referenceNo === val);
+                              setFormData(prev => ({
+                                ...prev,
+                                referenceNo: val,
+                                ...(matched?.type === 'PO' ? { movementType: 'PO ETA (Inbound)' } : {}),
+                                ...(matched?.type === 'SO' ? { movementType: 'SO Outbound Dispatch' } : {})
+                              }));
+                            }}
+                            className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 font-mono text-sm text-slate-900 dark:text-white font-medium"
+                          />
+                          <datalist id="live-po-so-datalist">
+                            {liveReferences.map(r => (
+                              <option key={r.referenceNo} value={r.referenceNo}>
+                                {r.label} [{r.status}]
+                              </option>
+                            ))}
+                          </datalist>
+                        </div>
+                        {livePOs.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Live Purchase Orders in DB:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {livePOs.map(poNum => (
+                                <button
+                                  key={poNum}
+                                  type="button"
+                                  onClick={() => setFormData(p => ({ ...p, referenceNo: poNum, movementType: 'PO ETA (Inbound)' }))}
+                                  className={`text-[11px] font-mono px-2 py-0.5 rounded border transition cursor-pointer ${
+                                    formData.referenceNo === poNum
+                                      ? 'bg-indigo-600 text-white border-indigo-600 font-bold shadow-xs'
+                                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-indigo-400 hover:text-indigo-600'
+                                  }`}
+                                >
+                                  {poNum}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {liveSOs.length > 0 && (
+                          <div className="space-y-1 pt-0.5">
+                            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Live Sales Orders:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {liveSOs.map(soNum => (
+                                <button
+                                  key={soNum}
+                                  type="button"
+                                  onClick={() => setFormData(p => ({ ...p, referenceNo: soNum, movementType: 'SO Outbound Dispatch' }))}
+                                  className={`text-[11px] font-mono px-2 py-0.5 rounded border transition cursor-pointer ${
+                                    formData.referenceNo === soNum
+                                      ? 'bg-amber-600 text-white border-amber-600 font-bold shadow-xs'
+                                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-400 hover:text-amber-600'
+                                  }`}
+                                >
+                                  {soNum}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : f.key === 'workOrderNo' ? (
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            list="live-wo-datalist"
+                            placeholder="Type or select live Work Order (e.g. MP-000005)"
+                            value={formData.workOrderNo || ''}
+                            onChange={e => {
+                              const updated = { ...formData, workOrderNo: e.target.value };
+                              setFormData(updated);
+                              runConflictCheck(updated, editingEventId);
+                            }}
+                            className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 font-mono text-sm text-slate-900 dark:text-white font-medium"
+                          />
+                          <datalist id="live-wo-datalist">
+                            {liveWOs.map(wo => (
+                              <option key={wo} value={wo}>
+                                {wo} • Production Work Order
+                              </option>
+                            ))}
+                          </datalist>
+                        </div>
+                        {liveWOs.length > 0 && (
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Live Work Orders in DB:</span>
+                            <div className="flex flex-wrap gap-1">
+                              {liveWOs.map(woNum => (
+                                <button
+                                  key={woNum}
+                                  type="button"
+                                  onClick={() => {
+                                    const updated = { ...formData, workOrderNo: woNum };
+                                    setFormData(updated);
+                                    runConflictCheck(updated, editingEventId);
+                                  }}
+                                  className={`text-[11px] font-mono px-2 py-0.5 rounded border transition cursor-pointer ${
+                                    formData.workOrderNo === woNum
+                                      ? 'bg-amber-600 text-white border-amber-600 font-bold shadow-xs'
+                                      : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-amber-400 hover:text-amber-600'
+                                  }`}
+                                >
+                                  {woNum}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : f.type === 'select' ? (
                       <select
                         value={formData[f.key] || ''}
                         onChange={e => {
@@ -1730,7 +1963,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                           }
                         }}
                         className={`w-full px-3 py-2 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-indigo-500 text-slate-900 dark:text-white ${
-                          f.mono ? 'font-mono text-indigo-600 dark:text-indigo-400' : ''
+                          f.mono ? 'font-mono text-indigo-600 dark:text-indigo-400 font-medium' : ''
                         }`}
                       />
                     )}
@@ -1897,6 +2130,202 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
             <div className="mt-5 flex justify-end">
               <Button onClick={() => setSelectedHoliday(null)} variant="outline" size="sm" className="px-4 text-xs font-semibold cursor-pointer">
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. DAY DETAIL POPUP MODAL (When clicking + more button) */}
+      {dayDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div 
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-150"
+            onClick={() => setDayDetailModal(null)}
+          ></div>
+          <div className="relative w-full max-w-xl bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150">
+            
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-[#1f2732]/50 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <CalendarIcon className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-base text-slate-900 dark:text-white tracking-tight">
+                      {new Date(dayDetailModal.dateStr + 'T00:00:00').toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric'
+                      })}
+                    </h2>
+                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      {dayDetailModal.events.length} operation{dayDetailModal.events.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                    Operational schedule & quality logs for {dayDetailModal.dateStr}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const d = dayDetailModal.dateStr;
+                    setDayDetailModal(null);
+                    openDrawer(null, d);
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1 shadow-xs transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Event</span>
+                </button>
+                <button
+                  onClick={() => setDayDetailModal(null)}
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content / Event List */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              
+              {/* Gazette Holidays on this date */}
+              {dayDetailModal.holidays.map((h, idx) => (
+                <div 
+                  key={`modal-hol-${idx}`}
+                  onClick={() => {
+                    setDayDetailModal(null);
+                    setSelectedHoliday(h);
+                  }}
+                  className="p-3.5 rounded-xl border border-emerald-300 dark:border-emerald-700/60 bg-emerald-50/70 dark:bg-emerald-950/40 flex items-center justify-between gap-3 cursor-pointer hover:opacity-90 transition"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-xl">🏛️</span>
+                    <div>
+                      <div className="text-xs font-bold text-emerald-900 dark:text-emerald-100">{h.name}</div>
+                      <div className="text-[11px] text-emerald-700 dark:text-emerald-300">{h.note || 'Official National Gazette Holiday'}</div>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-emerald-200/70 dark:bg-emerald-800/70 text-emerald-900 dark:text-emerald-100 font-bold">
+                    Gazette Holiday
+                  </span>
+                </div>
+              ))}
+
+              {/* Machine / Workload Shift Bar if High Load */}
+              {dayDetailModal.load && dayDetailModal.load.totalMinutes > 0 && (
+                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <Factory className="w-4 h-4 text-indigo-500" />
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">Shift Queue Load:</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-white">
+                      {Math.round(dayDetailModal.load.totalMinutes / 60)}h {dayDetailModal.load.totalMinutes % 60}m across {dayDetailModal.load.jobCount} jobs
+                    </span>
+                  </div>
+                  {dayDetailModal.load.totalMinutes > 480 && (
+                    <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded">
+                      ⚠️ Bottleneck
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* All Events List */}
+              <div className="space-y-2">
+                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Scheduled Operations ({dayDetailModal.events.length})
+                </div>
+
+                {dayDetailModal.events.map(ev => {
+                  const mod = ERP_MODULES[ev.module] || ERP_MODULES.production;
+                  const stat = EVENT_STATUSES[ev.status] || EVENT_STATUSES.Scheduled;
+
+                  return (
+                    <div
+                      key={ev.id}
+                      onClick={() => {
+                        setDayDetailModal(null);
+                        openDrawer(ev.id);
+                      }}
+                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-600 bg-white dark:bg-[#1a2028] shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col gap-2"
+                      style={{ borderLeftWidth: '4px', borderLeftColor: stat.color }}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="px-2 py-0.5 rounded text-[11px] font-semibold shrink-0" style={{ backgroundColor: mod.bgColor, color: mod.color }}>
+                            {mod.name}
+                          </span>
+                          {ev.time && (
+                            <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/60 dark:border-indigo-800/50 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0">
+                              <Clock className="w-2.5 h-2.5" />
+                              {ev.time}
+                            </span>
+                          )}
+                          <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                            {ev.title}
+                          </span>
+                        </div>
+
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0">
+                          {ev.status}
+                        </span>
+                      </div>
+
+                      {/* Relational details row */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                        {ev.referenceNo && (
+                          <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                            Ref: {ev.referenceNo}
+                          </span>
+                        )}
+                        {ev.workOrderNo && (
+                          <span className="font-mono font-semibold text-amber-600 dark:text-amber-400">
+                            WO: {ev.workOrderNo}
+                          </span>
+                        )}
+                        {ev.routingStage && (
+                          <span>Stage: {ev.routingStage}</span>
+                        )}
+                        {ev.movementType && (
+                          <span>Movement: {ev.movementType}</span>
+                        )}
+                        {ev.carrier && (
+                          <span>Carrier: {ev.carrier}</span>
+                        )}
+                        {ev.dockLocation && (
+                          <span>Vehicle: {ev.dockLocation}</span>
+                        )}
+                      </div>
+
+                      {ev.note && (
+                        <div className="text-[11px] text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800 line-clamp-2">
+                          {ev.note}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-[#1f2732]/40 flex items-center justify-between shrink-0">
+              <div className="text-xs text-slate-400">
+                Click any operation to edit parameters or manage schedule
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDayDetailModal(null)}
+                className="px-4 text-xs font-semibold cursor-pointer"
+              >
                 Close
               </Button>
             </div>

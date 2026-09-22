@@ -395,7 +395,8 @@ class ForecastingController {
               title: `💵 Receivables Inflow: ₹${collectibleAmount.toLocaleString('en-IN')}`,
               description: `Expected collection from ${order.customer?.name || 'Customer'} (Ref: ${order.referenceNo})`,
               severity: 'success',
-              entityId: order.id
+              entityId: order.id,
+              ref: order.referenceNo || null
             });
           }
         }
@@ -435,7 +436,8 @@ class ForecastingController {
             title: `💸 Supplier Payable Due: ₹${unpaid.toLocaleString('en-IN')}`,
             description: `Payment due to ${po.supplier?.name || 'Supplier'} for PO ${po.referenceNo}`,
             severity: 'info',
-            entityId: po.id
+            entityId: po.id,
+            ref: po.referenceNo || null
           });
         }
       }
@@ -492,7 +494,8 @@ class ForecastingController {
             title: `📦 Inbound PO Delivery: ${po.name || 'Raw Materials'}`,
             description: `Expected arrival from ${sName} (PO: ${po.referenceNo || 'N/A'}, Qty: ${po.quantity})`,
             severity: 'info',
-            entityId: po.id
+            entityId: po.id,
+            ref: po.referenceNo || null
           });
         }
 
@@ -574,7 +577,8 @@ class ForecastingController {
               title: `⚙️ Batch Target Complete: ${batch.referenceNo}`,
               description: `Batch for ${batch.product?.name || 'Finished Product'} (${batch.quantity} units)`,
               severity: 'info',
-              entityId: batch.id
+              entityId: batch.id,
+              ref: batch.referenceNo || null
             });
           }
         }

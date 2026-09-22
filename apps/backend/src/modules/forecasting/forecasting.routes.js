@@ -8,6 +8,7 @@ const router = express.Router();
 const { extractERPPayload } = require('./forecastDataExtractor');
 const forecastAIService = require('./forecastAIService');
 const { getLiveHolidays } = require('./liveHolidayService');
+const { syncLiveERPEventsToCalendar } = require('./calendar-sync.service');
 
 // GET /api/forecasting/comprehensive - Multi-Domain Predictive Forecasting
 router.get('/comprehensive', authenticateToken, (req, res, next) => {
@@ -58,11 +59,24 @@ router.get('/prompt', authenticateToken, (req, res) => {
 // CALENDAR EVENTS & HOLIDAYS (PostgreSQL Database Persisted)
 // ============================================================================
 
+// POST /api/forecasting/calendar/sync-erp - Force immediate sync of all ERP lifecycle records into OperationsCalendarEvent
+router.post('/calendar/sync-erp', authenticateToken, async (req, res, next) => {
+  try {
+    const result = await syncLiveERPEventsToCalendar(true);
+    res.json({ success: true, message: 'ERP operational lifecycle records synchronized to calendar', result });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/forecasting/calendar/events - Fetch events from PostgreSQL filtered by user role visibility
 router.get('/calendar/events', authenticateToken, async (req, res, next) => {
   try {
     const userId = req.user?.id;
     const userRole = req.user?.role;
+
+    // Run real-time automated sync of live ERP operational records into OperationsCalendarEvent
+    await syncLiveERPEventsToCalendar(false);
 
     const allEvents = await prisma.$queryRawUnsafe(
       `SELECT * FROM "OperationsCalendarEvent" ORDER BY date ASC, time ASC`
@@ -71,7 +85,7 @@ router.get('/calendar/events', authenticateToken, async (req, res, next) => {
     // Visibility filtering:
     const filteredEvents = allEvents.filter(ev => {
       if (!userRole || userRole === 'MAIN_MASTER' || userRole === 'ADMIN') return true;
-      if (ev.createdBy === userId) return true;
+      if (ev.createdBy === userId || ev.createdBy === 'system-erp-sync') return true;
       
       let roles = ev.allowedRoles;
       if (typeof roles === 'string') {
@@ -82,6 +96,66 @@ router.get('/calendar/events', authenticateToken, async (req, res, next) => {
     });
 
     res.json({ success: true, events: filteredEvents });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/forecasting/calendar/po-so-references - Fetch 100% live PO, SO, and Work Order identifiers from PostgreSQL
+router.get('/calendar/po-so-references', authenticateToken, async (req, res, next) => {
+  try {
+    const [rawPOs, customerOrders, batches] = await Promise.all([
+      prisma.$queryRawUnsafe(`
+        SELECT "referenceNo", name as "title", 'PO' as "type", status, "grand_total" as "amount", "expectedDelivery" as "deliveryDate"
+        FROM "RawMaterialPO"
+        WHERE "deletedAt" IS NULL AND "referenceNo" IS NOT NULL
+        ORDER BY "createdAt" DESC
+      `),
+      prisma.$queryRawUnsafe(`
+        SELECT reference_no as "referenceNo", type, status, grand_total as "amount", delivery_date as "deliveryDate"
+        FROM "customer_orders"
+        WHERE "deleted_at" IS NULL AND reference_no IS NOT NULL
+        ORDER BY "created_at" DESC
+      `),
+      prisma.$queryRawUnsafe(`
+        SELECT reference_no as "referenceNo", status, quantity, start_date as "startDate", complete_date as "completeDate"
+        FROM "production_batches"
+        WHERE "deleted_at" IS NULL AND reference_no IS NOT NULL
+        ORDER BY "created_at" DESC
+      `)
+    ]);
+
+    const references = [
+      ...rawPOs.map(p => ({
+        referenceNo: p.referenceNo,
+        label: `${p.referenceNo} • ${p.title || 'Raw Materials'}`,
+        type: 'PO',
+        status: p.status,
+        deliveryDate: p.deliveryDate ? new Date(p.deliveryDate).toISOString().split('T')[0] : null
+      })),
+      ...customerOrders.map(c => ({
+        referenceNo: c.referenceNo,
+        label: `${c.referenceNo} • ${c.type || 'Sales Order'}`,
+        type: 'SO',
+        status: c.status,
+        deliveryDate: c.deliveryDate ? new Date(c.deliveryDate).toISOString().split('T')[0] : null
+      })),
+      ...batches.map(b => ({
+        referenceNo: b.referenceNo,
+        label: `${b.referenceNo} • Work Order (${b.status})`,
+        type: 'WO',
+        status: b.status,
+        deliveryDate: b.completeDate ? new Date(b.completeDate).toISOString().split('T')[0] : null
+      }))
+    ];
+
+    res.json({
+      success: true,
+      references,
+      pos: rawPOs.map(p => p.referenceNo),
+      sos: customerOrders.map(c => c.referenceNo),
+      wos: batches.map(b => b.referenceNo)
+    });
   } catch (err) {
     next(err);
   }
