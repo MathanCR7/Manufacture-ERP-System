@@ -310,6 +310,26 @@ exports.createPO = async (req, res, next) => {
         }
       });
 
+      // Synchronize raw material ratePerUnit from PO items if provided
+      if (Array.isArray(parsedData.items)) {
+        for (const item of parsedData.items) {
+          const base = Number(item.unitPrice || 0);
+          const gst = item.gstApplicable !== false ? Number(item.gstPercentage || 0) : 0;
+          const rateWithGst = Math.round((base * (1 + gst / 100)) * 100) / 100;
+          if (rateWithGst > 0 && (item.id || item.rmId)) {
+            await tx.rawMaterial.updateMany({
+              where: {
+                OR: [
+                  { id: item.id || '' },
+                  { code: item.rmId || '' }
+                ]
+              },
+              data: { ratePerUnit: rateWithGst }
+            });
+          }
+        }
+      }
+
       // If created from an RM Quotation, mark quotation status as CONVERTED and prevent duplicate conversions
       if (parsedData.quotationId) {
         const existingQuote = await tx.rMQuotation.findUnique({
@@ -524,6 +544,26 @@ exports.updatePO = async (req, res, next) => {
         ip: clientIp,
       }
     });
+
+    // Synchronize raw material ratePerUnit from updated PO items if provided
+    if (Array.isArray(parsedData.items)) {
+      for (const item of parsedData.items) {
+        const base = Number(item.unitPrice || 0);
+        const gst = item.gstApplicable !== false ? Number(item.gstPercentage || 0) : 0;
+        const rateWithGst = Math.round((base * (1 + gst / 100)) * 100) / 100;
+        if (rateWithGst > 0 && (item.id || item.rmId)) {
+          await prisma.rawMaterial.updateMany({
+            where: {
+              OR: [
+                { id: item.id || '' },
+                { code: item.rmId || '' }
+              ]
+            },
+            data: { ratePerUnit: rateWithGst }
+          });
+        }
+      }
+    }
 
     try {
       await workflowNotifications.triggerPOUpdated?.({
@@ -919,23 +959,100 @@ exports.getStock = async (req, res, next) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    const rms = await prisma.rawMaterial.findMany({
-      orderBy: { name: 'asc' },
-    });
-    
+    const [rms, pos] = await Promise.all([
+      prisma.rawMaterial.findMany({
+        orderBy: { name: 'asc' },
+      }),
+      prisma.rawMaterialPO.findMany({
+        where: { status: { not: 'DELETED' } },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          referenceNo: true,
+          rmId: true,
+          name: true,
+          quantity: true,
+          amount: true,
+          subtotal: true,
+          grandTotal: true,
+          items: true,
+          createdAt: true,
+          status: true,
+        }
+      })
+    ]);
+
     const stock = rms.map(rm => {
+      let matchedPo = null;
+      let matchedItem = null;
+
+      for (const po of pos) {
+        if (Array.isArray(po.items)) {
+          const it = po.items.find(i =>
+            i.id === rm.id ||
+            i.rmId === rm.code ||
+            i.rmId === rm.id ||
+            (i.name && i.name.toLowerCase() === rm.name.toLowerCase())
+          );
+          if (it) {
+            matchedPo = po;
+            matchedItem = it;
+            break;
+          }
+        } else if (
+          po.rmId === rm.code ||
+          po.rmId === rm.id ||
+          (po.name && po.name.toLowerCase() === rm.name.toLowerCase())
+        ) {
+          matchedPo = po;
+          break;
+        }
+      }
+
+      let rateWithGst = Number(rm.ratePerUnit || 0);
+      let baseRate = Number(rm.ratePerUnit || 0);
+      let gstPercentage = 0;
+      let gstApplicable = false;
+      let poRef = null;
+      let poDate = null;
+
+      if (matchedPo) {
+        poRef = matchedPo.referenceNo;
+        poDate = matchedPo.createdAt;
+        if (matchedItem) {
+          baseRate = Number(matchedItem.unitPrice || 0);
+          gstApplicable = matchedItem.gstApplicable !== false;
+          gstPercentage = gstApplicable ? Number(matchedItem.gstPercentage || 0) : 0;
+          rateWithGst = baseRate * (1 + gstPercentage / 100);
+        } else {
+          const qty = Number(matchedPo.quantity || 1);
+          const total = Number(matchedPo.grandTotal || matchedPo.amount || 0);
+          rateWithGst = qty > 0 ? total / qty : total;
+          baseRate = qty > 0 ? (Number(matchedPo.subtotal) || total) / qty : total;
+          gstApplicable = total > (Number(matchedPo.subtotal) || 0);
+          gstPercentage = baseRate > 0 ? Math.round(((rateWithGst - baseRate) / baseRate) * 100) : 0;
+        }
+      }
+
       const qty = Number(rm.currentStock) || 0;
-      const rate = Number(rm.ratePerUnit) || 0;
+      const roundedRate = Math.round(rateWithGst * 100) / 100;
+      const roundedValue = Math.round((qty * rateWithGst) * 100) / 100;
+
       return {
         id: rm.id,
         code: rm.code,
         name: rm.name,
         availableQuantity: qty,
         floatingStock: 0,
-        ratePerUnit: rate,
-        value: qty * rate,
+        ratePerUnit: roundedRate,
+        baseRate: Math.round(baseRate * 100) / 100,
+        gstPercentage,
+        gstApplicable,
+        value: roundedValue,
         unit: rm.unitId,
-        alertLevel: rm.alertLevel
+        alertLevel: rm.alertLevel,
+        poReferenceNo: poRef,
+        poDate
       };
     });
 
@@ -1059,7 +1176,9 @@ exports.getMaterialHistory = async (req, res, next) => {
 
       const orderedQty = specificItem ? Number(specificItem.quantity || 0) : Number(po.quantity || 0);
       const unitPrice = specificItem ? Number(specificItem.unitPrice || 0) : (Number(po.quantity) > 0 ? Number(po.amount) / Number(po.quantity) : Number(po.amount || 0));
-      const itemTotal = specificItem ? (Number(specificItem.total) || (orderedQty * unitPrice)) : Number(po.amount || 0);
+      const gstPercentage = specificItem && specificItem.gstApplicable !== false ? Number(specificItem.gstPercentage || 0) : 0;
+      const unitPriceWithGst = Math.round((unitPrice * (1 + gstPercentage / 100)) * 100) / 100;
+      const itemTotal = specificItem ? (Number(specificItem.total) || (orderedQty * unitPriceWithGst)) : Number(po.grandTotal || po.amount || 0);
 
       return {
         id: po.id,
@@ -1075,6 +1194,8 @@ exports.getMaterialHistory = async (req, res, next) => {
         grandTotal: Number(po.grandTotal || po.amount || 0),
         orderedQty,
         unitPrice,
+        unitPriceWithGst,
+        gstPercentage,
         itemTotal,
         uom: specificItem?.uomLabel || (po.uom ? (po.uom.abbreviation || po.uom.name) : rm.unitId),
         createdBy: po.user ? po.user.name : null,
@@ -1379,7 +1500,8 @@ exports.getMaterialHistory = async (req, res, next) => {
 
     // 9. Calculate Aggregate Metrics
     const currentStock = Number(rm.currentStock || 0);
-    const ratePerUnit = Number(rm.ratePerUnit || 0);
+    const latestPurchase = formattedPurchases[0];
+    const ratePerUnit = latestPurchase ? Number(latestPurchase.unitPriceWithGst || latestPurchase.unitPrice) : Number(rm.ratePerUnit || 0);
     const alertLevel = Number(rm.alertLevel || 0);
 
     const totalPurchasedQty = formattedPurchases.reduce((acc, p) => acc + p.orderedQty, 0);

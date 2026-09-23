@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import { Package, Search, AlertTriangle, RefreshCw, Clock, FileSpreadsheet } from 'lucide-react';
+import { Package, Search, AlertTriangle, RefreshCw, Clock, FileSpreadsheet, IndianRupee } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -108,6 +108,10 @@ export default function RMStockPage() {
     }
   };
 
+  const totalStockValuation = useMemo(() => {
+    return stock.reduce((sum, item) => sum + (Number(item.value) || 0), 0);
+  }, [stock]);
+
   const handleExportAllStockExcel = () => {
     if (!sortedStock || sortedStock.length === 0) return;
     const exportData = sortedStock.map((item, idx) => ({
@@ -118,6 +122,9 @@ export default function RMStockPage() {
       'Unit': item.unit,
       'Floating Stock': item.floatingStock,
       'Rate Per Unit (INR)': item.ratePerUnit,
+      'Base Rate': item.baseRate || item.ratePerUnit,
+      'GST %': item.gstPercentage ? `${item.gstPercentage}%` : '0%',
+      'PO Reference': item.poReferenceNo || 'Master Default',
       'Total Value (INR)': item.value,
       'Alert Level': item.alertLevel,
       'Stock Status': item.availableQuantity <= item.alertLevel ? 'LOW STOCK ALERT' : 'OPTIMAL'
@@ -196,7 +203,16 @@ export default function RMStockPage() {
           </p>
         </div>
         
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 text-emerald-800 dark:text-emerald-300">
+            <IndianRupee className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <div className="flex flex-col text-left">
+              <span className="text-[9px] uppercase tracking-wider font-semibold text-emerald-600 dark:text-emerald-400">Total Stock Value</span>
+              <span className="text-xs font-black font-mono">
+                ₹{totalStockValuation.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -306,11 +322,25 @@ export default function RMStockPage() {
                       </td>
                       <td className="px-4 py-2.5 text-right font-medium text-slate-900 dark:text-white">
                         <span className="text-[10px] text-slate-400 mr-0.5 font-sans">₹</span>
-                        {item.ratePerUnit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {Number(item.ratePerUnit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {item.poReferenceNo ? (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 block font-normal leading-tight mt-0.5">
+                            Incl. {item.gstPercentage || 0}% GST • <span className="font-mono text-indigo-600 dark:text-indigo-400 font-semibold">{item.poReferenceNo}</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 block font-normal leading-tight mt-0.5">
+                            Master Rate
+                          </span>
+                        )}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-black text-slate-905 dark:text-white">
+                      <td className="px-4 py-2.5 text-right font-black text-slate-900 dark:text-white">
                         <span className="text-[10px] text-slate-400 mr-0.5 font-sans">₹</span>
-                        {item.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {Number(item.value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {item.poReferenceNo && (
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold block leading-tight mt-0.5">
+                            PO Valued
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <button

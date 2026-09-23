@@ -39,6 +39,55 @@ async function getNextBatchForRM(rmId, rmName, tx = prisma) {
   };
 }
 
+const isUuid = (value) => {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+};
+
+/**
+ * Resolve correct UOM UUID for an item batch based on item details, RM master, and PO.
+ */
+async function resolveBatchUomId(item, rm, po, tx = prisma) {
+  // 1. Try matching from poItem in po.items
+  let poItem = null;
+  if (Array.isArray(po?.items)) {
+    poItem = po.items.find(i =>
+      i.id === item.rmId ||
+      i.rmId === item.rmId ||
+      (i.name && item.rmName && i.name.toLowerCase() === item.rmName.toLowerCase())
+    );
+  }
+
+  // Check if poItem or item has a valid UOM UUID
+  const candidateUuid = poItem?.uomId || item?.uomId;
+  if (candidateUuid && isUuid(candidateUuid)) {
+    const existing = await tx.uOM.findUnique({ where: { id: candidateUuid } });
+    if (existing) return existing.id;
+  }
+
+  // 2. Try looking up UOM by label / abbreviation / rm.unitId
+  const candidateLabel = poItem?.uomLabel || item?.uomLabel || rm?.unitId || rm?.consumptionUnit;
+  if (candidateLabel) {
+    const trimmed = String(candidateLabel).trim().toLowerCase();
+    const existingUom = await tx.uOM.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { abbreviation: { equals: trimmed, mode: 'insensitive' } },
+          { name: { equals: trimmed, mode: 'insensitive' } }
+        ]
+      }
+    });
+    if (existingUom) return existingUom.id;
+  }
+
+  // 3. Fallback to po.uomId if available
+  if (po?.uomId) return po.uomId;
+
+  // 4. Fallback to first active UOM
+  const fallbackUom = await tx.uOM.findFirst({ where: { isActive: true } });
+  return fallbackUom?.id || null;
+}
+
 /**
  * Processes a PO that has status RECEIVED:
  * - If items do not require lab test (labTestRequired === false):
@@ -123,43 +172,6 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
       data: { status: 'LAB_APPROVED', inventoryStatus: 'UPLOADED', isExempt: true },
       include: { items: true, po: { include: { supplier: true, uom: true } } }
     });
-  }
-
-  const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
-
-  async function resolveBatchUomId(item, rm, po, tx) {
-    const candidates = [
-      item?.uomId,
-      item?.uomLabel,
-      item?.uom,
-      rm?.unitId,
-      rm?.consumptionUnit,
-      po?.uomId,
-    ].filter(Boolean);
-
-    for (const candidate of candidates) {
-      const trimmed = String(candidate).trim();
-      if (!trimmed) continue;
-
-      if (isUuid(trimmed)) {
-        const existing = await tx.uOM.findUnique({ where: { id: trimmed } });
-        if (existing) return existing.id;
-      }
-
-      const normalized = trimmed.toLowerCase();
-      const existingUom = await tx.uOM.findFirst({
-        where: {
-          isActive: true,
-          OR: [
-            { abbreviation: { equals: normalized, mode: 'insensitive' } },
-            { name: { equals: normalized, mode: 'insensitive' } }
-          ]
-        }
-      });
-      if (existingUom) return existingUom.id;
-    }
-
-    return po?.uomId;
   }
 
   // Direct inventory update for exempt items

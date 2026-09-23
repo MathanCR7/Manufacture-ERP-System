@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { 
   ArrowLeft, Package, Truck, FlaskConical, CheckCircle2, XCircle, 
   AlertTriangle, Clock, QrCode, ShieldCheck, Calendar, Tag, FileText, 
-  Layers, Check, Sparkles, Building2
+  Layers, Check, Sparkles, Building2, Boxes, ArrowUpRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -71,6 +71,65 @@ export default function GRNViewPage() {
 
   const isExempt = grn?.isExempt || (grn?.items && grn.items.length > 0 && grn.items.every(i => i.labTestRequired === false));
   const status = grn ? (isExempt ? GRN_STATUS_MAP.LAB_EXEMPT : (GRN_STATUS_MAP[grn.status] || GRN_STATUS_MAP.PENDING_LAB)) : null;
+
+  // Robust stock extractor: handles netQty, receivedQty, string Decimals, nulls, undefined
+  const getBatchStock = (b) => {
+    if (!b) return 0;
+    const raw = (b.netQty !== null && b.netQty !== undefined)
+      ? b.netQty 
+      : ((b.receivedQty !== null && b.receivedQty !== undefined) ? b.receivedQty : b.quantity);
+    const num = Number(raw);
+    return !isNaN(num) ? num : 0;
+  };
+
+  // Robust UOM resolver: checks batch relation, PO items array, GRN items, and PO header
+  const getBatchUom = (b) => {
+    if (!b) return '';
+    if (b.uom?.abbreviation) return b.uom.abbreviation;
+    if (b.uom?.name) return b.uom.name;
+    if (typeof b.uom === 'string' && b.uom.trim()) return b.uom;
+    
+    // Match in grn.po?.items
+    if (Array.isArray(grn?.po?.items)) {
+      const item = grn.po.items.find(i => 
+        (i.rmId && (i.rmId === b.rawMaterialId || i.rmId === b.batchNumber)) ||
+        (i.code && i.code === b.rawMaterialId) ||
+        (i.name && b.rawMaterialName && i.name.toLowerCase() === b.rawMaterialName.toLowerCase())
+      );
+      if (item?.uomLabel) return item.uomLabel;
+      if (item?.unit) return item.unit;
+    }
+
+    // Match in grn?.items
+    if (Array.isArray(grn?.items)) {
+      const grnItem = grn.items.find(i => 
+        (i.rmId && (i.rmId === b.rawMaterialId || i.rmId === b.batchNumber)) ||
+        (i.rmName && b.rawMaterialName && i.rmName.toLowerCase() === b.rawMaterialName.toLowerCase())
+      );
+      if (grnItem?.uom) return grnItem.uom;
+    }
+
+    return grn?.po?.uom?.abbreviation || grn?.po?.uom?.name || '';
+  };
+
+  const handleViewInStock = (b) => {
+    const rawMatCode = b.rawMaterialId || grn?.po?.rmId || '';
+    const rawMatName = b.rawMaterialName || grn?.po?.name || '';
+    const batchNum = b.batchNumber;
+    navigate(
+      `/rm/stock?code=${encodeURIComponent(rawMatCode)}&name=${encodeURIComponent(rawMatName)}&materialId=${encodeURIComponent(rawMatCode)}&openHistory=true${batchNum ? `&batch=${encodeURIComponent(batchNum)}` : ''}`,
+      {
+        state: {
+          materialId: rawMatCode,
+          rmCode: rawMatCode,
+          rmName: rawMatName,
+          batchNumber: batchNum,
+          openHistory: true,
+          initialTab: 'grn'
+        }
+      }
+    );
+  };
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
@@ -496,28 +555,71 @@ export default function GRNViewPage() {
                 </span>
               </div>
               <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                {grn.inventoryBatches.map(b => (
-                  <div key={b.id} className="p-4 sm:px-6 flex items-center justify-between flex-wrap gap-3 text-xs sm:text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
-                    <div>
-                      <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm sm:text-base">
-                        {b.batchNumber}
+                {grn.inventoryBatches.map(b => {
+                  const stock = getBatchStock(b);
+                  const uom = getBatchUom(b);
+
+                  return (
+                    <div key={b.id} className="p-4 sm:px-6 flex items-center justify-between flex-wrap gap-4 text-xs sm:text-sm hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/qr-lifecycle/${encodeURIComponent(b.batchNumber)}`)}
+                            className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-sm sm:text-base hover:underline inline-flex items-center gap-1 group text-left cursor-pointer"
+                            title="Open Batch QR & Traceability"
+                          >
+                            <span>{b.batchNumber}</span>
+                            <ArrowUpRight className="w-3.5 h-3.5 opacity-60 group-hover:opacity-100 transition-opacity" />
+                          </button>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            🟢 {b.status || 'AVAILABLE'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-slate-500 flex items-center gap-2 flex-wrap">
+                          <span>Material: <strong className="text-slate-700 dark:text-slate-300">{b.rawMaterialName}</strong></span>
+                          {b.rawMaterialId && <span className="font-mono text-[11px] text-slate-400">({b.rawMaterialId})</span>}
+                          {b.mfgDate && <span>· Mfg: {format(new Date(b.mfgDate), 'dd/MM/yyyy')}</span>}
+                          {b.expiryDate && <span>· Exp: {format(new Date(b.expiryDate), 'dd/MM/yyyy')}</span>}
+                          {b.storageLocation && <span>· Loc: <strong className="text-slate-600 dark:text-slate-400">{b.storageLocation}</strong></span>}
+                        </div>
                       </div>
-                      <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                        <span>Material: <strong className="text-slate-700 dark:text-slate-300">{b.rawMaterialName}</strong></span>
-                        {b.mfgDate && <span>· Mfg: {format(new Date(b.mfgDate), 'dd/MM/yyyy')}</span>}
-                        {b.expiryDate && <span>· Exp: {format(new Date(b.expiryDate), 'dd/MM/yyyy')}</span>}
+
+                      <div className="flex items-center gap-4 sm:gap-6">
+                        <div className="text-right">
+                          <span className="text-[11px] text-slate-400 block font-medium">Net Stock Stored</span>
+                          <span className="font-extrabold text-slate-900 dark:text-white text-base sm:text-lg font-mono">
+                            {stock.toLocaleString()} <span className="text-xs font-semibold text-slate-500 uppercase">{uom}</span>
+                          </span>
+                          <div className="text-[11px] text-emerald-600 font-semibold mt-0.5 flex items-center justify-end gap-1">
+                            <Check className="w-3 h-3" /> In Stock
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-1.5">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 gap-1 font-medium"
+                            onClick={() => navigate(`/qr-lifecycle/${encodeURIComponent(b.batchNumber)}`)}
+                            title="Trace QR Lifecycle"
+                          >
+                            <QrCode className="w-3.5 h-3.5" /> Trace QR
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 gap-1 font-medium"
+                            onClick={() => handleViewInStock(b)}
+                            title="View Material Stock"
+                          >
+                            <Boxes className="w-3.5 h-3.5" /> RM Stock
+                          </Button>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base font-mono">
-                        {Number(b.netQty ?? b.receivedQty ?? b.quantity ?? 0).toLocaleString()} {b.uom?.abbreviation || b.uom?.name || (typeof b.uom === 'string' ? b.uom : '') || grn.po?.uom?.abbreviation || ''}
-                      </span>
-                      <div className="text-[11px] text-emerald-600 font-semibold mt-0.5 flex items-center justify-end gap-1">
-                        <Check className="w-3 h-3" /> In Stock
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

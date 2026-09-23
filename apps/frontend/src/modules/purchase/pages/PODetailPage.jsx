@@ -187,12 +187,37 @@ export default function PODetailPage() {
     ? (hasBatches || hasGRN || po.status === 'APPROVED' || po.status === 'RECEIVED' || grn?.inventoryStatus === 'UPLOADED')
     : (labApproved && (hasBatches || grn?.inventoryStatus === 'UPLOADED'));
 
-  // Link directly to RM Stock with drawer open
+  // Helper to dynamically resolve the accurate UOM for each batch
+  const getBatchUom = (batch) => {
+    if (batch?.uom?.abbreviation) return batch.uom.abbreviation;
+    if (batch?.uom?.name) return batch.uom.name;
+    if (typeof batch?.uom === 'string' && batch.uom.trim()) return batch.uom;
+    if (Array.isArray(po.items)) {
+      const matched = po.items.find(i => 
+        (i.rmId && (i.rmId === batch?.rawMaterialId || i.rmId === batch?.batchNumber)) || 
+        (i.code && i.code === batch?.rawMaterialId) || 
+        (i.id && (i.id === batch?.rawMaterialId || i.id === batch?.id)) ||
+        (i.name && batch?.rawMaterialName && i.name.toLowerCase() === batch.rawMaterialName.toLowerCase())
+      );
+      if (matched?.uomLabel) return matched.uomLabel;
+      if (matched?.unit) return matched.unit;
+    }
+    return po.uom?.abbreviation || 'KG';
+  };
+
+  // Link directly to RM Stock with drawer open for that specific batch and raw material
   const handleViewInStock = (batch = null) => {
     const targetBatch = batch || (batches.length > 0 ? batches[0] : null);
-    const rawMatId = targetBatch?.rawMaterialId || po.rmId;
-    const rawMatCode = po.rmId;
-    const rawMatName = targetBatch?.rawMaterialName || po.name;
+    const matchedItem = Array.isArray(po.items) && targetBatch
+      ? po.items.find(i => 
+          (i.rmId && (i.rmId === targetBatch.rawMaterialId || i.rmId === targetBatch.batchNumber)) || 
+          (i.code && i.code === targetBatch.rawMaterialId) || 
+          (i.name && targetBatch.rawMaterialName && i.name.toLowerCase() === targetBatch.rawMaterialName.toLowerCase())
+        )
+      : null;
+    const rawMatCode = matchedItem?.rmId || matchedItem?.code || targetBatch?.rawMaterialId || po.rmId;
+    const rawMatName = matchedItem?.name || targetBatch?.rawMaterialName || po.name;
+    const rawMatId = targetBatch?.rawMaterialId || matchedItem?.id || po.rmId;
     const batchNum = targetBatch?.batchNumber;
 
     navigate(
@@ -407,15 +432,7 @@ export default function PODetailPage() {
             </AlertDialog>
           )}
 
-          {hasBatches && (
-            <Button
-              variant="outline"
-              className="border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 gap-1.5 font-medium"
-              onClick={() => handleViewInStock(batches[0])}
-            >
-              <Boxes className="w-4 h-4" /> View in RM Stock
-            </Button>
-          )}
+
 
           {!hasBatches && (po.status === 'RECEIVED' || po.status === 'APPROVED') && (
             <Button
@@ -579,7 +596,7 @@ export default function PODetailPage() {
                         <div className="text-right">
                           <span className="text-[11px] text-slate-400 block font-medium">Net Stock Stored</span>
                           <p className="text-base font-extrabold text-slate-900 dark:text-white font-mono">
-                            {Number(batch.netQty || batch.receivedQty || 0).toLocaleString()} {po.uom?.abbreviation || 'KG'}
+                            {Number(batch.netQty || batch.receivedQty || 0).toLocaleString()} {getBatchUom(batch)}
                           </p>
                         </div>
                       </div>
@@ -1060,7 +1077,7 @@ export default function PODetailPage() {
                   {batches[0].batchNumber}
                 </span>
                 <span className="text-[10px] text-emerald-600 dark:text-emerald-400 block mt-0.5 font-medium">
-                  {Number(batches[0].netQty || batches[0].receivedQty || 0)} {po.uom?.abbreviation || 'KG'} AVAILABLE
+                  {Number(batches[0].netQty || batches[0].receivedQty || 0)} {getBatchUom(batches[0])} AVAILABLE
                 </span>
               </div>
             )}
