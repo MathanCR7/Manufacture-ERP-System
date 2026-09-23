@@ -226,6 +226,12 @@ const createPOSchema = z.object({
   igst: z.coerce.number().optional(),
   grandTotal: z.coerce.number().optional(),
   items: z.any().optional(),
+  notes: z.string().nullable().optional(),
+  expiryDate: z.string().nullable().optional(),
+  weight: z.string().nullable().optional(),
+  mfgBatchNo: z.string().nullable().optional(),
+  mfgDate: z.string().nullable().optional(),
+  expDate: z.string().nullable().optional(),
   quotationId: z.string().nullable().optional(),
 
   // Supplier Invoice & Logistics / E-Way Bill Details
@@ -276,6 +282,9 @@ exports.createPO = async (req, res, next) => {
       });
 
       const initialPoStatus = targetStatus === 'RECEIVED' ? 'RECEIVED' : targetStatus;
+      const resolvedExpiryDate = parsedData.expiryDate 
+        ? new Date(parsedData.expiryDate) 
+        : (Array.isArray(parsedData.items) && parsedData.items[0]?.expDate ? new Date(parsedData.items[0].expDate) : null);
 
       const po = await tx.rawMaterialPO.create({
         data: {
@@ -286,6 +295,11 @@ exports.createPO = async (req, res, next) => {
           amount: parsedData.amount,
           uomId: resolvedUomId,
           expectedDelivery: new Date(parsedData.expectedDelivery),
+          expiryDate: resolvedExpiryDate,
+          weight: parsedData.weight || (Array.isArray(parsedData.items) && parsedData.items[0]?.weight ? parsedData.items[0].weight : null),
+          mfgBatchNo: parsedData.mfgBatchNo || (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgBatchNo ? parsedData.items[0].mfgBatchNo : null),
+          mfgDate: parsedData.mfgDate ? new Date(parsedData.mfgDate) : (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgDate ? new Date(parsedData.items[0].mfgDate) : null),
+          expDate: parsedData.expDate ? new Date(parsedData.expDate) : (resolvedExpiryDate || null),
           supplierId: parsedData.supplierId,
           status: initialPoStatus,
           createdBy: req.user.id,
@@ -299,6 +313,7 @@ exports.createPO = async (req, res, next) => {
           igst: parsedData.igst || 0,
           grandTotal: parsedData.grandTotal || 0,
           items: parsedData.items || null,
+          notes: parsedData.notes || null,
           supplierInvoiceNo: parsedData.supplierInvoiceNo || null,
           supplierInvoiceDate: parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null,
           transportMode: parsedData.transportMode || 'ROAD',
@@ -408,6 +423,7 @@ exports.createPO = async (req, res, next) => {
 };
 
 const updatePOSchema = z.object({
+  rmId: z.string().trim().optional(),
   name: z.string().min(2).optional(),
   quantity: z.coerce.number().positive().optional(),
   amount: z.coerce.number().positive().optional(),
@@ -426,6 +442,12 @@ const updatePOSchema = z.object({
   igst: z.coerce.number().optional(),
   grandTotal: z.coerce.number().optional(),
   items: z.any().optional(),
+  notes: z.string().nullable().optional(),
+  expiryDate: z.string().nullable().optional(),
+  weight: z.string().nullable().optional(),
+  mfgBatchNo: z.string().nullable().optional(),
+  mfgDate: z.string().nullable().optional(),
+  expDate: z.string().nullable().optional(),
 
   // Supplier Invoice & Logistics / E-Way Bill Details
   supplierInvoiceNo: z.string().trim().nullable().optional(),
@@ -474,10 +496,47 @@ exports.updatePO = async (req, res, next) => {
     }
 
     const updateData = {};
+    if (parsedData.rmId !== undefined) {
+      updateData.rmId = parsedData.rmId;
+      await prisma.idRegistry.upsert({
+        where: { id: parsedData.rmId },
+        update: { status: 'ACTIVE' },
+        create: {
+          id: parsedData.rmId,
+          status: 'ACTIVE',
+          createdBy: req.user.id
+        }
+      });
+    }
     if (parsedData.name !== undefined) updateData.name = parsedData.name;
     if (parsedData.quantity !== undefined) updateData.quantity = parsedData.quantity;
     if (parsedData.amount !== undefined) updateData.amount = parsedData.amount;
     if (parsedData.expectedDelivery !== undefined) updateData.expectedDelivery = new Date(parsedData.expectedDelivery);
+    if (parsedData.expiryDate !== undefined) {
+      updateData.expiryDate = parsedData.expiryDate ? new Date(parsedData.expiryDate) : null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.expDate) {
+      updateData.expiryDate = new Date(parsedData.items[0].expDate);
+    }
+    if (parsedData.weight !== undefined) {
+      updateData.weight = parsedData.weight || null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.weight) {
+      updateData.weight = parsedData.items[0].weight || null;
+    }
+    if (parsedData.mfgBatchNo !== undefined) {
+      updateData.mfgBatchNo = parsedData.mfgBatchNo || null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgBatchNo) {
+      updateData.mfgBatchNo = parsedData.items[0].mfgBatchNo || null;
+    }
+    if (parsedData.mfgDate !== undefined) {
+      updateData.mfgDate = parsedData.mfgDate ? new Date(parsedData.mfgDate) : null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgDate) {
+      updateData.mfgDate = new Date(parsedData.items[0].mfgDate);
+    }
+    if (parsedData.expDate !== undefined) {
+      updateData.expDate = parsedData.expDate ? new Date(parsedData.expDate) : null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.expDate) {
+      updateData.expDate = new Date(parsedData.items[0].expDate);
+    }
     if (parsedData.supplierId !== undefined) updateData.supplierId = parsedData.supplierId || null;
     if (parsedData.uomId !== undefined) updateData.uomId = resolvedUomId;
     if (parsedData.subtotal !== undefined) updateData.subtotal = parsedData.subtotal;
@@ -490,6 +549,7 @@ exports.updatePO = async (req, res, next) => {
     if (parsedData.igst !== undefined) updateData.igst = parsedData.igst;
     if (parsedData.grandTotal !== undefined) updateData.grandTotal = parsedData.grandTotal;
     if (parsedData.items !== undefined) updateData.items = parsedData.items;
+    if (parsedData.notes !== undefined) updateData.notes = parsedData.notes || null;
 
     if (parsedData.supplierInvoiceNo !== undefined) updateData.supplierInvoiceNo = parsedData.supplierInvoiceNo || null;
     if (parsedData.supplierInvoiceDate !== undefined) updateData.supplierInvoiceDate = parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null;

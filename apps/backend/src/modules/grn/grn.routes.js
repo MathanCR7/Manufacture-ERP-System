@@ -611,7 +611,7 @@ router.post('/lab-test',
           include: { testResults: true }
         });
 
-        // Update GRN status, stock, inventory batch and PO ONLY if this is NOT a draft
+        // Update GRN status, stock, inventory batch and PO ONLY if this is NOT a draftbatch
         if (!data.isDraft) {
           const newGrnStatus = data.overallDecision === 'APPROVED' ? 'LAB_APPROVED' : 
                                data.overallDecision === 'REJECTED' ? 'LAB_REJECTED' : 'LAB_RESAMPLE';

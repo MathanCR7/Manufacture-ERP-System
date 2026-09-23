@@ -7,7 +7,7 @@ import {
   CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown, 
   Plus, Minus, AlertTriangle, FileText, CheckCircle2, Package, Tag, Calculator, 
   Info, Trash2, Scale, Building2, CreditCard, ShieldCheck, ArrowRight, Layers,
-  Truck, Calendar, Clock, FlaskConical
+  Truck, Calendar, Clock, FlaskConical, GripVertical
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import Swal from 'sweetalert2';
@@ -121,306 +121,7 @@ function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   Searchable Item Select Component (Raw Materials & Non-Inventory Items)
-   ───────────────────────────────────────────────────────────────────────────── */
-const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
-  { rawMaterials, value, onChange, error, lowStockIds = new Set() },
-  ref
-) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'RAW_MATERIAL' | 'NON_INVENTORY'
-  const containerRef = useRef(null);
-  const searchRef = useRef(null);
-
-  React.useImperativeHandle(ref, () => ({
-    openDropdown: () => {
-      setOpen(true);
-      setTimeout(() => {
-        containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        searchRef.current?.focus();
-      }, 50);
-    },
-    closeDropdown: () => setOpen(false),
-    focusSearch: () => searchRef.current?.focus(),
-  }));
-
-  const rmCount = rawMaterials.filter(it => it.itemType === 'RAW_MATERIAL').length;
-  const nonInvCount = rawMaterials.filter(it => it.itemType === 'NON_INVENTORY').length;
-
-  const filtered = rawMaterials.filter(item => {
-    if (typeFilter !== 'ALL' && item.itemType !== typeFilter) return false;
-    const q = search.toLowerCase().trim();
-    if (!q) return true;
-    const nameMatch = (item.name || '').toLowerCase().includes(q);
-    const codeMatch = (item.code || '').toLowerCase().includes(q);
-    const catName = (item.categoryName || item.category?.name || (typeof item.category === 'string' ? item.category : '') || '').toLowerCase();
-    const catMatch = catName.includes(q);
-    const uomVal = (item.displayUom || item.unitId || item.consumptionUnit || '').toLowerCase();
-    const uomMatch = uomVal.includes(q);
-    const descMatch = (item.description || '').toLowerCase().includes(q);
-    const typeMatch = (item.itemTypeLabel || '').toLowerCase().includes(q);
-    return nameMatch || codeMatch || catMatch || uomMatch || descMatch || typeMatch;
-  });
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setOpen(false);
-        setSearch('');
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  useEffect(() => {
-    if (open && searchRef.current) {
-      searchRef.current.focus();
-    }
-  }, [open]);
-
-  const handleSelect = (item) => {
-    onChange(item);
-    setOpen(false);
-    setSearch('');
-  };
-
-  const handleClear = (e) => {
-    e.stopPropagation();
-    onChange(null);
-    setSearch('');
-  };
-
-  const isSelectedNonInv = value?.itemType === 'NON_INVENTORY';
-  const selectedCategoryName = value ? (value.categoryName || value.category?.name || (typeof value.category === 'string' ? value.category : '')) : '';
-  const selectedUomLabel = value ? (value.displayUom || value.unitId || value.consumptionUnit || 'units').toUpperCase() : '';
-
-  return (
-    <div ref={containerRef} className="relative w-full">
-      <button
-        type="button"
-        onClick={() => setOpen(prev => !prev)}
-        className={`w-full px-2.5 sm:px-3.5 h-10 border rounded-xl text-left flex items-center justify-between transition-all duration-150 shadow-xs ${
-          open 
-            ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/15 dark:bg-indigo-950/40 dark:border-indigo-500' 
-            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500'
-        } ${error ? 'border-rose-400 ring-2 ring-rose-500/20 bg-rose-50/30' : ''}`}
-      >
-        <div className="flex items-center gap-2 truncate min-w-0 flex-1">
-          <div className={`p-1 rounded-md shrink-0 ${
-            isSelectedNonInv 
-              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
-              : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
-          }`}>
-            {isSelectedNonInv ? <Layers className="w-3.5 h-3.5" /> : <Package className="w-3.5 h-3.5" />}
-          </div>
-
-          {value ? (
-            <div className="flex items-center gap-1.5 sm:gap-2 truncate flex-wrap">
-              <span className="font-semibold text-slate-900 dark:text-white text-xs truncate">
-                {value.code} — {value.name}
-              </span>
-              <span className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
-                isSelectedNonInv 
-                  ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60' 
-                  : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60'
-              }`}>
-                {isSelectedNonInv ? '🚫 Non-Inventory' : '🌾 Raw Material'}
-              </span>
-              {selectedCategoryName && (
-                <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
-                  <Tag className="w-2.5 h-2.5 mr-0.5 sm:mr-1 opacity-70" />
-                  {selectedCategoryName}
-                </span>
-              )}
-              {selectedUomLabel && (
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shrink-0">
-                  <Scale className="w-2.5 h-2.5 mr-0.5 sm:mr-1 opacity-70" />
-                  {selectedUomLabel}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span className="text-slate-400 dark:text-slate-500 text-xs truncate font-medium">
-              Click to select Raw Material or Non-Inventory Item (search by Name, Code, Category, or UOM)...
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0 ml-1.5">
-          {value && (
-            <span
-              onMouseDown={handleClear}
-              className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer p-0.5 rounded transition-colors"
-              title="Clear selection"
-            >
-              <X className="w-3.5 h-3.5" />
-            </span>
-          )}
-          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180 text-indigo-500' : ''}`} />
-        </div>
-      </button>
-
-      {open && (
-        <div className="absolute z-50 mt-1.5 left-0 right-0 w-full max-w-[calc(100vw-1.5rem)] sm:max-w-none bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150 ring-1 ring-black/5 dark:ring-white/5">
-          {/* Quick Filter Tabs */}
-          <div className="flex items-center gap-1.5 p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 overflow-x-auto">
-            <button
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('ALL'); }}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 ${
-                typeFilter === 'ALL'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              All Items ({rawMaterials.length})
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('RAW_MATERIAL'); }}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 flex items-center gap-1 ${
-                typeFilter === 'RAW_MATERIAL'
-                  ? 'bg-emerald-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
-              }`}
-            >
-              <span>🌾 Raw Materials</span>
-              <span className="text-[10px] opacity-80 font-mono">({rmCount})</span>
-            </button>
-            <button
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('NON_INVENTORY'); }}
-              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 flex items-center gap-1 ${
-                typeFilter === 'NON_INVENTORY'
-                  ? 'bg-purple-600 text-white shadow-xs'
-                  : 'bg-white dark:bg-slate-800 text-purple-700 dark:text-purple-400 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-950/40'
-              }`}
-            >
-              <span>🚫 Non-Inventory</span>
-              <span className="text-[10px] opacity-80 font-mono">({nonInvCount})</span>
-            </button>
-          </div>
-
-          <div className="p-2 border-b border-slate-100 dark:border-slate-800 relative bg-slate-50/70 dark:bg-slate-950/70">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-            <input
-              ref={searchRef}
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Type to search by Name, Code, Category, or UOM..."
-              className="w-full pl-8 pr-7 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white"
-            />
-            {search && (
-              <button
-                type="button"
-                onMouseDown={() => setSearch('')}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          <ul className="max-h-56 sm:max-h-64 overflow-y-auto p-1.5 space-y-1">
-            {filtered.length === 0 ? (
-              <li className="px-3 py-6 text-xs text-slate-400 flex flex-col items-center justify-center">
-                <Search className="w-5 h-5 text-slate-300 dark:text-slate-600 mb-1" />
-                <span className="font-medium">No items matched "{search}"</span>
-                <span className="text-[10px] text-slate-400 mt-0.5">Try searching by code, category name, or unit</span>
-              </li>
-            ) : (
-              filtered.map(rm => {
-                const isNonInv = rm.itemType === 'NON_INVENTORY';
-                const isLow = rm.isLowStock || lowStockIds.has(rm.id);
-                const categoryName = rm.categoryName || rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || (isNonInv ? 'Non-Inventory' : 'General');
-                const uomLabel = (rm.displayUom || rm.unitId || rm.consumptionUnit || 'units').toUpperCase();
-
-                return (
-                  <li
-                    key={rm.id}
-                    onMouseDown={() => handleSelect(rm)}
-                    className={`px-2.5 sm:px-3 py-2 text-xs cursor-pointer rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 transition-colors ${
-                      value?.id === rm.id
-                        ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-800'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/90 dark:hover:bg-slate-800/80'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <div className={`p-1 rounded-md shrink-0 ${
-                        isNonInv 
-                          ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
-                          : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
-                      }`}>
-                        {isNonInv ? <Layers className="w-3.5 h-3.5" /> : <Package className="w-3.5 h-3.5" />}
-                      </div>
-
-                      <div className="flex flex-col min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`font-semibold text-xs truncate ${isLow ? 'text-rose-700 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
-                            {rm.name}
-                          </span>
-                          {isNonInv ? (
-                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800 shrink-0">
-                              Non-Inventory
-                            </span>
-                          ) : (
-                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 shrink-0">
-                              Raw Material
-                            </span>
-                          )}
-                          {isLow && (
-                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-400 font-bold border border-rose-200 dark:border-rose-800 shrink-0">
-                              Low Stock
-                            </span>
-                          )}
-                        </div>
-                        {rm.description && rm.description !== rm.name && (
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
-                            {rm.description}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Metadata Badges: Category, UOM & Code */}
-                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap pl-4 sm:pl-0">
-                      {/* Category Badge */}
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60">
-                        <Tag className="w-2.5 h-2.5 mr-1 opacity-70" />
-                        {categoryName}
-                      </span>
-
-                      {/* UOM Badge */}
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 font-mono">
-                        <Scale className="w-2.5 h-2.5 mr-1 opacity-70" />
-                        {uomLabel}
-                      </span>
-
-                      {/* Code */}
-                      <span className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
-                        {rm.code}
-                      </span>
-
-                      {rm.ratePerUnit ? (
-                        <span className="text-[10px] font-medium text-slate-600 dark:text-slate-300 ml-1">
-                          ₹{Number(rm.ratePerUnit).toFixed(2)}
-                        </span>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })
-            )}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-});
+import RawMaterialSelect from '../components/SearchableItemSelect';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Main CreatePOPage Component
@@ -460,6 +161,42 @@ export default function CreatePOPage({ onBack }) {
   });
 
   const [items, setItems] = useState([]);
+  const [draggedIndex, setDraggedIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
+
+  const handleDragStart = (e, index) => {
+    setDraggedIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index);
+    }
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    e.preventDefault();
+    if (draggedIndex === null || draggedIndex === targetIndex) return;
+    setItems(prev => {
+      const updated = [...prev];
+      const temp = updated[draggedIndex];
+      updated[draggedIndex] = updated[targetIndex];
+      updated[targetIndex] = temp;
+      return updated;
+    });
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedIndex(null);
+    setDragOverIndex(null);
+  };
+
   const [errorMsg, setErrorMsg] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const isFromQuotation = !!location.state?.prefillFromQuotation;
@@ -648,6 +385,35 @@ export default function CreatePOPage({ onBack }) {
     return null;
   };
 
+  const createItemFromCatalog = (item) => {
+    const defaultUom = getDefaultUomForItem(item);
+    const uomLabel = (defaultUom ? defaultUom.abbreviation : (item.displayUom || item.unitId || item.consumptionUnit || 'units')).toUpperCase();
+    const uomId = defaultUom ? defaultUom.id : '';
+    const categoryName = item.categoryName || item.category?.name || (typeof item.category === 'string' ? item.category : '') || (item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'General');
+    const unitPrice = Number(item.ratePerUnit || 0);
+    const quantity = 1;
+
+    return {
+      id: item.id,
+      rmId: item.code,
+      name: item.name,
+      itemType: item.itemType || 'RAW_MATERIAL',
+      category: categoryName,
+      weight: '',
+      mfgBatchNo: '',
+      mfgDate: '',
+      expDate: '',
+      quantity: quantity,
+      unitPrice: unitPrice,
+      subtotal: Math.round(quantity * unitPrice * 100) / 100,
+      uomLabel: uomLabel,
+      uomId: uomId,
+      gstApplicable: true,
+      gstPercentage: 18,
+      labTestRequired: item.itemType === 'NON_INVENTORY' ? false : true,
+    };
+  };
+
   const handleAddRmItem = (item) => {
     if (!item) return;
     const exists = items.some(it => it.id === item.id);
@@ -655,34 +421,87 @@ export default function CreatePOPage({ onBack }) {
       Swal.fire({
         icon: 'info',
         title: 'Item Already in List',
-        text: `${item.name} is already added. You can update its quantity directly in the table.`,
+        text: `${item.name} is already added. You can update its quantity and details directly in the table.`,
         confirmButtonColor: '#4f46e5',
       });
       return;
     }
     
-    const defaultUom = getDefaultUomForItem(item);
-    const uomLabel = (defaultUom ? defaultUom.abbreviation : (item.displayUom || item.unitId || item.consumptionUnit || 'units')).toUpperCase();
-    const uomId = defaultUom ? defaultUom.id : '';
-    const categoryName = item.categoryName || item.category?.name || (typeof item.category === 'string' ? item.category : '') || (item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'General');
-
-    const newItem = {
-      id: item.id,
-      rmId: item.code,
-      name: item.name,
-      itemType: item.itemType || 'RAW_MATERIAL',
-      category: categoryName,
-      quantity: 1,
-      unitPrice: Number(item.ratePerUnit || 0),
-      uomLabel: uomLabel,
-      uomId: uomId,
-      gstApplicable: true,
-      gstPercentage: 18,
-      labTestRequired: item.itemType === 'NON_INVENTORY' ? false : true,
-    };
-
-    setItems(prev => [...prev, newItem]);
+    setItems(prev => [...prev, createItemFromCatalog(item)]);
     setFormData(prev => ({ ...prev, selectedRm: null }));
+  };
+
+  const handleAddMultipleItems = (newItems) => {
+    if (!newItems || newItems.length === 0) return;
+    const toAdd = [];
+    let duplicateCount = 0;
+
+    newItems.forEach(item => {
+      const exists = items.some(it => it.id === item.id);
+      if (exists) {
+        duplicateCount++;
+      } else {
+        toAdd.push(createItemFromCatalog(item));
+      }
+    });
+
+    if (toAdd.length > 0) {
+      setItems(prev => [...prev, ...toAdd]);
+    }
+
+    if (duplicateCount > 0 && toAdd.length === 0) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Items Already in List',
+        text: 'All selected items are already added to your order table.',
+        confirmButtonColor: '#4f46e5',
+      });
+    }
+  };
+
+  const updateItemField = (id, field, value) => {
+    setItems(prev => prev.map(it => it.id === id ? { ...it, [field]: value } : it));
+  };
+
+  const updateItemQuantity = (id, newQty) => {
+    setItems(prev => prev.map(it => {
+      if (it.id !== id) return it;
+      const q = parseFloat(newQty) || 0;
+      const p = parseFloat(it.unitPrice) || 0;
+      return {
+        ...it,
+        quantity: newQty,
+        subtotal: Math.round(q * p * 100) / 100,
+      };
+    }));
+  };
+
+  const updateItemUnitPrice = (id, newPrice) => {
+    setItems(prev => prev.map(it => {
+      if (it.id !== id) return it;
+      const p = parseFloat(newPrice) || 0;
+      const q = parseFloat(it.quantity) || 0;
+      return {
+        ...it,
+        unitPrice: newPrice,
+        subtotal: Math.round(q * p * 100) / 100,
+      };
+    }));
+  };
+
+  // Two-way calculation: entering subtotal calculates unit price = subtotal / quantity
+  const updateItemSubtotal = (id, newSubtotal) => {
+    setItems(prev => prev.map(it => {
+      if (it.id !== id) return it;
+      const sub = parseFloat(newSubtotal) || 0;
+      const q = parseFloat(it.quantity) || 0;
+      const calcUnitPrice = q > 0 ? Math.round((sub / q) * 10000) / 10000 : 0;
+      return {
+        ...it,
+        subtotal: newSubtotal,
+        unitPrice: calcUnitPrice,
+      };
+    }));
   };
 
   // Stepper function for - and + button
@@ -691,7 +510,12 @@ export default function CreatePOPage({ onBack }) {
       if (it.id !== id) return it;
       const current = parseFloat(it.quantity) || 0;
       const updated = Math.max(1, Math.round((current + delta) * 1000) / 1000);
-      return { ...it, quantity: updated };
+      const p = parseFloat(it.unitPrice) || 0;
+      return { 
+        ...it, 
+        quantity: updated,
+        subtotal: Math.round(updated * p * 100) / 100,
+      };
     }));
   };
 
@@ -700,8 +524,10 @@ export default function CreatePOPage({ onBack }) {
     rmSelectRef.current?.openDropdown();
   };
 
+  const addedItemIds = useMemo(() => new Set(items.map(it => it.id)), [items]);
+
   // Financial calculations
-  const subtotal = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+  const subtotal = items.reduce((sum, item) => sum + (parseFloat(item.subtotal) || (Number(item.quantity || 0) * Number(item.unitPrice || 0))), 0);
   const shipping = Number(formData.shipping || 0);
   const discount = Number(formData.discount || 0);
   const otherCharges = Number(formData.otherCharges || 0);
@@ -713,7 +539,7 @@ export default function CreatePOPage({ onBack }) {
 
   const totalItemTax = items.reduce((sum, item) => {
     if (!item.gstApplicable) return sum;
-    const itemSubtotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+    const itemSubtotal = parseFloat(item.subtotal) || (Number(item.quantity || 0) * Number(item.unitPrice || 0));
     return sum + (itemSubtotal * (Number(item.gstPercentage || 0) / 100));
   }, 0);
 
@@ -1293,6 +1119,8 @@ export default function CreatePOPage({ onBack }) {
                     rawMaterials={purchasableItems}
                     value={formData.selectedRm}
                     onChange={handleAddRmItem} 
+                    onAddMultiple={handleAddMultipleItems}
+                    addedItemIds={addedItemIds}
                     lowStockIds={lowStockIds}
                   />
                 )}
@@ -1327,70 +1155,96 @@ export default function CreatePOPage({ onBack }) {
             {/* Items Table Container: Responsive, Scrollable after 3 items with sticky header */}
             <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs flex flex-col">
               
-              {/* Inner scroll container: exactly ~3 items fit (~210px), then scrolls smoothly */}
-              <div className="overflow-x-auto overflow-y-auto max-h-[210px] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
-                <table className="w-full min-w-[620px] text-xs text-left border-collapse">
+              {/* Inner scroll container: smooth scrolling with sticky header */}
+              <div className="overflow-x-auto overflow-y-auto max-h-[500px] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
+                <table className="w-full min-w-[700px] text-xs text-left border-collapse">
                   <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px] shadow-2xs">
                     <tr>
-                      <th className="px-3 py-2 w-8 text-center bg-slate-50 dark:bg-slate-800">#</th>
-                      <th className="px-3 py-2 bg-slate-50 dark:bg-slate-800">Item / Category / UOM</th>
+                      <th className="px-2 py-2 w-12 text-center bg-slate-50 dark:bg-slate-800">#</th>
+                      <th className="px-3 py-2 bg-slate-50 dark:bg-slate-800 min-w-[200px]">Item / Category / UOM</th>
                       <th className="px-3 py-2 text-center w-36 bg-slate-50 dark:bg-slate-800">Quantity</th>
                       <th className="px-3 py-2 text-right w-28 bg-slate-50 dark:bg-slate-800">Unit Price (₹)</th>
                       <th className="px-3 py-2 text-center w-24 bg-slate-50 dark:bg-slate-800">Tax Status</th>
                       <th className="px-3 py-2 text-center w-20 bg-slate-50 dark:bg-slate-800">GST %</th>
-                      <th className="px-3 py-2 text-center w-36 bg-slate-50 dark:bg-slate-800">Lab Test Status</th>
-                      <th className="px-3 py-2 text-right w-28 bg-slate-50 dark:bg-slate-800">Subtotal (₹)</th>
-                      <th className="px-3 py-2 text-center w-20 bg-slate-50 dark:bg-slate-800">
-                        <span>Action</span>
-                      </th>
+                      <th className="px-3 py-2 text-center w-32 bg-slate-50 dark:bg-slate-800">Lab Test Status</th>
+                      <th className="px-3 py-2 text-right w-32 bg-slate-50 dark:bg-slate-800">Subtotal (₹)</th>
+                      <th className="px-3 py-2 text-center w-14 bg-slate-50 dark:bg-slate-800">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                    {items.length > 0 ? (
-                      items.map((item, index) => {
-                        const itemSubtotal = Number(item.quantity || 0) * Number(item.unitPrice || 0);
-                        const isNonInv = item.itemType === 'NON_INVENTORY';
-                        return (
-                          <tr key={item.id || index} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                            <td className="px-3 py-2 text-center text-slate-400 font-medium">{index + 1}</td>
-                            
-                            <td className="px-3 py-2">
-                              <div className="font-semibold text-slate-900 dark:text-slate-100 text-xs flex items-center gap-1.5 flex-wrap">
-                                <span>{item.name}</span>
-                                {isNonInv ? (
-                                  <span className="inline-flex items-center text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800">
-                                    Non-Inventory
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
-                                    Raw Material
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.2 rounded border border-slate-200 dark:border-slate-700">
-                                  {item.rmId}
-                                </span>
-                                {item.category && (
-                                  <span className="inline-flex items-center text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 px-1.5 py-0.2 rounded border border-indigo-200/70 dark:border-indigo-800/50">
-                                    <Tag className="w-2 h-2 mr-0.5 opacity-70" />
-                                    {item.category}
-                                  </span>
-                                )}
-                                <span className="inline-flex items-center text-[10px] font-bold font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.2 rounded border border-emerald-200/70 dark:border-emerald-800/50">
-                                  <Scale className="w-2 h-2 mr-0.5 opacity-70" />
-                                  {item.uomLabel}
-                                </span>
-                                {lowStockIds.has(item.id) && (
-                                  <Badge variant="outline" className="text-[9px] bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/60 dark:text-rose-400 dark:border-rose-800/60 px-1 py-0">
-                                    Low
-                                  </Badge>
-                                )}
+                  {items.length > 0 ? (
+                    items.map((item, index) => {
+                      const itemSubtotal = parseFloat(item.subtotal) !== undefined && !isNaN(parseFloat(item.subtotal))
+                        ? parseFloat(item.subtotal)
+                        : Number(item.quantity || 0) * Number(item.unitPrice || 0);
+                      const isNonInv = item.itemType === 'NON_INVENTORY';
+                      const isDragged = draggedIndex === index;
+                      const isOver = dragOverIndex === index && draggedIndex !== index;
+
+                      return (
+                        <tbody
+                          key={item.id || index}
+                          onDragOver={(e) => handleDragOver(e, index)}
+                          onDragLeave={() => { if (dragOverIndex === index) setDragOverIndex(null); }}
+                          onDrop={(e) => handleDrop(e, index)}
+                          className={twMerge(
+                            "transition-all duration-150 border-b border-slate-200/80 dark:border-slate-800",
+                            isDragged && "opacity-40 bg-indigo-50/40 dark:bg-indigo-950/40",
+                            isOver && "ring-2 ring-indigo-500 ring-inset bg-indigo-50/60 dark:bg-indigo-950/60"
+                          )}
+                        >
+                          <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                            {/* S.No with Drag Handle */}
+                            <td className="px-2 py-1.5 text-center align-middle">
+                              <div
+                                draggable
+                                onDragStart={(e) => handleDragStart(e, index)}
+                                onDragEnd={handleDragEnd}
+                                className="inline-flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors select-none"
+                                title="Drag to swap / reorder"
+                              >
+                                <GripVertical className="w-3.5 h-3.5 shrink-0 text-slate-400 hover:text-indigo-600" />
+                                <span className="font-bold text-xs text-slate-700 dark:text-slate-300 font-mono w-4 text-center">{index + 1}</span>
                               </div>
                             </td>
 
-                            {/* Quantity with Stylish [-] Value [+] Stepper Controls */}
-                            <td className="px-3 py-2 text-center">
+                            {/* Item Details */}
+                            <td className="px-3 py-1.5 align-middle">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="font-bold text-slate-900 dark:text-slate-100 text-xs truncate max-w-[200px]" title={item.name}>
+                                  {item.name}
+                                </span>
+                                {isNonInv ? (
+                                  <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+                                    Non-Inv
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                                    RM
+                                  </span>
+                                )}
+                                {lowStockIds.has(item.id) && (
+                                  <span className="text-[9px] uppercase tracking-wider px-1 py-0.2 rounded font-bold bg-rose-100 text-rose-700 border border-rose-200 shrink-0">
+                                    Low
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 whitespace-nowrap overflow-hidden">
+                                <span className="font-mono text-slate-600 dark:text-slate-300 font-medium bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700">
+                                  {item.rmId}
+                                </span>
+                                {item.category && (
+                                  <span className="truncate max-w-[120px] text-slate-500 dark:text-slate-400" title={item.category}>
+                                    • {item.category}
+                                  </span>
+                                )}
+                                <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                  • {item.uomLabel}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Quantity with [-] Value [+] Stepper Controls */}
+                            <td className="px-3 py-1.5 text-center align-middle">
                               <div className="flex items-center justify-center gap-1.5">
                                 <div className="inline-flex items-center border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50/70 dark:bg-slate-900/70 p-0.5 shadow-2xs">
                                   <button
@@ -1407,10 +1261,7 @@ export default function CreatePOPage({ onBack }) {
                                     step="any" 
                                     min="0.001"
                                     value={item.quantity} 
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setItems(prev => prev.map(it => it.id === item.id ? { ...it, quantity: val } : it));
-                                    }} 
+                                    onChange={(e) => updateItemQuantity(item.id, e.target.value)} 
                                     className="w-16 h-5 p-0 text-center font-bold text-xs bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 select-all" 
                                     required
                                   />
@@ -1430,26 +1281,24 @@ export default function CreatePOPage({ onBack }) {
                             </td>
 
                             {/* Unit Price */}
-                            <td className="px-3 py-2 text-right">
+                            <td className="px-3 py-1.5 text-right align-middle">
                               <div className="relative inline-flex items-center ml-auto">
                                 <span className="absolute left-2 text-[10px] font-bold text-slate-400">₹</span>
                                 <Input 
                                   type="number" 
-                                  step="0.01" 
+                                  step="0.0001" 
                                   min="0"
                                   value={item.unitPrice} 
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setItems(prev => prev.map(it => it.id === item.id ? { ...it, unitPrice: val } : it));
-                                  }} 
+                                  onChange={(e) => updateItemUnitPrice(item.id, e.target.value)} 
                                   className="w-20 pl-4 pr-1.5 text-right h-7 rounded-lg border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 dark:bg-slate-900/50 font-semibold text-xs" 
+                                  title="Unit price per unit"
                                   required
                                 />
                               </div>
                             </td>
 
                             {/* GST Status Toggle */}
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-3 py-1.5 text-center align-middle">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1467,7 +1316,7 @@ export default function CreatePOPage({ onBack }) {
                             </td>
 
                             {/* GST % */}
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-3 py-1.5 text-center align-middle">
                               <select
                                 disabled={!item.gstApplicable}
                                 value={item.gstPercentage}
@@ -1486,7 +1335,7 @@ export default function CreatePOPage({ onBack }) {
                             </td>
 
                             {/* Lab Test Required vs Exempt Toggle */}
-                            <td className="px-3 py-2 text-center">
+                            <td className="px-3 py-1.5 text-center align-middle">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1514,13 +1363,30 @@ export default function CreatePOPage({ onBack }) {
                               </button>
                             </td>
 
-                            {/* Subtotal */}
-                            <td className="px-3 py-2 text-right font-bold text-slate-900 dark:text-white">
-                              ₹{itemSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {/* Subtotal (Editable: entering subtotal auto-calculates unit price) */}
+                            <td className="px-3 py-1.5 text-right align-middle">
+                              <div className="flex flex-col items-end">
+                                <div className="relative inline-flex items-center">
+                                  <span className="absolute left-2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400">₹</span>
+                                  <Input 
+                                    type="number" 
+                                    step="0.01" 
+                                    min="0"
+                                    value={item.subtotal !== undefined ? item.subtotal : (Math.round(itemSubtotal * 100) / 100)} 
+                                    onChange={(e) => updateItemSubtotal(item.id, e.target.value)} 
+                                    className="w-24 pl-4 pr-1.5 text-right h-7 rounded-lg border-indigo-300 dark:border-indigo-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/30 font-bold text-xs text-indigo-950 dark:text-indigo-200" 
+                                    title="Enter subtotal to auto-calculate unit price (subtotal ÷ quantity)"
+                                    required
+                                  />
+                                </div>
+                                <span className="text-[9px] text-slate-400 font-mono mt-0.5" title="subtotal ÷ qty">
+                                  = ₹{Number(item.unitPrice || 0).toFixed(2)}/{item.uomLabel}
+                                </span>
+                              </div>
                             </td>
 
-                            {/* Action Button: Remove Item Only */}
-                            <td className="px-3 py-2 text-center">
+                            {/* Action Button: Remove Item */}
+                            <td className="px-3 py-1.5 text-center align-middle">
                               {isFromQuotation ? (
                                 <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
                                   Quoted
@@ -1537,9 +1403,68 @@ export default function CreatePOPage({ onBack }) {
                               )}
                             </td>
                           </tr>
-                        );
-                      })
-                    ) : (
+
+                          {/* Row 2: Weight, MFG Batch No, MFG Date, Exp Date */}
+                          <tr className="bg-slate-50/60 dark:bg-slate-800/35 border-t border-slate-100 dark:border-slate-800/60">
+                            <td colSpan={9} className="px-3 py-1">
+                              <div className="flex flex-wrap items-center gap-2 text-xs">
+                                {/* Weight */}
+                                <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                                  <Scale className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Weight:</span>
+                                  <Input 
+                                    type="text" 
+                                    value={item.weight || ''} 
+                                    onChange={(e) => updateItemField(item.id, 'weight', e.target.value)}
+                                    placeholder="e.g. 25 kg / 50" 
+                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2 py-0"
+                                  />
+                                </div>
+
+                                {/* MFG Batch No */}
+                                <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
+                                  <Tag className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Batch:</span>
+                                  <Input 
+                                    type="text" 
+                                    value={item.mfgBatchNo || ''} 
+                                    onChange={(e) => updateItemField(item.id, 'mfgBatchNo', e.target.value)}
+                                    placeholder="e.g. BATCH-2026-09" 
+                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-medium uppercase px-2 py-0"
+                                  />
+                                </div>
+
+                                {/* MFG Date */}
+                                <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                                  <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
+                                  <Input 
+                                    type="date" 
+                                    value={item.mfgDate || ''} 
+                                    onChange={(e) => updateItemField(item.id, 'mfgDate', e.target.value)}
+                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-1.5 py-0"
+                                  />
+                                </div>
+
+                                {/* Exp Date */}
+                                <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                                  <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
+                                  <Input 
+                                    type="date" 
+                                    value={item.expDate || ''} 
+                                    onChange={(e) => updateItemField(item.id, 'expDate', e.target.value)}
+                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-1.5 py-0"
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        </tbody>
+                      );
+                    })
+                  ) : (
+                    <tbody>
                       <tr>
                         <td colSpan={9} className="px-3 py-8 text-center">
                           <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
@@ -1559,8 +1484,8 @@ export default function CreatePOPage({ onBack }) {
                           </div>
                         </td>
                       </tr>
-                    )}
-                  </tbody>
+                    </tbody>
+                  )}
                 </table>
               </div>
 

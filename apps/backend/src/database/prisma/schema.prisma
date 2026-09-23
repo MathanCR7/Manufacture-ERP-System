@@ -168,6 +168,10 @@ model RawMaterialPO {
   amount           Decimal
   uomId            String
   expectedDelivery DateTime
+  weight           String?             @db.VarChar(100)
+  mfgBatchNo       String?             @map("mfg_batch_no") @db.VarChar(100)
+  mfgDate          DateTime?           @map("mfg_date")
+  expDate          DateTime?           @map("exp_date")
   expiryDate       DateTime?
   status           RawMaterialPOStatus
   lockedAt         DateTime?
@@ -196,6 +200,7 @@ model RawMaterialPO {
   igst             Decimal             @default(0.00)
   grandTotal       Decimal             @default(0.00) @map("grand_total")
   items            Json?
+  notes            String?             @db.Text
   
   // Payment Details
   paymentStatus    String?             @default("UNPAID")

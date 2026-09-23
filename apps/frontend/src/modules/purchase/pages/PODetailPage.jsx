@@ -7,7 +7,7 @@ import {
   ArrowLeft, Trash2, User, Calendar, FileText, IndianRupee, Printer, Edit,
   QrCode, Package, FlaskConical, CheckCircle2, XCircle, AlertTriangle,
   Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck, PackageCheck,
-  Copy, Check, ExternalLink, Boxes, RefreshCw
+  Copy, Check, ExternalLink, Boxes, RefreshCw, Scale
 } from 'lucide-react';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -737,6 +737,30 @@ export default function PODetailPage() {
                           <td className="py-2.5 px-3">
                             <div className="font-medium text-slate-900 dark:text-white">{item.name}</div>
                             <div className="text-[11px] font-mono text-slate-400">{item.rmId || item.code || '—'}</div>
+                            {(item.weight || item.mfgBatchNo || item.mfgDate || item.expDate) && (
+                              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap text-[10px] text-slate-500 dark:text-slate-400">
+                                {item.weight && (
+                                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-medium border border-slate-200 dark:border-slate-700">
+                                    <Scale className="w-2.5 h-2.5 text-indigo-500" /> {item.weight}
+                                  </span>
+                                )}
+                                {item.mfgBatchNo && (
+                                  <span className="inline-flex items-center gap-1 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 px-1.5 py-0.5 rounded font-mono font-medium border border-indigo-200 dark:border-indigo-800">
+                                    <Tag className="w-2.5 h-2.5" /> {item.mfgBatchNo}
+                                  </span>
+                                )}
+                                {item.mfgDate && (
+                                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-medium border border-slate-200 dark:border-slate-700">
+                                    <Calendar className="w-2.5 h-2.5 text-indigo-500" /> MFG: {typeof item.mfgDate === 'string' && item.mfgDate.includes('T') ? format(new Date(item.mfgDate), 'dd-MM-yyyy') : item.mfgDate}
+                                  </span>
+                                )}
+                                {item.expDate && (
+                                  <span className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded font-medium border border-amber-200 dark:border-amber-800">
+                                    <Clock className="w-2.5 h-2.5 text-amber-500" /> EXP: {typeof item.expDate === 'string' && item.expDate.includes('T') ? format(new Date(item.expDate), 'dd-MM-yyyy') : item.expDate}
+                                  </span>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="py-2.5 px-3">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
@@ -966,6 +990,18 @@ export default function PODetailPage() {
             <InfoRow icon={User} label="Created By" value={po.user?.name || '—'} />
           </div>
 
+          {/* Notes / Special Instructions Card */}
+          {po.notes && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+              <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-3 flex items-center gap-2">
+                <FileText className="w-4 h-4 text-indigo-500" /> Notes & Instructions
+              </h3>
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-100 dark:border-slate-800 text-xs text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap font-sans">
+                {po.notes}
+              </div>
+            </div>
+          )}
+
           {/* GRN Details */}
           {grn && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
@@ -1140,6 +1176,7 @@ export default function PODetailPage() {
                 { label: 'RCVD DATE', value: grn.receivedDate ? format(new Date(grn.receivedDate), 'dd-MM-yyyy') : '—' },
               ] : []),
               { label: 'QUALITY', value: isLabExempt ? 'LAB EXEMPT' : (labApproved ? 'LAB APPROVED' : (labRejected ? 'LAB REJECTED' : 'PENDING LAB')) },
+              ...(po.notes ? [{ label: 'NOTES', value: po.notes }] : []),
               { label: 'PRINTED', value: format(new Date(), 'dd-MM-yyyy HH:mm') },
             ].map(({ label, value }) => (
               <div key={label} className="flex justify-between border-b border-gray-300 pb-0.5 items-center">
