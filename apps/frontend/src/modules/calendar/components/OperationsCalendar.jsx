@@ -1352,8 +1352,19 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                         e.preventDefault();
                         handleDropOnDate(cell.dateStr);
                       }}
-                      onClick={() => openDrawer(null, cell.dateStr)}
-                      className={`min-h-[90px] p-1.5 flex flex-col gap-1 transition-colors relative group cursor-pointer ${
+                      onClick={() => {
+                        if (cell.holidays.length > 0 || cell.events.length > 0) {
+                          setDayDetailModal({
+                            dateStr: cell.dateStr,
+                            holidays: cell.holidays,
+                            events: cell.events,
+                            load: load
+                          });
+                        } else {
+                          openDrawer(null, cell.dateStr);
+                        }
+                      }}
+                      className={`min-h-[105px] p-1.5 flex flex-col gap-1 transition-colors relative group cursor-pointer ${
                         cell.isCurrentMonth
                           ? 'bg-white dark:bg-[#12171e]'
                           : 'bg-slate-50/70 dark:bg-[#0d1015]/60 text-slate-400 dark:text-slate-600'
@@ -1361,11 +1372,11 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                         isHoveredTarget ? 'ring-2 ring-indigo-500 bg-indigo-50/40 dark:bg-indigo-900/30' : ''
                       }`}
                     >
-                      {/* Cell Header: Date Number, Capacity Indicator & Add Button */}
+                      {/* Cell Header: Date Number, Available Count Pill, Bottleneck & Add Button */}
                       <div className="flex items-center justify-between pointer-events-auto">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span
-                            className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold ${
+                            className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold shrink-0 ${
                               cell.isToday
                                 ? 'bg-indigo-600 text-white font-bold shadow-xs'
                                 : cell.isCurrentMonth
@@ -1376,10 +1387,30 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                             {cell.dayNumber}
                           </span>
 
+                          {/* Available Events Count Number Button */}
+                          {(cell.events.length > 0 || cell.holidays.length > 0) && (
+                            <button
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                setDayDetailModal({
+                                  dateStr: cell.dateStr,
+                                  holidays: cell.holidays,
+                                  events: cell.events,
+                                  load: load
+                                });
+                              }}
+                              className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-slate-100 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-indigo-950/80 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 transition cursor-pointer shrink-0"
+                              title={`Click to open popup with all ${cell.events.length + cell.holidays.length} scheduled items on ${cell.dateStr}`}
+                            >
+                              {cell.events.length + cell.holidays.length} available
+                            </button>
+                          )}
+
                           {/* Bottleneck indicator */}
                           {showBottlenecks && isOverload && (
                             <span 
-                              className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800"
+                              className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 shrink-0"
                               title={`Capacity Bottleneck: ${load.totalMinutes} mins scheduled across ${load.jobCount} operations (Exceeds 480m 8h shift limit)`}
                             >
                               ⚠️ {Math.round(load.totalMinutes / 60)}h
@@ -1387,7 +1418,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                           )}
                           {showBottlenecks && isHighLoad && (
                             <span 
-                              className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800"
+                              className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0"
                               title={`High Shift Utilization: ${load.totalMinutes} mins scheduled`}
                             >
                               {Math.round(load.totalMinutes / 60)}h
@@ -1400,14 +1431,14 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                             e.stopPropagation();
                             openDrawer(null, cell.dateStr);
                           }}
-                          className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition"
+                          className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition shrink-0"
                           title={`Add event on ${cell.dateStr}`}
                         >
                           <Plus className="w-3 h-3" />
                         </button>
                       </div>
 
-                      {/* Events & Holidays Container - Clean display without scrollbars */}
+                      {/* Events & Holidays Container - Strict overflow-hidden, NO scrollbars */}
                       <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0">
                         {(() => {
                           const MAX_VISIBLE = 2;
@@ -1439,7 +1470,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                                       e.stopPropagation();
                                       setSelectedHoliday(h);
                                     }}
-                                    className={`text-[11px] p-1.5 rounded-md font-semibold border flex items-center gap-1.5 shadow-2xs select-none transition cursor-pointer hover:opacity-85 shrink-0 ${
+                                    className={`text-[10.5px] py-1 px-1.5 rounded-md font-semibold border flex items-center gap-1.5 shadow-2xs select-none transition cursor-pointer hover:opacity-85 shrink-0 ${
                                       isGazetted
                                         ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700/60'
                                         : 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700/60'
@@ -1475,7 +1506,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                                       e.stopPropagation();
                                       openDrawer(ev.id);
                                     }}
-                                    className={`text-[11px] p-1.5 rounded-md font-medium border shadow-2xs flex items-center gap-1.5 cursor-pointer active:cursor-grabbing hover:-translate-y-0.5 transition shrink-0 ${
+                                    className={`text-[10.5px] py-1 px-1.5 rounded-md font-medium border shadow-2xs flex items-center gap-1.5 cursor-pointer active:cursor-grabbing hover:-translate-y-0.5 transition shrink-0 ${
                                       isStaged ? 'ring-2 ring-purple-500 border-purple-400' : 'border-transparent'
                                     }`}
                                     style={{
@@ -1512,11 +1543,15 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                                       load: load
                                     });
                                   }}
-                                  className="mt-auto text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50/90 hover:bg-indigo-100 dark:bg-indigo-950/70 dark:hover:bg-indigo-900/70 border border-indigo-200/80 dark:border-indigo-800/80 px-2 py-0.5 rounded-md flex items-center justify-between transition cursor-pointer shadow-2xs shrink-0"
-                                  title={`Click to open all ${totalItems} scheduled operations on ${cell.dateStr}`}
+                                  className="mt-auto w-full text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/90 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900/80 border border-indigo-200/90 dark:border-indigo-800/80 px-2 py-0.5 rounded-md flex items-center justify-between transition cursor-pointer shadow-2xs shrink-0"
+                                  title={`Click to open popup with all ${totalItems} scheduled operations on ${cell.dateStr}`}
                                 >
-                                  <span>+ {remainingCount} more</span>
-                                  <span className="text-[9px] font-semibold opacity-80">View all &rarr;</span>
+                                  <span className="flex items-center gap-1 font-extrabold text-indigo-600 dark:text-indigo-400">
+                                    +{remainingCount} more
+                                  </span>
+                                  <span className="text-[9px] font-semibold opacity-90 text-slate-500 dark:text-slate-400">
+                                    View all ({totalItems}) &rarr;
+                                  </span>
                                 </button>
                               )}
                             </>
