@@ -1,7 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Edit, Trash2, Plus, Search } from 'lucide-react';
+import { 
+  Edit, 
+  Trash2, 
+  Plus, 
+  Search, 
+  ArrowUpDown, 
+  ArrowUp, 
+  ArrowDown, 
+  ChevronDown, 
+  RotateCcw, 
+  X, 
+  Building2 
+} from 'lucide-react';
 import { api } from '@/lib/axios';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,15 +36,21 @@ export default function SupplierListPage() {
     }
   }, [location]);
 
+  // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [balanceTypeFilter, setBalanceTypeFilter] = useState('ALL'); // ALL | CREDIT | DEBIT
+  const [statusFilter, setStatusFilter] = useState('ALL'); // ALL | ACTIVE | INACTIVE
+  const [sortBy, setSortBy] = useState('name_asc');
 
-  const { data: suppliers, isLoading } = useQuery({
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
+  const { data: suppliers = [], isLoading } = useQuery({
     queryKey: ['suppliers'],
     queryFn: async () => {
       const response = await api.get('/parties/suppliers');
-      return response.data;
+      return response.data || [];
     }
   });
 
@@ -51,17 +69,126 @@ export default function SupplierListPage() {
     }
   };
 
-  const filteredSuppliers = suppliers?.filter(s => 
-    s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (s.phone && s.phone.includes(searchTerm)) ||
-    (s.contactPerson && s.contactPerson.toLowerCase().includes(searchTerm.toLowerCase()))
-  ) || [];
+  // Filter and Sort Logic matching /setup/raw-material
+  const sortedAndFiltered = useMemo(() => {
+    let result = (suppliers || []).filter(s => {
+      const term = searchTerm.toLowerCase().trim();
+      const matchesSearch = !term || (
+        (s.name || '').toLowerCase().includes(term) ||
+        (s.contactPerson || '').toLowerCase().includes(term) ||
+        (s.phone || '').toLowerCase().includes(term) ||
+        (s.email || '').toLowerCase().includes(term) ||
+        (s.gstin || '').toLowerCase().includes(term) ||
+        (s.pan || '').toLowerCase().includes(term) ||
+        (s.address || '').toLowerCase().includes(term)
+      );
 
-  const totalPages = Math.ceil(filteredSuppliers.length / itemsPerPage);
-  const paginatedSuppliers = filteredSuppliers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+      const matchesBalanceType = balanceTypeFilter === 'ALL' || s.balanceType === balanceTypeFilter;
+      const matchesStatus = statusFilter === 'ALL' || (s.status || 'ACTIVE') === statusFilter;
+
+      return matchesSearch && matchesBalanceType && matchesStatus;
+    });
+
+    result.sort((a, b) => {
+      if (sortBy === 'name_asc') {
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'name_desc') {
+        return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'contact_asc') {
+        return (a.contactPerson || '').localeCompare(b.contactPerson || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'contact_desc') {
+        return (b.contactPerson || '').localeCompare(a.contactPerson || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'phone_asc') {
+        return (a.phone || '').localeCompare(b.phone || '', undefined, { numeric: true });
+      }
+      if (sortBy === 'phone_desc') {
+        return (b.phone || '').localeCompare(a.phone || '', undefined, { numeric: true });
+      }
+      if (sortBy === 'latest') {
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+      }
+      if (sortBy === 'oldest') {
+        return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
+      }
+      if (sortBy === 'credit_desc') {
+        return (parseFloat(b.creditLimit) || 0) - (parseFloat(a.creditLimit) || 0);
+      }
+      if (sortBy === 'credit_asc') {
+        return (parseFloat(a.creditLimit) || 0) - (parseFloat(b.creditLimit) || 0);
+      }
+      if (sortBy === 'balance_desc') {
+        return (parseFloat(b.openingBalance) || 0) - (parseFloat(a.openingBalance) || 0);
+      }
+      if (sortBy === 'balance_asc') {
+        return (parseFloat(a.openingBalance) || 0) - (parseFloat(b.openingBalance) || 0);
+      }
+      if (sortBy === 'balance_type') {
+        return (a.balanceType || '').localeCompare(b.balanceType || '');
+      }
+      return 0;
+    });
+
+    return result;
+  }, [suppliers, searchTerm, balanceTypeFilter, statusFilter, sortBy]);
+
+  const totalPages = Math.ceil(sortedAndFiltered.length / itemsPerPage) || 1;
+  const paginatedSuppliers = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedAndFiltered.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedAndFiltered, currentPage, itemsPerPage]);
+
+  // Clickable header sort helpers
+  const handleToggleSortName = () => {
+    setSortBy(prev => (prev === 'name_asc' ? 'name_desc' : 'name_asc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortContact = () => {
+    setSortBy(prev => (prev === 'contact_asc' ? 'contact_desc' : 'contact_asc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortPhone = () => {
+    setSortBy(prev => (prev === 'phone_asc' ? 'phone_desc' : 'phone_asc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortCredit = () => {
+    setSortBy(prev => (prev === 'credit_desc' ? 'credit_asc' : 'credit_desc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortBalance = () => {
+    setSortBy(prev => (prev === 'balance_desc' ? 'balance_asc' : 'balance_desc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortType = () => {
+    setSortBy(prev => (prev === 'balance_type' ? 'name_asc' : 'balance_type'));
+    setCurrentPage(1);
+  };
+
+  const isFilterActive = searchTerm || balanceTypeFilter !== 'ALL' || statusFilter !== 'ALL' || sortBy !== 'name_asc';
+
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setBalanceTypeFilter('ALL');
+    setStatusFilter('ALL');
+    setSortBy('name_asc');
+    setCurrentPage(1);
+  };
 
   if (isLoading) {
-    return <div className="p-8 space-y-6"><Skeleton className="h-[400px] w-full" /></div>;
+    return (
+      <div className="p-6 space-y-4">
+        <Skeleton className="h-10 w-64 rounded-xl" />
+        <Skeleton className="h-[420px] w-full rounded-2xl" />
+      </div>
+    );
   }
 
   if (view.type === 'create') {
@@ -69,93 +196,335 @@ export default function SupplierListPage() {
   }
 
   return (
-    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-205 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Suppliers</h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Manage and audit external raw material vendor accounts</p>
+    <div className="w-full max-w-full px-3 sm:px-4 py-2.5 space-y-2.5 mx-auto transition-all duration-200">
+      {/* Header matching /setup/raw-material */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-800 shadow-3xs shrink-0">
+            <Building2 className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900 dark:text-white">
+                Suppliers
+              </h1>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800">
+                {suppliers.length} {suppliers.length === 1 ? 'Supplier' : 'Suppliers'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+              Manage and audit external raw material vendor accounts, GST credentials, and credit limits.
+            </p>
+          </div>
         </div>
+
         <Link 
           to="/parties/suppliers/add"
-          className="flex items-center px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-all text-xs font-bold shadow-md h-9"
+          className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
         >
-          <Plus className="w-4 h-4 mr-1.5" />
+          <Plus className="w-3.5 h-3.5" />
           Add Supplier
         </Link>
       </div>
       
-      <Card className="bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-805 rounded-2xl shadow-xs overflow-hidden flex flex-col text-xs">
+      {/* Main Table Card */}
+      <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs overflow-hidden flex flex-col text-xs">
         <CardContent className="p-0">
-          <div className="p-4 flex justify-end items-center border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/20">
-            <div className="relative max-w-xs w-full">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-404" />
+          {/* Integrated Pro Toolbar */}
+          <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2">
+            {/* Search Input with quick clear */}
+            <div className="relative w-full md:w-64 lg:w-72">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
               <input 
                 type="text" 
-                placeholder="Search suppliers..." 
+                placeholder="Search name, contact, phone, GSTIN, address..." 
                 value={searchTerm}
                 onChange={(e) => {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="pl-9 pr-3 py-2 w-full border border-slate-200 rounded-xl text-xs dark:bg-slate-950 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
+                className="w-full pl-8 pr-7 py-1.5 border border-slate-200 dark:border-slate-700/80 rounded-lg text-xs bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 shadow-3xs transition-all placeholder:text-slate-400 font-medium"
               />
+              {searchTerm && (
+                <button
+                  onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full transition-colors cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Filter and Sort Controls */}
+            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-start md:justify-end">
+              {searchTerm && (
+                <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium hidden lg:inline-flex items-center gap-1">
+                  <span>Found {sortedAndFiltered.length} matches</span>
+                </div>
+              )}
+
+              {/* Balance Type Filter */}
+              <div className="relative">
+                <select
+                  value={balanceTypeFilter}
+                  onChange={(e) => {
+                    setBalanceTypeFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                >
+                  <option value="ALL">Balance: All</option>
+                  <option value="CREDIT">Credit Only</option>
+                  <option value="DEBIT">Debit Only</option>
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+              </div>
+
+              {/* Status Filter */}
+              <div className="relative">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                >
+                  <option value="ALL">Status: All</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+              </div>
+
+              {/* Sort Dropdown */}
+              <div className="relative flex items-center">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
+                  <ArrowUpDown className="w-3.5 h-3.5" />
+                </span>
+                <select
+                  value={sortBy}
+                  onChange={(e) => {
+                    setSortBy(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  aria-label="Sort options"
+                >
+                  <option value="name_asc">Sort: Name (A → Z)</option>
+                  <option value="name_desc">Sort: Name (Z → A)</option>
+                  <option value="contact_asc">Sort: Contact Person (A → Z)</option>
+                  <option value="contact_desc">Sort: Contact Person (Z → A)</option>
+                  <option value="phone_asc">Sort: Phone (Ascending)</option>
+                  <option value="phone_desc">Sort: Phone (Descending)</option>
+                  <option value="credit_desc">Sort: Credit Limit (High to Low)</option>
+                  <option value="credit_asc">Sort: Credit Limit (Low to High)</option>
+                  <option value="balance_desc">Sort: Balance (High to Low)</option>
+                  <option value="balance_asc">Sort: Balance (Low to High)</option>
+                  <option value="latest">Sort: Latest Added</option>
+                  <option value="oldest">Sort: Oldest First</option>
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
+              </div>
+
+              {/* Quick Reset Button */}
+              {isFilterActive && (
+                <button
+                  onClick={handleResetFilters}
+                  className="h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-1 text-[11px] font-medium shrink-0 cursor-pointer shadow-3xs"
+                  title="Reset filters and sort"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span className="hidden sm:inline">Reset</span>
+                </button>
+              )}
             </div>
           </div>
           
+          {/* Table */}
           <div className="overflow-x-auto">
             <Table className="text-xs">
-              <TableHeader className="bg-slate-50 dark:bg-slate-950 text-slate-505 dark:text-slate-455 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-widest">
+              <TableHeader className="bg-slate-50/80 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800">
                 <TableRow className="dark:border-slate-800">
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3 w-12 text-center">SN</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3">Name</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3">Contact Person</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3">Phone</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3">Email</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3 text-right">Credit Limit</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3 text-right">Opening Balance</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3 text-center">Balance Type</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3 min-w-[200px]">Address</TableHead>
-                  <TableHead className="font-semibold text-xs whitespace-nowrap py-3 text-right w-24">Actions</TableHead>
+                  <TableHead className="py-2 px-2.5 w-12 text-center text-[11px] uppercase tracking-wider font-bold">SN</TableHead>
+                  
+                  {/* Name Sort Header */}
+                  <TableHead 
+                    onClick={handleToggleSortName}
+                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Name</span>
+                      {sortBy === 'name_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'name_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </TableHead>
+
+                  {/* Contact Person Sort Header */}
+                  <TableHead 
+                    onClick={handleToggleSortContact}
+                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Contact Person</span>
+                      {sortBy === 'contact_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'contact_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </TableHead>
+
+                  {/* Phone Sort Header */}
+                  <TableHead 
+                    onClick={handleToggleSortPhone}
+                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Phone</span>
+                      {sortBy === 'phone_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'phone_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </TableHead>
+
+                  <TableHead className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold">Email / Tax Details</TableHead>
+
+                  {/* Credit Limit Sort Header */}
+                  <TableHead 
+                    onClick={handleToggleSortCredit}
+                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Credit Limit</span>
+                      {sortBy === 'credit_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'credit_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </TableHead>
+
+                  {/* Opening Balance Sort Header */}
+                  <TableHead 
+                    onClick={handleToggleSortBalance}
+                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                  >
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span>Opening Balance</span>
+                      {sortBy === 'balance_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'balance_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </TableHead>
+
+                  {/* Balance Type Header */}
+                  <TableHead 
+                    onClick={handleToggleSortType}
+                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                  >
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span>Balance Type</span>
+                      {sortBy === 'balance_type' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                      )}
+                    </div>
+                  </TableHead>
+
+                  <TableHead className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold min-w-[180px]">Address</TableHead>
+                  <TableHead className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-right w-20">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {paginatedSuppliers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-12 text-slate-400 bg-slate-50/10 font-semibold">No suppliers found</TableCell>
+                    <TableCell colSpan={10} className="text-center py-10 text-slate-400 dark:text-slate-500 font-medium">
+                      No suppliers found matching filter criteria.
+                    </TableCell>
                   </TableRow>
                 ) : (
                   paginatedSuppliers.map((supplier, index) => {
                     const computedIdx = (currentPage - 1) * itemsPerPage + index + 1;
                     return (
-                      <TableRow key={supplier.id} className="hover:bg-slate-50/40 dark:hover:bg-slate-805/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none">
-                        <TableCell className="text-slate-400 text-center font-bold">{computedIdx}</TableCell>
-                        <TableCell className="font-bold text-slate-900 dark:text-slate-100">{supplier.name}</TableCell>
-                        <TableCell className="font-semibold text-slate-700 dark:text-slate-350">{supplier.contactPerson || 'N/A'}</TableCell>
-                        <TableCell className="font-semibold text-slate-700 dark:text-slate-300 font-mono">{supplier.phone}</TableCell>
-                        <TableCell className="text-slate-505 dark:text-slate-400">{supplier.email || 'N/A'}</TableCell>
-                        <TableCell className="text-right font-bold text-slate-700 dark:text-slate-300 font-mono">₹{parseFloat(supplier.creditLimit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right font-bold text-slate-700 dark:text-slate-300 font-mono">₹{parseFloat(supplier.openingBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-center">
-                          <span className={`px-2 py-0.5 rounded-lg text-3xs font-bold border uppercase ${
+                      <TableRow 
+                        key={supplier.id} 
+                        className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors border-b border-slate-100 dark:border-slate-800/80 last:border-none"
+                      >
+                        <TableCell className="py-2 px-2.5 text-slate-400 text-center font-bold text-[11px]">{computedIdx}</TableCell>
+                        <TableCell className="py-2 px-3 font-bold text-slate-900 dark:text-slate-100 text-xs">
+                          {supplier.name}
+                        </TableCell>
+                        <TableCell className="py-2 px-3 font-medium text-slate-700 dark:text-slate-300 text-xs">
+                          {supplier.contactPerson || '—'}
+                        </TableCell>
+                        <TableCell className="py-2 px-3 font-semibold text-slate-700 dark:text-slate-300 font-mono text-xs">
+                          {supplier.phone || '—'}
+                        </TableCell>
+                        <TableCell className="py-2 px-3 text-xs">
+                          <div className="text-slate-600 dark:text-slate-300 leading-tight">
+                            {supplier.email || '—'}
+                          </div>
+                          {(supplier.gstin || supplier.pan) && (
+                            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
+                              {supplier.gstin && <span>GST: {supplier.gstin}</span>}
+                              {supplier.gstin && supplier.pan && <span> • </span>}
+                              {supplier.pan && <span>PAN: {supplier.pan}</span>}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-2 px-3 text-right font-bold text-slate-800 dark:text-slate-200 font-mono text-xs">
+                          ₹{parseFloat(supplier.creditLimit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="py-2 px-3 text-right font-bold text-slate-800 dark:text-slate-200 font-mono text-xs">
+                          ₹{parseFloat(supplier.openingBalance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </TableCell>
+                        <TableCell className="py-2 px-3 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
                             supplier.balanceType === 'CREDIT' 
-                              ? 'bg-rose-500/10 text-rose-650 border-rose-500/20' 
-                              : 'bg-emerald-500/10 text-emerald-650 border-emerald-500/20'
+                              ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:border-rose-900/60' 
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:border-emerald-900/60'
                           }`}>
-                            {supplier.balanceType?.toLowerCase()}
+                            {supplier.balanceType || 'CREDIT'}
                           </span>
                         </TableCell>
-                        <TableCell className="text-slate-500 dark:text-slate-400 truncate max-w-[200px] font-medium">{supplier.address || 'N/A'}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">
+                        <TableCell className="py-2 px-3 text-slate-500 dark:text-slate-400 truncate max-w-[220px] text-xs" title={supplier.address}>
+                          {supplier.address || '—'}
+                        </TableCell>
+                        <TableCell className="py-2 px-3 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end space-x-1">
-                            <Link to={`/parties/suppliers/edit/${supplier.id}`} className="inline-block text-indigo-505 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 p-1 rounded-lg transition-colors">
-                              <Edit className="w-4 h-4" />
+                            <Link 
+                              to={`/parties/suppliers/edit/${supplier.id}`} 
+                              title="Edit supplier"
+                              className="inline-flex items-center justify-center text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 p-1.5 rounded-md transition-colors"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
                             </Link>
                             <button 
                               onClick={() => handleDelete(supplier.id)}
-                              className="inline-block text-rose-505 hover:bg-rose-50 dark:hover:bg-rose-950/30 p-1 rounded-lg transition-colors cursor-pointer"
+                              title="Delete supplier"
+                              className="inline-flex items-center justify-center text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-md transition-colors cursor-pointer"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         </TableCell>
@@ -167,26 +536,48 @@ export default function SupplierListPage() {
             </Table>
           </div>
           
-          {/* Footer info & Pagination Controls */}
-          {totalPages > 1 && (
-            <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
-              <div className="text-[11px] text-slate-555 dark:text-slate-400 font-medium order-2 sm:order-1">
-                Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredSuppliers.length)} of {filteredSuppliers.length} entries
-              </div>
+          {/* Pagination Footer matching /setup/raw-material */}
+          <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <div>
+              {sortedAndFiltered.length > 0 ? (
+                <span>
+                  Showing <strong className="text-slate-700 dark:text-slate-200">{(currentPage - 1) * itemsPerPage + 1}</strong> to <strong className="text-slate-700 dark:text-slate-200">{Math.min(currentPage * itemsPerPage, sortedAndFiltered.length)}</strong> of <strong className="text-slate-700 dark:text-slate-200">{sortedAndFiltered.length}</strong> suppliers
+                </span>
+              ) : (
+                <span>0 suppliers found</span>
+              )}
+            </div>
 
-              <div className="order-1 sm:order-2">
+            {totalPages > 1 && (
+              <div>
                 <Pagination 
                   currentPage={currentPage} 
                   totalPages={totalPages} 
                   onPageChange={setCurrentPage} 
                 />
               </div>
+            )}
 
-              <div className="text-xs text-slate-404 font-medium order-3">
-                Total entries: {filteredSuppliers.length} records
+            <div className="text-[10px] text-slate-400 hidden sm:flex items-center gap-2">
+              <span>Page {currentPage} of {totalPages}</span>
+              <div className="flex items-center gap-1 border-l border-slate-200 dark:border-slate-800 pl-2">
+                <span>Per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-transparent text-slate-600 dark:text-slate-300 font-semibold text-[10px] cursor-pointer focus:outline-none"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
               </div>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
     </div>
