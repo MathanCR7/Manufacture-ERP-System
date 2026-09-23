@@ -887,186 +887,13 @@ export default function EditPOPage({ id: propId, onBack }) {
       </div>
 
       {/* ───────────────────────────────────────────────────────────────────
-          2. CHARGES & FINANCIAL SUMMARY (DISPLAYING BELOW 1. ORDER INFORMATION)
-          ─────────────────────────────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
-        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <Calculator className="w-3.5 h-3.5 text-indigo-500" />
-            2. Charges & Financial Summary
-          </span>
-          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-            INR (₹)
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
-          {/* Left Column (7 cols): Additional Charges Inputs & Notes */}
-          <div className="lg:col-span-7 space-y-2.5">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {/* Discount */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Discount (₹)</Label>
-                <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
-                  <Input 
-                    type="number" 
-                    min="0"
-                    value={form.discount} 
-                    onChange={(e) => setForm({ ...form, discount: e.target.value })}
-                    className="h-8 text-xs pl-6 rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
-                  />
-                </div>
-              </div>
-
-              {/* Shipping */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Shipping (₹)</Label>
-                <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
-                  <Input 
-                    type="number" 
-                    min="0"
-                    value={form.shipping} 
-                    onChange={(e) => setForm({ ...form, shipping: e.target.value })}
-                    className="h-8 text-xs pl-6 rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
-                  />
-                </div>
-              </div>
-
-              {/* Other Charges */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Other Charges (₹)</Label>
-                <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
-                  <Input 
-                    type="number" 
-                    min="0"
-                    value={form.otherCharges} 
-                    onChange={(e) => setForm({ ...form, otherCharges: e.target.value })}
-                    className="h-8 text-xs pl-6 rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
-                  />
-                </div>
-              </div>
-
-              {/* Payment Status */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Payment Status</Label>
-                <div className="relative">
-                  <select 
-                    value={form.paymentStatus || 'Pending'}
-                    onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}
-                    className="w-full h-8 px-2.5 py-1 text-xs border rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 text-slate-700 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-2xs"
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="Due">Due</option>
-                    <option value="Partial">Partial</option>
-                    <option value="Paid">Paid</option>
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                </div>
-              </div>
-            </div>
-
-            {/* Note / Instructions */}
-            <div className="space-y-1">
-              <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                <FileText className="w-3 h-3 text-slate-400" />
-                Supplier Instructions & Remarks
-              </Label>
-              <textarea 
-                value={form.notes || ''}
-                onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                rows={2}
-                className="w-full border rounded-xl p-2.5 text-xs bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-2xs text-slate-800 dark:text-slate-200 font-medium" 
-                placeholder="Supplier instructions, delivery location remarks..."
-              />
-            </div>
-          </div>
-
-          {/* Right Column (5 cols): Live Financial Summary Box */}
-          <div className="lg:col-span-5 p-3 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-50 dark:from-slate-950/80 dark:via-indigo-950/30 dark:to-slate-950/80 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-2 text-xs shadow-xs">
-            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-              <span>Items Subtotal ({form.items.length} items)</span>
-              <span className="font-semibold text-slate-800 dark:text-slate-200">
-                ₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            {/* Tax Breakdown */}
-            {isInterState ? (
-              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                <span>IGST (Interstate)</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  ₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            ) : (
-              <>
-                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>CGST (Intrastate 50%)</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    ₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>SGST (Intrastate 50%)</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    ₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              </>
-            )}
-
-            {discount > 0 && (
-              <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                <span>Discount</span>
-                <span className="font-semibold">
-                  -₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            )}
-
-            {(shipping > 0 || otherCharges > 0) && (
-              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                <span>Shipping & Other Charges</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  +₹{(shipping + otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            )}
-
-            {roundOff !== 0 && (
-              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                <span>Round Off</span>
-                <span className={`font-semibold font-mono ${roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>
-                  {roundOff > 0 ? '+' : ''}₹{roundOff.toFixed(2)}
-                </span>
-              </div>
-            )}
-
-            {/* Grand Total Box */}
-            <div className="pt-2 border-t border-indigo-200/80 dark:border-indigo-800/80 flex justify-between items-baseline gap-2">
-              <div>
-                <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-300">Grand Total</div>
-                <div className="text-[10px] text-slate-400">Includes all taxes & delivery</div>
-              </div>
-              <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight text-right">
-                ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ───────────────────────────────────────────────────────────────────
-          3. SUPPLIER INVOICE & TRANSPORT / E-WAY BILL DETAILS CARD
+          2. SUPPLIER INVOICE & TRANSPORT / E-WAY BILL DETAILS CARD
           ─────────────────────────────────────────────────────────────────── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
           <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
             <Truck className="w-3.5 h-3.5 text-indigo-500" />
-            3. Supplier Invoice & Transport / E-Way Bill Details
+            2. Supplier Invoice & Transport / E-Way Bill Details
           </span>
           <div className="flex items-center gap-2">
             {grandTotal >= 50000 && (
@@ -1224,7 +1051,7 @@ export default function EditPOPage({ id: propId, onBack }) {
       </div>
 
       {/* ───────────────────────────────────────────────────────────────────
-          4. FULL SCREEN: BROWSE RAW MATERIALS & NON-INVENTORY ITEMS TABLE
+          3. FULL SCREEN: BROWSE RAW MATERIALS & NON-INVENTORY ITEMS TABLE
           ─────────────────────────────────────────────────────────────────── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xs space-y-3 w-full">
         
@@ -1233,7 +1060,7 @@ export default function EditPOPage({ id: propId, onBack }) {
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Package className="w-4 h-4 text-indigo-500" />
-              Browse Raw Materials & Non-Inventory Items with Category & UOM
+              3. Browse Raw Materials & Non-Inventory Items with Category & UOM
             </span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
               Added Items ({form.items.length})
@@ -1621,6 +1448,179 @@ export default function EditPOPage({ id: propId, onBack }) {
               </span>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────────
+          4. CHARGES & FINANCIAL SUMMARY (DISPLAYING BELOW ITEMS TABLE)
+          ─────────────────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xs space-y-3 w-full">
+        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Calculator className="w-3.5 h-3.5 text-indigo-500" />
+            4. Charges & Financial Summary
+          </span>
+          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+            INR (₹)
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start">
+          {/* Left Column (7 cols): Additional Charges Inputs & Notes */}
+          <div className="lg:col-span-7 space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              {/* Discount */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Discount (₹)</Label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    value={form.discount} 
+                    onChange={(e) => setForm({ ...form, discount: e.target.value })}
+                    className="h-9 text-xs pl-6 rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
+                  />
+                </div>
+              </div>
+
+              {/* Shipping */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Shipping (₹)</Label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    value={form.shipping} 
+                    onChange={(e) => setForm({ ...form, shipping: e.target.value })}
+                    className="h-9 text-xs pl-6 rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
+                  />
+                </div>
+              </div>
+
+              {/* Other Charges */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Other Charges (₹)</Label>
+                <div className="relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                  <Input 
+                    type="number" 
+                    min="0"
+                    value={form.otherCharges} 
+                    onChange={(e) => setForm({ ...form, otherCharges: e.target.value })}
+                    className="h-9 text-xs pl-6 rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
+                  />
+                </div>
+              </div>
+
+              {/* Payment Status */}
+              <div className="space-y-1">
+                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Payment Status</Label>
+                <div className="relative">
+                  <select 
+                    value={form.paymentStatus || 'Pending'}
+                    onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}
+                    className="w-full h-9 px-2.5 py-1 text-xs border rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 text-slate-700 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-2xs"
+                  >
+                    <option value="Pending">Pending</option>
+                    <option value="Due">Due</option>
+                    <option value="Partial">Partial</option>
+                    <option value="Paid">Paid</option>
+                  </select>
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+            </div>
+
+            {/* Note / Instructions */}
+            <div className="space-y-1">
+              <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                <FileText className="w-3 h-3 text-slate-400" />
+                Supplier Instructions & Remarks
+              </Label>
+              <textarea 
+                value={form.notes || ''}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                rows={2}
+                className="w-full border rounded-xl p-2.5 text-xs bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-2xs text-slate-800 dark:text-slate-200 font-medium" 
+                placeholder="Supplier instructions, delivery location remarks..."
+              />
+            </div>
+          </div>
+
+          {/* Right Column (5 cols): Live Financial Summary Box */}
+          <div className="lg:col-span-5 p-3.5 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-50 dark:from-slate-950/80 dark:via-indigo-950/30 dark:to-slate-950/80 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-2 text-xs shadow-xs">
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+              <span>Items Subtotal ({form.items.length} items)</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                ₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+
+            {/* Tax Breakdown */}
+            {isInterState ? (
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>IGST (Interstate)</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  ₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                  <span>CGST (Intrastate 50%)</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    ₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                  <span>SGST (Intrastate 50%)</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    ₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {discount > 0 && (
+              <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                <span>Discount</span>
+                <span className="font-semibold">
+                  -₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+
+            {(shipping > 0 || otherCharges > 0) && (
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>Shipping & Other Charges</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  +₹{(shipping + otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+
+            {roundOff !== 0 && (
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>Round Off</span>
+                <span className={`font-semibold font-mono ${roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                  {roundOff > 0 ? '+' : ''}₹{roundOff.toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {/* Grand Total Box */}
+            <div className="pt-2.5 border-t border-indigo-200/80 dark:border-indigo-800/80 flex justify-between items-baseline gap-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-300">Grand Total</div>
+                <div className="text-[10px] text-slate-400">Includes all taxes & delivery</div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight text-right">
+                ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
