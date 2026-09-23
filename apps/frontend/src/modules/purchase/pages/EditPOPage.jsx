@@ -406,7 +406,9 @@ export default function EditPOPage({ id: propId, onBack }) {
   const sgstAmount = isInterState ? 0 : totalItemTax / 2;
   const igstAmount = isInterState ? totalItemTax : 0;
 
-  const grandTotal = subtotal + totalItemTax + shipping + otherCharges - discount;
+  const unroundedTotal = Math.max(0, subtotal + totalItemTax + shipping + otherCharges - discount);
+  const grandTotal = Math.round(unroundedTotal);
+  const roundOff = Number((grandTotal - unroundedTotal).toFixed(2));
 
   /* ── Update mutation ── */
   const updateMutation = useMutation({
@@ -1130,6 +1132,15 @@ export default function EditPOPage({ id: propId, onBack }) {
                     +₹{otherCharges.toLocaleString('en-IN', {minimumFractionDigits: 2})}
                   </span>
                 </div>
+
+                {roundOff !== 0 && (
+                  <div className="flex flex-col gap-0.5 group/metric transition-transform duration-200 hover:translate-y-[-2px]">
+                    <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px] uppercase tracking-wider">Round Off</span>
+                    <span className={`font-extrabold text-base ${roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                      {roundOff > 0 ? '+' : ''}₹{roundOff.toFixed(2)}
+                    </span>
+                  </div>
+                )}
               </div>
               
               {/* Grand Total & CTA */}

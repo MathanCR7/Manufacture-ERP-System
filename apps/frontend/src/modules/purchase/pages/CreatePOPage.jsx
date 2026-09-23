@@ -711,7 +711,11 @@ export default function CreatePOPage({ onBack }) {
   const cgstAmount = isInterState ? 0 : totalItemTax / 2;
   const sgstAmount = isInterState ? 0 : totalItemTax / 2;
   const igstAmount = isInterState ? totalItemTax : 0;
-  const grandTotal = Math.max(0, subtotal + totalItemTax + shipping + otherCharges - discount);
+  
+  // Standard ERP round off: >= .50 rounds up (+1), < .50 rounds down
+  const unroundedTotal = Math.max(0, subtotal + totalItemTax + shipping + otherCharges - discount);
+  const grandTotal = Math.round(unroundedTotal);
+  const roundOff = Number((grandTotal - unroundedTotal).toFixed(2));
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -1710,6 +1714,15 @@ export default function CreatePOPage({ onBack }) {
                   <span>Shipping & Other Charges</span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                     +₹{(shipping + otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {roundOff !== 0 && (
+                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                  <span>Round Off</span>
+                  <span className={`font-semibold font-mono ${roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                    {roundOff > 0 ? '+' : ''}₹{roundOff.toFixed(2)}
                   </span>
                 </div>
               )}
