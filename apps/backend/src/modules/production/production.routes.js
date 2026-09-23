@@ -855,7 +855,12 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       cgst: z.coerce.number().optional(),
       sgst: z.coerce.number().optional(),
       igst: z.coerce.number().optional(),
-      orderId: z.string().uuid().optional()
+      orderId: z.string().uuid().optional(),
+      customBom: z.array(z.object({
+        rmId: z.string().uuid(),
+        requiredQty: z.coerce.number().positive(),
+        unitCost: z.coerce.number().optional()
+      })).optional()
     });
 
     const data = schema.parse(req.body);
@@ -874,7 +879,13 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
         throw new Error('Product not found');
       }
 
-      const totalCost = Number(product.totalCost) * data.quantity;
+      let totalCost = 0;
+      if (data.customBom && data.customBom.length > 0) {
+        totalCost = data.customBom.reduce((sum, item) => sum + (Number(item.requiredQty) * Number(item.unitCost || 0)), 0);
+      } else {
+        totalCost = Number(product.totalCost) * data.quantity;
+      }
+
       const profitMargin = data.profitMargin !== undefined ? data.profitMargin : Number(product.profitMargin);
       const cgst = data.cgst !== undefined ? data.cgst : Number(product.cgst);
       const sgst = data.sgst !== undefined ? data.sgst : Number(product.sgst);
@@ -908,13 +919,26 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
         }
       });
 
-      // 4. Create raw material usage rows and reserve raw materials (deduct stock)
-      for (const item of product.bom) {
-        const requiredQty = Number(item.consumptionPerUnit) * data.quantity;
+      // 4. Create raw material usage rows and reserve raw materials (deduct stock if In Progress)
+      const bomItems = (data.customBom && data.customBom.length > 0)
+        ? data.customBom.map(item => ({
+            rmId: item.rmId,
+            requiredQty: Number(item.requiredQty),
+            unitPrice: item.unitCost || 0
+          }))
+        : product.bom.map(item => ({
+            rmId: item.rmId,
+            requiredQty: Number(item.consumptionPerUnit) * data.quantity,
+            unitPrice: item.unitPrice
+          }));
+
+      for (const item of bomItems) {
+        const requiredQty = Number(item.requiredQty);
         const rm = await tx.rawMaterial.findUnique({ where: { id: item.rmId } });
         if (!rm) throw new Error(`Raw material not found for ID: ${item.rmId}`);
 
-        const availableQtyAtTime = Number(rm.currentStock);
+        const unitCost = Number(item.unitPrice || rm.unitPrice || 0);
+        const availableQtyAtTime = Number(rm.currentStock || 0);
         const status = availableQtyAtTime >= requiredQty ? 'Sufficient' : 'Insufficient';
 
         // Create RM usage record
@@ -924,18 +948,28 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
             rmId: item.rmId,
             requiredQty,
             availableQtyAtTime,
-            actualUsedQty: requiredQty, // initially plan to use all
-            unitCost: item.unitPrice,
-            totalCost: requiredQty * Number(item.unitPrice),
+            actualUsedQty: requiredQty,
+            unitCost,
+            totalCost: requiredQty * unitCost,
             status
           }
         });
 
-        // Deduct/reserve raw material stock
-        const newRmStock = Math.max(0, availableQtyAtTime - requiredQty);
-        await tx.rawMaterial.update({
-          where: { id: item.rmId },
-          data: { currentStock: newRmStock }
+        // Deduct/reserve raw material stock immediately ONLY if In Progress
+        if (data.status === 'In Progress') {
+          const newRmStock = Math.max(0, availableQtyAtTime - requiredQty);
+          await tx.rawMaterial.update({
+            where: { id: item.rmId },
+            data: { currentStock: newRmStock }
+          });
+        }
+      }
+
+      // 5. If Order-Based, update customer order status to 'In Production'
+      if (data.orderId) {
+        await tx.customerOrder.update({
+          where: { id: data.orderId },
+          data: { status: 'In Production' }
         });
       }
 
@@ -989,11 +1023,26 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
         throw new Error('Batch not found');
       }
 
-      // If status transitions to In Progress, check RM sufficiency
+      // If status transitions to In Progress from Planned or another non-InProgress status, verify and lock stock
       if (data.status === 'In Progress' && batch.status !== 'In Progress') {
-        const shortMaterials = batch.rmUsages.filter(u => Number(u.rawMaterial.currentStock) < 0 || u.status === 'Insufficient');
+        const shortMaterials = batch.rmUsages.filter(u => Number(u.rawMaterial.currentStock || 0) < Number(u.requiredQty));
         if (shortMaterials.length > 0) {
           throw new Error(`Cannot start production. Shortfall in raw materials: ${shortMaterials.map(m => m.rawMaterial.name).join(', ')}`);
+        }
+
+        // Lock / deduct raw material stock
+        for (const u of batch.rmUsages) {
+          const currentStock = Number(u.rawMaterial.currentStock || 0);
+          const reqQty = Number(u.requiredQty);
+          await tx.rawMaterial.update({
+            where: { id: u.rmId },
+            data: { currentStock: Math.max(0, currentStock - reqQty) }
+          });
+          // Update status in usage record
+          await tx.productionBatchRMUsage.update({
+            where: { id: u.id },
+            data: { status: 'Sufficient', availableQtyAtTime: currentStock }
+          });
         }
 
         await notificationService.createNotification({

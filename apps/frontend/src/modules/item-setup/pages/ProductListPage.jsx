@@ -8,7 +8,7 @@ import {
   PlusCircle, Sliders, ShieldAlert, TrendingUp, Grid, List as ListIcon,
   ChevronLeft, Award, HelpCircle, FileText, AlertTriangle,
   ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, ChevronDown,
-  Snowflake, Flame, GripVertical
+  Snowflake, Flame, GripVertical, Scale
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -19,6 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import SearchSelect from '@/components/ui/SearchSelect';
 import HsnSelect from '@/components/forms/HsnSelect';
 import { Pagination } from '@/components/ui/Pagination';
@@ -128,6 +129,340 @@ function TableCheckbox({ checked, onChange, indeterminate }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   Searchable Item Select Component (Raw Materials & Non-Inventory Items)
+   Includes debounced search input, type filter tabs, category & UOM badges.
+   Exact replica of /purchase-orders/create selector with 200ms debounce.
+   ───────────────────────────────────────────────────────────────────────────── */
+const RawMaterialSelect = React.forwardRef(function RawMaterialSelect(
+  { rawMaterials = [], value, onChange, error, lowStockIds = new Set() },
+  ref
+) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isDebouncing, setIsDebouncing] = useState(false);
+  const [typeFilter, setTypeFilter] = useState('ALL'); // 'ALL' | 'RAW_MATERIAL' | 'NON_INVENTORY'
+  const containerRef = useRef(null);
+  const searchRef = useRef(null);
+
+  // Debounced search query
+  useEffect(() => {
+    if (!search.trim()) {
+      setDebouncedSearch('');
+      setIsDebouncing(false);
+      return;
+    }
+    setIsDebouncing(true);
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+      setIsDebouncing(false);
+    }, 200);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  React.useImperativeHandle(ref, () => ({
+    openDropdown: () => {
+      setOpen(true);
+      setTimeout(() => {
+        containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        searchRef.current?.focus();
+      }, 50);
+    },
+    closeDropdown: () => setOpen(false),
+    focusSearch: () => searchRef.current?.focus(),
+  }));
+
+  const rmCount = rawMaterials.filter(it => it.itemType === 'RAW_MATERIAL').length;
+  const nonInvCount = rawMaterials.filter(it => it.itemType === 'NON_INVENTORY').length;
+
+  const filtered = useMemo(() => {
+    return rawMaterials.filter(item => {
+      if (typeFilter !== 'ALL' && item.itemType !== typeFilter) return false;
+      const q = debouncedSearch.toLowerCase().trim();
+      if (!q) return true;
+      const nameMatch = (item.name || '').toLowerCase().includes(q);
+      const codeMatch = (item.code || '').toLowerCase().includes(q);
+      const catName = (item.categoryName || item.category?.name || (typeof item.category === 'string' ? item.category : '') || '').toLowerCase();
+      const catMatch = catName.includes(q);
+      const uomVal = (item.displayUom || item.unitId || item.consumptionUnit || '').toLowerCase();
+      const uomMatch = uomVal.includes(q);
+      const descMatch = (item.description || '').toLowerCase().includes(q);
+      const typeMatch = (item.itemTypeLabel || '').toLowerCase().includes(q);
+      return nameMatch || codeMatch || catMatch || uomMatch || descMatch || typeMatch;
+    });
+  }, [rawMaterials, typeFilter, debouncedSearch]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setSearch('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  useEffect(() => {
+    if (open && searchRef.current) {
+      searchRef.current.focus();
+    }
+  }, [open]);
+
+  const handleSelect = (item) => {
+    onChange(item);
+    setOpen(false);
+    setSearch('');
+  };
+
+  const handleClear = (e) => {
+    e.stopPropagation();
+    onChange(null);
+    setSearch('');
+  };
+
+  const isSelectedNonInv = value?.itemType === 'NON_INVENTORY';
+  const selectedCategoryName = value ? (value.categoryName || value.category?.name || (typeof value.category === 'string' ? value.category : '')) : '';
+  const selectedUomLabel = value ? (value.displayUom || value.unitId || value.consumptionUnit || 'units').toUpperCase() : '';
+
+  return (
+    <div ref={containerRef} className="relative w-full">
+      <button
+        type="button"
+        onClick={() => setOpen(prev => !prev)}
+        className={`w-full px-2.5 sm:px-3.5 h-10 border rounded-xl text-left flex items-center justify-between transition-all duration-150 shadow-xs ${
+          open 
+            ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/15 dark:bg-indigo-950/40 dark:border-indigo-500' 
+            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500'
+        } ${error ? 'border-rose-400 ring-2 ring-rose-500/20 bg-rose-50/30' : ''}`}
+      >
+        <div className="flex items-center gap-2 truncate min-w-0 flex-1">
+          <div className={`p-1 rounded-md shrink-0 ${
+            isSelectedNonInv 
+              ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
+              : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
+          }`}>
+            {isSelectedNonInv ? <Layers className="w-3.5 h-3.5" /> : <Package className="w-3.5 h-3.5" />}
+          </div>
+
+          {value ? (
+            <div className="flex items-center gap-1.5 sm:gap-2 truncate flex-wrap">
+              <span className="font-semibold text-slate-900 dark:text-white text-xs truncate">
+                {value.code} — {value.name}
+              </span>
+              <span className={`inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                isSelectedNonInv 
+                  ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60' 
+                  : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60'
+              }`}>
+                {isSelectedNonInv ? '🚫 Non-Inventory' : '🌾 Raw Material'}
+              </span>
+              {selectedCategoryName && (
+                <span className="inline-flex items-center px-1.5 sm:px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60 shrink-0">
+                  <Tag className="w-2.5 h-2.5 mr-0.5 sm:mr-1 opacity-70" />
+                  {selectedCategoryName}
+                </span>
+              )}
+              {selectedUomLabel && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 shrink-0">
+                  <Scale className="w-2.5 h-2.5 mr-0.5 sm:mr-1 opacity-70" />
+                  {selectedUomLabel}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-slate-400 dark:text-slate-500 text-xs truncate font-medium">
+              Click to select Raw Material or Non-Inventory Item (search by Name, Code, Category, or UOM)...
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0 ml-1.5">
+          {value && (
+            <span
+              onMouseDown={handleClear}
+              className="text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer p-0.5 rounded transition-colors"
+              title="Clear selection"
+            >
+              <X className="w-3.5 h-3.5" />
+            </span>
+          )}
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180 text-indigo-500' : ''}`} />
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute z-50 mt-1.5 left-0 right-0 w-full max-w-[calc(100vw-1.5rem)] sm:max-w-none bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150 ring-1 ring-black/5 dark:ring-white/5">
+          {/* Quick Filter Tabs */}
+          <div className="flex items-center gap-1.5 p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 overflow-x-auto">
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('ALL'); }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 cursor-pointer ${
+                typeFilter === 'ALL'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+              }`}
+            >
+              All Items ({rawMaterials.length})
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('RAW_MATERIAL'); }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 flex items-center gap-1 cursor-pointer ${
+                typeFilter === 'RAW_MATERIAL'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-emerald-700 dark:text-emerald-400 border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
+              }`}
+            >
+              <span>🌾 Raw Materials</span>
+              <span className="text-[10px] opacity-80 font-mono">({rmCount})</span>
+            </button>
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); setTypeFilter('NON_INVENTORY'); }}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 flex items-center gap-1 cursor-pointer ${
+                typeFilter === 'NON_INVENTORY'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'bg-white dark:bg-slate-800 text-purple-700 dark:text-purple-400 border border-slate-200 dark:border-slate-700 hover:bg-purple-50 dark:hover:bg-purple-950/40'
+              }`}
+            >
+              <span>🚫 Non-Inventory</span>
+              <span className="text-[10px] opacity-80 font-mono">({nonInvCount})</span>
+            </button>
+          </div>
+
+          <div className="p-2 border-b border-slate-100 dark:border-slate-800 relative bg-slate-50/70 dark:bg-slate-950/70">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Type to search by Name, Code, Category, or UOM..."
+              className="w-full pl-8 pr-14 py-1.5 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-900 dark:text-white"
+            />
+            <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+              {isDebouncing && (
+                <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+              )}
+              {search && (
+                <button
+                  type="button"
+                  onMouseDown={() => setSearch('')}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <ul className="max-h-56 sm:max-h-64 overflow-y-auto p-1.5 space-y-1">
+            {filtered.length === 0 ? (
+              <li className="px-3 py-6 text-xs text-slate-400 flex flex-col items-center justify-center">
+                <Search className="w-5 h-5 text-slate-300 dark:text-slate-600 mb-1" />
+                <span className="font-medium">No items matched "{debouncedSearch || search}"</span>
+                <span className="text-[10px] text-slate-400 mt-0.5">Try searching by code, category name, or unit</span>
+              </li>
+            ) : (
+              filtered.map(rm => {
+                const isNonInv = rm.itemType === 'NON_INVENTORY';
+                const isLow = rm.isLowStock || lowStockIds.has(rm.id);
+                const categoryName = rm.categoryName || rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || (isNonInv ? 'Non-Inventory' : 'General');
+                const uomLabel = (rm.displayUom || rm.unitId || rm.consumptionUnit || 'units').toUpperCase();
+
+                return (
+                  <li
+                    key={rm.id}
+                    onMouseDown={() => handleSelect(rm)}
+                    className={`px-2.5 sm:px-3 py-2 text-xs cursor-pointer rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 transition-colors ${
+                      value?.id === rm.id
+                        ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-800'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/90 dark:hover:bg-slate-800/80'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      <div className={`p-1 rounded-md shrink-0 ${
+                        isNonInv 
+                          ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
+                          : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
+                      }`}>
+                        {isNonInv ? <Layers className="w-3.5 h-3.5" /> : <Package className="w-3.5 h-3.5" />}
+                      </div>
+
+                      <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`font-semibold text-xs truncate ${isLow ? 'text-rose-700 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                            {rm.name}
+                          </span>
+                          {isNonInv ? (
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800 shrink-0">
+                              Non-Inventory
+                            </span>
+                          ) : (
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 shrink-0">
+                              Raw Material
+                            </span>
+                          )}
+                          {isLow && (
+                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-400 font-bold border border-rose-200 dark:border-rose-800 shrink-0">
+                              Low Stock
+                            </span>
+                          )}
+                        </div>
+                        {rm.description && rm.description !== rm.name && (
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
+                            {rm.description}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Metadata Badges: Category, UOM & Code */}
+                    <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap pl-4 sm:pl-0">
+                      {/* Category Badge */}
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60">
+                        <Tag className="w-2.5 h-2.5 mr-1 opacity-70" />
+                        {categoryName}
+                      </span>
+
+                      {/* UOM Badge */}
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 font-mono">
+                        <Scale className="w-2.5 h-2.5 mr-1 opacity-70" />
+                        {uomLabel}
+                      </span>
+
+                      {/* Code */}
+                      <span className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                        {rm.code}
+                      </span>
+
+                      {/* Available Stock or Rate */}
+                      {rm.itemType === 'RAW_MATERIAL' && rm.currentStock !== undefined && (
+                        <span className="text-[10px] font-mono font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                          Avail: {Number(rm.currentStock).toFixed(1)} {uomLabel}
+                        </span>
+                      )}
+
+                      {rm.ratePerUnit ? (
+                        <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-300 ml-1">
+                          ₹{Number(rm.ratePerUnit).toFixed(2)}
+                        </span>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+});
+
 function ProductForm({ editId, onBack }) {
   const isEditMode = !!editId;
   const queryClient = useQueryClient();
@@ -189,6 +524,47 @@ function ProductForm({ editId, onBack }) {
   const [nonInventoryCosts, setNonInventoryCosts] = useState([]);
   const [selectedNonInventoryId, setSelectedNonInventoryId] = useState('');
 
+  // Searchable Item Selection State (Raw Materials & Non-Inventory)
+  const [selectedItem, setSelectedItem] = useState(null);
+  const [itemError, setItemError] = useState(false);
+  const rmSelectRef = useRef(null);
+
+  // Combined selectable catalog items with Category & UOM metadata (matching /purchase-orders/create)
+  const allSelectableItems = useMemo(() => {
+    const rms = (masters.rawMaterials || []).map(rm => ({
+      ...rm,
+      itemType: 'RAW_MATERIAL',
+      itemTypeLabel: 'Raw Material',
+      categoryName: rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || rm.categoryName || 'General',
+      displayUom: getUomLabel(rm.consumptionUnit || rm.unitId),
+      isLowStock: Number(rm.alertLevel) > 0 && Number(rm.currentStock || 0) <= Number(rm.alertLevel),
+      currentStock: Number(rm.currentStock || 0),
+      ratePerUnit: Number(rm.ratePerUnit || 0),
+    }));
+
+    const nonInvs = (masters.nonInventoryItems || []).map(ni => ({
+      ...ni,
+      itemType: 'NON_INVENTORY',
+      itemTypeLabel: 'Non-Inventory',
+      categoryName: ni.category || 'Non-Inventory',
+      displayUom: ni.unitId || 'pcs',
+      isLowStock: false,
+      currentStock: 0,
+      ratePerUnit: Number(ni.ratePerUnit || ni.cost || 0),
+    }));
+
+    return [...rms, ...nonInvs];
+  }, [masters.rawMaterials, masters.nonInventoryItems, masters.units]);
+
+  // Set of low stock item IDs
+  const lowStockIds = useMemo(() => {
+    return new Set(
+      allSelectableItems
+        .filter(it => it.itemType === 'RAW_MATERIAL' && it.isLowStock)
+        .map(it => it.id)
+    );
+  }, [allSelectableItems]);
+
   // Totals & Taxes
   const [profitMargin, setProfitMargin] = useState(0);
   const [cgst, setCgst] = useState(0);
@@ -240,9 +616,20 @@ function ProductForm({ editId, onBack }) {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const mastersRes = await api.get('/products/masters');
+        const [mastersRes, rmRes, nonInvRes] = await Promise.all([
+          api.get('/products/masters'),
+          api.get('/item-setup/raw-material').catch(() => ({ data: [] })),
+          api.get('/item-setup/non-inventory-item').catch(() => ({ data: [] }))
+        ]);
         const mastersData = mastersRes.data || {};
-        setMasters(mastersData);
+        const rawMaterials = (rmRes.data && Array.isArray(rmRes.data) && rmRes.data.length > 0) ? rmRes.data : (mastersData.rawMaterials || []);
+        const nonInventoryItems = (nonInvRes.data && Array.isArray(nonInvRes.data) && nonInvRes.data.length > 0) ? nonInvRes.data : (mastersData.nonInventoryItems || []);
+        
+        setMasters({
+          ...mastersData,
+          rawMaterials,
+          nonInventoryItems
+        });
 
         if (isEditMode) {
           const prodRes = await api.get(`/products/${editId}`);
@@ -356,7 +743,75 @@ function ProductForm({ editId, onBack }) {
     fetchData();
   }, [editId, isEditMode]);
 
-  // BoM Handlers
+  // BoM Handlers (Raw Materials & Non-Inventory Items)
+  const handleAddItem = () => {
+    if (!selectedItem) {
+      setItemError(true);
+      return;
+    }
+    setItemError(false);
+    const isDark = document.documentElement.classList.contains('dark');
+
+    if (selectedItem.itemType === 'RAW_MATERIAL') {
+      if (bom.some(item => item.rmId === selectedItem.id)) {
+        Swal.fire({
+          title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Already Assigned</span>`,
+          text: `Raw material "${selectedItem.name}" is already assigned to the BoM.`,
+          icon: 'warning',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3000,
+          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          color: isDark ? '#f8fafc' : '#0f172a',
+        });
+        return;
+      }
+
+      const uomLabel = selectedItem.displayUom || getUomLabel(selectedItem.consumptionUnit || selectedItem.unitId);
+
+      setBom(prev => [...prev, {
+        rmId: selectedItem.id,
+        itemType: 'RAW_MATERIAL',
+        name: selectedItem.name,
+        code: selectedItem.code,
+        categoryName: selectedItem.categoryName || 'General',
+        unitPrice: Number(selectedItem.ratePerUnit || 0),
+        consumption: 1,
+        totalCost: Number(selectedItem.ratePerUnit || 0),
+        currentStock: Number(selectedItem.currentStock || 0),
+        uomLabel
+      }]);
+      setSelectedItem(null);
+    } else {
+      // Non-Inventory item
+      if (nonInventoryCosts.some(item => item.itemId === selectedItem.id)) {
+        Swal.fire({
+          title: `<span class="font-extrabold text-sm text-slate-800 dark:text-slate-100">Already Added</span>`,
+          text: `Non-inventory item "${selectedItem.name}" is already in overhead costs.`,
+          icon: 'warning',
+          toast: true,
+          position: 'top-end',
+          showConfirmButton: false,
+          timer: 3000,
+          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+          color: isDark ? '#f8fafc' : '#0f172a',
+        });
+        return;
+      }
+
+      setNonInventoryCosts(prev => [...prev, {
+        itemId: selectedItem.id,
+        name: selectedItem.name,
+        code: selectedItem.code || '',
+        categoryName: selectedItem.categoryName || 'Non-Inventory',
+        displayUom: selectedItem.displayUom || 'pcs',
+        cost: Number(selectedItem.ratePerUnit || selectedItem.cost || 0)
+      }]);
+      setSelectedItem(null);
+    }
+  };
+
   const handleAddRm = () => {
     if (!selectedRmId) return;
     if (bom.some(item => item.rmId === selectedRmId)) {
@@ -1244,114 +1699,270 @@ function ProductForm({ editId, onBack }) {
               </CardContent>
             </Card>
           )}
-          {/* TAB 3: Bill of Materials */}
+          {/* TAB 3: Bill of Materials & Items Formulation */}
           {activeTab === 'bom' && (
-            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-805 shadow-md overflow-hidden">
-              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center">
-                  <Layers className="w-4 h-4 mr-1.5 text-indigo-500" /> Ingredients Consumption (BoM)
-                </h3>
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <select
-                    value={selectedRmId}
-                    onChange={(e) => setSelectedRmId(e.target.value)}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9"
+            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md overflow-hidden">
+              
+              {/* Top Section: Searchable Catalog Selector with Debounce & Category Badges */}
+              <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                      <Package className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                        3. SELECT RAW MATERIAL OR NON-INVENTORY ITEM TO ADD <span className="text-rose-500">*</span>
+                      </Label>
+                      <span className="text-[11px] text-slate-400">
+                        Browse Raw Materials & Non-Inventory Items with Category & UOM
+                      </span>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 self-start sm:self-auto border border-slate-200 dark:border-slate-700">
+                    {allSelectableItems.length} catalog items loaded
+                  </span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  <div className="flex-1">
+                    <RawMaterialSelect
+                      ref={rmSelectRef}
+                      rawMaterials={allSelectableItems}
+                      value={selectedItem}
+                      onChange={(item) => {
+                        setSelectedItem(item);
+                        setItemError(false);
+                      }}
+                      error={itemError}
+                      lowStockIds={lowStockIds}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleAddItem}
+                    className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2 px-5 transition-all shadow-xs shrink-0 flex items-center justify-center gap-1.5 h-10 cursor-pointer"
                   >
-                    <option value="">Choose Raw Material...</option>
-                    {masters.rawMaterials.map(rm => {
-                      const uomLabel = (masters.units || []).find(u => u.id === rm.unitId)?.abbreviation || 'units';
-                      return (
-                        <option key={rm.id} value={rm.id}>
-                          {rm.name} ({rm.code}) — Avail: {Number(rm.currentStock || 0).toFixed(2)} {uomLabel}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <Button 
-                    type="button" 
-                    onClick={handleAddRm} 
-                    className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-1.5 px-4 transition-all"
-                  >
-                    Add Ingredient
+                    <Plus className="w-4 h-4" />
+                    <span>Add to BoM</span>
                   </Button>
                 </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto text-xs">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-55 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase font-semibold">
-                      <tr>
-                        <th className="p-4 w-12 text-center">SN</th>
-                        <th className="p-4">Raw Material</th>
-                        <th className="p-4 text-right">Unit Price (Base UOM)</th>
-                        <th className="p-4 text-right w-44 font-bold">Qty Per Piece *</th>
-                        <th className="p-4 text-right">Contribution Ratio</th>
-                        <th className="p-4 text-right">Line Total</th>
-                        <th className="p-4 text-center w-16">Remove</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {bom.length === 0 ? (
+              </div>
+
+              <CardContent className="p-0 space-y-6">
+                
+                {/* 1. Raw Materials Ingredients Table */}
+                <div>
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/70 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        🌾 Raw Materials Formulation ({bom.length})
+                      </span>
+                    </div>
+                    <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
+                      Subtotal: ₹{totalRmCost.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto text-xs">
+                    <table className="w-full text-left">
+                      <thead className="bg-slate-50 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase font-semibold text-[11px]">
                         <tr>
-                          <td colSpan={7} className="p-6 text-center text-slate-400 dark:text-slate-500 italic">No ingredients assigned to BOM. Choose raw material above to assign.</td>
+                          <th className="p-3 w-12 text-center">SN</th>
+                          <th className="p-3">Raw Material</th>
+                          <th className="p-3 text-right">Unit Price (Base UOM)</th>
+                          <th className="p-3 text-right w-44 font-bold">Qty Per Piece *</th>
+                          <th className="p-3 text-right">Contribution Ratio</th>
+                          <th className="p-3 text-right">Line Total</th>
+                          <th className="p-3 text-center w-16">Remove</th>
                         </tr>
-                      ) : (
-                        bom.map((item, idx) => {
-                          const pct = totalRmCost > 0 ? (item.totalCost / totalRmCost) * 100 : 0;
-                          return (
-                            <tr key={item.rmId} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
-                              <td className="p-4 text-center text-slate-400">{idx + 1}</td>
-                              <td className="p-4 font-semibold text-slate-850 dark:text-white">
-                                <div>{item.name} <span className="font-mono text-3xs text-slate-400">({item.code})</span></div>
-                                <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold mt-0.5">
-                                  Available: {Number(item.currentStock || 0).toFixed(2)} {item.uomLabel}
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {bom.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="p-6 text-center text-slate-400 dark:text-slate-500 italic">
+                              No raw materials assigned to BOM yet. Select an item above and click "Add to BoM".
+                            </td>
+                          </tr>
+                        ) : (
+                          bom.map((item, idx) => {
+                            const pct = totalRmCost > 0 ? (item.totalCost / totalRmCost) * 100 : 0;
+                            return (
+                              <tr key={item.rmId} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
+                                <td className="p-3 text-center text-slate-400">{idx + 1}</td>
+                                <td className="p-3 font-semibold text-slate-800 dark:text-white">
+                                  <div className="flex items-center gap-2">
+                                    <span>{item.name}</span>
+                                    <span className="font-mono text-[10px] text-slate-400">({item.code})</span>
+                                    {item.categoryName && (
+                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/50">
+                                        {item.categoryName}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">
+                                    Available Stock: {Number(item.currentStock || 0).toFixed(2)} {item.uomLabel}
+                                  </div>
+                                </td>
+                                <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                                  ₹{item.unitPrice.toFixed(2)} / {item.uomLabel}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex items-center gap-1.5 justify-end">
+                                    <Input
+                                      type="number"
+                                      step="0.0001"
+                                      min="0"
+                                      className="h-8 w-24 text-right font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl focus:ring-indigo-500"
+                                      value={item.consumption}
+                                      onChange={(e) => handleRmQtyChange(idx, e.target.value)}
+                                    />
+                                    <span className="text-2xs font-bold text-slate-500 dark:text-slate-400 min-w-[32px] text-left">{item.uomLabel}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-right">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <div className="w-16 bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                      <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${pct}%` }}></div>
+                                    </div>
+                                    <span className="font-mono text-[10px] text-slate-400">{pct.toFixed(0)}%</span>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-right font-bold font-mono text-slate-800 dark:text-white">
+                                  ₹{item.totalCost.toFixed(2)}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <button 
+                                    type="button" 
+                                    onClick={() => handleRemoveRm(idx)} 
+                                    className="text-rose-500 hover:text-rose-600 p-1.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* 2. Non-Inventory & Utility Overheads Table */}
+                <div>
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-purple-50/40 dark:bg-purple-950/20 border-b border-t border-purple-100 dark:border-purple-900/40">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
+                        <Layers className="w-3.5 h-3.5" />
+                        🚫 Non-Inventory & Utility Overheads ({nonInventoryCosts.length})
+                      </span>
+                    </div>
+                    <span className="font-mono text-xs font-bold text-purple-700 dark:text-purple-300">
+                      Subtotal: ₹{totalNonInventoryCost.toFixed(2)}
+                    </span>
+                  </div>
+
+                  {nonInventoryCosts.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-slate-400 dark:text-slate-500 bg-slate-50/30 dark:bg-slate-950/20 italic">
+                      No non-inventory utility items added. You can select Non-Inventory items (packaging, utilities, consumables) above to include them in the total product cost.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto text-xs">
+                      <table className="w-full text-left">
+                        <thead className="bg-slate-50 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase font-semibold text-[11px]">
+                          <tr>
+                            <th className="p-3 w-12 text-center">SN</th>
+                            <th className="p-3">Non-Inventory Item</th>
+                            <th className="p-3">Category</th>
+                            <th className="p-3 text-right w-44 font-bold">Allocated Cost per Unit *</th>
+                            <th className="p-3 text-right">Line Total</th>
+                            <th className="p-3 text-center w-16">Remove</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                          {nonInventoryCosts.map((item, idx) => (
+                            <tr key={item.itemId || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
+                              <td className="p-3 text-center text-slate-400">{idx + 1}</td>
+                              <td className="p-3 font-semibold text-slate-800 dark:text-white">
+                                <div className="flex items-center gap-2">
+                                  <span>{item.name}</span>
+                                  {item.code && <span className="font-mono text-[10px] text-slate-400">({item.code})</span>}
+                                  <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold">
+                                    Non-Inventory
+                                  </span>
                                 </div>
                               </td>
-                              <td className="p-4 text-right font-mono text-slate-700 dark:text-slate-350">₹{item.unitPrice.toFixed(2)} / {item.uomLabel}</td>
-                              <td className="p-4">
+                              <td className="p-3">
+                                <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">
+                                  {item.categoryName || 'Non-Inventory'}
+                                </span>
+                              </td>
+                              <td className="p-3">
                                 <div className="flex items-center gap-1.5 justify-end">
+                                  <span className="text-xs font-mono text-slate-400">₹</span>
                                   <Input
                                     type="number"
-                                    step="0.0001"
+                                    step="0.01"
                                     min="0"
-                                    className="h-8 w-24 text-right font-bold bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-750 text-slate-855 dark:text-white rounded-xl focus:ring-indigo-505"
-                                    value={item.consumption}
-                                    onChange={(e) => handleRmQtyChange(idx, e.target.value)}
+                                    className="h-8 w-28 text-right font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl focus:ring-indigo-500"
+                                    value={item.cost}
+                                    onChange={(e) => handleNonInventoryChange(idx, e.target.value)}
                                   />
-                                  <span className="text-2xs font-bold text-slate-500 dark:text-slate-400 min-w-[32px] text-left">{item.uomLabel}</span>
                                 </div>
                               </td>
-                              <td className="p-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <div className="w-16 bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                                    <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${pct}%` }}></div>
-                                  </div>
-                                  <span className="font-mono text-[10px] text-slate-450">{pct.toFixed(0)}%</span>
-                                </div>
+                              <td className="p-3 text-right font-bold font-mono text-purple-700 dark:text-purple-300">
+                                ₹{Number(item.cost || 0).toFixed(2)}
                               </td>
-                              <td className="p-4 text-right font-bold font-mono text-slate-850 dark:text-white">₹{item.totalCost.toFixed(2)}</td>
-                              <td className="p-4 text-center">
+                              <td className="p-3 text-center">
                                 <button 
                                   type="button" 
-                                  onClick={() => handleRemoveRm(idx)} 
-                                  className="text-rose-500 hover:text-rose-650 p-1.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors"
+                                  onClick={() => handleRemoveNonInventory(idx)} 
+                                  className="text-rose-500 hover:text-rose-600 p-1.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               </td>
                             </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-950/20 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase text-2xs">Total Material Cost:</span>
-                    <span className="font-mono font-extrabold text-sm text-slate-900 dark:text-white">₹{totalRmCost.toFixed(2)}</span>
+                {/* Summary Row */}
+                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs">
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                        Raw Materials:
+                      </span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        ₹{totalRmCost.toFixed(2)}
+                      </span>
+                    </div>
+                    {totalNonInventoryCost > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase text-[10px]">
+                          Non-Inventory:
+                        </span>
+                        <span className="font-mono font-bold text-purple-600 dark:text-purple-400">
+                          ₹{totalNonInventoryCost.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 border-l border-slate-200 dark:border-slate-700 pl-4">
+                      <span className="font-bold text-slate-700 dark:text-slate-300 uppercase text-[10px]">
+                        Total Base Product Cost:
+                      </span>
+                      <span className="font-mono font-extrabold text-sm text-indigo-600 dark:text-indigo-400">
+                        ₹{totalCost.toFixed(2)}
+                      </span>
+                    </div>
                   </div>
+
                   <div className="text-2xs text-slate-400 font-medium flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
                     <span>Step 3 of 4: Ingredients Formulation</span>

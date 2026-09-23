@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '@/lib/axios';
 import { 
-  Factory, Search, RefreshCw, Plus, Calendar, AlertCircle, Play, CheckCircle, 
+  Factory, Search, RefreshCw, Plus, Calendar, AlertCircle, Play, CheckCircle2, 
   Pause, Trash2, Eye, ChevronLeft, X, ClipboardList, Info, Flame, Scale, Check, 
-  Grid, List as ListIcon, Award, Activity, AlertTriangle, HelpCircle, DollarSign, Clock, Layers, ArrowUpRight,
-  BookOpen, LayoutGrid
+  Grid, List as ListIcon, Award, Activity, AlertTriangle, HelpCircle, DollarSign, Clock, 
+  Layers, ArrowUpRight, BookOpen, LayoutGrid, RotateCcw, Filter, Download, ArrowUpDown,
+  SlidersHorizontal, ChevronRight, Package, Sparkles, ShieldCheck
 } from 'lucide-react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
@@ -15,58 +16,65 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import useAuthStore from '@/app/store/authStore';
 
-import AddProductionPage from './AddProductionPage';
 import DatePicker from '@/components/ui/DatePicker';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
+import BatchDetailDrawer from '../components/BatchDetailDrawer';
+import BatchCompletionModal from '../components/BatchCompletionModal';
 
+// 5 Kanban Columns
 const PIPELINE_COLUMNS = [
-  { key: 'Planned', label: 'Planned', color: 'blue' },
-  { key: 'In Progress', label: 'In Progress', color: 'amber' },
-  { key: 'Completed', label: 'Completed', color: 'violet' },
-  { key: 'qc_passed', label: 'Passed QC', color: 'emerald' },
-  { key: 'qc_failed', label: 'Failed QC', color: 'rose' }
+  { key: 'Planned', label: 'Planned', color: 'blue', dotColor: 'bg-blue-500', borderColor: 'border-t-blue-500' },
+  { key: 'In Progress', label: 'In Progress', color: 'amber', dotColor: 'bg-amber-500', borderColor: 'border-t-amber-500' },
+  { key: 'Completed', label: 'Completed', color: 'purple', dotColor: 'bg-purple-500', borderColor: 'border-t-purple-500' },
+  { key: 'qc_passed', label: 'Passed QC', color: 'emerald', dotColor: 'bg-emerald-500', borderColor: 'border-t-emerald-500' },
+  { key: 'qc_failed', label: 'Failed QC', color: 'rose', dotColor: 'bg-rose-500', borderColor: 'border-t-rose-500' }
 ];
 
 const PIPELINE_COLOR_MAP = {
   blue: {
-    header: 'bg-blue-50 dark:bg-blue-500/20 border-blue-100 dark:border-blue-500/30',
-    badge: 'bg-blue-600 dark:bg-blue-500 text-white',
-    text: 'text-blue-600 dark:text-blue-400',
-    dot: 'bg-blue-500 dark:bg-blue-400',
-    card_border: 'border-blue-100 dark:border-blue-500/20',
-    glow: 'shadow-blue-500/5 dark:shadow-blue-500/10 hover:border-blue-300 dark:hover:border-blue-800'
+    header: 'bg-blue-50/80 dark:bg-blue-950/30 border-blue-100 dark:border-blue-900/50',
+    badge: 'bg-blue-600 text-white',
+    text: 'text-blue-700 dark:text-blue-400',
+    dot: 'bg-blue-500',
+    card_border: 'border-blue-100 dark:border-blue-900/40',
+    left_accent: 'border-l-4 border-l-blue-500',
+    glow: 'hover:border-blue-300 dark:hover:border-blue-700'
   },
   amber: {
-    header: 'bg-amber-50 dark:bg-amber-500/20 border-amber-100 dark:border-amber-500/30',
-    badge: 'bg-amber-600 dark:bg-amber-500 text-white',
+    header: 'bg-amber-50/80 dark:bg-amber-950/30 border-amber-100 dark:border-amber-900/50',
+    badge: 'bg-amber-600 text-white',
     text: 'text-amber-700 dark:text-amber-400',
-    dot: 'bg-amber-500 dark:bg-amber-400',
-    card_border: 'border-amber-100 dark:border-amber-500/20',
-    glow: 'shadow-amber-500/5 dark:shadow-amber-500/10 hover:border-amber-300 dark:hover:border-amber-800'
+    dot: 'bg-amber-500',
+    card_border: 'border-amber-100 dark:border-amber-900/40',
+    left_accent: 'border-l-4 border-l-amber-500',
+    glow: 'hover:border-amber-300 dark:hover:border-amber-700'
   },
-  violet: {
-    header: 'bg-violet-50 dark:bg-violet-500/20 border-violet-100 dark:border-violet-500/30',
-    badge: 'bg-violet-600 dark:bg-violet-500 text-white',
-    text: 'text-violet-600 dark:text-violet-400',
-    dot: 'bg-violet-500 dark:bg-violet-400',
-    card_border: 'border-violet-100 dark:border-violet-500/20',
-    glow: 'shadow-violet-500/5 dark:shadow-violet-500/10 hover:border-violet-300 dark:hover:border-violet-800'
+  purple: {
+    header: 'bg-purple-50/80 dark:bg-purple-950/30 border-purple-100 dark:border-purple-900/50',
+    badge: 'bg-purple-600 text-white',
+    text: 'text-purple-700 dark:text-purple-400',
+    dot: 'bg-purple-500',
+    card_border: 'border-purple-100 dark:border-purple-900/40',
+    left_accent: 'border-l-4 border-l-purple-500',
+    glow: 'hover:border-purple-300 dark:hover:border-purple-700'
   },
   emerald: {
-    header: 'bg-emerald-50 dark:bg-emerald-500/20 border-emerald-100 dark:border-emerald-500/30',
-    badge: 'bg-emerald-600 dark:bg-emerald-500 text-white',
-    text: 'text-emerald-600 dark:text-emerald-600',
-    dot: 'bg-emerald-500 dark:bg-emerald-400',
-    card_border: 'border-emerald-100 dark:border-emerald-500/20',
-    glow: 'shadow-emerald-500/5 dark:shadow-emerald-500/10 hover:border-emerald-300 dark:hover:border-emerald-800'
+    header: 'bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-100 dark:border-emerald-900/50',
+    badge: 'bg-emerald-600 text-white',
+    text: 'text-emerald-700 dark:text-emerald-400',
+    dot: 'bg-emerald-500',
+    card_border: 'border-emerald-100 dark:border-emerald-900/40',
+    left_accent: 'border-l-4 border-l-emerald-500',
+    glow: 'hover:border-emerald-300 dark:hover:border-emerald-700'
   },
   rose: {
-    header: 'bg-rose-50 dark:bg-rose-500/20 border-rose-100 dark:border-rose-500/30',
-    badge: 'bg-rose-600 dark:bg-rose-500 text-white',
-    text: 'text-rose-600 dark:text-rose-600',
-    dot: 'bg-rose-500 dark:bg-rose-400',
-    card_border: 'border-rose-100 dark:border-rose-500/20',
-    glow: 'shadow-rose-500/5 dark:shadow-rose-500/10 hover:border-rose-300 dark:hover:border-rose-800'
+    header: 'bg-rose-50/80 dark:bg-rose-950/30 border-rose-100 dark:border-rose-900/50',
+    badge: 'bg-rose-600 text-white',
+    text: 'text-rose-700 dark:text-rose-400',
+    dot: 'bg-rose-500',
+    card_border: 'border-rose-100 dark:border-rose-900/40',
+    left_accent: 'border-l-4 border-l-rose-500',
+    glow: 'hover:border-rose-300 dark:hover:border-rose-700'
   }
 };
 
@@ -76,33 +84,45 @@ export default function ProductionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const batchIdParam = searchParams.get('id');
   const user = useAuthStore(s => s.user);
-  const canEdit = ['MAIN_MASTER', 'PRODUCTION_STAFF'].includes(user?.role);
+  const canEdit = ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'].includes(user?.role);
+
+  // Display Mode: 'pipeline' | 'grid' | 'table'
+  const [displayMode, setDisplayMode] = useState('pipeline');
   
-  const [view, setView] = useState({ type: 'list', prefill: null });
-  const [displayMode, setDisplayMode] = useState('pipeline'); // 'pipeline' | 'grid' | 'table'
-  const [selectedSopBatch, setSelectedSopBatch] = useState(null);
-  const [dragOver, setDragOver] = useState(false);
+  // Mobile single-column Kanban tab selector
+  const [mobilePipelineTab, setMobilePipelineTab] = useState('In Progress');
 
-  useEffect(() => {
-    if (canEdit && (location.pathname === '/production/add' || location.state?.prefill)) {
-      setView({ type: 'create', prefill: location.state });
-    } else {
-      setView({ type: 'list', prefill: null });
-    }
-  }, [location, canEdit]);
-
+  // Master Batches State
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'ref' | 'product' | 'status'
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const fromNotifications = location.state?.from === '/notifications';
 
+  // Date Filtering State
   const [datePreset, setDatePreset] = useState(''); // '' | 'Today' | 'Yesterday' | 'This Week' | 'This Month' | 'Date Range'
   const [startDate, setStartDate] = useState(null);
   const [endDate, setEndDate] = useState(null);
 
+  // Mobile Filter Bottom Sheet
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+
+  // Completion Modal State
+  const [execBatch, setExecBatch] = useState(null);
+  const [completionModalOpen, setCompletionModalOpen] = useState(false);
+
+  // Detail Drawer State
+  const [detailBatch, setDetailBatch] = useState(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  // Drag and drop state
+  const [draggingBatchId, setDraggingBatchId] = useState(null);
+  const [dragOverColumn, setDragOverColumn] = useState(null);
+
+  // Date Range presets
   const getDateRangeFromPreset = (preset) => {
     const now = new Date();
     let start = null;
@@ -152,24 +172,16 @@ export default function ProductionsPage() {
       setStartDate(start);
       setEndDate(end);
     }
+    setPage(1);
   };
 
-  // Completion Modal State
-  const [execBatch, setExecBatch] = useState(null);
-  const [actualOutput, setActualOutput] = useState('');
-  const [actualRmUsages, setActualRmUsages] = useState([]); // Array of { rmId, name, requiredQty, actualUsedQty, unit }
-  const [completionNote, setCompletionNote] = useState('');
-
-  // Details Page State (loaded if batchIdParam exists)
-  const [detailBatch, setDetailBatch] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-
+  // Fetch batches with query params
   const fetchBatches = async () => {
     setLoading(true);
     try {
       const params = {
         page: displayMode === 'pipeline' ? 1 : page,
-        limit: displayMode === 'pipeline' ? 100 : (displayMode === 'grid' ? 8 : 10),
+        limit: displayMode === 'pipeline' ? 150 : (displayMode === 'grid' ? 12 : 15),
         search: searchTerm,
         status: statusFilter,
         startDate: startDate ? startDate.toISOString() : undefined,
@@ -177,20 +189,22 @@ export default function ProductionsPage() {
       };
       const res = await api.get('/production', { params });
       let loadedBatches = res.data.batches || [];
-      
-      // If NOT in pipeline view, sort: 'In Progress' always comes first
+
+      // Sort
       if (displayMode !== 'pipeline') {
         loadedBatches = [...loadedBatches].sort((a, b) => {
-          if (a.status === 'In Progress' && b.status !== 'In Progress') return -1;
-          if (a.status !== 'In Progress' && b.status === 'In Progress') return 1;
-          return 0;
+          if (sortBy === 'ref') return a.referenceNo.localeCompare(b.referenceNo);
+          if (sortBy === 'product') return (a.product?.name || '').localeCompare(b.product?.name || '');
+          if (sortBy === 'status') return a.status.localeCompare(b.status);
+          // Default newest
+          return new Date(b.createdAt) - new Date(a.createdAt);
         });
       }
-      
+
       setBatches(loadedBatches);
       setTotalPages(res.data.pages || 1);
     } catch (e) {
-      console.error(e);
+      console.error('Error fetching batches:', e);
     } finally {
       setLoading(false);
     }
@@ -198,9 +212,18 @@ export default function ProductionsPage() {
 
   useEffect(() => {
     fetchBatches();
-  }, [page, statusFilter, displayMode, startDate, endDate, view.type]);
+  }, [page, statusFilter, displayMode, startDate, endDate, sortBy]);
 
-  // Handle URL ID query parameter sync to load details view
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(1);
+      fetchBatches();
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Load details if ?id= is in query string
   useEffect(() => {
     if (batchIdParam) {
       const fetchDetail = async () => {
@@ -221,583 +244,235 @@ export default function ProductionsPage() {
     }
   }, [batchIdParam]);
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    setPage(1);
-    fetchBatches();
-  };
-
+  // Update Status handler
   const handleUpdateStatus = async (id, newStatus) => {
     const isDark = document.documentElement.classList.contains('dark');
     try {
-      if (newStatus === 'In Progress') {
-        await api.patch(`/production/${id}/status`, { status: newStatus });
-        Swal.fire({
-          title: '<span class="text-sm font-bold text-slate-800 dark:text-slate-100">Production Started!</span>',
-          text: 'Batch is now In Progress. Raw materials reserved.',
-          icon: 'success',
-          confirmButtonColor: '#4f46e5',
-          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          color: isDark ? '#f8fafc' : '#0f172a',
-        });
-        fetchBatches();
-      } else {
-        await api.patch(`/production/${id}/status`, { status: newStatus });
-        fetchBatches();
+      await api.patch(`/production/${id}/status`, { status: newStatus });
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Batch status updated to ${newStatus === 'qc_passed' ? 'Passed QC' : newStatus}`,
+        showConfirmButton: false,
+        timer: 3000,
+        background: isDark ? '#1e293b' : '#ffffff',
+        color: isDark ? '#f8fafc' : '#0f172a'
+      });
+      fetchBatches();
+      if (detailBatch && detailBatch.id === id) {
+        setDetailBatch(prev => prev ? { ...prev, status: newStatus } : null);
       }
     } catch (e) {
       Swal.fire({
-        title: '<span class="text-sm font-bold text-slate-900 dark:text-slate-100 font-extrabold">Action Blocked</span>',
-        text: e.response?.data?.error || 'Failed to update status',
+        title: 'Action Blocked',
+        text: e.response?.data?.error || 'Failed to update batch status',
         icon: 'error',
-        confirmButtonColor: '#ef4444',
-        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-        color: isDark ? '#f8fafc' : '#0f172a',
+        confirmButtonColor: '#ef4444'
       });
     }
   };
 
-  // Open modal to record actual details
+  // Open Completion Modal
   const handleOpenCompletionModal = async (batch) => {
     try {
       const res = await api.get(`/production/${batch.id}`);
-      const fullBatch = res.data;
-      setExecBatch(fullBatch);
-      setActualOutput(Number(fullBatch.quantity));
-      
-      const usages = (fullBatch.rmUsages || []).map(u => {
-        const uomLabel = u.rawMaterial?.unit?.abbreviation || 'units';
-        const isKg = /kg|kilogram/i.test(uomLabel);
-        const isL = /l|liter|litre/i.test(uomLabel);
-        const subUomLabel = isKg ? 'g' : (isL ? 'ml' : null);
-        return {
-          rmId: u.rmId,
-          name: u.rawMaterial?.name || 'Raw Material',
-          requiredQty: Number(u.requiredQty),
-          actualUsedQty: Number(u.requiredQty),
-          unit: uomLabel,
-          subUomLabel,
-          selectedUnit: 'base',
-          inputValue: Number(u.requiredQty)
-        };
-      });
-      setActualRmUsages(usages);
-      setCompletionNote('');
+      setExecBatch(res.data);
+      setCompletionModalOpen(true);
     } catch (e) {
       console.error(e);
       Swal.fire({ title: 'Error', text: 'Failed to load batch recipe details', icon: 'error' });
     }
   };
 
-  const handleSubmitCompletion = async () => {
-    const isDark = document.documentElement.classList.contains('dark');
+  // Submit Completion
+  const handleSubmitCompletion = async (batchId, payload) => {
     try {
-      const payload = {
-        actualOutput: Number(actualOutput),
-        rmUsages: actualRmUsages.map(u => {
-          const actualVal = u.selectedUnit === 'sub' ? Number(u.inputValue) / 1000 : Number(u.inputValue);
-          return {
-            rmId: u.rmId,
-            actualUsedQty: actualVal
-          };
-        }),
-        note: completionNote
-      };
-
-      await api.post(`/production/${execBatch.id}/complete`, payload);
-
-      Swal.fire({
-        title: '<span class="text-sm font-bold text-slate-900 dark:text-slate-100">Batch Completed!</span>',
-        text: 'Batch is sent to Lab QC queue. Material stock adjusted with return leftovers.',
-        icon: 'success',
-        confirmButtonColor: '#4f46e5',
-        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-        color: isDark ? '#f8fafc' : '#0f172a',
-      });
-
+      await api.post(`/production/${batchId}/complete`, payload);
+      setCompletionModalOpen(false);
       setExecBatch(null);
+      Swal.fire({
+        icon: 'success',
+        title: 'Batch Completed!',
+        text: 'Actual output logged and batch submitted to Quality Control Queue.',
+        confirmButtonColor: '#4f46e5'
+      });
       fetchBatches();
+      if (detailBatch && detailBatch.id === batchId) {
+        setDetailBatch(prev => prev ? { ...prev, status: 'Completed', actualOutput: payload.actualOutput } : null);
+      }
     } catch (e) {
       Swal.fire({
-        title: '<span class="text-sm font-bold">Error completing batch</span>',
-        text: e.response?.data?.error || 'Failed to complete production',
+        title: 'Error',
+        text: e.response?.data?.error || 'Failed to complete batch',
         icon: 'error',
-        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-        color: isDark ? '#f8fafc' : '#0f172a',
+        confirmButtonColor: '#ef4444'
       });
     }
   };
 
-  const handleOpenDetailModal = (batch) => {
-    setSearchParams({ id: batch.id });
+  // Drag and Drop between Kanban columns
+  const handleCardDragStart = (e, batchId) => {
+    if (!canEdit) return;
+    setDraggingBatchId(batchId);
+    e.dataTransfer.effectAllowed = 'move';
+    try {
+      e.dataTransfer.setData('text/plain', batchId);
+    } catch {
+      // ignore
+    }
   };
 
-  const handleCloseDetailModal = () => {
-    setSearchParams({});
-  };
-
-  const handleDrop = (e) => {
+  const handleColumnDragOver = (e, colKey) => {
     e.preventDefault();
-    setDragOver(false);
-    const id = e.dataTransfer.getData("text/plain");
-    if (id) {
-      setSearchParams({ id });
+    if (dragOverColumn !== colKey) {
+      setDragOverColumn(colKey);
     }
   };
 
-  // Timing logs parser
-  const calculateProductionTimes = (logs) => {
-    if (!logs || logs.length === 0) return { timeline: [], durationText: 'N/A' };
+  const handleColumnDrop = (e, targetStatus) => {
+    e.preventDefault();
+    setDragOverColumn(null);
+    if (!draggingBatchId || !canEdit) return;
 
-    let startTime = null;
-    let totalMs = 0;
-    const timeline = [];
+    const draggedBatch = batches.find(b => b.id === draggingBatchId);
+    setDraggingBatchId(null);
+    if (!draggedBatch || draggedBatch.status === targetStatus) return;
 
-    const sorted = [...logs].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    // Moving to Completed requires completion modal
+    if (targetStatus === 'Completed' && draggedBatch.status === 'In Progress') {
+      handleOpenCompletionModal(draggedBatch);
+      return;
+    }
 
-    sorted.forEach((log) => {
-      let eventName = '';
-      const newVal = log.newValue || {};
-      const oldVal = log.oldValue || {};
-      
-      if (log.action === 'CREATE_PRODUCTION_BATCH') {
-        eventName = 'Batch Created';
-      } else if (log.action === 'UPDATE_PRODUCTION_STATUS') {
-        if (newVal.status === 'In Progress') {
-          eventName = oldVal.status === 'On Hold' ? 'Resumed' : 'Started';
-          startTime = new Date(log.createdAt);
-        } else if (newVal.status === 'On Hold') {
-          eventName = 'Paused';
-          if (startTime) {
-            totalMs += new Date(log.createdAt) - startTime;
-            startTime = null;
-          }
-        } else if (newVal.status === 'Cancelled') {
-          eventName = 'Cancelled';
-          startTime = null;
+    // Moving to QC Passed / Failed requires confirmation
+    if (targetStatus === 'qc_passed' || targetStatus === 'qc_failed') {
+      Swal.fire({
+        title: `Mark as ${targetStatus === 'qc_passed' ? 'Passed QC' : 'Failed QC'}?`,
+        text: `Are you sure you want to mark Batch #${draggedBatch.referenceNo} as ${targetStatus === 'qc_passed' ? 'Passed' : 'Failed'} QC?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: targetStatus === 'qc_passed' ? '#10b981' : '#ef4444',
+        confirmButtonText: 'Yes, update status'
+      }).then(res => {
+        if (res.isConfirmed) {
+          handleUpdateStatus(draggedBatch.id, targetStatus);
         }
-      } else if (log.action === 'COMPLETE_PRODUCTION_BATCH') {
-        eventName = 'Completed';
-        if (startTime) {
-          totalMs += new Date(log.createdAt) - startTime;
-          startTime = null;
-        }
-      } else if (log.action === 'APPROVE_PRODUCTION_QC') {
-        eventName = 'QC Approved & Released';
-      }
+      });
+      return;
+    }
 
-      if (eventName) {
-        timeline.push({
-          event: eventName,
-          time: new Date(log.createdAt),
-          user: log.user?.name || 'System'
-        });
-      }
+    // Normal transition
+    handleUpdateStatus(draggedBatch.id, targetStatus);
+  };
+
+  // Extract unique categories from batches
+  const availableCategories = useMemo(() => {
+    const set = new Set();
+    batches.forEach(b => {
+      if (b.product?.category?.name) set.add(b.product.category.name);
     });
+    return Array.from(set);
+  }, [batches]);
 
-    if (startTime) {
-      totalMs += new Date() - startTime;
-    }
+  // Filter batches by category locally if selected
+  const displayedBatches = useMemo(() => {
+    if (!categoryFilter) return batches;
+    return batches.filter(b => b.product?.category?.name === categoryFilter);
+  }, [batches, categoryFilter]);
 
-    const totalMinutes = Math.floor(totalMs / 60000);
-    const hours = Math.floor(totalMinutes / 60);
-    const mins = totalMinutes % 60;
-    
-    let durationText = '0m';
-    if (hours > 0) {
-      durationText = `${hours}h ${mins}m`;
-    } else if (mins > 0) {
-      durationText = `${mins}m`;
-    } else {
-      durationText = 'less than a minute';
-    }
+  // Derived KPI Stats
+  const { totalActive, totalCompleted, qcPassRate, qcPassedYield } = useMemo(() => {
+    const active = batches.filter(b => ['Planned', 'In Progress', 'On Hold'].includes(b.status)).length;
+    const completed = batches.filter(b => ['Completed', 'qc_passed'].includes(b.status)).length;
+    const passed = batches.filter(b => b.status === 'qc_passed');
+    const failed = batches.filter(b => b.status === 'qc_failed');
+    const totalTested = passed.length + failed.length;
+    const passRate = totalTested > 0 ? Math.round((passed.length / totalTested) * 100) : 100;
+    const passedUnits = passed.reduce((sum, b) => sum + Number(b.actualOutput || b.quantity || 0), 0);
 
-    return { timeline, durationText };
-  };
+    return {
+      totalActive: active,
+      totalCompleted: completed,
+      qcPassRate: passRate,
+      qcPassedYield: passedUnits
+    };
+  }, [batches]);
 
+  // Filter pipeline column batches
   const getPipelineFiltered = (colKey) => {
-    const list = batches || [];
-    let filtered = list;
+    let list = displayedBatches;
     if (colKey === 'In Progress') {
-      filtered = list.filter(b => b.status === 'In Progress' || b.status === 'On Hold');
-    } else {
-      filtered = list.filter(b => b.status === colKey);
+      return list.filter(b => b.status === 'In Progress' || b.status === 'On Hold');
     }
-    return filtered;
+    return list.filter(b => b.status === colKey);
   };
 
-  if (view.type === 'create') {
-    return <AddProductionPage />;
-  }
+  // Active Filter Count
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (statusFilter) count++;
+    if (categoryFilter) count++;
+    if (datePreset) count++;
+    return count;
+  }, [statusFilter, categoryFilter, datePreset]);
 
-  // ─────────────────────── RENDERING DETAILED SUB-PAGE VIEW ───────────────────────
-  if (batchIdParam) {
-    if (loadingDetail) {
-      return (
-        <div className="min-h-[70vh] flex flex-col items-center justify-center text-slate-400 gap-3">
-          <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
-          <span className="text-sm font-semibold">Fetching batch details...</span>
-        </div>
-      );
-    }
+  // Reset all filters
+  const handleResetFilters = () => {
+    setStatusFilter('');
+    setCategoryFilter('');
+    setDatePreset('');
+    setStartDate(null);
+    setEndDate(null);
+    setSearchTerm('');
+    setPage(1);
+  };
 
-    if (!detailBatch) {
-      return (
-        <div className="p-6 max-w-4xl mx-auto text-center space-y-4">
-          <AlertCircle className="w-12 h-12 text-rose-500 mx-auto" />
-          <h2 className="text-lg font-bold text-slate-800 dark:text-white">Batch Not Found</h2>
-          <Button onClick={handleCloseDetailModal} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl">
-            Back to Batch Listing
-          </Button>
-        </div>
-      );
-    }
-
-    const { timeline, durationText } = calculateProductionTimes(detailBatch.auditLogs);
-    const rawUsages = detailBatch.rmUsages || [];
-    const calculatedVariances = rawUsages.map(u => {
-      const required = Number(u.requiredQty || 0);
-      const actual = Number(u.actualUsedQty || 0);
-      return {
-        rawMaterialName: u.rawMaterial?.name || 'Raw Material',
-        requiredQty: required,
-        actualUsedQty: actual,
-        variance: actual - required,
-        unit: u.rawMaterial?.unit?.abbreviation || 'units'
-      };
-    });
-
-    return (
-      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto animate__animated animate__fadeIn">
-        {/* Navigation & Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-          <div className="space-y-0.5">
-            <button 
-              type="button"
-              onClick={() => {
-                const fromP = searchParams.get('from') || location.state?.from;
-                if (fromP === 'dashboard' || fromP === 'main') navigate('/dashboard');
-                else if (fromP === 'production') navigate('/dashboard/production');
-                else if (fromP === 'executive') navigate('/dashboard/executive');
-                else if (fromP === 'inventory') navigate('/dashboard/inventory');
-                else if (fromP === 'notifications' || fromP === '/notifications') navigate('/notifications');
-                else if (typeof fromP === 'string' && fromP.startsWith('/')) navigate(fromP);
-                else handleCloseDetailModal();
-              }}
-              className="inline-flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline mb-1 cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              {(() => {
-                const fromP = searchParams.get('from') || location.state?.from;
-                if (fromP === 'dashboard' || fromP === 'main') return 'Back to Dashboard';
-                if (fromP === 'production') return 'Back to Production Dashboard';
-                if (fromP === 'executive') return 'Back to Executive Dashboard';
-                if (fromP === 'inventory') return 'Back to Inventory Dashboard';
-                if (fromP === 'notifications' || fromP === '/notifications') return 'Back to Notifications Center';
-                return 'Back to Batch Execution Center';
-              })()}
-            </button>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              Batch Execution Dashboard
-            </h1>
-            <p className="text-xs text-slate-550 dark:text-slate-400">
-              Audit log details, timing reports, and component consumption stats for Batch #{detailBatch.referenceNo}.
-            </p>
-          </div>
-          <span className={`px-3 py-1 rounded-full text-xs font-extrabold border h-8.5 flex items-center ${
-            detailBatch.status === 'Planned' ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/10 dark:text-blue-400' :
-            detailBatch.status === 'In Progress' ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-500/10 dark:text-amber-400' :
-            detailBatch.status === 'Completed' ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-500/10 dark:text-indigo-400' :
-            detailBatch.status === 'qc_passed' ? 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-500/10 dark:text-emerald-600' :
-            'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/10 dark:text-slate-400'
-          }`}>
-            Status: {detailBatch.status === 'qc_passed' ? 'Passed QC' : detailBatch.status === 'qc_failed' ? 'Failed QC' : detailBatch.status}
-          </span>
-        </div>
-
-        {/* Dashboard Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* LEFT 2 COLUMNS: Operations logs & BOM specs */}
-          <div className="lg:col-span-2 space-y-5">
-            
-            {/* Batch Core Info */}
-            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-              <CardHeader className="pb-3 border-b dark:border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Info className="w-4 h-4 text-indigo-500" /> Basic Batch Info
-                </h3>
-              </CardHeader>
-              <CardContent className="pt-4 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-                <div>
-                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Product Name</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-200 block mt-0.5">{detailBatch.product?.name}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Production Type</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-200 block mt-0.5">{detailBatch.productionType}</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Target Quantity</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-200 block mt-0.5">{detailBatch.quantity} pcs</span>
-                </div>
-                <div>
-                  <span className="text-slate-400 uppercase text-[9px] font-bold block">Actual Output Yield</span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-200 block mt-0.5">{detailBatch.actualOutput || 'N/A'} pcs</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Timing execution log timeline */}
-            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-              <CardHeader className="pb-3 border-b dark:border-slate-800 flex flex-row items-center justify-between">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-indigo-600" /> Timing Execution Report
-                </h3>
-                <span className="text-2xs font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 px-2.5 py-0.5 rounded-lg border dark:border-indigo-950">
-                  Active Duration: {durationText}
-                </span>
-              </CardHeader>
-              <CardContent className="pt-4 space-y-4 text-xs">
-                {timeline.length > 0 ? (
-                  <div className="relative pl-4 border-l border-slate-200 dark:border-slate-800 space-y-4">
-                    {timeline.map((item, idx) => (
-                      <div key={idx} className="relative">
-                        <span className="absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full bg-indigo-600 border-2 border-white dark:border-slate-900" />
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
-                          <span className="font-bold text-slate-800 dark:text-white uppercase text-[10px] tracking-wide">{item.event}</span>
-                          <span className="text-[10px] text-slate-500">
-                            {new Date(item.time).toLocaleString('en-GB')} by {item.user}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="text-slate-400 italic">No timeline logs recorded for this batch.</span>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Raw Material Consumption & Variance */}
-            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-              <CardHeader className="pb-3 border-b dark:border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Scale className="w-4 h-4 text-indigo-600" /> Raw Material Variance Report
-                </h3>
-              </CardHeader>
-              <CardContent className="pt-4 p-0">
-                <div className="overflow-x-auto text-xs">
-                  <table className="w-full text-left">
-                    <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-100 dark:border-slate-800">
-                      <tr>
-                        <th className="px-4 py-3">Raw Material</th>
-                        <th className="px-4 py-3 text-right">Required (SOP)</th>
-                        <th className="px-4 py-3 text-right">Actual Used</th>
-                        <th className="px-4 py-3 text-right">Variance</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {calculatedVariances.length > 0 ? (
-                        calculatedVariances.map((varItem, idx) => (
-                          <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/40">
-                            <td className="px-4 py-3 font-semibold text-slate-805 dark:text-slate-200">{varItem.rawMaterialName}</td>
-                            <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-600">{varItem.requiredQty.toFixed(2)} {varItem.unit}</td>
-                            <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-600">{varItem.actualUsedQty.toFixed(2)} {varItem.unit}</td>
-                            <td className={`px-4 py-3 text-right font-mono font-bold ${
-                              varItem.variance > 0 ? 'text-amber-500' : varItem.variance < 0 ? 'text-indigo-500' : 'text-slate-500'
-                            }`}>
-                              {varItem.variance > 0 ? '+' : ''}{varItem.variance.toFixed(2)} {varItem.unit}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={4} className="p-4 text-center text-slate-400 italic">No raw materials allocated.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Lab Quality Control Checks */}
-            {detailBatch.qcTests && detailBatch.qcTests.length > 0 && (
-              <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-                <CardHeader className="pb-3 border-b dark:border-slate-800">
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                    <Award className="w-4 h-4 text-emerald-500" /> Quality Control (QC) Lab Report
-                  </h3>
-                </CardHeader>
-                <CardContent className="pt-4 space-y-4 text-xs">
-                  {detailBatch.qcTests.map((t, idx) => {
-                    const isPassed = t.result?.toLowerCase() === 'pass' || t.action?.toLowerCase() === 'approved';
-                    return (
-                      <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-950 border dark:border-slate-800 rounded-2xl space-y-3">
-                        <div className="flex justify-between items-center">
-                          <span className={`px-2.5 py-1 text-[10px] font-extrabold rounded-full border ${
-                            isPassed 
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-400' 
-                              : 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-600'
-                          }`}>
-                            {isPassed ? 'PASSED QC' : 'FAILED QC'}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-medium">
-                            Tested at: {new Date(t.createdAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                          </span>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs leading-normal">
-                          <div>
-                            <span className="text-slate-500 text-[10px] uppercase font-bold block">Lab Tester Name</span>
-                            <span className="font-semibold text-slate-800 dark:text-slate-200">{t.tester?.name || 'N/A'}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500 text-[10px] uppercase font-bold block">Username / Email</span>
-                            <span className="font-mono text-slate-700 dark:text-slate-600">{t.tester?.email || 'N/A'}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-500 text-[10px] uppercase font-bold block">Verdict Action</span>
-                            <span className="font-semibold text-slate-800 dark:text-slate-202 uppercase">{t.action || 'Approved'}</span>
-                          </div>
-                        </div>
-
-                        {t.qcParams && (
-                          <div className="pt-3 border-t dark:border-slate-800 grid grid-cols-2 sm:grid-cols-5 gap-3 bg-white dark:bg-slate-900/60 p-3 rounded-xl">
-                            <div>
-                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Taste</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.taste || 'N/A'}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Texture</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.texture || 'N/A'}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Safety</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.safety || 'N/A'}</span>
-                            </div>
-                            <div>
-                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Appearance</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.appearance || 'N/A'}</span>
-                            </div>
-                            <div className="col-span-2 sm:col-span-1">
-                              <span className="text-slate-400 text-[9px] uppercase font-bold block">Weight / Port.</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">{t.qcParams.weightPortion || 'N/A'}</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {t.qcNotes && (
-                          <div className="text-2xs text-slate-500 italic pt-1 flex items-start gap-1">
-                            <Info className="w-3.5 h-3.5 text-indigo-500 flex-shrink-0" />
-                            <span>Notes: "{t.qcNotes}"</span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* RIGHT COLUMN: Costs, Linked Orders & QR code */}
-          <div className="space-y-5">
-            {/* Financial cost summary */}
-            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-              <CardHeader className="pb-3 border-b dark:border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <DollarSign className="w-4 h-4 text-indigo-550" /> Production Cost Ledger
-                </h3>
-              </CardHeader>
-              <CardContent className="pt-4 space-y-3 text-xs">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500 font-medium">Production Cost:</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white">
-                    ₹{Number(detailBatch.totalCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-500 font-medium">Target Sale Price:</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white">
-                    ₹{Number(detailBatch.salePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center pt-2 border-t dark:border-slate-800 font-semibold text-indigo-600 dark:text-indigo-400">
-                  <span>Margin Profit:</span>
-                  <span>{detailBatch.profitMargin}%</span>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Linked Sales Order */}
-            <Card className="rounded-2xl border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
-              <CardHeader className="pb-3 border-b dark:border-slate-800">
-                <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                  <Award className="w-4 h-4 text-violet-500" /> Linked Customer Order
-                </h3>
-              </CardHeader>
-              <CardContent className="pt-4 text-xs">
-                {detailBatch.order ? (
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Customer Name:</span>
-                      <span className="font-bold text-slate-800 dark:text-slate-200">{detailBatch.order.customer?.name || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Order Reference:</span>
-                      <span className="font-mono font-bold text-indigo-605 dark:text-indigo-400">{detailBatch.order.referenceNo || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-slate-500">Order Received Value:</span>
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                        ₹{Number(detailBatch.order.totalSubtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <span className="text-slate-500 italic block py-2">Make to Stock (No linked customer order)</span>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Derived stats overview counts
-  const totalActive = batches.filter(b => ['Planned', 'In Progress', 'On Hold'].includes(b.status)).length;
-  const totalCompleted = batches.filter(b => ['Completed', 'qc_passed'].includes(b.status)).length;
-  const qcPassedCount = batches.filter(b => b.status === 'qc_passed').length;
-  const totalWithQc = batches.filter(b => ['qc_passed', 'qc_failed'].includes(b.status)).length;
-  const qcPassRate = totalWithQc > 0 ? Math.round((qcPassedCount / totalWithQc) * 100) : 100;
+  // Export Table to CSV
+  const handleExportCSV = () => {
+    const headers = ['Batch Ref', 'Product Name', 'Category', 'Status', 'Target Qty', 'Actual Output', 'Start Date', 'Total Cost'];
+    const rows = displayedBatches.map(b => [
+      b.referenceNo,
+      b.product?.name || 'N/A',
+      b.product?.category?.name || 'N/A',
+      b.status,
+      b.quantity,
+      b.actualOutput || 'N/A',
+      new Date(b.startDate).toLocaleDateString('en-GB'),
+      b.totalCost || 0
+    ]);
+    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `batches_export_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
-    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+    <div className="w-full max-w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-5 space-y-4 mx-auto transition-all duration-300">
       <DashboardBackButton />
-      {!canEdit && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium animate-in fade-in slide-in-from-top-3">
-          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-          <span>You have <strong>Read-Only access</strong> to Batch Execution Center. Starting, completing, or scheduling batches is restricted.</span>
-        </div>
-      )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-            <Factory className="w-5.5 h-5.5 text-indigo-600" />
-            Batch Execution Center
+      {/* ─────────────────────── 2. PAGE HEADER ─────────────────────── */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200/80 dark:border-slate-800">
+        <div className="min-w-0">
+          <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2.5 truncate">
+            <span className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-100 dark:border-indigo-900 text-indigo-600 dark:text-indigo-400 shrink-0">
+              <Factory className="w-5 h-5 sm:w-6 sm:h-6" />
+            </span>
+            <span className="truncate">Batch Execution Center</span>
           </h1>
-          <p className="text-xs text-slate-550 dark:text-slate-400 mt-0.5">
-            Manage SOP execution recipe runs and quality controls.
+          <p className="text-[11px] sm:text-xs text-slate-550 dark:text-slate-400 mt-0.5 truncate">
+            Manage SOP execution, recipe runs, and quality controls.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          {/* Display Mode Selector */}
-          <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-250 dark:border-slate-800 h-9 items-center shadow-xs">
+        {/* Top-Right Controls */}
+        <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+          {/* Segmented View Switcher: Pipeline / Grid / Table */}
+          <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 h-9 items-center shadow-xs">
             {[
               { mode: 'pipeline', label: 'Pipeline', icon: LayoutGrid },
               { mode: 'grid', label: 'Grid', icon: Grid },
@@ -807,10 +482,10 @@ export default function ProductionsPage() {
                 key={item.mode}
                 type="button"
                 onClick={() => setDisplayMode(item.mode)}
-                className={`px-3.5 py-1.5 rounded-lg text-2xs font-bold flex items-center gap-1 transition-all h-8 ${
+                className={`px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all h-8 cursor-pointer select-none ${
                   displayMode === item.mode
-                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/30 dark:border-slate-700'
-                    : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                    ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm border border-slate-200/50 dark:border-slate-700'
+                    : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
                 }`}
                 title={`${item.label} View`}
               >
@@ -820,6 +495,7 @@ export default function ProductionsPage() {
             ))}
           </div>
 
+          {/* "+ Record New Batch" Primary Button */}
           {canEdit && (
             <Button
               onClick={() => navigate('/production/add')}
@@ -831,53 +507,101 @@ export default function ProductionsPage() {
         </div>
       </div>
 
-      {/* Stats Summary Panel */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs">
-        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-xs">
-          <div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Batches</span>
-            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{totalActive}</span>
+      {/* ─────────────────────── 3. KPI SUMMARY STRIP ─────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 text-xs">
+        {/* KPI 1: Active Batches */}
+        <div 
+          onClick={() => setStatusFilter(statusFilter === 'In Progress' ? '' : 'In Progress')}
+          className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer shadow-2xs hover:shadow-sm ${
+            statusFilter === 'In Progress' 
+              ? 'ring-2 ring-amber-500/30 border-amber-300 bg-amber-50/50 dark:bg-amber-950/20' 
+              : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:border-slate-200'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Active Batches</span>
+            <div className={`p-2 rounded-xl shrink-0 ${totalActive > 0 ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400' : 'bg-slate-100 text-slate-400 dark:bg-slate-800'}`}>
+              <Activity className={`w-4 h-4 sm:w-5 sm:h-5 ${totalActive > 0 ? 'animate-pulse' : ''}`} />
+            </div>
           </div>
-          <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 rounded-xl shrink-0">
-            <Activity className="w-5 h-5" />
-          </div>
+          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white block mt-1">
+            {totalActive}
+          </span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block truncate">Planned & In Progress</span>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-xs">
-          <div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Completed Batches</span>
-            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{totalCompleted}</span>
+        {/* KPI 2: Completed Batches */}
+        <div 
+          onClick={() => setStatusFilter(statusFilter === 'Completed' ? '' : 'Completed')}
+          className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer shadow-2xs hover:shadow-sm ${
+            statusFilter === 'Completed' 
+              ? 'ring-2 ring-purple-500/30 border-purple-300 bg-purple-50/50 dark:bg-purple-950/20' 
+              : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:border-slate-200'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Completed Batches</span>
+            <div className="p-2 bg-purple-50 dark:bg-purple-950/30 text-purple-600 dark:text-purple-400 rounded-xl shrink-0">
+              <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
           </div>
-          <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
-            <Check className="w-5 h-5" />
-          </div>
+          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white block mt-1">
+            {totalCompleted}
+          </span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block truncate">Awaiting or cleared QC</span>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-xs">
-          <div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">QC Pass Rate</span>
-            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{qcPassRate}%</span>
+        {/* KPI 3: QC Pass Rate */}
+        <div 
+          onClick={() => setStatusFilter(statusFilter === 'qc_passed' ? '' : 'qc_passed')}
+          className={`p-3.5 sm:p-4 rounded-2xl border transition-all duration-200 cursor-pointer shadow-2xs hover:shadow-sm ${
+            statusFilter === 'qc_passed' 
+              ? 'ring-2 ring-emerald-500/30 border-emerald-300 bg-emerald-50/50 dark:bg-emerald-950/20' 
+              : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:border-slate-200'
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">QC Pass Rate</span>
+            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-xl shrink-0">
+              <Award className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
           </div>
-          <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-600 rounded-xl shrink-0">
-            <Award className="w-5 h-5" />
-          </div>
+          <span className={`text-xl sm:text-2xl font-black block mt-1 ${
+            qcPassRate >= 95 ? 'text-emerald-600 dark:text-emerald-400' : qcPassRate >= 80 ? 'text-amber-600' : 'text-rose-600'
+          }`}>
+            {qcPassRate}%
+          </span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block truncate">Quality clearance benchmark</span>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-4 rounded-2xl flex items-center justify-between shadow-xs">
-          <div>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">QC Passed Yield</span>
-            <span className="text-xl font-black text-slate-900 dark:text-white block mt-0.5">{qcPassedCount}</span>
+        {/* KPI 4: QC Passed Yield */}
+        <div className="p-3.5 sm:p-4 rounded-2xl border bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">QC Passed Yield</span>
+              <div className="group relative cursor-help">
+                <Info className="w-3 h-3 text-slate-400" />
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 hidden group-hover:block w-48 p-2 bg-slate-900 text-white text-[10px] rounded-lg shadow-lg z-50">
+                  Total finished units that cleared quality control and released to warehouse stock.
+                </div>
+              </div>
+            </div>
+            <div className="p-2 bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-xl shrink-0">
+              <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
+            </div>
           </div>
-          <div className="p-2 bg-violet-50 dark:bg-violet-950/20 text-violet-600 dark:text-violet-400 rounded-xl shrink-0">
-            <Info className="w-5 h-5" />
-          </div>
+          <span className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white block mt-1 font-mono">
+            {qcPassedYield.toLocaleString('en-IN')}
+          </span>
+          <span className="text-[10px] text-slate-400 mt-0.5 block truncate">Finished stock units</span>
         </div>
       </div>
 
-      {/* Filters toolbar */}
-      <div className="bg-slate-50/50 dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row gap-3 justify-between items-center text-xs">
-        <form onSubmit={handleSearch} className="flex items-center gap-2 w-full md:w-auto flex-1">
-          <div className="relative flex-1 max-w-md">
+      {/* ─────────────────────── 4. SEARCH & FILTER BAR ─────────────────────── */}
+      <div className="bg-slate-50/70 dark:bg-slate-900/70 p-3 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-2">
+        <div className="flex flex-col md:flex-row gap-2.5 justify-between items-center text-xs">
+          {/* Live Search Input */}
+          <div className="relative flex-1 w-full md:max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
               placeholder="Search by batch ref or product spec name..." 
@@ -885,760 +609,721 @@ export default function ProductionsPage() {
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
-          <Button type="submit" variant="outline" className="border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold rounded-xl h-9 cursor-pointer">Search</Button>
-        </form>
 
-        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-end">
-          <select
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
-          >
-            <option value="">All Statuses</option>
-            <option value="Planned">Planned</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Completed">Completed</option>
-            <option value="On Hold">On Hold</option>
-            <option value="Cancelled">Cancelled</option>
-            <option value="qc_passed">QC Passed</option>
-            <option value="qc_failed">QC Failed</option>
-          </select>
+          {/* Desktop Filters Row */}
+          <div className="hidden md:flex flex-wrap items-center gap-2 w-auto justify-end">
+            {/* Status Filter */}
+            <select
+              value={statusFilter}
+              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
+            >
+              <option value="">All Statuses</option>
+              <option value="Planned">Planned</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Completed">Completed</option>
+              <option value="qc_passed">QC Passed</option>
+              <option value="qc_failed">QC Failed</option>
+              <option value="On Hold">On Hold</option>
+            </select>
 
-          <select
-            value={datePreset}
-            onChange={(e) => handlePresetChange(e.target.value)}
-            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
-          >
-            <option value="">All Time</option>
-            <option value="Today">Today</option>
-            <option value="Yesterday">Yesterday</option>
-            <option value="This Week">This Week</option>
-            <option value="This Month">This Month</option>
-            <option value="Date Range">Custom Date Range</option>
-          </select>
+            {/* Category Filter */}
+            <select
+              value={categoryFilter}
+              onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }}
+              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
+            >
+              <option value="">All Categories</option>
+              {availableCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
 
-          {datePreset === 'Date Range' && (
-            <div className="flex items-center gap-2 animate__animated animate__fadeIn">
-              <DatePicker
-                placeholder="Start Date"
-                value={startDate}
-                onChange={setStartDate}
-                className="w-40 space-y-0"
-                triggerClassName="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 shadow-none font-semibold"
-              />
-              <span className="text-slate-400 font-medium">to</span>
-              <DatePicker
-                placeholder="End Date"
-                value={endDate}
-                onChange={setEndDate}
-                className="w-40 space-y-0"
-                triggerClassName="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 shadow-none font-semibold"
-              />
-            </div>
-          )}
+            {/* Date Preset */}
+            <select
+              value={datePreset}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
+            >
+              <option value="">All Time</option>
+              <option value="Today">Today</option>
+              <option value="Yesterday">Yesterday</option>
+              <option value="This Week">This Week</option>
+              <option value="This Month">This Month</option>
+              <option value="Date Range">Custom Date Range</option>
+            </select>
+
+            {/* Custom Date Range Pickers */}
+            {datePreset === 'Date Range' && (
+              <div className="flex items-center gap-1.5 animate__animated animate__fadeIn">
+                <DatePicker
+                  placeholder="Start Date"
+                  value={startDate}
+                  onChange={setStartDate}
+                  className="w-32 space-y-0"
+                  triggerClassName="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 text-xs text-slate-800 dark:text-slate-200 shadow-none font-semibold"
+                />
+                <span className="text-slate-400 text-xs">to</span>
+                <DatePicker
+                  placeholder="End Date"
+                  value={endDate}
+                  onChange={setEndDate}
+                  className="w-32 space-y-0"
+                  triggerClassName="h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 px-2.5 text-xs text-slate-800 dark:text-slate-200 shadow-none font-semibold"
+                />
+              </div>
+            )}
+
+            {/* Export Table Button */}
+            {displayMode === 'table' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleExportCSV}
+                className="h-9 rounded-xl text-xs font-semibold px-3 border-slate-200 dark:border-slate-700 flex items-center gap-1.5 cursor-pointer"
+                title="Export as CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export
+              </Button>
+            )}
+          </div>
+
+          {/* Mobile Filter Button */}
+          <div className="md:hidden flex items-center justify-between w-full">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setMobileFilterOpen(true)}
+              className="h-9 rounded-xl text-xs font-bold border-slate-200 dark:border-slate-700 flex items-center gap-1.5"
+            >
+              <Filter className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Filters</span>
+              {activeFiltersCount > 0 && (
+                <span className="w-4 h-4 rounded-full bg-indigo-600 text-white text-[9px] flex items-center justify-center font-bold">
+                  {activeFiltersCount}
+                </span>
+              )}
+            </Button>
+
+            <span className="text-[11px] text-slate-400 font-medium">
+              {displayedBatches.length} Batches
+            </span>
+          </div>
         </div>
-      </div>
-      {displayMode === 'pipeline' && (
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 items-start pb-5">
-          {PIPELINE_COLUMNS.map(col => {
-            const c = PIPELINE_COLOR_MAP[col.color];
-            const items = getPipelineFiltered(col.key);
-            return (
-              <div key={col.key} className="bg-white/85 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-xs">
-                {/* Column Header */}
-                <div className={`px-3 py-2 border-b border-slate-200 dark:border-slate-800 ${c.header} border flex items-center justify-between`}>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`w-2 h-2 rounded-full ${c.dot}`} />
-                    <span className="text-[10px] font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">{col.label}</span>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-lg text-[9px] font-bold ${c.badge}`}>
-                    {items.length}
-                  </span>
-                </div>
 
-                {/* Cards Container */}
-                <div className="flex flex-col gap-2.5 p-2.5 overflow-y-auto max-h-[65vh] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-800 scrollbar-track-transparent">
-                  {items.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-600 gap-1.5">
-                      <Factory className="w-8 h-8 opacity-30" />
-                      <span className="text-[10px] font-medium">No active batches</span>
+        {/* Active Filter Chips */}
+        {activeFiltersCount > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-slate-200/50 dark:border-slate-800 text-[11px]">
+            <span className="text-slate-400 text-[10px] uppercase font-bold mr-1">Active:</span>
+            {statusFilter && (
+              <span className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                Status: {statusFilter}
+                <button type="button" onClick={() => setStatusFilter('')} className="hover:text-indigo-900">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {categoryFilter && (
+              <span className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                Category: {categoryFilter}
+                <button type="button" onClick={() => setCategoryFilter('')} className="hover:text-indigo-900">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {datePreset && (
+              <span className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center gap-1">
+                Date: {datePreset}
+                <button type="button" onClick={() => handlePresetChange('')} className="hover:text-indigo-900">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="text-[10px] text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 underline font-medium ml-1 cursor-pointer"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ─────────────────────── 5. PIPELINE VIEW (KANBAN BOARD) ─────────────────────── */}
+      {displayMode === 'pipeline' && (
+        <div className="space-y-3">
+          {/* Mobile Status Tabs for Single Column Swiping */}
+          <div className="sm:hidden flex overflow-x-auto gap-1 pb-1 scrollbar-none">
+            {PIPELINE_COLUMNS.map(col => {
+              const count = getPipelineFiltered(col.key).length;
+              const isActive = mobilePipelineTab === col.key;
+              return (
+                <button
+                  key={col.key}
+                  type="button"
+                  onClick={() => setMobilePipelineTab(col.key)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap flex items-center gap-1.5 transition-all ${
+                    isActive
+                      ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
+                  <span>{col.label}</span>
+                  <span className={`px-1.5 py-0.2 rounded-full text-[9px] ${isActive ? 'bg-white/20' : 'bg-slate-200 dark:bg-slate-700'}`}>
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Kanban Columns Grid (All 5 on Desktop, Scrollable on Tablet, Tabbed on Mobile) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-start pb-5 overflow-x-auto">
+            {PIPELINE_COLUMNS.map(col => {
+              const c = PIPELINE_COLOR_MAP[col.color];
+              const items = getPipelineFiltered(col.key);
+              const isOver = dragOverColumn === col.key;
+              const isMobileHidden = window.innerWidth < 640 && mobilePipelineTab !== col.key;
+
+              return (
+                <div
+                  key={col.key}
+                  onDragOver={(e) => handleColumnDragOver(e, col.key)}
+                  onDrop={(e) => handleColumnDrop(e, col.key)}
+                  className={`bg-white/90 dark:bg-slate-900/80 border border-slate-200/90 dark:border-slate-800 rounded-2xl flex flex-col overflow-hidden shadow-xs transition-all duration-200 ${
+                    col.borderColor
+                  } border-t-4 ${
+                    isOver ? 'ring-2 ring-indigo-500/40 bg-indigo-50/20 dark:bg-indigo-950/20 border-dashed' : ''
+                  } ${isMobileHidden ? 'hidden sm:flex' : 'flex'}`}
+                >
+                  {/* Column Header */}
+                  <div className={`px-3.5 py-2.5 border-b border-slate-200/80 dark:border-slate-800 ${c.header} flex items-center justify-between`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2.5 h-2.5 rounded-full ${col.dotColor} shrink-0`} />
+                      <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider truncate">
+                        {col.label}
+                      </span>
                     </div>
-                  ) : (
-                    items.map(batch => {
-                      const dateStr = new Date(batch.startDate).toLocaleDateString('en-GB');
-                      return (
-                        <div
-                          key={batch.id}
-                          className={`bg-white dark:bg-slate-950 border ${c.card_border} rounded-xl p-3.5 space-y-3 transition-all duration-200 hover:shadow-md ${c.glow} relative flex flex-col justify-between`}
-                        >
-                          <div className="space-y-2">
-                            <div className="flex justify-between items-center">
-                              <span className="font-mono text-[9px] font-bold text-slate-500">#{batch.referenceNo}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${c.badge} shrink-0`}>
+                      {items.length}
+                    </span>
+                  </div>
+
+                  {/* Cards Scrollable Body */}
+                  <div className="flex flex-col gap-2.5 p-2.5 overflow-y-auto max-h-[68vh] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-850">
+                    {items.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-600 gap-1.5 border-2 border-dashed border-slate-100 dark:border-slate-800/60 rounded-xl my-1">
+                        <Factory className="w-8 h-8 opacity-25" />
+                        <span className="text-[10px] font-medium">No active batches</span>
+                      </div>
+                    ) : (
+                      items.map(batch => {
+                        const targetQty = Number(batch.quantity || 0);
+                        const actualQty = batch.actualOutput !== null ? Number(batch.actualOutput) : null;
+                        const isActualMet = actualQty !== null && actualQty >= targetQty;
+                        const isDragging = draggingBatchId === batch.id;
+
+                        return (
+                          <div
+                            key={batch.id}
+                            draggable={canEdit}
+                            onDragStart={(e) => handleCardDragStart(e, batch.id)}
+                            onClick={() => setSearchParams({ id: batch.id })}
+                            className={`bg-white dark:bg-slate-950 border ${c.card_border} ${c.left_accent} rounded-xl p-3.5 space-y-2.5 transition-all duration-150 hover:shadow-md ${c.glow} cursor-pointer relative select-none group ${
+                              isDragging ? 'opacity-40 scale-95' : ''
+                            }`}
+                          >
+                            {/* Card Header: Ref & Lot */}
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span className="font-mono font-bold text-slate-500">
+                                #{batch.referenceNo}
+                              </span>
                               {batch.status === 'On Hold' && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-400 text-[8px] font-bold">On Hold</span>
+                                <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-400 font-bold text-[9px]">
+                                  On Hold
+                                </span>
+                              )}
+                              {batch.batchNo && (
+                                <span className="font-mono text-slate-400 text-[9px] truncate max-w-[90px]">
+                                  {batch.batchNo}
+                                </span>
                               )}
                             </div>
+
+                            {/* Product Name & Category Pill */}
                             <div>
-                              <h4 className="font-bold text-slate-800 dark:text-slate-200 text-[11px] leading-tight line-clamp-2">
+                              <h4 className="font-bold text-slate-800 dark:text-slate-100 text-xs leading-snug line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                                 {batch.product?.name}
                               </h4>
                               {batch.product?.category?.name && (
-                                <span className="text-[8px] uppercase tracking-wider font-extrabold text-slate-400 mt-1 block">
+                                <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                                   {batch.product.category.name}
                                 </span>
                               )}
                             </div>
-                            <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/40 text-[10px] text-slate-500">
-                              <div>
-                                <span className="text-slate-400 block uppercase font-semibold text-[8px]">Target</span>
-                                <span className="font-bold text-slate-700 dark:text-slate-300">{batch.quantity} {batch.product?.unit?.abbreviation || 'pcs'}</span>
-                              </div>
-                              {batch.actualOutput !== null && (
-                                <div>
-                                  <span className="text-slate-400 block uppercase font-semibold text-[8px]">Actual</span>
-                                  <span className="font-bold text-slate-700 dark:text-slate-300">{batch.actualOutput} {batch.product?.unit?.abbreviation || 'pcs'}</span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
 
-                          {/* Quick Actions Footer */}
-                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800/50 flex gap-1.5 items-center justify-between">
-                            <div className="flex gap-1 items-center flex-1">
-                              {canEdit && batch.status === 'Planned' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs flex-1 flex items-center justify-center gap-0.5 cursor-pointer"
-                                >
-                                  <Play className="w-2.5 h-2.5" /> Start
-                                </button>
-                              )}
-                              {canEdit && batch.status === 'In Progress' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenCompletionModal(batch)}
-                                    className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs flex-1 flex items-center justify-center gap-0.5 cursor-pointer"
-                                  >
-                                    <CheckCircle className="w-2.5 h-2.5" /> Done
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUpdateStatus(batch.id, 'On Hold')}
-                                    className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-amber-600 rounded-lg cursor-pointer"
-                                    title="Hold Batch"
-                                  >
-                                    <Pause className="w-3.5 h-3.5" />
-                                  </button>
-                                </>
-                              )}
-                              {canEdit && batch.status === 'On Hold' && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs flex-1 flex items-center justify-center gap-0.5 cursor-pointer"
-                                >
-                                  <Play className="w-2.5 h-2.5" /> Resume
-                                </button>
-                              )}
+                            {/* Quantities Mini Stat Block */}
+                            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60 text-[10px]">
+                              <div>
+                                <span className="text-slate-400 block uppercase font-bold text-[8px]">Target</span>
+                                <span className="font-bold font-mono text-slate-700 dark:text-slate-300">
+                                  {targetQty} {batch.product?.unit?.abbreviation || 'pcs'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-slate-400 block uppercase font-bold text-[8px]">Actual</span>
+                                <span className={`font-bold font-mono ${
+                                  actualQty === null 
+                                    ? 'text-slate-400 italic' 
+                                    : isActualMet 
+                                    ? 'text-emerald-600 dark:text-emerald-400' 
+                                    : 'text-amber-600'
+                                }`}>
+                                  {actualQty !== null ? `${actualQty} pcs` : 'Pending'}
+                                </span>
+                              </div>
                             </div>
-                            
-                            <div className="flex gap-0.5">
+
+                            {/* Card Footer Quick Actions */}
+                            <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-1.5" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center gap-1 flex-1">
+                                {canEdit && batch.status === 'Planned' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs flex-1 flex items-center justify-center gap-1 cursor-pointer"
+                                  >
+                                    <Play className="w-2.5 h-2.5 fill-white" /> Start
+                                  </button>
+                                )}
+                                {canEdit && batch.status === 'In Progress' && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenCompletionModal(batch)}
+                                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs flex-1 flex items-center justify-center gap-1 cursor-pointer"
+                                    >
+                                      <CheckCircle2 className="w-2.5 h-2.5" /> Done
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUpdateStatus(batch.id, 'On Hold')}
+                                      className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-amber-600 rounded-lg cursor-pointer"
+                                      title="Hold Batch"
+                                    >
+                                      <Pause className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
+                                {canEdit && batch.status === 'On Hold' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs flex-1 flex items-center justify-center gap-1 cursor-pointer"
+                                  >
+                                    <Play className="w-2.5 h-2.5" /> Resume
+                                  </button>
+                                )}
+                                {canEdit && batch.status === 'qc_failed' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
+                                    className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-[9px] font-bold transition-all shadow-xs flex-1 flex items-center justify-center gap-1 cursor-pointer"
+                                  >
+                                    <RotateCcw className="w-2.5 h-2.5" /> Rework
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Inspect details icon */}
                               <button
                                 type="button"
-                                onClick={() => setSelectedSopBatch(batch)}
-                                className="p-1 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 rounded-lg cursor-pointer animate-pulse"
-                                title="View SOP Recipe"
-                              >
-                                <BookOpen className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenDetailModal(batch)}
-                                className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 cursor-pointer"
-                                title="Batch Logs"
+                                onClick={() => setSearchParams({ id: batch.id })}
+                                className="p-1 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                title="View batch details"
                               >
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </div>
-                        </div>
-                      );
-                    })
-                  )}
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* BATCHES CARD GRID LISTING */}
+      {/* ─────────────────────── 6. GRID VIEW ─────────────────────── */}
       {displayMode === 'grid' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-          {loading ? (
-            <div className="col-span-full py-16 text-center text-slate-400 text-xs">Loading batch details...</div>
-          ) : batches.length === 0 ? (
-            <div className="col-span-full py-16 text-center text-slate-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl text-xs">No production batches matched your filter logs.</div>
-          ) : (
-            batches.map(batch => {
-              const dateStr = new Date(batch.startDate).toLocaleDateString('en-GB');
-              return (
-                <Card 
-                  key={batch.id} 
-                  className="group overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 rounded-2xl flex flex-col justify-between"
+        <div className="space-y-4">
+          {/* Grid Toolbar with Sort Dropdown */}
+          <div className="flex items-center justify-between text-xs pb-1">
+            <span className="font-semibold text-slate-600 dark:text-slate-400">
+              Showing {displayedBatches.length} batches in card grid
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400 font-medium">Sort by:</span>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1 text-xs text-slate-800 dark:text-slate-200 font-semibold"
+              >
+                <option value="newest">Newest First</option>
+                <option value="ref">Batch Reference</option>
+                <option value="product">Product Name</option>
+                <option value="status">Status</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {displayedBatches.length > 0 ? (
+              displayedBatches.map(batch => (
+                <div
+                  key={batch.id}
+                  onClick={() => setSearchParams({ id: batch.id })}
+                  className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 space-y-3 hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 transition-all cursor-pointer shadow-2xs relative flex flex-col justify-between"
                 >
-                  <div className="p-4 space-y-3">
-                    <div className="flex justify-between items-start gap-1">
-                      <span className="font-mono text-3xs font-bold text-slate-400 tracking-wider">#{batch.referenceNo}</span>
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                        batch.status === 'Planned' ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400' :
-                        batch.status === 'In Progress' ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-700 dark:text-amber-400' :
-                        batch.status === 'Completed' ? 'bg-indigo-50 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400' :
-                        batch.status === 'qc_passed' ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-600 border border-emerald-100 dark:border-emerald-950' :
-                        batch.status === 'qc_failed' ? 'bg-rose-50 dark:bg-rose-950/20 text-rose-700 dark:text-rose-400 border border-rose-100 dark:border-rose-950' :
-                        'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-400'
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-xs text-indigo-600 dark:text-indigo-400">
+                        #{batch.referenceNo}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold border ${
+                        batch.status === 'Planned' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                        batch.status === 'In Progress' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                        batch.status === 'Completed' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                        batch.status === 'qc_passed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                        'bg-rose-50 text-rose-700 border-rose-200'
                       }`}>
                         {batch.status === 'qc_passed' ? 'Passed QC' : batch.status === 'qc_failed' ? 'Failed QC' : batch.status}
                       </span>
                     </div>
 
                     <div>
-                      <h4 className="font-bold text-slate-900 dark:text-slate-100 text-sm line-clamp-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                      <h4 className="font-bold text-slate-800 dark:text-white text-xs line-clamp-1">
                         {batch.product?.name}
                       </h4>
-                      {batch.product?.category?.name && (
-                        <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400 mt-0.5 block">
-                          {batch.product.category.name}
-                        </span>
-                      )}
-                      <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1.5 font-medium">
-                        <Calendar className="w-3.5 h-3.5" /> Start: {dateStr}
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        {batch.product?.code} • {batch.product?.category?.name || 'General'}
                       </p>
                     </div>
 
-                    <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-500">Planned Yield:</span>
-                        <span className="font-bold dark:text-slate-200">{batch.quantity} {batch.product?.unit?.abbreviation || 'pcs'}</span>
+                    <div className="grid grid-cols-2 gap-2 p-2 bg-slate-50 dark:bg-slate-950/60 rounded-xl text-[10px]">
+                      <div>
+                        <span className="text-slate-400 block font-semibold">Target</span>
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                          {batch.quantity} {batch.product?.unit?.abbreviation || 'pcs'}
+                        </span>
                       </div>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-500">Production Cost:</span>
-                        <span className="font-mono font-bold text-slate-700 dark:text-slate-300">₹{Number(batch.totalCost).toLocaleString('en-IN')}</span>
+                      <div>
+                        <span className="text-slate-400 block font-semibold">Actual</span>
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                          {batch.actualOutput !== null ? `${batch.actualOutput} pcs` : '—'}
+                        </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Actions drawer footer */}
-                  <div className="p-3 bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-200 dark:border-slate-800 flex gap-2">
-                    {canEdit && batch.status === 'Planned' && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] py-1.5 rounded-xl cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 mr-1" /> Start
-                      </Button>
-                    )}
-                    {canEdit && batch.status === 'In Progress' && (
-                      <>
-                        <Button
-                          size="sm"
-                          onClick={() => handleOpenCompletionModal(batch)}
-                          className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] py-1.5 rounded-xl cursor-pointer"
-                        >
-                          <CheckCircle className="w-3.5 h-3.5 mr-1" /> Complete
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleUpdateStatus(batch.id, 'On Hold')}
-                          className="p-1.5 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded-xl cursor-pointer"
-                        >
-                          <Pause className="w-4 h-4" />
-                        </Button>
-                      </>
-                    )}
-                    {canEdit && batch.status === 'On Hold' && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px] py-1.5 rounded-xl cursor-pointer"
-                      >
-                        <Play className="w-3.5 h-3.5 mr-1" /> Resume
-                      </Button>
-                    )}
-                    
-                    {/* SOP Button */}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setSelectedSopBatch(batch)}
-                      className="font-bold text-[10px] py-1.5 rounded-xl border-slate-200 dark:border-slate-800 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/20 cursor-pointer"
-                    >
-                      <BookOpen className="w-3.5 h-3.5 mr-1" /> SOP
-                    </Button>
-
-                    {/* View Button */}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleOpenDetailModal(batch)}
-                      className={`font-bold text-[10px] py-1.5 rounded-xl border-slate-200 dark:border-slate-800 ${
-                        ['Completed', 'qc_passed', 'qc_failed'].includes(batch.status) || !canEdit ? 'flex-1' : ''
-                      } text-slate-700 dark:text-slate-300 cursor-pointer`}
-                    >
-                      <Eye className="w-3.5 h-3.5 mr-1" /> View
-                    </Button>
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+                    <span>{new Date(batch.startDate).toLocaleDateString('en-GB')}</span>
+                    <span className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-0.5">
+                      Details <ChevronRight className="w-3 h-3" />
+                    </span>
                   </div>
-                </Card>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      {/* TABLE LISTING MODE */}
-      {displayMode === 'table' && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto text-xs">
-            <Table>
-              <TableHeader className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase font-semibold">
-                <TableRow className="dark:border-slate-800">
-                  <TableHead className="px-6 py-4">Batch Ref</TableHead>
-                  <TableHead className="px-6 py-4">Product Name</TableHead>
-                  <TableHead className="px-6 py-4 text-center">Type</TableHead>
-                  <TableHead className="px-6 py-4 text-right">Target Quantity</TableHead>
-                  <TableHead className="px-6 py-4 text-center">Start Date</TableHead>
-                  <TableHead className="px-6 py-4 text-center">Status</TableHead>
-                  <TableHead className="px-6 py-4 text-right">Batch Cost</TableHead>
-                  <TableHead className="px-6 py-4 text-center">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="px-6 py-12 text-center text-slate-400">Loading production batches...</TableCell>
-                  </TableRow>
-                ) : batches.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="px-6 py-12 text-center text-slate-400">No production batches found.</TableCell>
-                  </TableRow>
-                ) : (
-                  batches.map(batch => (
-                    <TableRow key={batch.id} className="dark:border-slate-800 hover:bg-slate-50/45 dark:hover:bg-slate-950/10 transition-colors">
-                      <TableCell className="px-6 py-4 font-mono font-bold text-slate-500">{batch.referenceNo}</TableCell>
-                      <TableCell className="px-6 py-4 font-bold text-slate-900 dark:text-slate-100">{batch.product?.name}</TableCell>
-                      <TableCell className="px-6 py-4 text-center text-slate-500 font-semibold">{batch.productionType}</TableCell>
-                      <TableCell className="px-6 py-4 text-right font-bold text-slate-900 dark:text-white">
-                        {batch.quantity} <span className="text-[10px] font-normal text-slate-400">{batch.product?.unit?.abbreviation}</span>
-                      </TableCell>
-                      <TableCell className="px-6 py-4 text-center text-slate-500 font-semibold">
-                        {new Date(batch.startDate).toLocaleDateString('en-GB')}
-                      </TableCell>
-                      <TableCell className="px-6 py-4 text-center">
-                        <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full ${
-                          batch.status === 'Planned'
-                            ? 'bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400'
-                            : batch.status === 'In Progress'
-                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400'
-                            : batch.status === 'Completed'
-                            ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400'
-                            : batch.status === 'qc_passed'
-                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
-                            : batch.status === 'qc_failed'
-                            ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-600'
-                            : 'bg-slate-50 text-slate-700 dark:bg-slate-500/10 dark:text-slate-400'
-                        }`}>
-                          {batch.status === 'qc_passed' ? 'Passed QC' : batch.status === 'qc_failed' ? 'Failed QC' : batch.status}
-                        </span>
-                      </TableCell>
-                      <TableCell className="px-6 py-4 text-right font-mono font-bold text-slate-900 dark:text-white">
-                        ₹{Number(batch.totalCost).toLocaleString('en-IN')}
-                      </TableCell>
-                      <TableCell className="px-6 py-4 text-center">
-                        <div className="flex items-center justify-center space-x-1">
-                          {canEdit && batch.status === 'Planned' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                              className="text-emerald-600 hover:text-emerald-700 p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded transition-all"
-                              title="Start Production"
-                            >
-                              <Play className="w-4 h-4" />
-                            </Button>
-                          )}
-                          {canEdit && batch.status === 'In Progress' && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleOpenCompletionModal(batch)}
-                                className="text-indigo-600 hover:text-indigo-700 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded transition-all"
-                                title="Complete Production"
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleUpdateStatus(batch.id, 'On Hold')}
-                                className="text-amber-600 hover:text-amber-700 p-1.5 hover:bg-amber-50 dark:hover:bg-amber-500/10 rounded transition-all"
-                                title="Hold Production"
-                              >
-                                <Pause className="w-4 h-4" />
-                              </Button>
-                            </>
-                          )}
-                          {canEdit && batch.status === 'On Hold' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleUpdateStatus(batch.id, 'In Progress')}
-                              className="text-emerald-600 hover:text-emerald-700 p-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 rounded transition-all cursor-pointer"
-                              title="Resume Production"
-                            >
-                              <Play className="w-4 h-4" />
-                            </Button>
-                          )}
-                          
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSelectedSopBatch(batch)}
-                            className="text-indigo-600 hover:text-indigo-700 p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded transition-all cursor-pointer"
-                            title="View SOP steps"
-                          >
-                            <BookOpen className="w-4 h-4 animate-pulse" />
-                          </Button>
-
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleOpenDetailModal(batch)}
-                            className="text-slate-500 hover:text-slate-700 p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition-all cursor-pointer"
-                            title="View logs"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </div>
-      )}
-
-      {/* Pagination control */}
-      {totalPages > 1 && (
-        <div className="px-4 py-3 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-3 text-xs bg-slate-50/20 dark:bg-slate-900/20">
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
-            Showing {batches.length === 0 ? 0 : (page - 1) * (displayMode === 'grid' ? 8 : 10) + 1} to {Math.min(page * (displayMode === 'grid' ? 8 : 10), batches.length * page)} entries
-          </div>
-          <div className="order-1 sm:order-2">
-            <Pagination 
-              currentPage={page} 
-              totalPages={totalPages} 
-              onPageChange={setPage} 
-            />
-          </div>
-          <div className="text-xs text-slate-400 font-medium order-3">
-            Total entries: {batches.length * totalPages}
-          </div>
-        </div>
-      )}
-
-      {/* Completion Modal Panel */}
-      {execBatch && (
-        <div 
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setExecBatch(null);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate__animated animate__fadeIn animate__faster"
-        >
-          <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-slate-200/90 dark:border-slate-800 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 p-4 sm:p-6 space-y-4 sm:space-y-5 animate__animated animate__zoomIn animate__faster text-xs">
-            {/* Full Display Indigo Header */}
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 text-white flex justify-between items-center relative -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 mb-4 sm:mb-5 rounded-t-2xl sm:rounded-t-3xl shadow-sm">
-              <div className="flex items-center space-x-2">
-                <ClipboardList className="w-5 h-5 text-indigo-100" />
-                <h3 className="text-xs sm:text-sm font-extrabold uppercase tracking-wide">
-                  Execute Recipe Run: Batch #{execBatch.referenceNo}
-                </h3>
-              </div>
-              <button 
-                onClick={() => setExecBatch(null)} 
-                className="p-1.5 bg-white/10 hover:bg-white/20 active:scale-95 text-white rounded-xl transition-colors cursor-pointer border border-white/15"
-                title="Close"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
-              {/* Left Column: SOP Instructions */}
-              <div className="space-y-2.5">
-                <h4 className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Flame className="w-4 h-4 text-orange-500" /> 1. Standard Recipe Steps (Read-only)
-                </h4>
-                <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
-                  {execBatch.product?.sopSteps && execBatch.product.sopSteps.length > 0 ? (
-                    execBatch.product.sopSteps.map((step, idx) => (
-                      <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl space-y-1">
-                        <p className="text-[10px] font-black text-indigo-700 dark:text-indigo-400 uppercase">Step #{idx + 1}</p>
-                        <p className="text-xs text-slate-800 dark:text-slate-200 font-semibold leading-relaxed">{step.instruction}</p>
-                        {(step.tempTime || step.safetyNote) && (
-                          <div className="flex justify-between items-center text-[10px] text-slate-500 dark:text-slate-400 pt-1.5 border-t border-slate-200 dark:border-slate-800 border-dashed mt-1">
-                            {step.tempTime && <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-indigo-600 dark:text-indigo-400" /> {step.tempTime}</span>}
-                            {step.safetyNote && <span className="text-amber-700 dark:text-amber-400 font-semibold flex items-center gap-1">⚠️ {step.safetyNote}</span>}
-                          </div>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-xs text-slate-400 italic">No instructions saved. Standard operating procedures apply.</p>
-                  )}
                 </div>
+              ))
+            ) : (
+              <div className="col-span-full py-16 text-center text-slate-400 border border-dashed rounded-2xl italic">
+                No production batches matched your filter criteria.
               </div>
+            )}
+          </div>
+        </div>
+      )}
 
-              {/* Right Column: Actual Usage */}
-              <div className="space-y-2.5">
-                <h4 className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Scale className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> 2. Material Consumption
-                </h4>
-                <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
-                  {actualRmUsages.map((usage, idx) => {
-                    const displayUnit = usage.selectedUnit === 'sub' ? usage.subUomLabel : usage.unit;
-                    const displayTarget = usage.selectedUnit === 'sub' ? usage.requiredQty * 1000 : usage.requiredQty;
-                    const displayVariance = usage.inputValue - displayTarget;
+      {/* ─────────────────────── 6. TABLE VIEW ─────────────────────── */}
+      {displayMode === 'table' && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs space-y-2">
+          {/* Desktop Data Table */}
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50/80 dark:bg-slate-950/60 border-b border-slate-200 dark:border-slate-800 text-[10px] uppercase font-extrabold text-slate-500 tracking-wider">
+                <tr>
+                  <th className="py-3 px-4">Batch Ref</th>
+                  <th className="py-3 px-4">Product Name</th>
+                  <th className="py-3 px-4">Category</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Target</th>
+                  <th className="py-3 px-4 text-right">Actual Output</th>
+                  <th className="py-3 px-4 text-right">Yield %</th>
+                  <th className="py-3 px-4">Start Date</th>
+                  <th className="py-3 px-4 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {displayedBatches.length > 0 ? (
+                  displayedBatches.map(batch => {
+                    const target = Number(batch.quantity || 1);
+                    const actual = batch.actualOutput !== null ? Number(batch.actualOutput) : null;
+                    const yieldPercent = actual !== null ? Math.round((actual / target) * 100) : null;
 
                     return (
-                      <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5">
-                        <div className="flex justify-between items-center text-xs font-semibold">
-                          <span className="text-slate-900 dark:text-slate-100 font-bold">{usage.name}</span>
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">Target: {displayTarget.toFixed(2)} {displayUnit}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 items-center">
-                          <div className="flex items-center gap-1.5 justify-start">
-                            <Input
-                              type="number"
-                              min="0"
-                              step={usage.selectedUnit === 'sub' ? '1' : '0.001'}
-                              value={usage.inputValue}
-                              onChange={(e) => {
-                                const val = Number(e.target.value) || 0;
-                                const updated = [...actualRmUsages];
-                                updated[idx].inputValue = val;
-                                updated[idx].actualUsedQty = usage.selectedUnit === 'sub' ? val / 1000 : val;
-                                setActualRmUsages(updated);
-                              }}
-                              className="h-8 w-24 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 font-bold text-slate-900 dark:text-white rounded-lg text-right focus:border-indigo-500"
-                            />
-                            {usage.subUomLabel ? (
-                              <select
-                                value={usage.selectedUnit || 'base'}
-                                onChange={(e) => {
-                                  const newUnitType = e.target.value;
-                                  const oldUnitType = usage.selectedUnit || 'base';
-                                  if (oldUnitType === newUnitType) return;
-
-                                  const updated = [...actualRmUsages];
-                                  updated[idx].selectedUnit = newUnitType;
-                                  let newQty = usage.inputValue;
-                                  if (newUnitType === 'sub') {
-                                    newQty = newQty * 1000;
-                                  } else {
-                                    newQty = newQty / 1000;
-                                  }
-                                  updated[idx].inputValue = Number(newQty.toFixed(4));
-                                  updated[idx].actualUsedQty = newUnitType === 'sub' ? newQty / 1000 : newQty;
-                                  setActualRmUsages(updated);
-                                }}
-                                className="h-8 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-1 text-[10px] font-bold text-slate-700 dark:text-slate-300 focus:outline-none"
-                              >
-                                <option value="base">{usage.unit}</option>
-                                <option value="sub">{usage.subUomLabel}</option>
-                              </select>
-                            ) : (
-                              <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 w-8 text-left">{usage.unit}</span>
-                            )}
-                          </div>
-                          <div className="text-right text-[10px]">
-                            {displayVariance === 0 ? (
-                              <span className="text-emerald-700 dark:text-emerald-400 font-extrabold">Standard</span>
-                            ) : displayVariance > 0 ? (
-                              <span className="text-amber-700 dark:text-amber-400 font-bold">+{displayVariance.toFixed(1)} {displayUnit} (Over)</span>
-                            ) : (
-                              <span className="text-indigo-700 dark:text-indigo-400 font-bold">{displayVariance.toFixed(1)} {displayUnit} (Less)</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                      <tr 
+                        key={batch.id}
+                        onClick={() => setSearchParams({ id: batch.id })}
+                        className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
+                      >
+                        <td className="py-3 px-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                          #{batch.referenceNo}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-800 dark:text-white">
+                          {batch.product?.name}
+                        </td>
+                        <td className="py-3 px-4 text-slate-500">
+                          {batch.product?.category?.name || 'General'}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            batch.status === 'Planned' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                            batch.status === 'In Progress' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                            batch.status === 'Completed' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                            batch.status === 'qc_passed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                            'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}>
+                            {batch.status === 'qc_passed' ? 'Passed QC' : batch.status === 'qc_failed' ? 'Failed QC' : batch.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
+                          {target} {batch.product?.unit?.abbreviation || 'pcs'}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-medium text-slate-700 dark:text-slate-300">
+                          {actual !== null ? `${actual} pcs` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold">
+                          {yieldPercent !== null ? (
+                            <span className={yieldPercent >= 100 ? 'text-emerald-600' : 'text-amber-600'}>
+                              {yieldPercent}%
+                            </span>
+                          ) : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-slate-500 font-mono">
+                          {new Date(batch.startDate).toLocaleDateString('en-GB')}
+                        </td>
+                        <td className="py-3 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSearchParams({ id: batch.id })}
+                            className="h-8 px-2 text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-300"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </Button>
+                        </td>
+                      </tr>
                     );
-                  })}
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-400 italic">
+                      No batch records found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Stacked Card List Fallback */}
+          <div className="sm:hidden divide-y divide-slate-100 dark:divide-slate-800 p-2 space-y-2">
+            {displayedBatches.map(batch => (
+              <div
+                key={batch.id}
+                onClick={() => setSearchParams({ id: batch.id })}
+                className="p-3 bg-white dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800 space-y-1.5"
+              >
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-mono font-bold text-indigo-600">#{batch.referenceNo}</span>
+                  <span className="text-[10px] font-bold">{batch.status}</span>
+                </div>
+                <div className="font-bold text-xs text-slate-800 dark:text-white">
+                  {batch.product?.name}
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <span>Target: {batch.quantity}</span>
+                  <span>Actual: {batch.actualOutput || 'Pending'}</span>
                 </div>
               </div>
-            </div>
+            ))}
+          </div>
 
-            {/* Bottom Row */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 border-t border-slate-200 dark:border-slate-800 pt-3.5">
-              <div className="space-y-1">
-                <label className="text-[11px] font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wide block">Actual Output Yield *</label>
-                <Input
-                  type="number"
-                  min="1"
-                  required
-                  value={actualOutput}
-                  onChange={(e) => setActualOutput(e.target.value)}
-                  className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl h-9"
-                  placeholder="Output pieces count"
-                />
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">Calculates finished product inventory batch count.</p>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-[11px] font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-wide block">Remarks / Deviation Note</label>
-                <Input
-                  value={completionNote}
-                  onChange={(e) => setCompletionNote(e.target.value)}
-                  className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 rounded-xl h-9"
-                  placeholder="Record deviations or notes here..."
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end space-x-2 border-t border-slate-200 dark:border-slate-800 pt-3.5">
-              <Button variant="outline" onClick={() => setExecBatch(null)} className="border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold cursor-pointer h-9 px-4">Cancel</Button>
-              <Button onClick={handleSubmitCompletion} className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer h-9 px-5">
-                Submit Completion to QC Queue
+          {/* Table Pagination Bar */}
+          <div className="p-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+            <span className="text-slate-400">
+              Showing page {page} of {totalPages}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page <= 1}
+                onClick={() => setPage(prev => Math.max(1, prev - 1))}
+                className="h-8 rounded-lg text-xs"
+              >
+                Previous
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
+                className="h-8 rounded-lg text-xs"
+              >
+                Next
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* SOP Steps Modal */}
-      {selectedSopBatch && (
-        <div 
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelectedSopBatch(null);
-          }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 animate__animated animate__fadeIn animate__faster"
-        >
-          <div className="bg-white dark:bg-slate-900 rounded-2xl sm:rounded-3xl max-w-2xl w-full border border-slate-200/90 dark:border-slate-800 shadow-2xl ring-1 ring-slate-900/10 dark:ring-white/10 overflow-hidden flex flex-col max-h-[90vh] animate__animated animate__zoomIn animate__faster">
-            {/* Gradient Header */}
-            <div className="p-4 sm:p-5 bg-gradient-to-r from-indigo-600 via-indigo-700 to-violet-700 text-white flex justify-between items-start relative shadow-md">
-              <div className="space-y-1.5 pr-8">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-white/20 text-white backdrop-blur-xs border border-white/20 shadow-xs">
-                  <BookOpen className="w-3 h-3 text-white" />
-                  Standard Operating Procedure (SOP)
-                </div>
-                <h3 className="text-base sm:text-lg font-black text-white tracking-tight leading-snug">
-                  {selectedSopBatch.product?.name}
-                </h3>
-                <div className="flex flex-wrap items-center gap-2 text-[11px] text-indigo-100 font-semibold">
-                  <span className="font-mono bg-black/25 text-white px-2 py-0.5 rounded-md border border-white/10 text-[10px]">
-                    Code: {selectedSopBatch.product?.code}
-                  </span>
-                  {selectedSopBatch.product?.category?.name && (
-                    <>
-                      <span className="text-white/40">•</span>
-                      <span className="font-bold uppercase tracking-wider bg-white/20 text-white px-2 py-0.5 rounded-md text-[10px] border border-white/15">
-                        Category: {selectedSopBatch.product.category.name}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-              <button 
-                onClick={() => setSelectedSopBatch(null)} 
-                className="p-1.5 bg-white/10 hover:bg-white/25 active:scale-95 text-white rounded-xl transition-all cursor-pointer border border-white/15 shrink-0"
-                title="Close SOP"
+      {/* ─────────────────────── 7. BATCH DETAIL DRAWER ─────────────────────── */}
+      <BatchDetailDrawer
+        isOpen={!!batchIdParam}
+        onClose={() => setSearchParams({})}
+        batch={detailBatch}
+        loading={loadingDetail}
+        canEdit={canEdit}
+        onUpdateStatus={handleUpdateStatus}
+        onOpenCompletionModal={handleOpenCompletionModal}
+      />
+
+      {/* ─────────────────────── BATCH COMPLETION MODAL ─────────────────────── */}
+      <BatchCompletionModal
+        isOpen={completionModalOpen}
+        onClose={() => {
+          setCompletionModalOpen(false);
+          setExecBatch(null);
+        }}
+        batch={execBatch}
+        onSubmit={handleSubmitCompletion}
+      />
+
+      {/* ─────────────────────── MOBILE FILTER BOTTOM SHEET ─────────────────────── */}
+      {mobileFilterOpen && (
+        <div className="fixed inset-0 z-50 md:hidden flex flex-col justify-end bg-slate-950/60 backdrop-blur-xs animate__animated animate__fadeIn">
+          <div className="w-full bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 rounded-t-3xl p-5 space-y-4 shadow-2xl animate__animated animate__slideInUp">
+            <div className="flex items-center justify-between border-b pb-3 border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <Filter className="w-4 h-4 text-indigo-500" /> Filter Batches
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMobileFilterOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* SOP Content body */}
-            <div className="p-4 sm:p-5 overflow-y-auto space-y-3 flex-1 text-xs bg-slate-50/70 dark:bg-slate-900/50">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-2">
-                  <Flame className="w-4 h-4 text-orange-500 shrink-0" />
-                  Manufacturing Steps & Instructions
-                </h4>
-                {selectedSopBatch.product?.sopSteps?.length > 0 && (
-                  <span className="text-[10px] font-extrabold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
-                    {selectedSopBatch.product.sopSteps.length} {selectedSopBatch.product.sopSteps.length === 1 ? 'Step' : 'Steps'}
-                  </span>
-                )}
+            <div className="space-y-3 text-xs">
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Status</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="Planned">Planned</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Completed">Completed</option>
+                  <option value="qc_passed">Passed QC</option>
+                  <option value="qc_failed">Failed QC</option>
+                </select>
               </div>
-              
-              <div className="space-y-2.5">
-                {selectedSopBatch.product?.sopSteps && selectedSopBatch.product.sopSteps.length > 0 ? (
-                  selectedSopBatch.product.sopSteps.map((step, idx) => (
-                    <div 
-                      key={idx} 
-                      className="p-3.5 sm:p-4 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl sm:rounded-2xl space-y-2 shadow-xs hover:border-indigo-400 dark:hover:border-indigo-600 transition-all"
-                    >
-                      <div className="flex justify-between items-center">
-                        <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-black bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 uppercase tracking-wider">
-                          Step #{idx + 1}
-                        </span>
-                      </div>
-                      <p className="text-xs sm:text-[13px] text-slate-900 dark:text-slate-100 font-semibold leading-relaxed">
-                        {step.instruction}
-                      </p>
-                      
-                      {(step.tempTime || step.safetyNote) && (
-                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] mt-1">
-                          {step.tempTime && (
-                            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 font-medium border border-slate-200 dark:border-slate-800">
-                              <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                              Parameters: <span className="font-bold text-slate-900 dark:text-slate-100">{step.tempTime}</span>
-                            </span>
-                          )}
-                          {step.safetyNote && (
-                            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-300 font-bold border border-amber-200 dark:border-amber-800/80 shadow-xs">
-                              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                              Caution: {step.safetyNote}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                ) : (
-                  <div className="p-8 text-center bg-white dark:bg-slate-950 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 space-y-2">
-                    <BookOpen className="w-8 h-8 mx-auto opacity-30 text-indigo-500" />
-                    <p className="font-semibold text-xs">No custom operating steps saved for this product recipe.</p>
-                    <p className="text-[10px] text-slate-400">Standard GMP guidelines apply.</p>
-                  </div>
-                )}
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Category</label>
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5"
+                >
+                  <option value="">All Categories</option>
+                  {availableCategories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="font-bold text-slate-500 uppercase text-[10px]">Date Range</label>
+                <select
+                  value={datePreset}
+                  onChange={(e) => handlePresetChange(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border rounded-xl p-2.5"
+                >
+                  <option value="">All Time</option>
+                  <option value="Today">Today</option>
+                  <option value="Yesterday">Yesterday</option>
+                  <option value="This Week">This Week</option>
+                  <option value="This Month">This Month</option>
+                </select>
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="p-3 sm:p-4 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                <CheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                <span>Verified Recipe Guide</span>
-              </div>
-              <Button 
-                onClick={() => setSelectedSopBatch(null)} 
-                className="bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-extrabold text-xs rounded-xl shadow-md hover:shadow-indigo-500/20 cursor-pointer h-9 px-5 flex items-center gap-1.5 transition-all"
+            <div className="pt-2 flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleResetFilters}
+                className="flex-1 rounded-xl text-xs font-semibold h-10"
               >
-                <Check className="w-4 h-4" />
-                Close SOP
+                Reset All
+              </Button>
+              <Button
+                type="button"
+                onClick={() => setMobileFilterOpen(false)}
+                className="flex-1 bg-indigo-600 text-white rounded-xl text-xs font-bold h-10"
+              >
+                Apply Filters
               </Button>
             </div>
           </div>
         </div>
       )}
+
+      {/* ─────────────────────── MOBILE FLOATING ACTION BUTTON (FAB) ─────────────────────── */}
+      {canEdit && (
+        <div className="sm:hidden fixed bottom-6 right-6 z-40">
+          <Button
+            type="button"
+            onClick={() => navigate('/production/add')}
+            className="w-13 h-13 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl shadow-indigo-600/30 flex items-center justify-center cursor-pointer p-0"
+            title="Record New Batch"
+          >
+            <Plus className="w-6 h-6" />
+          </Button>
+        </div>
+      )}
+
     </div>
   );
 }

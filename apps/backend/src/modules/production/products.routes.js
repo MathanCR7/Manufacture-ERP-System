@@ -194,6 +194,7 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
 
     // Approved raw materials from POs where status = approved (or all raw materials for selection)
     const rawMaterials = await prisma.rawMaterial.findMany({
+      include: { category: true },
       orderBy: { name: 'asc' }
     });
 

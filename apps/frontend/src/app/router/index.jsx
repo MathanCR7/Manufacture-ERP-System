@@ -369,7 +369,7 @@ const AppRouter = () => {
             {/* Production */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/production/batches" element={<ProductionsPage />} />
-              <Route path="/production/add" element={<ProductionsPage />} />
+              <Route path="/production/add" element={<AddProductionPage />} />
               <Route path="/production/loss" element={<ProductionLossPage />} />
               <Route path="/production/loss-report" element={<LossReportPage />} />
               <Route path="/production/qc-queue" element={<QCQueuePage />} />
