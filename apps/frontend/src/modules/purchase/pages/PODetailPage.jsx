@@ -742,7 +742,7 @@ export default function PODetailPage() {
                                 {item.batches.map((b, bIdx) => (
                                   <div key={b.id || bIdx} className="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 rounded border border-slate-200/70 dark:border-slate-800">
                                     <span className="font-bold text-slate-700 dark:text-slate-300">
-                                      Batch #{bIdx + 1} ({b.quantity} {item.uomLabel || item.uom || ''}):
+                                      Batch #{bIdx + 1} ({b.batchQuantity ?? b.quantity} {item.uomLabel || item.uom || ''}):
                                     </span>
                                     {b.weight && (
                                       <span className="inline-flex items-center gap-0.5">
@@ -767,8 +767,13 @@ export default function PODetailPage() {
                                   </div>
                                 ))}
                               </div>
-                            ) : (item.weight || item.mfgBatchNo || item.mfgDate || item.expDate) ? (
+                            ) : (item.batchQuantity || item.weight || item.mfgBatchNo || item.mfgDate || item.expDate) ? (
                               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap text-[10px] text-slate-500 dark:text-slate-400">
+                                {item.batchQuantity !== undefined && item.batchQuantity !== null && item.batchQuantity !== item.quantity && (
+                                  <span className="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-medium border border-blue-200 dark:border-blue-800">
+                                    Batch Qty: {item.batchQuantity} {item.uomLabel || item.uom || ''}
+                                  </span>
+                                )}
                                 {item.weight && (
                                   <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-medium border border-slate-200 dark:border-slate-700">
                                     <Scale className="w-2.5 h-2.5 text-indigo-500" /> {item.weight}
