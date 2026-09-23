@@ -69,7 +69,7 @@ export default function SupplierListPage() {
     }
   };
 
-  // Filter and Sort Logic matching /setup/raw-material
+  // Filter and Sort Logic
   const sortedAndFiltered = useMemo(() => {
     let result = (suppliers || []).filter(s => {
       const term = searchTerm.toLowerCase().trim();
@@ -172,7 +172,7 @@ export default function SupplierListPage() {
     setCurrentPage(1);
   };
 
-  const isFilterActive = searchTerm || balanceTypeFilter !== 'ALL' || statusFilter !== 'ALL' || sortBy !== 'name_asc';
+  const isFilterActive = searchTerm !== '' || balanceTypeFilter !== 'ALL' || statusFilter !== 'ALL' || sortBy !== 'name_asc';
 
   const handleResetFilters = () => {
     setSearchTerm('');
@@ -184,7 +184,7 @@ export default function SupplierListPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
+      <div className="w-full max-w-full px-3 sm:px-4 py-2.5 space-y-4">
         <Skeleton className="h-10 w-64 rounded-xl" />
         <Skeleton className="h-[420px] w-full rounded-2xl" />
       </div>
@@ -197,7 +197,7 @@ export default function SupplierListPage() {
 
   return (
     <div className="w-full max-w-full px-3 sm:px-4 py-2.5 space-y-2.5 mx-auto transition-all duration-200">
-      {/* Header matching /setup/raw-material */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-800 shadow-3xs shrink-0">
@@ -220,7 +220,7 @@ export default function SupplierListPage() {
 
         <Link 
           to="/parties/suppliers/add"
-          className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+          className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto active:scale-95"
         >
           <Plus className="w-3.5 h-3.5" />
           Add Supplier
@@ -243,10 +243,11 @@ export default function SupplierListPage() {
                   setSearchTerm(e.target.value);
                   setCurrentPage(1);
                 }}
-                className="w-full pl-8 pr-7 py-1.5 border border-slate-200 dark:border-slate-700/80 rounded-lg text-xs bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 shadow-3xs transition-all placeholder:text-slate-400 font-medium"
+                className="w-full h-8 pl-8 pr-7 text-xs border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 transition-all shadow-3xs"
               />
               {searchTerm && (
                 <button
+                  type="button"
                   onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full transition-colors cursor-pointer"
                   title="Clear search"
@@ -342,124 +343,138 @@ export default function SupplierListPage() {
             </div>
           </div>
           
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <Table className="text-xs">
-              <TableHeader className="bg-slate-50/80 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800">
+          {/* Table Container: Zero horizontal scrollbar, 100% full-width table-fixed */}
+          <div className="w-full overflow-x-auto lg:overflow-x-hidden">
+            <Table className="w-full table-fixed text-xs border-collapse">
+              <TableHeader className="bg-slate-50/90 dark:bg-slate-950/70 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 select-none">
                 <TableRow className="dark:border-slate-800">
-                  <TableHead className="py-2 px-2.5 w-12 text-center text-[11px] uppercase tracking-wider font-bold">SN</TableHead>
+                  {/* SN Column: 3.5% */}
+                  <TableHead className="py-2 px-1 text-center text-[10px] uppercase tracking-wider font-extrabold w-[3.5%] min-w-[34px]">
+                    SN
+                  </TableHead>
                   
-                  {/* Name Sort Header */}
+                  {/* Name Sort Header: 17% */}
                   <TableHead 
                     onClick={handleToggleSortName}
-                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[17%]"
                   >
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 truncate">
                       <span>Name</span>
                       {sortBy === 'name_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : sortBy === 'name_desc' ? (
-                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                        <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  {/* Contact Person Sort Header */}
+                  {/* Contact Person Sort Header: 11% */}
                   <TableHead 
                     onClick={handleToggleSortContact}
-                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[11%]"
                   >
-                    <div className="flex items-center gap-1.5">
-                      <span>Contact Person</span>
+                    <div className="flex items-center gap-1 truncate">
+                      <span>Contact</span>
                       {sortBy === 'contact_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : sortBy === 'contact_desc' ? (
-                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                        <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  {/* Phone Sort Header */}
+                  {/* Phone Sort Header: 10% */}
                   <TableHead 
                     onClick={handleToggleSortPhone}
-                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[10%]"
                   >
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1 truncate">
                       <span>Phone</span>
                       {sortBy === 'phone_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : sortBy === 'phone_desc' ? (
-                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                        <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  <TableHead className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold">Email / Tax Details</TableHead>
+                  {/* Email & Tax Details: 18% */}
+                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold w-[18%]">
+                    <div className="truncate">Email / Tax Details</div>
+                  </TableHead>
 
-                  {/* Credit Limit Sort Header */}
+                  {/* Credit Limit Sort Header: 9% */}
                   <TableHead 
                     onClick={handleToggleSortCredit}
-                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[9%]"
                   >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Credit Limit</span>
+                    <div className="flex items-center justify-end gap-1 truncate">
+                      <span>Credit</span>
                       {sortBy === 'credit_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : sortBy === 'credit_desc' ? (
-                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                        <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  {/* Opening Balance Sort Header */}
+                  {/* Opening Balance Sort Header: 9% */}
                   <TableHead 
                     onClick={handleToggleSortBalance}
-                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[9%]"
                   >
-                    <div className="flex items-center justify-end gap-1.5">
-                      <span>Opening Balance</span>
+                    <div className="flex items-center justify-end gap-1 truncate">
+                      <span>Balance</span>
                       {sortBy === 'balance_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : sortBy === 'balance_desc' ? (
-                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                        <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  {/* Balance Type Header */}
+                  {/* Balance Type Header: 7.5% */}
                   <TableHead 
                     onClick={handleToggleSortType}
-                    className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 select-none transition-colors"
+                    className="py-2 px-1 text-[10px] uppercase tracking-wider font-extrabold text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[7.5%]"
                   >
-                    <div className="flex items-center justify-center gap-1.5">
-                      <span>Balance Type</span>
+                    <div className="flex items-center justify-center gap-1 truncate">
+                      <span>Type</span>
                       {sortBy === 'balance_type' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
-                        <ArrowUpDown className="w-3 h-3 opacity-40" />
+                        <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  <TableHead className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold min-w-[180px]">Address</TableHead>
-                  <TableHead className="py-2 px-3 text-[11px] uppercase tracking-wider font-bold text-right w-20">Actions</TableHead>
+                  {/* Address: 10% */}
+                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold w-[10%]">
+                    <div className="truncate">Address</div>
+                  </TableHead>
+
+                  {/* Actions: 5% (min-w 52px) */}
+                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-right w-[5%] min-w-[52px]">
+                    Act
+                  </TableHead>
                 </TableRow>
               </TableHeader>
-              <TableBody>
+
+              <TableBody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                 {paginatedSuppliers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-10 text-slate-400 dark:text-slate-500 font-medium">
-                      No suppliers found matching filter criteria.
+                    <TableCell colSpan={10} className="text-center py-12 text-slate-400 dark:text-slate-500 font-medium">
+                      No suppliers found matching the criteria.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -468,38 +483,61 @@ export default function SupplierListPage() {
                     return (
                       <TableRow 
                         key={supplier.id} 
-                        className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors border-b border-slate-100 dark:border-slate-800/80 last:border-none"
+                        className="hover:bg-indigo-50/30 dark:hover:bg-slate-800/40 transition-colors group"
                       >
-                        <TableCell className="py-2 px-2.5 text-slate-400 text-center font-bold text-[11px]">{computedIdx}</TableCell>
-                        <TableCell className="py-2 px-3 font-bold text-slate-900 dark:text-slate-100 text-xs">
-                          {supplier.name}
+                        {/* SN */}
+                        <TableCell className="py-2 px-1 text-slate-400 text-center font-bold text-[10px] select-none truncate">
+                          {computedIdx}
                         </TableCell>
-                        <TableCell className="py-2 px-3 font-medium text-slate-700 dark:text-slate-300 text-xs">
-                          {supplier.contactPerson || '—'}
+
+                        {/* Name */}
+                        <TableCell className="py-2 px-2 font-bold text-slate-900 dark:text-slate-100 text-xs truncate" title={supplier.name}>
+                          <span className="truncate block hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                            {supplier.name}
+                          </span>
                         </TableCell>
-                        <TableCell className="py-2 px-3 font-semibold text-slate-700 dark:text-slate-300 font-mono text-xs">
-                          {supplier.phone || '—'}
+
+                        {/* Contact Person */}
+                        <TableCell className="py-2 px-2 font-medium text-slate-700 dark:text-slate-300 text-[11px] truncate" title={supplier.contactPerson || '—'}>
+                          <span className="truncate block">
+                            {supplier.contactPerson || '—'}
+                          </span>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-xs">
-                          <div className="text-slate-600 dark:text-slate-300 leading-tight">
+
+                        {/* Phone */}
+                        <TableCell className="py-2 px-2 font-medium text-slate-700 dark:text-slate-300 font-mono text-[11px] truncate" title={supplier.phone || '—'}>
+                          <span className="truncate block">
+                            {supplier.phone || '—'}
+                          </span>
+                        </TableCell>
+
+                        {/* Email / Tax Details */}
+                        <TableCell className="py-2 px-2 text-[11px]">
+                          <div className="truncate text-slate-600 dark:text-slate-300 font-medium leading-tight" title={supplier.email || '—'}>
                             {supplier.email || '—'}
                           </div>
                           {(supplier.gstin || supplier.pan) && (
-                            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">
+                            <div className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono mt-0.5 truncate" title={`GST: ${supplier.gstin || '—'} | PAN: ${supplier.pan || '—'}`}>
                               {supplier.gstin && <span>GST: {supplier.gstin}</span>}
-                              {supplier.gstin && supplier.pan && <span> • </span>}
+                              {supplier.gstin && supplier.pan && <span> · </span>}
                               {supplier.pan && <span>PAN: {supplier.pan}</span>}
                             </div>
                           )}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-right font-bold text-slate-800 dark:text-slate-200 font-mono text-xs">
+
+                        {/* Credit Limit */}
+                        <TableCell className="py-2 px-2 text-right font-bold text-slate-800 dark:text-slate-200 font-mono text-[11px] truncate">
                           ₹{parseFloat(supplier.creditLimit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-right font-bold text-slate-800 dark:text-slate-200 font-mono text-xs">
+
+                        {/* Opening Balance */}
+                        <TableCell className="py-2 px-2 text-right font-bold text-slate-800 dark:text-slate-200 font-mono text-[11px] truncate">
                           ₹{parseFloat(supplier.openingBalance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border uppercase tracking-wider ${
+
+                        {/* Balance Type */}
+                        <TableCell className="py-2 px-1 text-center">
+                          <span className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[9px] font-extrabold border uppercase tracking-wider ${
                             supplier.balanceType === 'CREDIT' 
                               ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/50 dark:text-rose-400 dark:border-rose-900/60' 
                               : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-400 dark:border-emerald-900/60'
@@ -507,22 +545,28 @@ export default function SupplierListPage() {
                             {supplier.balanceType || 'CREDIT'}
                           </span>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-slate-500 dark:text-slate-400 truncate max-w-[220px] text-xs" title={supplier.address}>
-                          {supplier.address || '—'}
+
+                        {/* Address */}
+                        <TableCell className="py-2 px-2 text-slate-500 dark:text-slate-400 truncate text-[11px]" title={supplier.address || 'Not Available'}>
+                          <span className="truncate block">
+                            {supplier.address || '—'}
+                          </span>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end space-x-1">
+
+                        {/* Actions */}
+                        <TableCell className="py-2 px-2 text-right whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1">
                             <Link 
                               to={`/parties/suppliers/edit/${supplier.id}`} 
                               title="Edit supplier"
-                              className="inline-flex items-center justify-center text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 p-1.5 rounded-md transition-colors"
+                              className="inline-flex items-center justify-center text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 p-1 rounded transition-colors"
                             >
                               <Edit className="w-3.5 h-3.5" />
                             </Link>
                             <button 
                               onClick={() => handleDelete(supplier.id)}
                               title="Delete supplier"
-                              className="inline-flex items-center justify-center text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1.5 rounded-md transition-colors cursor-pointer"
+                              className="inline-flex items-center justify-center text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 p-1 rounded transition-colors cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -536,7 +580,7 @@ export default function SupplierListPage() {
             </Table>
           </div>
           
-          {/* Pagination Footer matching /setup/raw-material */}
+          {/* Pagination Footer */}
           <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
             <div>
               {sortedAndFiltered.length > 0 ? (
