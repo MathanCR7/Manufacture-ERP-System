@@ -766,9 +766,10 @@ export default function CreatePOPage({ onBack }) {
       return;
     }
 
+    const now = new Date();
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
     if (formData.purchaseStatus === 'Received') {
-      const now = new Date();
-      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
       if (new Date(formData.expectedDelivery) > endOfToday) {
         setErrorMsg('When Purchase Status is "Received", the date can only be today or a previous day. It cannot be tomorrow or any future date.');
         return;
