@@ -311,7 +311,7 @@ exports.createPO = async (req, res, next) => {
       });
 
       // Synchronize raw material ratePerUnit from PO items if provided
-      if (Array.isArray(parsedData.items)) {
+      if (Array.isArray(parsedData.items) && parsedData.items.length > 0) {
         for (const item of parsedData.items) {
           const base = Number(item.unitPrice || 0);
           const gst = item.gstApplicable !== false ? Number(item.gstPercentage || 0) : 0;
@@ -327,6 +327,21 @@ exports.createPO = async (req, res, next) => {
               data: { ratePerUnit: rateWithGst }
             });
           }
+        }
+      } else if (parsedData.rmId && parsedData.quantity > 0) {
+        const qty = Number(parsedData.quantity);
+        const total = Number(parsedData.grandTotal || parsedData.amount || 0);
+        const rateWithGst = Math.round((total / qty) * 100) / 100;
+        if (rateWithGst > 0) {
+          await tx.rawMaterial.updateMany({
+            where: {
+              OR: [
+                { id: parsedData.rmId },
+                { code: parsedData.rmId }
+              ]
+            },
+            data: { ratePerUnit: rateWithGst }
+          });
         }
       }
 
@@ -546,7 +561,7 @@ exports.updatePO = async (req, res, next) => {
     });
 
     // Synchronize raw material ratePerUnit from updated PO items if provided
-    if (Array.isArray(parsedData.items)) {
+    if (Array.isArray(parsedData.items) && parsedData.items.length > 0) {
       for (const item of parsedData.items) {
         const base = Number(item.unitPrice || 0);
         const gst = item.gstApplicable !== false ? Number(item.gstPercentage || 0) : 0;
@@ -562,6 +577,21 @@ exports.updatePO = async (req, res, next) => {
             data: { ratePerUnit: rateWithGst }
           });
         }
+      }
+    } else if (updatedPO.rmId && updatedPO.quantity > 0) {
+      const qty = Number(updatedPO.quantity);
+      const total = Number(updatedPO.grandTotal || updatedPO.amount || 0);
+      const rateWithGst = Math.round((total / qty) * 100) / 100;
+      if (rateWithGst > 0) {
+        await prisma.rawMaterial.updateMany({
+          where: {
+            OR: [
+              { id: updatedPO.rmId },
+              { code: updatedPO.rmId }
+            ]
+          },
+          data: { ratePerUnit: rateWithGst }
+        });
       }
     }
 
@@ -961,6 +991,7 @@ exports.getStock = async (req, res, next) => {
 
     const [rms, pos] = await Promise.all([
       prisma.rawMaterial.findMany({
+        include: { category: true },
         orderBy: { name: 'asc' },
       }),
       prisma.rawMaterialPO.findMany({
@@ -1009,50 +1040,87 @@ exports.getStock = async (req, res, next) => {
         }
       }
 
-      let rateWithGst = Number(rm.ratePerUnit || 0);
-      let baseRate = Number(rm.ratePerUnit || 0);
+      let rateWithoutTax = 0;
+      let rateWithTax = 0;
       let gstPercentage = 0;
       let gstApplicable = false;
       let poRef = null;
       let poDate = null;
+      let poLineQty = null;
+      let poLineSubtotal = null;
+      let poLineTotalWithTax = null;
 
       if (matchedPo) {
         poRef = matchedPo.referenceNo;
         poDate = matchedPo.createdAt;
         if (matchedItem) {
-          baseRate = Number(matchedItem.unitPrice || 0);
+          poLineQty = Number(matchedItem.quantity || 0);
+          const unitPrice = Number(matchedItem.unitPrice || 0);
           gstApplicable = matchedItem.gstApplicable !== false;
           gstPercentage = gstApplicable ? Number(matchedItem.gstPercentage || 0) : 0;
-          rateWithGst = baseRate * (1 + gstPercentage / 100);
+          
+          poLineSubtotal = poLineQty > 0 ? (poLineQty * unitPrice) : (Number(matchedItem.total) || unitPrice);
+          const lineTax = gstApplicable ? (poLineSubtotal * (gstPercentage / 100)) : 0;
+          poLineTotalWithTax = poLineSubtotal + lineTax;
+
+          rateWithoutTax = poLineQty > 0 ? (poLineSubtotal / poLineQty) : unitPrice;
+          rateWithTax = poLineQty > 0 ? (poLineTotalWithTax / poLineQty) : (unitPrice * (1 + gstPercentage / 100));
         } else {
-          const qty = Number(matchedPo.quantity || 1);
-          const total = Number(matchedPo.grandTotal || matchedPo.amount || 0);
-          rateWithGst = qty > 0 ? total / qty : total;
-          baseRate = qty > 0 ? (Number(matchedPo.subtotal) || total) / qty : total;
-          gstApplicable = total > (Number(matchedPo.subtotal) || 0);
-          gstPercentage = baseRate > 0 ? Math.round(((rateWithGst - baseRate) / baseRate) * 100) : 0;
+          poLineQty = Number(matchedPo.quantity || 1);
+          poLineSubtotal = Number(matchedPo.subtotal) || Number(matchedPo.amount || 0);
+          poLineTotalWithTax = Number(matchedPo.grandTotal) || Number(matchedPo.amount || 0);
+          rateWithoutTax = poLineQty > 0 ? poLineSubtotal / poLineQty : poLineSubtotal;
+          rateWithTax = poLineQty > 0 ? poLineTotalWithTax / poLineQty : poLineTotalWithTax;
+          gstApplicable = poLineTotalWithTax > poLineSubtotal;
+          gstPercentage = rateWithoutTax > 0 ? Math.round(((rateWithTax - rateWithoutTax) / rateWithoutTax) * 100) : 0;
         }
       }
 
       const qty = Number(rm.currentStock) || 0;
-      const roundedRate = Math.round(rateWithGst * 100) / 100;
-      const roundedValue = Math.round((qty * rateWithGst) * 100) / 100;
+      const hasPo = !!matchedPo && rateWithoutTax > 0;
+
+      const roundedRateWithoutTax = hasPo ? Math.round(rateWithoutTax * 100) / 100 : 0;
+      const roundedRateWithTax = hasPo ? Math.round(rateWithTax * 100) / 100 : 0;
+      const valueWithoutTax = hasPo ? Math.round((qty * roundedRateWithoutTax) * 100) / 100 : 0;
+      const valueWithTax = hasPo ? Math.round((qty * roundedRateWithTax) * 100) / 100 : 0;
+      const taxValue = Math.round((valueWithTax - valueWithoutTax) * 100) / 100;
 
       return {
         id: rm.id,
         code: rm.code,
         name: rm.name,
+        category: rm.category?.name || 'Uncategorised',
+        categoryId: rm.categoryId,
+        createdAt: rm.createdAt,
         availableQuantity: qty,
         floatingStock: 0,
-        ratePerUnit: roundedRate,
-        baseRate: Math.round(baseRate * 100) / 100,
-        gstPercentage,
-        gstApplicable,
-        value: roundedValue,
         unit: rm.unitId,
         alertLevel: rm.alertLevel,
+
+        // PO Derived Line Rate Per Quantity
+        hasPo,
+        rateWithoutTax: roundedRateWithoutTax,
+        rateWithTax: roundedRateWithTax,
+        ratePerUnit: roundedRateWithTax, // default rate per unit is with tax
+        baseRate: roundedRateWithoutTax,
+        gstPercentage,
+        gstApplicable,
+
+        // Stock Valuation
+        valueWithoutTax,
+        valueWithTax,
+        value: valueWithTax, // default stock value is with tax
+        taxValue,
+
+        // PO Line Details
         poReferenceNo: poRef,
-        poDate
+        poDate,
+        poLineQty,
+        poLineSubtotal,
+        poLineTotalWithTax,
+
+        // Master Standard Rate (reference only, not considered for stock valuation)
+        masterStandardRate: Number(rm.ratePerUnit || 0)
       };
     });
 

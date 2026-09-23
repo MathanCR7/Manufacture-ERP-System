@@ -390,7 +390,7 @@ function RawMaterialForm({ editId, onBack }) {
 
             {/* Rate Per Unit */}
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Standard Rate / Unit (INR) *</label>
+              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Standard Catalog Rate / Unit (INR) *</label>
               <input
                 type="number"
                 step="0.01"
@@ -398,6 +398,9 @@ function RawMaterialForm({ editId, onBack }) {
                 className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-mono text-xs font-bold"
                 placeholder="0.00"
               />
+              <span className="text-[10px] text-slate-400 block leading-tight">
+                Initial catalog baseline. Real-time stock valuation dynamically derives line rates from Purchase Orders (PO).
+              </span>
               {errors.ratePerUnit && <span className="text-[11px] text-rose-500 font-medium block">{errors.ratePerUnit.message}</span>}
             </div>
 
