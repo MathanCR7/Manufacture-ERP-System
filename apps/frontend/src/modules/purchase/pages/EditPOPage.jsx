@@ -44,6 +44,7 @@ import { Badge } from '@/components/ui/badge';
 /* ─────────────────────── Inline Add Supplier ─────────────────────── */
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 const AddSupplierInline = QuickAddSupplierModal;
+import BatchDateInput from '../components/BatchDateInput';
 
 /* ─────────────────────── Searchable Raw Material Dropdown ─────────────────────── */
 import RawMaterialSelect from '../components/SearchableItemSelect';
@@ -560,6 +561,15 @@ export default function EditPOPage({ id: propId, onBack }) {
   const cgstAmount = isInterState ? 0 : totalItemTax / 2;
   const sgstAmount = isInterState ? 0 : totalItemTax / 2;
   const igstAmount = isInterState ? totalItemTax : 0;
+
+  // Determine dynamic CGST & SGST percentage labels (e.g. 18% GST -> 9% CGST & 9% SGST; 5% -> 2.5%)
+  const taxableItems = (form?.items || []).filter(it => it.gstApplicable && (Number(it.gstPercentage) > 0));
+  const uniqueGstRates = Array.from(new Set(taxableItems.map(it => Number(it.gstPercentage))));
+  const effectiveGstRate = uniqueGstRates.length === 1 ? uniqueGstRates[0] : null;
+  const cgstRateText = effectiveGstRate !== null ? `${(effectiveGstRate / 2)}%` : null;
+  const sgstRateText = effectiveGstRate !== null ? `${(effectiveGstRate / 2)}%` : null;
+  const cgstLabel = cgstRateText ? `CGST (${cgstRateText})` : 'CGST (Intrastate)';
+  const sgstLabel = sgstRateText ? `SGST (${sgstRateText})` : 'SGST (Intrastate)';
 
   const unroundedTotal = Math.max(0, subtotal + totalItemTax + shipping + otherCharges - discount);
   const grandTotal = Math.round(unroundedTotal);
@@ -1377,26 +1387,26 @@ export default function EditPOPage({ id: propId, onBack }) {
                             </div>
 
                             {/* MFG Date */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                            <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
                               <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
                               <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
-                              <Input 
-                                type="date" 
+                              <BatchDateInput 
                                 value={item.mfgDate || ''} 
-                                onChange={(e) => updateItemField(item.id, 'mfgDate', e.target.value)}
-                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-medium px-1.5 py-0"
+                                onChange={(val) => updateItemField(item.id, 'mfgDate', val)}
+                                placeholder="dd-mm-yyyy"
+                                title="MFG Date"
                               />
                             </div>
 
                             {/* Exp Date */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                            <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
                               <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
                               <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
-                              <Input 
-                                type="date" 
+                              <BatchDateInput 
                                 value={item.expDate || ''} 
-                                onChange={(e) => updateItemField(item.id, 'expDate', e.target.value)}
-                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-medium px-1.5 py-0"
+                                onChange={(val) => updateItemField(item.id, 'expDate', val)}
+                                placeholder="dd-mm-yyyy"
+                                title="Exp Date"
                               />
                             </div>
                           </div>
@@ -1569,13 +1579,13 @@ export default function EditPOPage({ id: propId, onBack }) {
             ) : (
               <>
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>CGST (Intrastate 50%)</span>
+                  <span>{cgstLabel}</span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                     ₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>SGST (Intrastate 50%)</span>
+                  <span>{sgstLabel}</span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                     ₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>

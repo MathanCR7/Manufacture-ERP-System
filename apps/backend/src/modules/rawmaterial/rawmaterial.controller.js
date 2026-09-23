@@ -42,6 +42,25 @@ const resolveUomId = async (value) => {
   return newUom.id;
 };
 
+const parseDateSafe = (val) => {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val !== 'string') return null;
+  val = val.trim();
+  if (!val) return null;
+  // Match DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
+  const dmyMatch = val.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10);
+    const year = parseInt(dmyMatch[3], 10);
+    const d = new Date(year, month - 1, day);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const parsed = new Date(val);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
 exports.generateRmId = async (req, res, next) => {
   try {
     const candidateId = await generateRmId(prisma);
@@ -283,8 +302,8 @@ exports.createPO = async (req, res, next) => {
 
       const initialPoStatus = targetStatus === 'RECEIVED' ? 'RECEIVED' : targetStatus;
       const resolvedExpiryDate = parsedData.expiryDate 
-        ? new Date(parsedData.expiryDate) 
-        : (Array.isArray(parsedData.items) && parsedData.items[0]?.expDate ? new Date(parsedData.items[0].expDate) : null);
+        ? parseDateSafe(parsedData.expiryDate) 
+        : (Array.isArray(parsedData.items) && parsedData.items[0]?.expDate ? parseDateSafe(parsedData.items[0].expDate) : null);
 
       const po = await tx.rawMaterialPO.create({
         data: {
@@ -294,12 +313,12 @@ exports.createPO = async (req, res, next) => {
           quantity: parsedData.quantity,
           amount: parsedData.amount,
           uomId: resolvedUomId,
-          expectedDelivery: new Date(parsedData.expectedDelivery),
+          expectedDelivery: parseDateSafe(parsedData.expectedDelivery) || new Date(),
           expiryDate: resolvedExpiryDate,
           weight: parsedData.weight || (Array.isArray(parsedData.items) && parsedData.items[0]?.weight ? parsedData.items[0].weight : null),
           mfgBatchNo: parsedData.mfgBatchNo || (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgBatchNo ? parsedData.items[0].mfgBatchNo : null),
-          mfgDate: parsedData.mfgDate ? new Date(parsedData.mfgDate) : (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgDate ? new Date(parsedData.items[0].mfgDate) : null),
-          expDate: parsedData.expDate ? new Date(parsedData.expDate) : (resolvedExpiryDate || null),
+          mfgDate: parseDateSafe(parsedData.mfgDate) || (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgDate ? parseDateSafe(parsedData.items[0].mfgDate) : null),
+          expDate: parseDateSafe(parsedData.expDate) || (resolvedExpiryDate || null),
           supplierId: parsedData.supplierId,
           status: initialPoStatus,
           createdBy: req.user.id,
@@ -312,7 +331,11 @@ exports.createPO = async (req, res, next) => {
           sgst: parsedData.sgst || 0,
           igst: parsedData.igst || 0,
           grandTotal: parsedData.grandTotal || 0,
-          items: parsedData.items || null,
+          items: Array.isArray(parsedData.items) ? parsedData.items.map(item => ({
+            ...item,
+            mfgDate: item.mfgDate ? (parseDateSafe(item.mfgDate)?.toISOString().split('T')[0] || item.mfgDate) : null,
+            expDate: item.expDate ? (parseDateSafe(item.expDate)?.toISOString().split('T')[0] || item.expDate) : null,
+          })) : null,
           notes: parsedData.notes || null,
           supplierInvoiceNo: parsedData.supplierInvoiceNo || null,
           supplierInvoiceDate: parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null,
@@ -528,14 +551,14 @@ exports.updatePO = async (req, res, next) => {
       updateData.mfgBatchNo = parsedData.items[0].mfgBatchNo || null;
     }
     if (parsedData.mfgDate !== undefined) {
-      updateData.mfgDate = parsedData.mfgDate ? new Date(parsedData.mfgDate) : null;
+      updateData.mfgDate = parseDateSafe(parsedData.mfgDate);
     } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgDate) {
-      updateData.mfgDate = new Date(parsedData.items[0].mfgDate);
+      updateData.mfgDate = parseDateSafe(parsedData.items[0].mfgDate);
     }
     if (parsedData.expDate !== undefined) {
-      updateData.expDate = parsedData.expDate ? new Date(parsedData.expDate) : null;
+      updateData.expDate = parseDateSafe(parsedData.expDate);
     } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.expDate) {
-      updateData.expDate = new Date(parsedData.items[0].expDate);
+      updateData.expDate = parseDateSafe(parsedData.items[0].expDate);
     }
     if (parsedData.supplierId !== undefined) updateData.supplierId = parsedData.supplierId || null;
     if (parsedData.uomId !== undefined) updateData.uomId = resolvedUomId;
@@ -548,7 +571,13 @@ exports.updatePO = async (req, res, next) => {
     if (parsedData.sgst !== undefined) updateData.sgst = parsedData.sgst;
     if (parsedData.igst !== undefined) updateData.igst = parsedData.igst;
     if (parsedData.grandTotal !== undefined) updateData.grandTotal = parsedData.grandTotal;
-    if (parsedData.items !== undefined) updateData.items = parsedData.items;
+    if (parsedData.items !== undefined) {
+      updateData.items = Array.isArray(parsedData.items) ? parsedData.items.map(item => ({
+        ...item,
+        mfgDate: item.mfgDate ? (parseDateSafe(item.mfgDate)?.toISOString().split('T')[0] || item.mfgDate) : null,
+        expDate: item.expDate ? (parseDateSafe(item.expDate)?.toISOString().split('T')[0] || item.expDate) : null,
+      })) : parsedData.items;
+    }
     if (parsedData.notes !== undefined) updateData.notes = parsedData.notes || null;
 
     if (parsedData.supplierInvoiceNo !== undefined) updateData.supplierInvoiceNo = parsedData.supplierInvoiceNo || null;
