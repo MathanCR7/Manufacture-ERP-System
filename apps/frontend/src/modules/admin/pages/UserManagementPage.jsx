@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { 
   Shield, Plus, Edit, UserX, UserCheck, Key, MapPin, 
   Search, Users, Activity, Lock, Unlock, Calendar, 
-  Eye, EyeOff, Sparkles, Filter, RefreshCw, X, AlertCircle, Info, Trash2
+  Eye, EyeOff, Sparkles, Filter, RefreshCw, X, AlertCircle, Info, Trash2,
+  ArrowUpDown, ArrowUp, ArrowDown, ChevronDown, RotateCcw
 } from 'lucide-react';
 import { format } from 'date-fns';
 import Swal from 'sweetalert2';
@@ -46,14 +47,15 @@ export default function UserManagementPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRole, setSelectedRole] = useState('ALL');
   const [selectedStatus, setSelectedStatus] = useState('ALL');
+  const [sortBy, setSortBy] = useState('name_asc');
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedRole, selectedStatus]);
+  }, [searchTerm, selectedRole, selectedStatus, sortBy, itemsPerPage]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -330,27 +332,109 @@ export default function UserManagementPage() {
   const ipLockedUsers = users?.filter(u => u.ipAddress && u.ipAddress.trim() !== '').length || 0;
   const adminUsers = users?.filter(u => u.role === 'MAIN_MASTER' || u.role === 'SUPERVISOR').length || 0;
 
-  // Filtered users list
-  const filteredUsers = users?.filter(user => {
-    const matchesSearch = 
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase());
+  // Filter and Sort Logic matching /setup/raw-material
+  const sortedAndFiltered = useMemo(() => {
+    let result = (users || []).filter(user => {
+      const term = searchTerm.toLowerCase().trim();
+      const matchesSearch = !term || (
+        (user.name || '').toLowerCase().includes(term) ||
+        (user.email || '').toLowerCase().includes(term) ||
+        (user.empId || '').toLowerCase().includes(term) ||
+        (user.role || '').toLowerCase().includes(term) ||
+        (user.ipAddress || '').toLowerCase().includes(term)
+      );
       
-    const matchesRole = selectedRole === 'ALL' || user.role === selectedRole;
-    
-    const matchesStatus = 
-      selectedStatus === 'ALL' || 
-      (selectedStatus === 'ACTIVE' && user.isActive) ||
-      (selectedStatus === 'INACTIVE' && !user.isActive);
-      
-    return matchesSearch && matchesRole && matchesStatus;
-  }) || [];
+      const matchesRole = selectedRole === 'ALL' || user.role === selectedRole;
+      const matchesStatus = 
+        selectedStatus === 'ALL' || 
+        (selectedStatus === 'ACTIVE' && user.isActive) ||
+        (selectedStatus === 'INACTIVE' && !user.isActive);
+        
+      return matchesSearch && matchesRole && matchesStatus;
+    });
 
-  const totalPages = Math.ceil(filteredUsers.length / ITEMS_PER_PAGE);
-  const paginatedUsers = filteredUsers.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
+    result.sort((a, b) => {
+      if (sortBy === 'name_asc') {
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'name_desc') {
+        return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'empId_asc') {
+        return (a.empId || '').localeCompare(b.empId || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+      if (sortBy === 'empId_desc') {
+        return (b.empId || '').localeCompare(a.empId || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+      if (sortBy === 'role_asc') {
+        return (a.role || '').localeCompare(b.role || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'role_desc') {
+        return (b.role || '').localeCompare(a.role || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'status_active') {
+        return (b.isActive ? 1 : 0) - (a.isActive ? 1 : 0);
+      }
+      if (sortBy === 'status_inactive') {
+        return (a.isActive ? 1 : 0) - (b.isActive ? 1 : 0);
+      }
+      if (sortBy === 'latest') {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+      }
+      if (sortBy === 'oldest') {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeA - timeB;
+      }
+      return 0;
+    });
+
+    return result;
+  }, [users, searchTerm, selectedRole, selectedStatus, sortBy]);
+
+  const totalPages = Math.ceil(sortedAndFiltered.length / itemsPerPage) || 1;
+  const paginatedUsers = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedAndFiltered.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedAndFiltered, currentPage, itemsPerPage]);
+
+  // Clickable header sort helpers
+  const handleToggleSortName = () => {
+    setSortBy(prev => (prev === 'name_asc' ? 'name_desc' : 'name_asc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortEmpId = () => {
+    setSortBy(prev => (prev === 'empId_asc' ? 'empId_desc' : 'empId_asc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortRole = () => {
+    setSortBy(prev => (prev === 'role_asc' ? 'role_desc' : 'role_asc'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortStatus = () => {
+    setSortBy(prev => (prev === 'status_active' ? 'status_inactive' : 'status_active'));
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortDate = () => {
+    setSortBy(prev => (prev === 'latest' ? 'oldest' : 'latest'));
+    setCurrentPage(1);
+  };
+
+  const isFilterActive = searchTerm || selectedRole !== 'ALL' || selectedStatus !== 'ALL' || sortBy !== 'name_asc';
+
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setSelectedRole('ALL');
+    setSelectedStatus('ALL');
+    setSortBy('name_asc');
+    setCurrentPage(1);
+  };
 
   // Helper for generating custom lettered avatars with nice premium gradients
   const getAvatarGradient = (name) => {
@@ -703,64 +787,115 @@ export default function UserManagementPage() {
         </div>
       )}
 
-      {/* Control Panel: Search & Filters */}
-      <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800/80 rounded-2xl p-4 flex flex-col md:flex-row gap-4 items-center justify-between shadow-sm">
-        <div className="relative w-full md:w-96 group">
+      {/* Control Panel: Search & Filters (Integrated Pro Toolbar) */}
+      <div className="bg-white dark:bg-slate-900/40 backdrop-blur-md border border-slate-200 dark:border-slate-800/80 rounded-2xl p-3 sm:p-4 flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shadow-sm">
+        {/* Search Input with quick clear */}
+        <div className="relative w-full md:w-80 group">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 group-focus-within:text-indigo-500 dark:group-focus-within:text-indigo-400 transition-colors" />
           <Input 
             value={searchTerm} 
-            onChange={e => setSearchTerm(e.target.value)} 
-            placeholder="Search users by name or email..." 
-            className="pl-10 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-10 w-full transition-all"
+            onChange={e => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }} 
+            placeholder="Search name, email, employee ID, role..." 
+            className="pl-10 pr-8 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 focus:ring-indigo-500 text-slate-900 dark:text-white rounded-xl h-10 w-full transition-all text-xs placeholder:text-slate-400"
           />
           {searchTerm && (
             <button 
-              onClick={() => setSearchTerm('')} 
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900 dark:hover:text-white"
+              onClick={() => {
+                setSearchTerm('');
+                setCurrentPage(1);
+              }} 
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-900 dark:hover:text-white p-0.5 rounded-full transition-colors cursor-pointer"
+              title="Clear search"
             >
-              <X className="w-4 h-4" />
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
-          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 h-10">
-            <Filter className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-semibold">Filter Matrix</span>
+        {/* Filter and Sort Controls */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-start md:justify-end">
+          {searchTerm && (
+            <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium hidden lg:inline-flex items-center gap-1">
+              <span>Found {sortedAndFiltered.length} matches</span>
+            </div>
+          )}
+
+          {/* Role Filter */}
+          <div className="relative min-w-[130px] sm:min-w-[150px]">
+            <select
+              value={selectedRole}
+              onChange={(e) => {
+                setSelectedRole(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="h-10 w-full pl-3 pr-8 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/60 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-700"
+            >
+              <option value="ALL">All Roles</option>
+              {availableRoles.map(role => (
+                <option key={role} value={role}>{role.replace('_', ' ')}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
           </div>
 
-          <Select value={selectedRole} onValueChange={setSelectedRole}>
-            <SelectTrigger className="w-full sm:w-44 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 text-slate-800 dark:text-slate-200 rounded-xl h-10">
-              <SelectValue placeholder="Filter by Role" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200">
-              <SelectItem value="ALL">All Roles</SelectItem>
-              {availableRoles.map(role => (
-                <SelectItem key={role} value={role}>{role.replace('_', ' ')}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-            <SelectTrigger className="w-full sm:w-36 bg-slate-50/50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-850 focus:border-indigo-500 text-slate-800 dark:text-slate-200 rounded-xl h-10">
-              <SelectValue placeholder="Filter by Status" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200">
-              <SelectItem value="ALL">All Status</SelectItem>
-              <SelectItem value="ACTIVE">Active Only</SelectItem>
-              <SelectItem value="INACTIVE">Inactive Only</SelectItem>
-            </SelectContent>
-          </Select>
-
-          {(searchTerm || selectedRole !== 'ALL' || selectedStatus !== 'ALL') && (
-            <Button 
-              variant="ghost" 
-              onClick={() => { setSearchTerm(''); setSelectedRole('ALL'); setSelectedStatus('ALL'); }}
-              className="text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl h-10 px-3 flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800/40"
+          {/* Status Filter */}
+          <div className="relative min-w-[110px] sm:min-w-[130px]">
+            <select
+              value={selectedStatus}
+              onChange={(e) => {
+                setSelectedStatus(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="h-10 w-full pl-3 pr-8 text-xs font-medium border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/60 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-700"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Reset Filters
-            </Button>
+              <option value="ALL">All Status</option>
+              <option value="ACTIVE">Active Only</option>
+              <option value="INACTIVE">Inactive Only</option>
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="relative flex items-center min-w-[160px] sm:min-w-[190px]">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
+              <ArrowUpDown className="w-3.5 h-3.5" />
+            </span>
+            <select
+              value={sortBy}
+              onChange={(e) => {
+                setSortBy(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="h-10 w-full pl-9 pr-8 text-xs font-semibold border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/60 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-700"
+              aria-label="Sort options"
+            >
+              <option value="name_asc">Sort: Name (A → Z)</option>
+              <option value="name_desc">Sort: Name (Z → A)</option>
+              <option value="empId_asc">Sort: Emp ID (Ascending)</option>
+              <option value="empId_desc">Sort: Emp ID (Descending)</option>
+              <option value="role_asc">Sort: Role (A → Z)</option>
+              <option value="role_desc">Sort: Role (Z → A)</option>
+              <option value="status_active">Sort: Active First</option>
+              <option value="status_inactive">Sort: Inactive First</option>
+              <option value="latest">Sort: Registered (Newest)</option>
+              <option value="oldest">Sort: Registered (Oldest)</option>
+            </select>
+            <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          </div>
+
+          {/* Quick Reset Button */}
+          {isFilterActive && (
+            <button
+              onClick={handleResetFilters}
+              className="h-10 px-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-300 transition-colors flex items-center gap-1.5 text-xs font-medium shrink-0 cursor-pointer shadow-3xs"
+              title="Reset filters and sort"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Reset</span>
+            </button>
           )}
         </div>
       </div>
@@ -771,13 +906,105 @@ export default function UserManagementPage() {
           <Table>
             <TableHeader className="bg-slate-50/60 dark:bg-slate-950/40 border-b border-slate-200 dark:border-slate-800/85">
               <TableRow>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">User Identity</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12 hidden sm:table-cell">Employee ID</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Designation Role</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12 hidden md:table-cell">IP Security Lock</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12">Status Flag</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-12 hidden lg:table-cell">Registered Date</TableHead>
-                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs text-right h-12 pr-6">Access Control & Actions</TableHead>
+                {/* 1. User Identity */}
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-4">
+                  <button
+                    onClick={handleToggleSortName}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
+                    title="Sort by Name"
+                  >
+                    <span>User Identity</span>
+                    {sortBy === 'name_asc' ? (
+                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : sortBy === 'name_desc' ? (
+                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                    )}
+                  </button>
+                </TableHead>
+
+                {/* 2. Employee ID */}
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3 hidden sm:table-cell">
+                  <button
+                    onClick={handleToggleSortEmpId}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
+                    title="Sort by Employee ID"
+                  >
+                    <span>Employee ID</span>
+                    {sortBy === 'empId_asc' ? (
+                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : sortBy === 'empId_desc' ? (
+                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                    )}
+                  </button>
+                </TableHead>
+
+                {/* 3. Designation Role */}
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3">
+                  <button
+                    onClick={handleToggleSortRole}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
+                    title="Sort by Role"
+                  >
+                    <span>Designation Role</span>
+                    {sortBy === 'role_asc' ? (
+                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : sortBy === 'role_desc' ? (
+                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                    )}
+                  </button>
+                </TableHead>
+
+                {/* 4. IP Security Lock */}
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3 hidden md:table-cell">
+                  IP Security Lock
+                </TableHead>
+
+                {/* 5. Status Flag */}
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3">
+                  <button
+                    onClick={handleToggleSortStatus}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
+                    title="Sort by Status"
+                  >
+                    <span>Status Flag</span>
+                    {sortBy === 'status_active' ? (
+                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : sortBy === 'status_inactive' ? (
+                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                    )}
+                  </button>
+                </TableHead>
+
+                {/* 6. Registered Date */}
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs h-11 py-2 px-3 hidden lg:table-cell">
+                  <button
+                    onClick={handleToggleSortDate}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none"
+                    title="Sort by Date"
+                  >
+                    <span>Registered Date</span>
+                    {sortBy === 'latest' ? (
+                      <ArrowUp className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : sortBy === 'oldest' ? (
+                      <ArrowDown className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                    ) : (
+                      <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 hover:text-slate-600" />
+                    )}
+                  </button>
+                </TableHead>
+
+                {/* 7. Actions */}
+                <TableHead className="text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-xs text-right h-11 py-2 pr-6">
+                  Access Control & Actions
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -812,14 +1039,17 @@ export default function UserManagementPage() {
                         <p className="font-bold text-slate-700 dark:text-slate-300 text-sm">No users matched query parameters</p>
                         <p className="text-xs text-slate-500 mt-1">Try adjusting search query strings or resetting structural role filters.</p>
                       </div>
-                      <Button 
-                        variant="outline" 
-                        size="sm"
-                        onClick={() => { setSearchTerm(''); setSelectedRole('ALL'); setSelectedStatus('ALL'); }}
-                        className="text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/20 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-xl mt-2"
-                      >
-                        Reset Matrix Filters
-                      </Button>
+                      {isFilterActive && (
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={handleResetFilters}
+                          className="text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-500/20 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-xl mt-2"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                          Reset Matrix Filters
+                        </Button>
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
@@ -1006,23 +1236,48 @@ export default function UserManagementPage() {
             </TableBody>
           </Table>
         </div>
-        {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
-              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredUsers.length)} of {filteredUsers.length} users
-            </div>
-            <div className="order-1 sm:order-2">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={setCurrentPage}
+        {/* Enhanced Pagination Footer matching /setup/raw-material */}
+        <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+          <div>
+            {sortedAndFiltered.length > 0 ? (
+              <span>
+                Showing <strong className="text-slate-700 dark:text-slate-200">{(currentPage - 1) * itemsPerPage + 1}</strong> to <strong className="text-slate-700 dark:text-slate-200">{Math.min(currentPage * itemsPerPage, sortedAndFiltered.length)}</strong> of <strong className="text-slate-700 dark:text-slate-200">{sortedAndFiltered.length}</strong> users
+              </span>
+            ) : (
+              <span>0 users found</span>
+            )}
+          </div>
+
+          {totalPages > 1 && (
+            <div>
+              <Pagination 
+                currentPage={currentPage} 
+                totalPages={totalPages} 
+                onPageChange={setCurrentPage} 
               />
             </div>
-            <div className="text-xs text-slate-400 font-medium order-3">
-              Matched entries: {filteredUsers.length} users
+          )}
+
+          <div className="text-[11px] text-slate-400 hidden sm:flex items-center gap-2">
+            <span>Page {currentPage} of {totalPages}</span>
+            <div className="flex items-center gap-1 border-l border-slate-200 dark:border-slate-800 pl-2">
+              <span>Per page:</span>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-transparent text-slate-600 dark:text-slate-300 font-semibold text-[11px] cursor-pointer focus:outline-none"
+              >
+                <option value={10} className="bg-white dark:bg-slate-900">10</option>
+                <option value={25} className="bg-white dark:bg-slate-900">25</option>
+                <option value={50} className="bg-white dark:bg-slate-900">50</option>
+                <option value={100} className="bg-white dark:bg-slate-900">100</option>
+              </select>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
