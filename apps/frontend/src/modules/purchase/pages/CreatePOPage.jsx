@@ -52,10 +52,10 @@ function SupplierSelect({ suppliers, value, onChange, onAddNew }) {
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className={`w-full px-2.5 sm:px-3 h-9 border rounded-xl text-left flex items-center justify-between transition-all duration-150 shadow-xs text-xs ${
+          className={`w-full px-2.5 sm:px-3 h-9 border rounded-xl text-left flex items-center justify-between transition-all duration-150 shadow-2xs text-xs ${
             open 
               ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/15 dark:bg-indigo-950/40 dark:border-indigo-500' 
-              : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500'
+              : 'bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-white'
           }`}
         >
           <span className={value ? 'text-slate-900 dark:text-white truncate font-medium' : 'text-slate-400 dark:text-slate-500 truncate'}>
@@ -148,7 +148,7 @@ export default function CreatePOPage({ onBack }) {
     shipping: '0',
     otherCharges: '0',
     notes: '',
-
+    
     // Supplier Invoice & Logistics / E-Way Bill Details
     supplierInvoiceNo: '',
     supplierInvoiceDate: null,
@@ -161,6 +161,10 @@ export default function CreatePOPage({ onBack }) {
   });
 
   const [items, setItems] = useState([]);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [showAddSupplier, setShowAddSupplier] = useState(false);
+
+  // Drag and drop state for items reordering
   const [draggedIndex, setDraggedIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
 
@@ -197,31 +201,26 @@ export default function CreatePOPage({ onBack }) {
     setDragOverIndex(null);
   };
 
-  const [errorMsg, setErrorMsg] = useState('');
-  const [showAddSupplier, setShowAddSupplier] = useState(false);
-  const isFromQuotation = !!location.state?.prefillFromQuotation;
-
-  // Note: Full quotation prefill effect is executed below after suppliers and allUoms queries are loaded
-
-  const { data: poRefData, isFetching: isRotatingPo } = useQuery({
-    queryKey: ['generatePoRef'],
+  // Live Auto-Generated PO Candidate ID
+  const { data: poRefData, isLoading: isRotatingPo } = useQuery({
+    queryKey: ['po-next-id'],
     queryFn: async () => {
-      const response = await api.get('/po/reference/generate');
-      return response.data;
+      const res = await api.get('/rm/po/next-reference-id');
+      return res.data;
     },
-    refetchOnWindowFocus: false,
+    staleTime: 30000,
   });
 
-  // Fetch Suppliers
+  // Fetch verified active suppliers
   const { data: suppliers = [], refetch: refetchSuppliers } = useQuery({
     queryKey: ['suppliers'],
     queryFn: async () => {
       const response = await api.get('/parties/suppliers');
-      return response.data;
+      return response.data || [];
     },
   });
 
-  // Fetch Raw Materials from Item Setup
+  // Fetch Raw Materials Catalog
   const { data: rawMaterials = [], isLoading: isLoadingRMs } = useQuery({
     queryKey: ['raw-materials-setup'],
     queryFn: async () => {
@@ -230,7 +229,7 @@ export default function CreatePOPage({ onBack }) {
     },
   });
 
-  // Fetch Non-Inventory items from Item Setup
+  // Fetch Non-Inventory Items
   const { data: nonInventoryItems = [], isLoading: isLoadingNonInv } = useQuery({
     queryKey: ['non-inventory-items-setup'],
     queryFn: async () => {
@@ -239,24 +238,25 @@ export default function CreatePOPage({ onBack }) {
     },
   });
 
-  // Fetch RM Stock to identify low-stock items
+  // Fetch RM Inventory Stock for low-stock indicators
   const { data: rmStock = [] } = useQuery({
     queryKey: ['rm-stock'],
     queryFn: async () => {
-      const res = await api.get('/rm-stock');
-      return res.data;
+      const response = await api.get('/rm-stock');
+      return response.data || [];
     },
   });
 
-  // Build set of raw material IDs that are at or below alert level
+  // Set of RM IDs currently below minimum safety stock alert level
   const lowStockIds = useMemo(() => {
     return new Set(
       rmStock.filter(s => s.alertLevel != null && Number(s.availableQuantity) <= Number(s.alertLevel)).map(s => s.id)
     );
   }, [rmStock]);
+
   const lowStockCount = lowStockIds.size;
 
-  // Combine Raw Materials and Non-Inventory Items into a unified purchasable catalog
+  // Unified Purchasable Items Catalog
   const purchasableItems = useMemo(() => {
     const rmList = (rawMaterials || []).map(rm => ({
       ...rm,
@@ -279,87 +279,94 @@ export default function CreatePOPage({ onBack }) {
     return [...rmList, ...nonInvList];
   }, [rawMaterials, nonInventoryItems, lowStockIds]);
 
-  // Fetch all UOMs as fallback
+  // Fetch system UOM dictionary
   const { data: allUoms = [] } = useQuery({
     queryKey: ['uoms'],
     queryFn: async () => {
       const response = await api.get('/uom');
-      return response.data;
+      return response.data || [];
     },
   });
 
-  // Prefill from RM Quotation if navigated via "Turn into Direct Order"
+  const isFromQuotation = !!location.state?.prefillFromQuotation;
+
+  // Prefill state if navigating from Supplier Quotation Response
   useEffect(() => {
-    if (location.state?.prefillFromQuotation) {
+    if (location.state?.prefillFromQuotation && suppliers.length > 0 && allUoms.length > 0) {
       const q = location.state.prefillFromQuotation;
-
-      // Match full supplier details (GSTIN, Address, Phone)
-      const matchedSupplier = suppliers.find(s => s.id === (q.supplierId || q.supplier?.id)) || q.supplier;
-
-      // Default expectedDelivery to today + 7 days if not set
-      const defaultDelivery = new Date();
-      defaultDelivery.setDate(defaultDelivery.getDate() + 7);
+      
+      let matchedSupplier = null;
+      if (q.supplierId) {
+        matchedSupplier = suppliers.find(s => s.id === q.supplierId);
+      }
+      if (!matchedSupplier && q.supplier) {
+        matchedSupplier = suppliers.find(s => 
+          (s.name && s.name.toLowerCase() === q.supplier.name?.toLowerCase()) ||
+          (s.phone && s.phone === q.supplier.phone)
+        );
+      }
 
       setFormData(prev => ({
         ...prev,
-        selectedSupplier: matchedSupplier || prev.selectedSupplier,
-        expectedDelivery: prev.expectedDelivery || defaultDelivery,
-        discount: String(q.discount || 0),
-        shipping: String(q.shipping || 0),
-        otherCharges: String(q.otherCharges || 0),
-        notes: q.supplierNote ? `Supplier Quotation Note: ${q.supplierNote}` : prev.notes,
+        selectedSupplier: matchedSupplier || (q.supplier ? {
+          id: q.supplier.id,
+          name: q.supplier.name,
+          phone: q.supplier.phone || '',
+          gstin: q.supplier.gstin || '',
+          pan: q.supplier.pan || '',
+          address: q.supplier.address || '',
+        } : null),
+        expectedDelivery: q.validUntil ? new Date(q.validUntil) : null,
+        discount: q.discount != null ? String(q.discount) : '0',
+        shipping: q.shipping != null ? String(q.shipping) : '0',
+        otherCharges: q.otherCharges != null ? String(q.otherCharges) : '0',
       }));
 
-      if (q.items && Array.isArray(q.items)) {
-        const prefilled = q.items.map(it => {
-          const itemType = it.itemType || 'RAW_MATERIAL';
-          const isNonInv = itemType === 'NON_INVENTORY';
-
-          // Match UOM
-          const rawUnit = (it.unit || (isNonInv ? 'pcs' : 'kg')).trim().toLowerCase();
+      if (Array.isArray(q.items) && q.items.length > 0) {
+        const mappedItems = q.items.map(item => {
+          let uomLabel = item.uom || item.displayUom || 'units';
+          let uomId = '';
           const matchedUom = allUoms.find(u => 
-            (u.abbreviation || '').toLowerCase() === rawUnit ||
-            (u.name || '').toLowerCase() === rawUnit
+            u.id === item.uomId || 
+            u.abbreviation?.toLowerCase() === uomLabel?.toLowerCase() ||
+            u.name?.toLowerCase() === uomLabel?.toLowerCase()
           );
+          if (matchedUom) {
+            uomLabel = matchedUom.abbreviation || matchedUom.name;
+            uomId = matchedUom.id;
+          }
+
+          const qty = Number(item.quantity || 1);
+          const price = Number(item.unitPrice || item.rate || 0);
 
           return {
-            id: it.materialId || Math.random().toString(),
-            rmId: it.materialCode || (isNonInv ? 'NI-ITEM' : 'RM-ITEM'),
-            name: it.materialName || (isNonInv ? 'Non-Inventory Item' : 'Raw Material'),
-            itemType: itemType,
-            category: it.category || (isNonInv ? 'Non-Inventory' : 'General'),
-            quantity: Number(it.quantity) || 1,
-            unitPrice: Number(it.unitPrice) || 0,
-            uomLabel: matchedUom ? matchedUom.abbreviation.toUpperCase() : (it.unit || (isNonInv ? 'PCS' : 'KG')).toUpperCase(),
-            uomId: matchedUom ? matchedUom.id : '',
-            gstApplicable: it.gstApplicable ?? true,
-            gstPercentage: Number(it.gstRate) || 18,
-            labTestRequired: !isNonInv, // Non-inventory items do not require lab testing
+            id: item.rmId || item.id,
+            rmId: item.rmCode || item.code || item.rmId || 'ITEM',
+            name: item.rmName || item.name || 'Quoted Item',
+            itemType: item.itemType || 'RAW_MATERIAL',
+            category: item.category || 'General',
+            weight: item.weight || '',
+            mfgBatchNo: item.mfgBatchNo || '',
+            mfgDate: item.mfgDate || '',
+            expDate: item.expDate || '',
+            quantity: qty,
+            unitPrice: price,
+            subtotal: Math.round(qty * price * 100) / 100,
+            uomLabel: uomLabel.toUpperCase(),
+            uomId: uomId,
+            gstApplicable: item.gstApplicable !== false,
+            gstPercentage: item.gstPercentage != null ? Number(item.gstPercentage) : 18,
+            labTestRequired: item.itemType === 'NON_INVENTORY' ? false : true,
           };
         });
-        setItems(prefilled);
+        setItems(mappedItems);
       }
     }
   }, [location.state, suppliers, allUoms]);
 
-  const { data: rmUoms = [] } = useQuery({
-    queryKey: ['uoms', formData.selectedRm?.id],
-    queryFn: async () => {
-      if (!formData.selectedRm?.id) return [];
-      const response = await api.get(`/uom?rawMaterialId=${formData.selectedRm.id}`);
-      return response.data;
-    },
-    enabled: !!formData.selectedRm?.id,
-    keepPreviousData: true,
-  });
-
   const getDefaultUomForItem = (item) => {
     if (!item) return null;
-    
-    // Check if item has explicit UOM relation
-    if (item.uoms?.length > 0) return item.uoms[0];
-
-    // Check item's unitId, consumptionUnit, or displayUom against all active UOMs
+    if (item.uoms && item.uoms.length > 0) return item.uoms[0];
     const normalized = (item.unitId || item.consumptionUnit || item.displayUom || '').trim().toLowerCase();
     if (normalized && Array.isArray(allUoms) && allUoms.length > 0) {
       const exactMatch = allUoms.find(u => 
@@ -367,7 +374,6 @@ export default function CreatePOPage({ onBack }) {
         (u.name || '').toLowerCase() === normalized
       );
       if (exactMatch) return exactMatch;
-
       const containsMatch = allUoms.find(u =>
         (u.abbreviation || '').toLowerCase().includes(normalized) ||
         (u.name || '').toLowerCase().includes(normalized) ||
@@ -376,12 +382,6 @@ export default function CreatePOPage({ onBack }) {
       );
       if (containsMatch) return containsMatch;
     }
-
-    // Only fallback to rmUoms if it matches the current selected RM
-    if (item.itemType !== 'NON_INVENTORY' && rmUoms?.length > 0 && formData.selectedRm?.id === item.id) {
-      return rmUoms[0];
-    }
-
     return null;
   };
 
@@ -414,21 +414,19 @@ export default function CreatePOPage({ onBack }) {
     };
   };
 
-  const handleAddRmItem = (item) => {
-    if (!item) return;
-    const exists = items.some(it => it.id === item.id);
+  const handleAddRmItem = (rm) => {
+    if (!rm) return;
+    const exists = items.some(item => item.id === rm.id);
     if (exists) {
       Swal.fire({
         icon: 'info',
-        title: 'Item Already in List',
-        text: `${item.name} is already added. You can update its quantity and details directly in the table.`,
+        title: 'Item already added',
+        text: `${rm.name} is already in the items table. You can adjust its quantity or batch details directly.`,
         confirmButtonColor: '#4f46e5',
       });
       return;
     }
-    
-    setItems(prev => [...prev, createItemFromCatalog(item)]);
-    setFormData(prev => ({ ...prev, selectedRm: null }));
+    setItems(prev => [...prev, createItemFromCatalog(rm)]);
   };
 
   const handleAddMultipleItems = (newItems) => {
@@ -453,9 +451,15 @@ export default function CreatePOPage({ onBack }) {
       Swal.fire({
         icon: 'info',
         title: 'Items Already in List',
-        text: 'All selected items are already added to your order table.',
+        text: 'All selected items are already present in your order table.',
         confirmButtonColor: '#4f46e5',
       });
+    }
+  };
+
+  const triggerAddRmDropdown = () => {
+    if (rmSelectRef.current) {
+      rmSelectRef.current.openDropdown();
     }
   };
 
@@ -489,7 +493,7 @@ export default function CreatePOPage({ onBack }) {
     }));
   };
 
-  // Two-way calculation: entering subtotal calculates unit price = subtotal / quantity
+  // Two-way calculation: entering subtotal automatically calculates unit price = subtotal / quantity
   const updateItemSubtotal = (id, newSubtotal) => {
     setItems(prev => prev.map(it => {
       if (it.id !== id) return it;
@@ -504,7 +508,6 @@ export default function CreatePOPage({ onBack }) {
     }));
   };
 
-  // Stepper function for - and + button
   const stepQuantity = (id, delta) => {
     setItems(prev => prev.map(it => {
       if (it.id !== id) return it;
@@ -519,21 +522,16 @@ export default function CreatePOPage({ onBack }) {
     }));
   };
 
-  // Helper to open Raw Material Dropdown from action buttons
-  const triggerAddRmDropdown = () => {
-    rmSelectRef.current?.openDropdown();
-  };
-
   const addedItemIds = useMemo(() => new Set(items.map(it => it.id)), [items]);
 
   // Financial calculations
   const subtotal = items.reduce((sum, item) => sum + (parseFloat(item.subtotal) || (Number(item.quantity || 0) * Number(item.unitPrice || 0))), 0);
-  const shipping = Number(formData.shipping || 0);
-  const discount = Number(formData.discount || 0);
-  const otherCharges = Number(formData.otherCharges || 0);
+  const shipping = Number(formData.shipping) || 0;
+  const discount = Number(formData.discount) || 0;
+  const otherCharges = Number(formData.otherCharges) || 0;
 
-  // Check supplier state code (prefix 33 = Tamil Nadu)
-  const isInterState = formData.selectedSupplier?.gstin
+  // GST State Code determination (prefix 33 = Tamil Nadu / Intrastate)
+  const isInterState = formData.selectedSupplier?.gstin 
     ? !formData.selectedSupplier.gstin.trim().startsWith('33')
     : false;
 
@@ -546,7 +544,7 @@ export default function CreatePOPage({ onBack }) {
   const cgstAmount = isInterState ? 0 : totalItemTax / 2;
   const sgstAmount = isInterState ? 0 : totalItemTax / 2;
   const igstAmount = isInterState ? totalItemTax : 0;
-  
+
   // Standard ERP round off: >= .50 rounds up (+1), < .50 rounds down
   const unroundedTotal = Math.max(0, subtotal + totalItemTax + shipping + otherCharges - discount);
   const grandTotal = Math.round(unroundedTotal);
@@ -592,7 +590,7 @@ export default function CreatePOPage({ onBack }) {
   });
 
   const handleSubmit = (e) => {
-    if (e) e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     setErrorMsg('');
 
     if (items.length === 0) {
@@ -654,6 +652,12 @@ export default function CreatePOPage({ onBack }) {
       items: items,
       quotationId: location.state?.prefillFromQuotation?.quotationId || null,
       notes: formData.notes || null,
+
+      // Directly sync top-level batch columns on RawMaterialPO model
+      weight: firstItem.weight || null,
+      mfgBatchNo: firstItem.mfgBatchNo || null,
+      mfgDate: firstItem.mfgDate ? new Date(firstItem.mfgDate).toISOString() : null,
+      expDate: firstItem.expDate ? new Date(firstItem.expDate).toISOString() : null,
 
       // Supplier Invoice & Logistics / E-Way Bill Details
       supplierInvoiceNo: formData.supplierInvoiceNo?.trim() || null,
@@ -782,801 +786,206 @@ export default function CreatePOPage({ onBack }) {
       )}
 
       {/* ───────────────────────────────────────────────────────────────────
-          Dense 2-Column ERP Workspace: Left (Details & Items) | Right (Summary)
-          Responsive grid: 1 column on Mobile/Tablet (< 1024px), 2 columns on Laptop/Desktop (>= 1024px)
+          1. ORDER INFORMATION CARD
           ─────────────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
-        
-        {/* ═══ LEFT COLUMN (8 cols on XL, 7 cols on LG): General Details & Items Table ═══ */}
-        <div className="lg:col-span-7 xl:col-span-8 space-y-3">
-          
-          {/* Card 1: General & Supplier Details */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs">
-            <div className="flex flex-wrap items-center justify-between gap-1 mb-2.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-indigo-500" />
-                1. Order Information
-              </span>
-              {formData.selectedSupplier?.gstin && (
-                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  Tax: <strong className={isInterState ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>
-                    {isInterState ? 'IGST (Interstate)' : 'CGST+SGST (Intrastate)'}
-                  </strong>
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-1 mb-2.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5 text-indigo-500" />
+            1. Order Information
+          </span>
+          {formData.selectedSupplier?.gstin && (
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              Tax: <strong className={isInterState ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>
+                {isInterState ? 'IGST (Interstate)' : 'CGST+SGST (Intrastate)'}
+              </strong>
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 items-start">
+          {/* Expected Delivery Date / Received Date */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+                {formData.purchaseStatus === 'Received' ? 'Received Date' : 'Expected Delivery'} <span className="text-rose-500">*</span>
+              </Label>
+              {formData.purchaseStatus === 'Received' && (
+                <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200/80 dark:border-amber-800/80">
+                  Today or past dates only
                 </span>
               )}
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 items-start">
-              {/* Expected Delivery Date / Received Date */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                    {formData.purchaseStatus === 'Received' ? 'Received Date' : 'Expected Delivery'} <span className="text-rose-500">*</span>
-                  </Label>
-                  {formData.purchaseStatus === 'Received' && (
-                    <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.5 rounded border border-amber-200/80 dark:border-amber-800/80">
-                      Today or past dates only
-                    </span>
-                  )}
-                </div>
-                <DatePicker
-                  value={formData.expectedDelivery}
-                  onChange={(date) => setFormData({ ...formData, expectedDelivery: date })}
-                  modalTitle={formData.purchaseStatus === 'Received' ? 'Received Date' : 'Expected Delivery Date'}
-                  placeholder={formData.purchaseStatus === 'Received' ? 'Select Received Date...' : 'Select Date...'}
-                  triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
-                  disabled={
-                    formData.purchaseStatus === 'Received'
-                      ? (date) => {
-                          const endOfToday = new Date();
-                          endOfToday.setHours(23, 59, 59, 999);
-                          return date > endOfToday;
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-
-              {/* Purchase Status */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                  Purchase Status <span className="text-rose-500">*</span>
-                </Label>
-                <div className="relative">
-                  <select 
-                    value={formData.purchaseStatus}
-                    onChange={(e) => {
-                      const newStatus = e.target.value;
-                      setFormData(prev => {
-                        let updatedDelivery = prev.expectedDelivery;
-                        const now = new Date();
-                        const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-
-                        if (newStatus === 'Received') {
-                          // When switching to Received, if no date or date is tomorrow or future, clamp to today
-                          if (!updatedDelivery || new Date(updatedDelivery) > endOfToday) {
-                            updatedDelivery = new Date();
-                          }
-                        }
-                        return {
-                          ...prev,
-                          purchaseStatus: newStatus,
-                          expectedDelivery: updatedDelivery
-                        };
-                      });
-                    }}
-                    className="w-full h-9 px-3 py-1.5 text-xs border rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-xs"
-                  >
-                    <option value="Draft">Draft (Pending)</option>
-                    <option value="Ordered">Ordered (Awaiting Delivery)</option>
-                    <option value="Received">Received (Direct Receive)</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Supplier Select */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                  Supplier <span className="text-rose-500">*</span>
-                </Label>
-                <SupplierSelect 
-                  suppliers={suppliers} 
-                  value={formData.selectedSupplier} 
-                  onChange={(s) => setFormData({ ...formData, selectedSupplier: s })} 
-                  onAddNew={() => setShowAddSupplier(true)}
-                />
-              </div>
-            </div>
-
-            {/* Supplier Details Horizontal Bar */}
-            {formData.selectedSupplier && (
-              <div className="mt-2.5 pt-2 border-t border-dashed border-slate-150 dark:border-slate-800 flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">Phone:</span>
-                  <span>{formData.selectedSupplier.phone || 'N/A'}</span>
-                </div>
-                <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">GSTIN:</span>
-                  <span className="font-mono font-medium text-indigo-600 dark:text-indigo-400">{formData.selectedSupplier.gstin || 'N/A'}</span>
-                </div>
-                <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">PAN:</span>
-                  <span className="font-mono">{formData.selectedSupplier.pan || 'N/A'}</span>
-                </div>
-                {formData.selectedSupplier.address && (
-                  <>
-                    <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
-                    <div className="flex items-center gap-1 truncate max-w-full sm:max-w-xs">
-                      <span className="font-semibold text-slate-700 dark:text-slate-300">Address:</span>
-                      <span className="truncate">{formData.selectedSupplier.address}</span>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+            <DatePicker
+              value={formData.expectedDelivery}
+              onChange={(date) => setFormData({ ...formData, expectedDelivery: date })}
+              modalTitle={formData.purchaseStatus === 'Received' ? 'Received Date' : 'Expected Delivery Date'}
+              placeholder={formData.purchaseStatus === 'Received' ? 'Select Received Date...' : 'Select Date...'}
+              triggerClassName="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 text-slate-800 dark:text-slate-200"
+              disabled={
+                formData.purchaseStatus === 'Received'
+                  ? (date) => {
+                      const endOfToday = new Date();
+                      endOfToday.setHours(23, 59, 59, 999);
+                      return date > endOfToday;
+                    }
+                  : undefined
+              }
+            />
           </div>
 
-          {/* Card 2: Supplier Invoice & Transport / E-Way Bill Details */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Truck className="w-3.5 h-3.5 text-indigo-500" />
-                2. Supplier Invoice & Transport / E-Way Bill Details
-              </span>
-              <div className="flex items-center gap-2">
-                {grandTotal >= 50000 && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                    <ShieldCheck className="w-3 h-3 text-amber-500" />
-                    GST E-Way Bill Recommended (&ge; ₹50,000)
-                  </span>
-                )}
-                <span className="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:inline">
-                  Optional / Can be updated anytime
-                </span>
-              </div>
-            </div>
+          {/* Purchase Status */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+              Purchase Status <span className="text-rose-500">*</span>
+            </Label>
+            <div className="relative">
+              <select 
+                value={formData.purchaseStatus}
+                onChange={(e) => {
+                  const newStatus = e.target.value;
+                  setFormData(prev => {
+                    let updatedDelivery = prev.expectedDelivery;
+                    const now = new Date();
+                    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
-            {/* Row 1: Supplier Invoice Information & Transport Mode */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start">
-              {/* Supplier Invoice No */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <FileText className="w-3 h-3 text-slate-400" />
-                  Supplier Invoice No
-                </Label>
-                <Input
-                  type="text"
-                  value={formData.supplierInvoiceNo}
-                  onChange={(e) => setFormData({ ...formData, supplierInvoiceNo: e.target.value })}
-                  placeholder="e.g. INV-2026-0042"
-                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-medium"
-                />
-              </div>
-
-              {/* Supplier Invoice Date */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-slate-400" />
-                  Supplier Invoice Date
-                </Label>
-                <DatePicker
-                  value={formData.supplierInvoiceDate}
-                  onChange={(date) => setFormData({ ...formData, supplierInvoiceDate: date })}
-                  modalTitle="Supplier Invoice Date"
-                  placeholder="Select Invoice Date..."
-                  triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
-                  disabled={(date) => {
-                    const endOfToday = new Date();
-                    endOfToday.setHours(23, 59, 59, 999);
-                    return date > endOfToday;
-                  }}
-                />
-              </div>
-
-              {/* Transport Mode */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <Truck className="w-3 h-3 text-slate-400" />
-                  Transport Mode
-                </Label>
-                <div className="relative">
-                  <select
-                    value={formData.transportMode}
-                    onChange={(e) => setFormData({ ...formData, transportMode: e.target.value })}
-                    className="w-full h-9 px-3 py-1.5 text-xs border rounded-xl bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-xs"
-                  >
-                    <option value="ROAD">🚛 Road Transport</option>
-                    <option value="RAIL">🚆 Rail Express</option>
-                    <option value="AIR">✈️ Air Freight</option>
-                    <option value="SHIP">🚢 Ship / Maritime</option>
-                    <option value="OTHER">📦 Other / Courier</option>
-                  </select>
-                  <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Vehicle Number */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <Truck className="w-3 h-3 text-slate-400" />
-                  Vehicle Number
-                </Label>
-                <Input
-                  type="text"
-                  value={formData.vehicleNumber}
-                  onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value.toUpperCase() })}
-                  placeholder="e.g. TN-01-AB-1234"
-                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-mono uppercase font-semibold"
-                />
-              </div>
-            </div>
-
-            {/* Row 2: Transporter Name & E-Way Bill Details */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start pt-1">
-              {/* Transporter / Carrier Name */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <Building2 className="w-3 h-3 text-slate-400" />
-                  Transporter / Carrier
-                </Label>
-                <Input
-                  type="text"
-                  value={formData.transporterName}
-                  onChange={(e) => setFormData({ ...formData, transporterName: e.target.value })}
-                  placeholder="e.g. VRL / SafeXpress / Blue Dart"
-                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-medium"
-                />
-              </div>
-
-              {/* E-Way Bill Number */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3 text-indigo-500" />
-                    E-Way Bill Number
-                  </Label>
-                  {formData.ewayBillNo && (
-                    <span className="text-[10px] font-mono text-slate-400 font-medium">
-                      {formData.ewayBillNo.length}/12
-                    </span>
-                  )}
-                </div>
-                <Input
-                  type="text"
-                  maxLength={16}
-                  value={formData.ewayBillNo}
-                  onChange={(e) => setFormData({ ...formData, ewayBillNo: e.target.value.replace(/\s+/g, '') })}
-                  placeholder="12-digit E-Way Bill No"
-                  className="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500 font-mono font-semibold tracking-wider text-indigo-600 dark:text-indigo-400"
-                />
-              </div>
-
-              {/* E-Way Bill Date */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <Calendar className="w-3 h-3 text-slate-400" />
-                  E-Way Date
-                </Label>
-                <DatePicker
-                  value={formData.ewayBillDate}
-                  onChange={(date) => setFormData({ ...formData, ewayBillDate: date })}
-                  modalTitle="E-Way Bill Date"
-                  placeholder="Select E-Way Date..."
-                  triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
-                />
-              </div>
-
-              {/* Valid Till Date */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-slate-400" />
-                  Valid Till Date
-                </Label>
-                <DatePicker
-                  value={formData.tillDate}
-                  onChange={(date) => setFormData({ ...formData, tillDate: date })}
-                  modalTitle="Valid Till Date"
-                  placeholder="Select Till Date..."
-                  triggerClassName="h-9 text-xs rounded-xl border-slate-300 dark:border-slate-700"
-                />
-              </div>
+                    if (newStatus === 'Received') {
+                      if (!updatedDelivery || new Date(updatedDelivery) > endOfToday) {
+                        updatedDelivery = new Date();
+                      }
+                    }
+                    return {
+                      ...prev,
+                      purchaseStatus: newStatus,
+                      expectedDelivery: updatedDelivery
+                    };
+                  });
+                }}
+                className="w-full h-9 px-3 py-1.5 text-xs border rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-2xs transition-all"
+              >
+                <option value="Draft">Draft (Pending)</option>
+                <option value="Ordered">Ordered (Awaiting Delivery)</option>
+                <option value="Received">Received (Direct Receive)</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
             </div>
           </div>
 
-          {/* Card 3: Order Items & Raw Material Picker */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
-            
-            {/* Raw Material Select Bar */}
-            {isFromQuotation ? (
-              <div className="flex items-center gap-2 p-2.5 bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 rounded-xl text-purple-700 dark:text-purple-300 text-xs">
-                <CheckCircle2 className="w-4 h-4 text-purple-500 shrink-0" />
-                <span>
-                  <strong>Locked from RM Quotation:</strong> Items and pricing were prefilled from {location.state.prefillFromQuotation.referenceNo || 'quotation'}.
-                </span>
-              </div>
-            ) : (
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                    <Package className="w-3.5 h-3.5 text-indigo-500" />
-                    3. Select Raw Material or Non-Inventory Item to Add <span className="text-rose-500">*</span>
-                  </Label>
-                  <span className="text-[11px] text-slate-400 hidden sm:inline">
-                    Browse Raw Materials & Non-Inventory Items with Category & UOM
-                  </span>
-                </div>
-
-                {isLoadingRMs || isLoadingNonInv ? (
-                  <div className="w-full h-10 px-3 border rounded-xl text-slate-400 border-slate-300 dark:border-slate-700 flex items-center bg-white dark:bg-slate-900 text-xs">
-                    <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin text-indigo-500" /> Loading items catalog...
-                  </div>
-                ) : (
-                  <RawMaterialSelect 
-                    ref={rmSelectRef}
-                    rawMaterials={purchasableItems}
-                    value={formData.selectedRm}
-                    onChange={handleAddRmItem} 
-                    onAddMultiple={handleAddMultipleItems}
-                    addedItemIds={addedItemIds}
-                    lowStockIds={lowStockIds}
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Order Items Table Header with direct "+ Add Item" Action */}
-            <div className="flex items-center justify-between pt-1">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Added Items ({items.length})
-                </span>
-                {items.length > 0 && (
-                  <Badge variant="secondary" className="text-[10px] font-bold px-1.5 py-0 h-4 bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300">
-                    {items.length} Item{items.length > 1 ? 's' : ''}
-                  </Badge>
-                )}
-              </div>
-
-              {!isFromQuotation && items.length > 0 && (
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={triggerAddRmDropdown}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold gap-1 shadow-xs h-7 px-2.5 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Item
-                </Button>
-              )}
-            </div>
-
-            {/* Items Table Container: Responsive, Scrollable after 3 items with sticky header */}
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs flex flex-col">
-              
-              {/* Inner scroll container: smooth scrolling with sticky header */}
-              <div className="overflow-x-auto overflow-y-auto max-h-[500px] scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700">
-                <table className="w-full min-w-[700px] text-xs text-left border-collapse">
-                  <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px] shadow-2xs">
-                    <tr>
-                      <th className="px-2 py-2 w-12 text-center bg-slate-50 dark:bg-slate-800">#</th>
-                      <th className="px-3 py-2 bg-slate-50 dark:bg-slate-800 min-w-[200px]">Item / Category / UOM</th>
-                      <th className="px-3 py-2 text-center w-36 bg-slate-50 dark:bg-slate-800">Quantity</th>
-                      <th className="px-3 py-2 text-right w-28 bg-slate-50 dark:bg-slate-800">Unit Price (₹)</th>
-                      <th className="px-3 py-2 text-center w-24 bg-slate-50 dark:bg-slate-800">Tax Status</th>
-                      <th className="px-3 py-2 text-center w-20 bg-slate-50 dark:bg-slate-800">GST %</th>
-                      <th className="px-3 py-2 text-center w-32 bg-slate-50 dark:bg-slate-800">Lab Test Status</th>
-                      <th className="px-3 py-2 text-right w-32 bg-slate-50 dark:bg-slate-800">Subtotal (₹)</th>
-                      <th className="px-3 py-2 text-center w-14 bg-slate-50 dark:bg-slate-800">Action</th>
-                    </tr>
-                  </thead>
-                  {items.length > 0 ? (
-                    items.map((item, index) => {
-                      const itemSubtotal = parseFloat(item.subtotal) !== undefined && !isNaN(parseFloat(item.subtotal))
-                        ? parseFloat(item.subtotal)
-                        : Number(item.quantity || 0) * Number(item.unitPrice || 0);
-                      const isNonInv = item.itemType === 'NON_INVENTORY';
-                      const isDragged = draggedIndex === index;
-                      const isOver = dragOverIndex === index && draggedIndex !== index;
-
-                      return (
-                        <tbody
-                          key={item.id || index}
-                          onDragOver={(e) => handleDragOver(e, index)}
-                          onDragLeave={() => { if (dragOverIndex === index) setDragOverIndex(null); }}
-                          onDrop={(e) => handleDrop(e, index)}
-                          className={twMerge(
-                            "transition-all duration-150 border-b border-slate-200/80 dark:border-slate-800",
-                            isDragged && "opacity-40 bg-indigo-50/40 dark:bg-indigo-950/40",
-                            isOver && "ring-2 ring-indigo-500 ring-inset bg-indigo-50/60 dark:bg-indigo-950/60"
-                          )}
-                        >
-                          <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
-                            {/* S.No with Drag Handle */}
-                            <td className="px-2 py-1.5 text-center align-middle">
-                              <div
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, index)}
-                                onDragEnd={handleDragEnd}
-                                className="inline-flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors select-none"
-                                title="Drag to swap / reorder"
-                              >
-                                <GripVertical className="w-3.5 h-3.5 shrink-0 text-slate-400 hover:text-indigo-600" />
-                                <span className="font-bold text-xs text-slate-700 dark:text-slate-300 font-mono w-4 text-center">{index + 1}</span>
-                              </div>
-                            </td>
-
-                            {/* Item Details */}
-                            <td className="px-3 py-1.5 align-middle">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="font-bold text-slate-900 dark:text-slate-100 text-xs truncate max-w-[200px]" title={item.name}>
-                                  {item.name}
-                                </span>
-                                {isNonInv ? (
-                                  <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
-                                    Non-Inv
-                                  </span>
-                                ) : (
-                                  <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
-                                    RM
-                                  </span>
-                                )}
-                                {lowStockIds.has(item.id) && (
-                                  <span className="text-[9px] uppercase tracking-wider px-1 py-0.2 rounded font-bold bg-rose-100 text-rose-700 border border-rose-200 shrink-0">
-                                    Low
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 whitespace-nowrap overflow-hidden">
-                                <span className="font-mono text-slate-600 dark:text-slate-300 font-medium bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700">
-                                  {item.rmId}
-                                </span>
-                                {item.category && (
-                                  <span className="truncate max-w-[120px] text-slate-500 dark:text-slate-400" title={item.category}>
-                                    • {item.category}
-                                  </span>
-                                )}
-                                <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                                  • {item.uomLabel}
-                                </span>
-                              </div>
-                            </td>
-
-                            {/* Quantity with [-] Value [+] Stepper Controls */}
-                            <td className="px-3 py-1.5 text-center align-middle">
-                              <div className="flex items-center justify-center gap-1.5">
-                                <div className="inline-flex items-center border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50/70 dark:bg-slate-900/70 p-0.5 shadow-2xs">
-                                  <button
-                                    type="button"
-                                    onClick={() => stepQuantity(item.id, -1)}
-                                    disabled={Number(item.quantity) <= 1}
-                                    className="w-5 h-5 flex items-center justify-center rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-400 border border-slate-200/80 dark:border-slate-700 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs cursor-pointer select-none"
-                                    title="Decrease quantity"
-                                  >
-                                    <Minus className="w-2.5 h-2.5" />
-                                  </button>
-                                  <Input 
-                                    type="number" 
-                                    step="any" 
-                                    min="0.001"
-                                    value={item.quantity} 
-                                    onChange={(e) => updateItemQuantity(item.id, e.target.value)} 
-                                    className="w-16 h-5 p-0 text-center font-bold text-xs bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 select-all" 
-                                    required
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => stepQuantity(item.id, 1)}
-                                    className="w-5 h-5 flex items-center justify-center rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-400 border border-slate-200/80 dark:border-slate-700 transition-all active:scale-95 shadow-2xs cursor-pointer select-none"
-                                    title="Increase quantity"
-                                  >
-                                    <Plus className="w-2.5 h-2.5" />
-                                  </button>
-                                </div>
-                                <span className="text-slate-400 font-mono text-[10px] font-semibold shrink-0 w-7 text-left">
-                                  {item.uomLabel}
-                                </span>
-                              </div>
-                            </td>
-
-                            {/* Unit Price */}
-                            <td className="px-3 py-1.5 text-right align-middle">
-                              <div className="relative inline-flex items-center ml-auto">
-                                <span className="absolute left-2 text-[10px] font-bold text-slate-400">₹</span>
-                                <Input 
-                                  type="number" 
-                                  step="0.0001" 
-                                  min="0"
-                                  value={item.unitPrice} 
-                                  onChange={(e) => updateItemUnitPrice(item.id, e.target.value)} 
-                                  className="w-20 pl-4 pr-1.5 text-right h-7 rounded-lg border-slate-200 dark:border-slate-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 dark:bg-slate-900/50 font-semibold text-xs" 
-                                  title="Unit price per unit"
-                                  required
-                                />
-                              </div>
-                            </td>
-
-                            {/* GST Status Toggle */}
-                            <td className="px-3 py-1.5 text-center align-middle">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setItems(prev => prev.map(it => it.id === item.id ? { ...it, gstApplicable: !it.gstApplicable } : it));
-                                }}
-                                className={twMerge(
-                                  "h-7 px-2 text-[10px] font-bold rounded-lg transition-colors border shadow-2xs",
-                                  item.gstApplicable 
-                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800" 
-                                    : "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
-                                )}
-                              >
-                                {item.gstApplicable ? 'GST (Yes)' : 'Zero Tax'}
-                              </button>
-                            </td>
-
-                            {/* GST % */}
-                            <td className="px-3 py-1.5 text-center align-middle">
-                              <select
-                                disabled={!item.gstApplicable}
-                                value={item.gstPercentage}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value);
-                                  setItems(prev => prev.map(it => it.id === item.id ? { ...it, gstPercentage: val } : it));
-                                }}
-                                className="h-7 px-1.5 text-xs border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200 font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed w-16 mx-auto block"
-                              >
-                                <option value={0}>0%</option>
-                                <option value={5}>5%</option>
-                                <option value={12}>12%</option>
-                                <option value={18}>18%</option>
-                                <option value={28}>28%</option>
-                              </select>
-                            </td>
-
-                            {/* Lab Test Required vs Exempt Toggle */}
-                            <td className="px-3 py-1.5 text-center align-middle">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setItems(prev => prev.map(it => it.id === item.id ? { ...it, labTestRequired: it.labTestRequired === false ? true : false } : it));
-                                }}
-                                className={twMerge(
-                                  "h-7 px-2 text-[10px] font-bold rounded-lg transition-all border shadow-2xs inline-flex items-center gap-1 cursor-pointer",
-                                  item.labTestRequired !== false
-                                    ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/80"
-                                    : "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/60 dark:text-red-300 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/80"
-                                )}
-                                title={item.labTestRequired !== false ? "Click to exempt this material from lab test" : "Click to require lab test for this material"}
-                              >
-                                {item.labTestRequired !== false ? (
-                                  <>
-                                    <FlaskConical className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
-                                    <span>Lab Required</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <ShieldCheck className="w-3 h-3 text-red-600 dark:text-red-400" />
-                                    <span>Lab Exempt</span>
-                                  </>
-                                )}
-                              </button>
-                            </td>
-
-                            {/* Subtotal (Editable: entering subtotal auto-calculates unit price) */}
-                            <td className="px-3 py-1.5 text-right align-middle">
-                              <div className="flex flex-col items-end">
-                                <div className="relative inline-flex items-center">
-                                  <span className="absolute left-2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400">₹</span>
-                                  <Input 
-                                    type="number" 
-                                    step="0.01" 
-                                    min="0"
-                                    value={item.subtotal !== undefined ? item.subtotal : (Math.round(itemSubtotal * 100) / 100)} 
-                                    onChange={(e) => updateItemSubtotal(item.id, e.target.value)} 
-                                    className="w-24 pl-4 pr-1.5 text-right h-7 rounded-lg border-indigo-300 dark:border-indigo-700 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 bg-indigo-50/40 dark:bg-indigo-950/30 font-bold text-xs text-indigo-950 dark:text-indigo-200" 
-                                    title="Enter subtotal to auto-calculate unit price (subtotal ÷ quantity)"
-                                    required
-                                  />
-                                </div>
-                                <span className="text-[9px] text-slate-400 font-mono mt-0.5" title="subtotal ÷ qty">
-                                  = ₹{Number(item.unitPrice || 0).toFixed(2)}/{item.uomLabel}
-                                </span>
-                              </div>
-                            </td>
-
-                            {/* Action Button: Remove Item */}
-                            <td className="px-3 py-1.5 text-center align-middle">
-                              {isFromQuotation ? (
-                                <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
-                                  Quoted
-                                </span>
-                              ) : (
-                                <button 
-                                  type="button" 
-                                  onClick={() => setItems(prev => prev.filter(it => it.id !== item.id))} 
-                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors"
-                                  title="Remove item"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-
-                          {/* Row 2: Weight, MFG Batch No, MFG Date, Exp Date */}
-                          <tr className="bg-slate-50/60 dark:bg-slate-800/35 border-t border-slate-100 dark:border-slate-800/60">
-                            <td colSpan={9} className="px-3 py-1">
-                              <div className="flex flex-wrap items-center gap-2 text-xs">
-                                {/* Weight */}
-                                <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
-                                  <Scale className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Weight:</span>
-                                  <Input 
-                                    type="text" 
-                                    value={item.weight || ''} 
-                                    onChange={(e) => updateItemField(item.id, 'weight', e.target.value)}
-                                    placeholder="e.g. 25 kg / 50" 
-                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2 py-0"
-                                  />
-                                </div>
-
-                                {/* MFG Batch No */}
-                                <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
-                                  <Tag className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Batch:</span>
-                                  <Input 
-                                    type="text" 
-                                    value={item.mfgBatchNo || ''} 
-                                    onChange={(e) => updateItemField(item.id, 'mfgBatchNo', e.target.value)}
-                                    placeholder="e.g. BATCH-2026-09" 
-                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono font-medium uppercase px-2 py-0"
-                                  />
-                                </div>
-
-                                {/* MFG Date */}
-                                <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
-                                  <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
-                                  <Input 
-                                    type="date" 
-                                    value={item.mfgDate || ''} 
-                                    onChange={(e) => updateItemField(item.id, 'mfgDate', e.target.value)}
-                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-1.5 py-0"
-                                  />
-                                </div>
-
-                                {/* Exp Date */}
-                                <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
-                                  <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
-                                  <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
-                                  <Input 
-                                    type="date" 
-                                    value={item.expDate || ''} 
-                                    onChange={(e) => updateItemField(item.id, 'expDate', e.target.value)}
-                                    className="h-6 text-[11px] rounded border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-1.5 py-0"
-                                  />
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        </tbody>
-                      );
-                    })
-                  ) : (
-                    <tbody>
-                      <tr>
-                        <td colSpan={9} className="px-3 py-8 text-center">
-                          <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
-                            <Package className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-1.5" />
-                            <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">No Raw Materials Added Yet</p>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
-                              Use the selector above or click "Add Item" to add your first raw material.
-                            </p>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={triggerAddRmDropdown}
-                              className="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold gap-1 h-7 px-3 shadow-xs"
-                            >
-                              <Plus className="w-3.5 h-3.5" /> Add First Item
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    </tbody>
-                  )}
-                </table>
-              </div>
-
-              {/* Docked Table Footer: Always pinned outside the scroll container */}
-              {!isFromQuotation && items.length > 0 && (
-                <div className="bg-slate-50/90 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={triggerAddRmDropdown}
-                    className="h-7 px-2 text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/50 gap-1 rounded-lg w-fit"
-                  >
-                    <Plus className="w-3.5 h-3.5" /> Add Another Item
-                  </Button>
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Items Subtotal ({items.length} items): <strong className="text-slate-800 dark:text-slate-200 ml-1">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-                  </span>
-                </div>
-              )}
-
-            </div>
+          {/* Supplier Select */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">
+              Supplier <span className="text-rose-500">*</span>
+            </Label>
+            <SupplierSelect 
+              suppliers={suppliers} 
+              value={formData.selectedSupplier} 
+              onChange={(s) => setFormData({ ...formData, selectedSupplier: s })} 
+              onAddNew={() => setShowAddSupplier(true)}
+            />
           </div>
         </div>
 
-        {/* ═══ RIGHT COLUMN (4 cols on XL, 5 cols on LG): Additional Charges & Grand Total Summary ═══ */}
-        <div className="lg:col-span-5 xl:col-span-4 space-y-3 lg:sticky lg:top-3">
-          
-          {/* Card 4: Additional Charges & Taxes */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Calculator className="w-3.5 h-3.5 text-indigo-500" />
-                4. Charges & Summary
-              </span>
-              <span className="text-[11px] font-mono text-slate-400">
-                INR (₹)
-              </span>
+        {/* Supplier Details Horizontal Bar */}
+        {formData.selectedSupplier && (
+          <div className="mt-2.5 pt-2 border-t border-dashed border-slate-150 dark:border-slate-800 flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="flex items-center gap-1">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">Phone:</span>
+              <span>{formData.selectedSupplier.phone || 'N/A'}</span>
             </div>
+            <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
+            <div className="flex items-center gap-1">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">GSTIN:</span>
+              <span className="font-mono font-medium text-indigo-600 dark:text-indigo-400">{formData.selectedSupplier.gstin || 'N/A'}</span>
+            </div>
+            <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
+            <div className="flex items-center gap-1">
+              <span className="font-semibold text-slate-700 dark:text-slate-300">PAN:</span>
+              <span className="font-mono">{formData.selectedSupplier.pan || 'N/A'}</span>
+            </div>
+            {formData.selectedSupplier.address && (
+              <>
+                <span className="text-slate-300 dark:text-slate-700 hidden sm:inline">•</span>
+                <div className="flex items-center gap-1 truncate max-w-full sm:max-w-xs">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Address:</span>
+                  <span className="truncate">{formData.selectedSupplier.address}</span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
-            {/* Additional Charges 2x2 Grid */}
-            <div className="grid grid-cols-2 gap-2 sm:gap-2.5">
+      {/* ───────────────────────────────────────────────────────────────────
+          2. CHARGES & FINANCIAL SUMMARY (DISPLAYING BELOW 1. ORDER INFORMATION)
+          ─────────────────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
+        <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 dark:border-slate-800">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Calculator className="w-3.5 h-3.5 text-indigo-500" />
+            2. Charges & Financial Summary
+          </span>
+          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+            INR (₹)
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
+          {/* Left Column (7 cols): Additional Charges Inputs & Notes */}
+          <div className="lg:col-span-7 space-y-2.5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {/* Discount */}
               <div className="space-y-1">
                 <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Discount (₹)</Label>
                 <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium">₹</span>
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
                   <Input 
                     type="number" 
                     min="0"
                     value={formData.discount} 
                     onChange={(e) => setFormData({ ...formData, discount: e.target.value })}
-                    className="h-8 text-xs pl-6 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700" 
+                    className="h-8 text-xs pl-6 rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
                   />
                 </div>
               </div>
 
+              {/* Shipping */}
               <div className="space-y-1">
                 <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Shipping (₹)</Label>
                 <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium">₹</span>
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
                   <Input 
                     type="number" 
                     min="0"
                     value={formData.shipping} 
                     onChange={(e) => setFormData({ ...formData, shipping: e.target.value })}
-                    className="h-8 text-xs pl-6 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700" 
+                    className="h-8 text-xs pl-6 rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
                   />
                 </div>
               </div>
 
+              {/* Other Charges */}
               <div className="space-y-1">
                 <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Other Charges (₹)</Label>
                 <div className="relative">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-medium">₹</span>
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
                   <Input 
                     type="number" 
                     min="0"
                     value={formData.otherCharges} 
                     onChange={(e) => setFormData({ ...formData, otherCharges: e.target.value })}
-                    className="h-8 text-xs pl-6 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700" 
+                    className="h-8 text-xs pl-6 rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
                   />
                 </div>
               </div>
 
+              {/* Payment Status */}
               <div className="space-y-1">
                 <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Payment Status</Label>
                 <div className="relative">
                   <select 
                     value={formData.paymentStatus}
                     onChange={(e) => setFormData({ ...formData, paymentStatus: e.target.value })}
-                    className="w-full h-8 px-2.5 py-1 text-xs border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200 font-medium cursor-pointer appearance-none"
+                    className="w-full h-8 px-2.5 py-1 text-xs border rounded-lg bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 text-slate-700 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-2xs"
                   >
                     <option value="Pending">Pending</option>
                     <option value="Due">Due</option>
@@ -1588,105 +997,690 @@ export default function CreatePOPage({ onBack }) {
               </div>
             </div>
 
-            {/* Note / Special Instructions */}
+            {/* Note / Instructions */}
             <div className="space-y-1">
-              <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Note / Instructions</Label>
+              <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                <FileText className="w-3 h-3 text-slate-400" />
+                Supplier Instructions & Remarks
+              </Label>
               <textarea 
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows={2}
-                className="w-full border rounded-xl p-2 text-xs bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none shadow-xs" 
+                className="w-full border rounded-xl p-2.5 text-xs bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:bg-white dark:focus:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 resize-none shadow-2xs text-slate-800 dark:text-slate-200 font-medium" 
                 placeholder="Supplier instructions, delivery location remarks..."
               />
             </div>
+          </div>
 
-            {/* Real-Time Total Calculations Breakdown */}
-            <div className="p-3 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-2 text-xs">
-              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                <span>Items Subtotal ({items.length} items)</span>
-                <span className="font-semibold text-slate-800 dark:text-slate-200">
-                  ₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-
-              {/* Tax Details */}
-              {isInterState ? (
-                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>IGST (Interstate)</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    ₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              ) : (
-                <>
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>CGST (Intrastate 50%)</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      ₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                    <span>SGST (Intrastate 50%)</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                      ₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                </>
-              )}
-
-              {discount > 0 && (
-                <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
-                  <span>Discount</span>
-                  <span className="font-semibold">
-                    -₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-
-              {(shipping > 0 || otherCharges > 0) && (
-                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>Shipping & Other Charges</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    +₹{(shipping + otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-
-              {roundOff !== 0 && (
-                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>Round Off</span>
-                  <span className={`font-semibold font-mono ${roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>
-                    {roundOff > 0 ? '+' : ''}₹{roundOff.toFixed(2)}
-                  </span>
-                </div>
-              )}
-
-              {/* Grand Total Box */}
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex justify-between items-baseline gap-2">
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider font-bold text-slate-500">Grand Total</div>
-                  <div className="text-[10px] text-slate-400">Includes all taxes & delivery</div>
-                </div>
-                <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight text-right">
-                  ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </div>
-              </div>
+          {/* Right Column (5 cols): Live Financial Summary Box */}
+          <div className="lg:col-span-5 p-3 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-50 dark:from-slate-950/80 dark:via-indigo-950/30 dark:to-slate-950/80 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-2 text-xs shadow-xs">
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+              <span>Items Subtotal ({items.length} items)</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                ₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             </div>
 
-            {/* Bottom CTA Button */}
-            <Button 
-              type="button" 
-              onClick={handleSubmit} 
-              disabled={createMutation.isPending} 
-              className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white h-10 sm:h-11 rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-indigo-600/25 transition-all gap-1.5"
-            >
-              {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-              {createMutation.isPending ? 'Submitting Order...' : 'Confirm & Create Order'}
-            </Button>
+            {/* Tax Breakdown */}
+            {isInterState ? (
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>IGST (Interstate)</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  ₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                  <span>CGST (Intrastate 50%)</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    ₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                  <span>SGST (Intrastate 50%)</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    ₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </>
+            )}
+
+            {discount > 0 && (
+              <div className="flex justify-between items-center text-emerald-600 dark:text-emerald-400">
+                <span>Discount</span>
+                <span className="font-semibold">
+                  -₹{discount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+
+            {(shipping > 0 || otherCharges > 0) && (
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>Shipping & Other Charges</span>
+                <span className="font-semibold text-slate-800 dark:text-slate-200">
+                  +₹{(shipping + otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+
+            {roundOff !== 0 && (
+              <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+                <span>Round Off</span>
+                <span className={`font-semibold font-mono ${roundOff > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                  {roundOff > 0 ? '+' : ''}₹{roundOff.toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {/* Grand Total Box */}
+            <div className="pt-2 border-t border-indigo-200/80 dark:border-indigo-800/80 flex justify-between items-baseline gap-2">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider font-bold text-indigo-700 dark:text-indigo-300">Grand Total</div>
+                <div className="text-[10px] text-slate-400">Includes all taxes & delivery</div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight text-right">
+                ₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────────
+          3. SUPPLIER INVOICE & TRANSPORT / E-WAY BILL DETAILS CARD
+          ─────────────────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-xs space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-1.5 pb-1.5 border-b border-slate-100 dark:border-slate-800">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Truck className="w-3.5 h-3.5 text-indigo-500" />
+            3. Supplier Invoice & Transport / E-Way Bill Details
+          </span>
+          <div className="flex items-center gap-2">
+            {grandTotal >= 50000 && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                <ShieldCheck className="w-3 h-3 text-amber-500" />
+                GST E-Way Bill Recommended (&ge; ₹50,000)
+              </span>
+            )}
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:inline">
+              Optional / Can be updated anytime
+            </span>
           </div>
         </div>
 
+        {/* Row 1: Supplier Invoice Information & Transport Mode */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start">
+          {/* Supplier Invoice No */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <FileText className="w-3 h-3 text-slate-400" />
+              Supplier Invoice No
+            </Label>
+            <Input
+              type="text"
+              value={formData.supplierInvoiceNo}
+              onChange={(e) => setFormData({ ...formData, supplierInvoiceNo: e.target.value })}
+              placeholder="e.g. INV-2026-0042"
+              className="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-medium"
+            />
+          </div>
+
+          {/* Supplier Invoice Date */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <Calendar className="w-3 h-3 text-slate-400" />
+              Supplier Invoice Date
+            </Label>
+            <DatePicker
+              value={formData.supplierInvoiceDate}
+              onChange={(date) => setFormData({ ...formData, supplierInvoiceDate: date })}
+              modalTitle="Supplier Invoice Date"
+              placeholder="Select Invoice Date..."
+              triggerClassName="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 text-slate-800 dark:text-slate-200"
+              disabled={(date) => {
+                const endOfToday = new Date();
+                endOfToday.setHours(23, 59, 59, 999);
+                return date > endOfToday;
+              }}
+            />
+          </div>
+
+          {/* Transport Mode */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <Truck className="w-3 h-3 text-slate-400" />
+              Transport Mode
+            </Label>
+            <div className="relative">
+              <select
+                value={formData.transportMode}
+                onChange={(e) => setFormData({ ...formData, transportMode: e.target.value })}
+                className="w-full h-9 px-3 py-1.5 text-xs border rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-500/20 text-slate-800 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-2xs"
+              >
+                <option value="ROAD">🚛 Road Transport</option>
+                <option value="RAIL">🚆 Rail Express</option>
+                <option value="AIR">✈️ Air Freight</option>
+                <option value="SHIP">🚢 Ship / Maritime</option>
+                <option value="OTHER">📦 Other / Courier</option>
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Vehicle Number */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <Truck className="w-3 h-3 text-slate-400" />
+              Vehicle Number
+            </Label>
+            <Input
+              type="text"
+              value={formData.vehicleNumber}
+              onChange={(e) => setFormData({ ...formData, vehicleNumber: e.target.value.toUpperCase() })}
+              placeholder="e.g. TN-01-AB-1234"
+              className="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-mono uppercase font-semibold"
+            />
+          </div>
+        </div>
+
+        {/* Row 2: Transporter Name & E-Way Bill Details */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 items-start pt-1">
+          {/* Transporter / Carrier Name */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <Building2 className="w-3 h-3 text-slate-400" />
+              Transporter / Carrier
+            </Label>
+            <Input
+              type="text"
+              value={formData.transporterName}
+              onChange={(e) => setFormData({ ...formData, transporterName: e.target.value })}
+              placeholder="e.g. VRL / SafeXpress / Blue Dart"
+              className="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-medium"
+            />
+          </div>
+
+          {/* E-Way Bill Number */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3 text-indigo-500" />
+                E-Way Bill Number
+              </Label>
+              {formData.ewayBillNo && (
+                <span className="text-[10px] font-mono text-slate-400 font-medium">
+                  {formData.ewayBillNo.length}/12
+                </span>
+              )}
+            </div>
+            <Input
+              type="text"
+              maxLength={16}
+              value={formData.ewayBillNo}
+              onChange={(e) => setFormData({ ...formData, ewayBillNo: e.target.value.replace(/\s+/g, '') })}
+              placeholder="12-digit E-Way Bill No"
+              className="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-mono font-semibold text-indigo-600 dark:text-indigo-400 tracking-wider"
+            />
+          </div>
+
+          {/* E-Way Bill Date */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <Calendar className="w-3 h-3 text-slate-400" />
+              E-Way Date
+            </Label>
+            <DatePicker
+              value={formData.ewayBillDate}
+              onChange={(date) => setFormData({ ...formData, ewayBillDate: date })}
+              modalTitle="E-Way Bill Date"
+              placeholder="Select Date..."
+              triggerClassName="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 text-slate-800 dark:text-slate-200"
+            />
+          </div>
+
+          {/* Valid Till Date */}
+          <div className="space-y-1">
+            <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+              <Clock className="w-3 h-3 text-slate-400" />
+              Valid Till Date
+            </Label>
+            <DatePicker
+              value={formData.tillDate}
+              onChange={(date) => setFormData({ ...formData, tillDate: date })}
+              modalTitle="Valid Till Date"
+              placeholder="Select Date..."
+              triggerClassName="h-9 text-xs rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 text-slate-800 dark:text-slate-200"
+            />
+          </div>
+        </div>
       </div>
+
+      {/* ───────────────────────────────────────────────────────────────────
+          4. FULL SCREEN: BROWSE RAW MATERIALS & NON-INVENTORY ITEMS TABLE
+          ─────────────────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xs space-y-3 w-full">
+        
+        {/* Section Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+              <Package className="w-4 h-4 text-indigo-500" />
+              Browse Raw Materials & Non-Inventory Items with Category & UOM
+            </span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+              Added Items ({items.length})
+            </span>
+          </div>
+          <span className="text-[10px] text-slate-400 dark:text-slate-500">
+            Drag handles (#) to swap & reorder items • Enter Subtotal to auto-calculate unit price
+          </span>
+        </div>
+
+        {/* Full Width Material Selector */}
+        <div className="relative w-full">
+          {isLoadingRMs || isLoadingNonInv ? (
+            <div className="w-full px-3 py-2 border rounded-xl text-slate-400 border-slate-200 dark:border-slate-800 flex items-center bg-white dark:bg-slate-900 shadow-xs h-10 text-xs">
+              <Loader2 className="w-4 h-4 mr-2 animate-spin text-indigo-500" /> Loading materials catalog...
+            </div>
+          ) : (
+            <RawMaterialSelect 
+              ref={rmSelectRef}
+              rawMaterials={purchasableItems}
+              value={null}
+              onChange={handleAddRmItem} 
+              onAddMultiple={handleAddMultipleItems}
+              addedItemIds={addedItemIds}
+              lowStockIds={lowStockIds}
+            />
+          )}
+        </div>
+
+        {/* Full Width Items Table */}
+        <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs w-full">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left border-collapse min-w-[750px]">
+              <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th className="px-2 py-2.5 w-12 text-center">#</th>
+                  <th className="px-3 py-2.5 min-w-[200px]">Item / Category / UOM</th>
+                  <th className="px-2 py-2.5 text-center w-36">Quantity</th>
+                  <th className="px-2 py-2.5 text-right w-28">Unit Price (₹)</th>
+                  <th className="px-2 py-2.5 text-center w-24">Tax Status</th>
+                  <th className="px-2 py-2.5 text-center w-20">GST %</th>
+                  <th className="px-2 py-2.5 text-center w-28">Lab Test Status</th>
+                  <th className="px-3 py-2.5 text-right w-32">Subtotal (₹)</th>
+                  <th className="px-2 py-2.5 text-center w-12">Action</th>
+                </tr>
+              </thead>
+
+              {items && items.length > 0 ? (
+                items.map((item, index) => {
+                  const itemSubtotal = parseFloat(item.subtotal) !== undefined && !isNaN(parseFloat(item.subtotal))
+                    ? parseFloat(item.subtotal)
+                    : Number(item.quantity || 0) * Number(item.unitPrice || 0);
+                  const isNonInv = item.itemType === 'NON_INVENTORY';
+                  const isDragged = draggedIndex === index;
+                  const isOver = dragOverIndex === index && draggedIndex !== index;
+
+                  return (
+                    <tbody
+                      key={item.id || index}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDragLeave={() => { if (dragOverIndex === index) setDragOverIndex(null); }}
+                      onDrop={(e) => handleDrop(e, index)}
+                      className={twMerge(
+                        "transition-all duration-150 border-b border-slate-200/80 dark:border-slate-800",
+                        isDragged && "opacity-40 bg-indigo-50/40 dark:bg-indigo-950/40",
+                        isOver && "ring-2 ring-indigo-500 ring-inset bg-indigo-50/60 dark:bg-indigo-950/60"
+                      )}
+                    >
+                      <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
+                        {/* S.No with Drag Handle */}
+                        <td className="px-2 py-2 text-center align-middle">
+                          <div
+                            draggable
+                            onDragStart={(e) => handleDragStart(e, index)}
+                            onDragEnd={handleDragEnd}
+                            className="inline-flex items-center justify-center gap-1 cursor-grab active:cursor-grabbing text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors select-none"
+                            title="Drag to swap / reorder"
+                          >
+                            <GripVertical className="w-3.5 h-3.5 shrink-0 text-slate-400 hover:text-indigo-600" />
+                            <span className="font-bold text-xs text-slate-700 dark:text-slate-300 font-mono w-4 text-center">{index + 1}</span>
+                          </div>
+                        </td>
+
+                        {/* Item Details */}
+                        <td className="px-3 py-2 align-middle">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-xs truncate max-w-[240px]" title={item.name}>
+                              {item.name}
+                            </span>
+                            {isNonInv ? (
+                              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 border border-purple-200 dark:border-purple-800 shrink-0">
+                                Non-Inv
+                              </span>
+                            ) : (
+                              <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                                RM
+                              </span>
+                            )}
+                            {lowStockIds.has(item.id) && (
+                              <span className="text-[9px] uppercase tracking-wider px-1 py-0.2 rounded font-bold bg-rose-100 text-rose-700 border border-rose-200 shrink-0">
+                                Low
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 whitespace-nowrap overflow-hidden">
+                            <span className="font-mono text-slate-600 dark:text-slate-300 font-medium bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded border border-slate-200 dark:border-slate-700">
+                              {item.rmId}
+                            </span>
+                            {item.category && (
+                              <span className="truncate max-w-[140px] text-slate-500 dark:text-slate-400" title={item.category}>
+                                • {item.category}
+                              </span>
+                            )}
+                            <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                              • {item.uomLabel}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Quantity Stepper */}
+                        <td className="px-2 py-2 text-center align-middle">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <div className="inline-flex items-center border border-slate-300 dark:border-slate-700 rounded-lg bg-slate-50/70 dark:bg-slate-900/70 p-0.5 shadow-2xs hover:border-indigo-400 transition-colors">
+                              <button
+                                type="button"
+                                onClick={() => stepQuantity(item.id, -1)}
+                                disabled={Number(item.quantity) <= 1}
+                                className="w-5 h-5 flex items-center justify-center rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-400 border border-slate-200/80 dark:border-slate-700 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs cursor-pointer select-none"
+                                title="Decrease quantity"
+                              >
+                                <Minus className="w-2.5 h-2.5" />
+                              </button>
+                              <Input 
+                                type="number" 
+                                step="any" 
+                                min="0.001"
+                                value={item.quantity} 
+                                onChange={(e) => updateItemQuantity(item.id, e.target.value)} 
+                                className="w-16 h-5 p-0 text-center font-bold text-xs bg-transparent border-0 focus-visible:ring-0 focus-visible:ring-offset-0 select-all text-slate-900 dark:text-white" 
+                                required
+                              />
+                              <button
+                                type="button"
+                                onClick={() => stepQuantity(item.id, 1)}
+                                className="w-5 h-5 flex items-center justify-center rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-950/60 dark:hover:text-indigo-400 border border-slate-200/80 dark:border-slate-700 transition-all active:scale-95 shadow-2xs cursor-pointer select-none"
+                                title="Increase quantity"
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                            <span className="text-slate-400 font-mono text-[10px] font-semibold shrink-0 w-7 text-left">
+                              {item.uomLabel}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Unit Price */}
+                        <td className="px-2 py-2 text-right align-middle">
+                          <div className="relative inline-flex items-center ml-auto">
+                            <span className="absolute left-2 text-[10px] font-bold text-indigo-500 select-none">₹</span>
+                            <Input 
+                              type="number" 
+                              step="0.0001" 
+                              min="0"
+                              value={item.unitPrice} 
+                              onChange={(e) => updateItemUnitPrice(item.id, e.target.value)} 
+                              className="w-20 pl-4 pr-1.5 text-right h-7 rounded-lg border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 bg-slate-50/50 dark:bg-slate-900/50 font-semibold text-xs text-slate-900 dark:text-white" 
+                              required
+                            />
+                          </div>
+                        </td>
+
+                        {/* GST Status Toggle */}
+                        <td className="px-2 py-2 text-center align-middle">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setItems(prev => prev.map(it => it.id === item.id ? { ...it, gstApplicable: !it.gstApplicable } : it));
+                            }}
+                            className={twMerge(
+                              "h-7 px-2 text-[10px] font-bold rounded-lg transition-colors border shadow-2xs",
+                              item.gstApplicable 
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800" 
+                                : "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+                            )}
+                          >
+                            {item.gstApplicable ? 'GST (Yes)' : 'Zero Tax'}
+                          </button>
+                        </td>
+
+                        {/* GST % */}
+                        <td className="px-2 py-2 text-center align-middle">
+                          <select
+                            disabled={!item.gstApplicable}
+                            value={item.gstPercentage}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setItems(prev => prev.map(it => it.id === item.id ? { ...it, gstPercentage: val } : it));
+                            }}
+                            className="h-7 px-1.5 text-xs border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200 font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed w-16 mx-auto block"
+                          >
+                            <option value={0}>0%</option>
+                            <option value={5}>5%</option>
+                            <option value={12}>12%</option>
+                            <option value={18}>18%</option>
+                            <option value={28}>28%</option>
+                          </select>
+                        </td>
+
+                        {/* Lab Test Status */}
+                        <td className="px-2 py-2 text-center align-middle">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setItems(prev => prev.map(it => it.id === item.id ? { ...it, labTestRequired: it.labTestRequired === false ? true : false } : it));
+                            }}
+                            className={twMerge(
+                              "h-7 px-2 text-[10px] font-bold rounded-lg transition-all border shadow-2xs inline-flex items-center gap-1 cursor-pointer",
+                              item.labTestRequired !== false
+                                ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 hover:bg-indigo-100"
+                                : "bg-red-50 text-red-700 border-red-300 dark:bg-red-950/60 dark:text-red-300 dark:border-red-800 hover:bg-red-100"
+                            )}
+                            title={item.labTestRequired !== false ? "Click to exempt this material from lab test" : "Click to require lab test for this material"}
+                          >
+                            {item.labTestRequired !== false ? (
+                              <>
+                                <FlaskConical className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                                <span>Lab Required</span>
+                              </>
+                            ) : (
+                              <>
+                                <ShieldCheck className="w-3 h-3 text-red-600 dark:text-red-400" />
+                                <span>Lab Exempt</span>
+                              </>
+                            )}
+                          </button>
+                        </td>
+
+                        {/* Subtotal (Editable, 2-way calculated with Unit Price) */}
+                        <td className="px-3 py-2 text-right align-middle">
+                          <div className="flex flex-col items-end">
+                            <div className="relative inline-flex items-center">
+                              <span className="absolute left-2 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
+                              <Input 
+                                type="number" 
+                                step="0.01" 
+                                min="0"
+                                value={item.subtotal !== undefined ? item.subtotal : (Math.round(itemSubtotal * 100) / 100)} 
+                                onChange={(e) => updateItemSubtotal(item.id, e.target.value)} 
+                                className="w-24 pl-4 pr-1.5 text-right h-7 rounded-lg border-indigo-300 dark:border-indigo-700 hover:border-indigo-500 focus:border-indigo-600 focus:ring-1 focus:ring-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 font-bold text-xs text-indigo-950 dark:text-indigo-200" 
+                                title="Enter subtotal to auto-calculate unit price (subtotal ÷ quantity)"
+                                required
+                              />
+                            </div>
+                            <span className="text-[9px] text-slate-400 font-mono mt-0.5" title="subtotal ÷ qty">
+                              = ₹{Number(item.unitPrice || 0).toFixed(2)}/{item.uomLabel}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Action: Remove Item */}
+                        <td className="px-2 py-2 text-center align-middle">
+                          {isFromQuotation ? (
+                            <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/60 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                              Quoted
+                            </span>
+                          ) : (
+                            <button 
+                              type="button" 
+                              onClick={() => setItems(prev => prev.filter(it => it.id !== item.id))} 
+                              className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors"
+                              title="Remove item"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+
+                      {/* Row 2: Slim Integrated Batch Strip: Weight, MFG Batch No, MFG Date, Exp Date */}
+                      <tr className="bg-slate-50/60 dark:bg-slate-800/35 border-t border-slate-100 dark:border-slate-800/60">
+                        <td colSpan={9} className="px-3 py-1">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            {/* Weight */}
+                            <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                              <Scale className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Weight:</span>
+                              <Input 
+                                type="text" 
+                                value={item.weight || ''} 
+                                onChange={(e) => updateItemField(item.id, 'weight', e.target.value)}
+                                placeholder="e.g. 25 kg / 50" 
+                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-medium px-2 py-0"
+                              />
+                            </div>
+
+                            {/* MFG Batch No */}
+                            <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
+                              <Tag className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Batch:</span>
+                              <Input 
+                                type="text" 
+                                value={item.mfgBatchNo || ''} 
+                                onChange={(e) => updateItemField(item.id, 'mfgBatchNo', e.target.value)}
+                                placeholder="e.g. BATCH-2026-09" 
+                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-mono font-medium uppercase px-2 py-0"
+                              />
+                            </div>
+
+                            {/* MFG Date */}
+                            <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                              <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
+                              <Input 
+                                type="date" 
+                                value={item.mfgDate || ''} 
+                                onChange={(e) => updateItemField(item.id, 'mfgDate', e.target.value)}
+                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-medium px-1.5 py-0"
+                              />
+                            </div>
+
+                            {/* Exp Date */}
+                            <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                              <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
+                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
+                              <Input 
+                                type="date" 
+                                value={item.expDate || ''} 
+                                onChange={(e) => updateItemField(item.id, 'expDate', e.target.value)}
+                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-medium px-1.5 py-0"
+                              />
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  );
+                })
+              ) : (
+                <tbody>
+                  <tr>
+                    <td colSpan={9} className="px-3 py-8 text-center">
+                      <div className="flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
+                        <Package className="w-8 h-8 text-slate-300 dark:text-slate-600 mb-1.5" />
+                        <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">No Raw Materials Added Yet</p>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Use the selector above or click "Add Item" to add your first raw material.
+                        </p>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={triggerAddRmDropdown}
+                          className="mt-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold gap-1 h-7 px-3 shadow-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Add First Item
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              )}
+            </table>
+          </div>
+
+          {/* Docked Table Footer */}
+          {!isFromQuotation && items.length > 0 && (
+            <div className="bg-slate-50/90 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 px-3 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={triggerAddRmDropdown}
+                className="h-7 px-2 text-xs font-bold text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/50 gap-1 rounded-lg w-fit"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Another Item
+              </Button>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                Items Subtotal ({items.length} items): <strong className="text-slate-800 dark:text-slate-200 ml-1">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────────
+          Bottom Action Strip for Fast One-Click Submission
+          ─────────────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl px-4 py-3 shadow-xs">
+        <div className="text-xs text-slate-500 dark:text-slate-400">
+          Total Payable (including taxes): <strong className="text-base text-indigo-600 dark:text-indigo-400 ml-1 font-extrabold">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            onClick={handleBack}
+            className="h-9 px-4 text-xs font-semibold text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 rounded-xl"
+          >
+            Cancel
+          </Button>
+          <Button 
+            type="button" 
+            onClick={handleSubmit} 
+            disabled={createMutation.isPending} 
+            className="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white h-9 px-5 rounded-xl text-xs font-bold shadow-md shadow-indigo-600/25 transition-all gap-1.5"
+          >
+            {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+            {createMutation.isPending ? 'Submitting Order...' : 'Confirm & Create Order'}
+          </Button>
+        </div>
+      </div>
+
     </div>
   );
 }
