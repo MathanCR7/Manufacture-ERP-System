@@ -53,21 +53,40 @@ async function resolveBatchUomId(item, rm, po, tx = prisma) {
     poItem = po.items.find(i =>
       i.id === item.rmId ||
       i.rmId === item.rmId ||
-      (i.name && item.rmName && i.name.toLowerCase() === item.rmName.toLowerCase())
+      i.code === item.rmId ||
+      (i.name && item.rmName && i.name.trim().toLowerCase() === item.rmName.trim().toLowerCase())
     );
   }
 
-  // Check if poItem or item has a valid UOM UUID
+  // 2. Prioritize looking up UOM by label / abbreviation / unitId from poItem or rm
+  const candidateLabel = poItem?.uomLabel || poItem?.uom || item?.uomLabel || rm?.unitId || rm?.consumptionUnit;
+  if (candidateLabel) {
+    const rawVal = typeof candidateLabel === 'object' ? (candidateLabel.abbreviation || candidateLabel.name) : candidateLabel;
+    const trimmed = String(rawVal).trim().toLowerCase();
+    const existingUom = await tx.uOM.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { abbreviation: { equals: trimmed, mode: 'insensitive' } },
+          { name: { equals: trimmed, mode: 'insensitive' } },
+          ...(trimmed === 'l' ? [{ abbreviation: { equals: 'liter', mode: 'insensitive' } }] : []),
+          ...(trimmed === 'litre' ? [{ abbreviation: { equals: 'liter', mode: 'insensitive' } }] : [])
+        ]
+      }
+    });
+    if (existingUom) return existingUom.id;
+  }
+
+  // 3. Check if poItem or item has a valid UOM UUID
   const candidateUuid = poItem?.uomId || item?.uomId;
   if (candidateUuid && isUuid(candidateUuid)) {
     const existing = await tx.uOM.findUnique({ where: { id: candidateUuid } });
     if (existing) return existing.id;
   }
 
-  // 2. Try looking up UOM by label / abbreviation / rm.unitId
-  const candidateLabel = poItem?.uomLabel || item?.uomLabel || rm?.unitId || rm?.consumptionUnit;
-  if (candidateLabel) {
-    const trimmed = String(candidateLabel).trim().toLowerCase();
+  // 4. Fallback to rm.unitId if rm is found
+  if (rm?.unitId) {
+    const trimmed = String(rm.unitId).trim().toLowerCase();
     const existingUom = await tx.uOM.findFirst({
       where: {
         isActive: true,
@@ -80,10 +99,10 @@ async function resolveBatchUomId(item, rm, po, tx = prisma) {
     if (existingUom) return existingUom.id;
   }
 
-  // 3. Fallback to po.uomId if available
+  // 5. Fallback to po.uomId if available
   if (po?.uomId) return po.uomId;
 
-  // 4. Fallback to first active UOM
+  // 6. Fallback to first active UOM
   const fallbackUom = await tx.uOM.findFirst({ where: { isActive: true } });
   return fallbackUom?.id || null;
 }

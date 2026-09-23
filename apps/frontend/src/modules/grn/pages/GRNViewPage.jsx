@@ -82,32 +82,38 @@ export default function GRNViewPage() {
     return !isNaN(num) ? num : 0;
   };
 
-  // Robust UOM resolver: checks batch relation, PO items array, GRN items, and PO header
+  // Robust UOM resolver: prioritizes line item's respective UOM from PO/GRN items
   const getBatchUom = (b) => {
     if (!b) return '';
-    if (b.uom?.abbreviation) return b.uom.abbreviation;
-    if (b.uom?.name) return b.uom.name;
-    if (typeof b.uom === 'string' && b.uom.trim()) return b.uom;
-    
-    // Match in grn.po?.items
+
+    // 1. Prioritize line item in grn.po?.items
     if (Array.isArray(grn?.po?.items)) {
       const item = grn.po.items.find(i => 
         (i.rmId && (i.rmId === b.rawMaterialId || i.rmId === b.batchNumber)) ||
-        (i.code && i.code === b.rawMaterialId) ||
-        (i.name && b.rawMaterialName && i.name.toLowerCase() === b.rawMaterialName.toLowerCase())
+        (i.code && (i.code === b.rawMaterialId || i.code === b.batchNumber)) ||
+        (i.id && (i.id === b.rawMaterialId || i.id === b.id)) ||
+        (i.name && b.rawMaterialName && i.name.trim().toLowerCase() === b.rawMaterialName.trim().toLowerCase())
       );
       if (item?.uomLabel) return item.uomLabel;
+      if (item?.uom) return typeof item.uom === 'object' ? (item.uom.abbreviation || item.uom.name) : item.uom;
       if (item?.unit) return item.unit;
     }
 
-    // Match in grn?.items
+    // 2. Match in grn?.items
     if (Array.isArray(grn?.items)) {
       const grnItem = grn.items.find(i => 
         (i.rmId && (i.rmId === b.rawMaterialId || i.rmId === b.batchNumber)) ||
-        (i.rmName && b.rawMaterialName && i.rmName.toLowerCase() === b.rawMaterialName.toLowerCase())
+        (i.rmName && b.rawMaterialName && i.rmName.trim().toLowerCase() === b.rawMaterialName.trim().toLowerCase())
       );
-      if (grnItem?.uom) return grnItem.uom;
+      if (grnItem?.uomLabel) return grnItem.uomLabel;
+      if (grnItem?.uom) return typeof grnItem.uom === 'object' ? (grnItem.uom.abbreviation || grnItem.uom.name) : grnItem.uom;
+      if (grnItem?.unit) return grnItem.unit;
     }
+
+    // 3. Match batch UOM if explicitly populated
+    if (b.uom?.abbreviation) return b.uom.abbreviation;
+    if (b.uom?.name) return b.uom.name;
+    if (typeof b.uom === 'string' && b.uom.trim()) return b.uom;
 
     return grn?.po?.uom?.abbreviation || grn?.po?.uom?.name || '';
   };
@@ -132,7 +138,7 @@ export default function GRNViewPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 sm:space-y-6 mx-auto transition-all duration-300">
       <DashboardBackButton defaultBack="/grn/list" />
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full text-slate-500">

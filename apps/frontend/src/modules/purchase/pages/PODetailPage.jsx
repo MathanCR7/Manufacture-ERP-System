@@ -131,14 +131,14 @@ export default function PODetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-6 mx-auto transition-all duration-300">
         <Skeleton className="h-10 w-64" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-2 space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="lg:col-span-2 xl:col-span-3 space-y-4">
             <Skeleton className="h-64 w-full rounded-xl" />
             <Skeleton className="h-48 w-full rounded-xl" />
           </div>
-          <Skeleton className="h-80 w-full rounded-xl" />
+          <Skeleton className="h-80 w-full rounded-xl lg:col-span-1 xl:col-span-1" />
         </div>
       </div>
     );
@@ -146,7 +146,7 @@ export default function PODetailPage() {
 
   if (error || !po) {
     return (
-      <div className="p-6 max-w-4xl mx-auto text-center mt-20">
+      <div className="w-full max-w-4xl mx-auto text-center mt-20 p-6">
         <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-200">PO Not Found</h2>
         <Button onClick={() => navigate('/purchase-orders')} variant="outline" className="mt-4">Back to List</Button>
       </div>
@@ -187,22 +187,30 @@ export default function PODetailPage() {
     ? (hasBatches || hasGRN || po.status === 'APPROVED' || po.status === 'RECEIVED' || grn?.inventoryStatus === 'UPLOADED')
     : (labApproved && (hasBatches || grn?.inventoryStatus === 'UPLOADED'));
 
-  // Helper to dynamically resolve the accurate UOM for each batch
+  // Helper to dynamically resolve the accurate respective UOM for each batch
   const getBatchUom = (batch) => {
-    if (batch?.uom?.abbreviation) return batch.uom.abbreviation;
-    if (batch?.uom?.name) return batch.uom.name;
-    if (typeof batch?.uom === 'string' && batch.uom.trim()) return batch.uom;
+    if (!batch) return po.uom?.abbreviation || '';
+
+    // 1. Prioritize matching the respective line item in po.items
     if (Array.isArray(po.items)) {
       const matched = po.items.find(i => 
         (i.rmId && (i.rmId === batch?.rawMaterialId || i.rmId === batch?.batchNumber)) || 
-        (i.code && i.code === batch?.rawMaterialId) || 
+        (i.code && (i.code === batch?.rawMaterialId || i.code === batch?.batchNumber)) || 
         (i.id && (i.id === batch?.rawMaterialId || i.id === batch?.id)) ||
-        (i.name && batch?.rawMaterialName && i.name.toLowerCase() === batch.rawMaterialName.toLowerCase())
+        (i.name && batch?.rawMaterialName && i.name.trim().toLowerCase() === batch.rawMaterialName.trim().toLowerCase())
       );
       if (matched?.uomLabel) return matched.uomLabel;
+      if (matched?.uom) return typeof matched.uom === 'object' ? (matched.uom.abbreviation || matched.uom.name) : matched.uom;
       if (matched?.unit) return matched.unit;
     }
-    return po.uom?.abbreviation || 'KG';
+
+    // 2. Next, check if batch itself has its own accurate UOM populated
+    if (batch?.uom?.abbreviation) return batch.uom.abbreviation;
+    if (batch?.uom?.name) return batch.uom.name;
+    if (typeof batch?.uom === 'string' && batch.uom.trim()) return batch.uom;
+
+    // 3. Fallback to po's overall UOM
+    return po.uom?.abbreviation || '';
   };
 
   // Link directly to RM Stock with drawer open for that specific batch and raw material
@@ -266,7 +274,7 @@ export default function PODetailPage() {
   });
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-6 mx-auto transition-all duration-300">
       {/* Isolation Style for Print Dialog */}
       <style>{`
         @media print {
@@ -520,9 +528,9 @@ export default function PODetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {/* Left: Details */}
-        <div className="md:col-span-2 space-y-6">
+        <div className="lg:col-span-2 xl:col-span-3 space-y-6">
 
           {/* Section: Inventory Updated & Stock Batches (When Lab Exempt OR Lab Approved) */}
           {inInventory && (
@@ -1044,7 +1052,7 @@ export default function PODetailPage() {
         </div>
 
         {/* Right: On-screen QR Card */}
-        <div className="md:col-span-1">
+        <div className="lg:col-span-1 xl:col-span-1">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm flex flex-col items-center space-y-4 sticky top-6">
             <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 w-full text-center">
               <span className="flex items-center justify-center gap-2">

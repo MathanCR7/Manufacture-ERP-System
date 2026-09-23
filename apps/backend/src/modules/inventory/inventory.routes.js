@@ -3,6 +3,7 @@ const { z } = require('zod');
 const prisma = require('../../database/prisma');
 const authenticateToken = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
+const { resolveBatchUomId } = require('../grn/grn.helper');
 
 const router = express.Router();
 
@@ -59,6 +60,8 @@ router.post('/upload',
       const category = rm ? await prisma.rMCategory.findUnique({ where: { id: rm.categoryId } }) : null;
 
       const batch = await prisma.$transaction(async (tx) => {
+        const batchUomId = await resolveBatchUomId(firstItem, rm, grn.po, tx);
+
         // Create inventory batch
         const b = await tx.inventoryBatch.create({
           data: {
@@ -72,7 +75,7 @@ router.post('/upload',
             receivedQty: totalReceived,
             sampleQty,
             netQty,
-            uomId: grn.po.uomId,
+            uomId: batchUomId || grn.po.uomId,
             storageLocation: data.storageLocation || null,
             expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
             status: 'AVAILABLE',

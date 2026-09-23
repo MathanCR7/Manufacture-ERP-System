@@ -618,25 +618,34 @@ export default function CreatePOPage({ onBack }) {
 
   const getDefaultUomForItem = (item) => {
     if (!item) return null;
-    if (item.itemType !== 'NON_INVENTORY' && rmUoms?.length > 0) return rmUoms[0];
+    
+    // Check if item has explicit UOM relation
     if (item.uoms?.length > 0) return item.uoms[0];
 
+    // Check item's unitId, consumptionUnit, or displayUom against all active UOMs
     const normalized = (item.unitId || item.consumptionUnit || item.displayUom || '').trim().toLowerCase();
-    if (!normalized) return null;
+    if (normalized && Array.isArray(allUoms) && allUoms.length > 0) {
+      const exactMatch = allUoms.find(u => 
+        (u.abbreviation || '').toLowerCase() === normalized ||
+        (u.name || '').toLowerCase() === normalized
+      );
+      if (exactMatch) return exactMatch;
 
-    const exactMatch = allUoms.find(u => 
-      (u.abbreviation || '').toLowerCase() === normalized ||
-      (u.name || '').toLowerCase() === normalized
-    );
-    if (exactMatch) return exactMatch;
+      const containsMatch = allUoms.find(u =>
+        (u.abbreviation || '').toLowerCase().includes(normalized) ||
+        (u.name || '').toLowerCase().includes(normalized) ||
+        normalized.includes((u.abbreviation || '').toLowerCase()) ||
+        normalized.includes((u.name || '').toLowerCase())
+      );
+      if (containsMatch) return containsMatch;
+    }
 
-    const containsMatch = allUoms.find(u =>
-      (u.abbreviation || '').toLowerCase().includes(normalized) ||
-      (u.name || '').toLowerCase().includes(normalized) ||
-      normalized.includes((u.abbreviation || '').toLowerCase()) ||
-      normalized.includes((u.name || '').toLowerCase())
-    );
-    return containsMatch || null;
+    // Only fallback to rmUoms if it matches the current selected RM
+    if (item.itemType !== 'NON_INVENTORY' && rmUoms?.length > 0 && formData.selectedRm?.id === item.id) {
+      return rmUoms[0];
+    }
+
+    return null;
   };
 
   const handleAddRmItem = (item) => {
