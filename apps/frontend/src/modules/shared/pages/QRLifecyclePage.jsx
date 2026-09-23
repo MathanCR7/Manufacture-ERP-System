@@ -226,10 +226,30 @@ const QRLifecyclePage = () => {
     return { timeline, durationText };
   };
 
+  const handleBack = () => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+      return;
+    }
+    if (document.referrer && document.referrer.includes(window.location.host)) {
+      window.location.href = document.referrer;
+      return;
+    }
+    if (window.opener && !window.opener.closed) {
+      window.close();
+      return;
+    }
+    if (lifecycle?.po?.id || lifecycle?.po?.referenceNo) {
+      navigate(`/purchase-orders/${lifecycle.po.id || lifecycle.po.referenceNo}`);
+    } else {
+      navigate('/purchase-orders');
+    }
+  };
+
   return (
     <div className="max-w-3xl mx-auto p-4 sm:p-6 animate__animated animate__fadeIn">
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => navigate(-1)} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+        <button onClick={handleBack} className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer" title="Go Back">
           <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
         </button>
         <div className="flex-1 overflow-hidden">
@@ -433,24 +453,37 @@ const QRLifecyclePage = () => {
             {/* Stage 1: Purchase Order */}
             <StageCard step={1} title="Purchase Order" icon={ShoppingCart} color="indigo"
               isDone={!!lifecycle.po} isEmpty={!lifecycle.po}>
-              {lifecycle.po ? (
-                <div className="space-y-2">
-                  <Row label="Reference No" value={lifecycle.po.referenceNo} />
-                  <Row label="Material" value={lifecycle.po.name} />
-                  <Row label="Quantity" value={`${lifecycle.po.quantity} ${lifecycle.po.uom?.abbreviation || ''}`} />
-                  <Row label="Supplier" value={lifecycle.po.supplier?.name} />
-                  <Row label="Status" value={<StatusBadge status={lifecycle.po.status} />} />
-                  <Row label="Created By" value={lifecycle.po.user?.name} />
-                  <Row label="Expected Delivery" value={fmtDate(lifecycle.po.expectedDelivery)} />
-                  {lifecycle.po.id && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
-                      <Link to={`/purchase-orders/${lifecycle.po.id}`} className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
-                        <ExternalLink className="w-3.5 h-3.5" /> View Purchase Order
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              ) : <p className="text-sm text-slate-400">No PO data found.</p>}
+              {lifecycle.po ? (() => {
+                const matchedItem = Array.isArray(lifecycle.po.items)
+                  ? lifecycle.po.items.find(i => 
+                      (lifecycle.inventory?.rawMaterialId && (i.id === lifecycle.inventory.rawMaterialId || i.rmId === lifecycle.inventory.rawMaterialId || i.code === lifecycle.inventory.rawMaterialId)) ||
+                      (lifecycle.inventory?.rawMaterialName && i.name && i.name.toLowerCase() === lifecycle.inventory.rawMaterialName.toLowerCase())
+                    )
+                  : null;
+                const displayMaterial = lifecycle.inventory?.rawMaterialName || matchedItem?.name || lifecycle.po.name;
+                const displayQty = matchedItem 
+                  ? `${matchedItem.quantity} ${matchedItem.uomLabel || matchedItem.uom || lifecycle.inventory?.uom?.abbreviation || lifecycle.po.uom?.abbreviation || ''}`
+                  : `${lifecycle.po.quantity} ${lifecycle.po.uom?.abbreviation || ''}`;
+
+                return (
+                  <div className="space-y-2">
+                    <Row label="Reference No" value={lifecycle.po.referenceNo} />
+                    <Row label="Material" value={displayMaterial} />
+                    <Row label="Quantity" value={displayQty} />
+                    <Row label="Supplier" value={lifecycle.po.supplier?.name} />
+                    <Row label="Status" value={<StatusBadge status={lifecycle.po.status} />} />
+                    <Row label="Created By" value={lifecycle.po.user?.name} />
+                    <Row label="Expected Delivery" value={fmtDate(lifecycle.po.expectedDelivery)} />
+                    {lifecycle.po.id && (
+                      <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                        <Link to={`/purchase-orders/${lifecycle.po.id}`} className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 hover:underline">
+                          <ExternalLink className="w-3.5 h-3.5" /> View Purchase Order
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : <p className="text-sm text-slate-400">No PO data found.</p>}
             </StageCard>
 
             {/* Stage 2: Material Receive (GRN) */}

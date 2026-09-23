@@ -125,6 +125,43 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
     });
   }
 
+  const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+  async function resolveBatchUomId(item, rm, po, tx) {
+    const candidates = [
+      item?.uomId,
+      item?.uomLabel,
+      item?.uom,
+      rm?.unitId,
+      rm?.consumptionUnit,
+      po?.uomId,
+    ].filter(Boolean);
+
+    for (const candidate of candidates) {
+      const trimmed = String(candidate).trim();
+      if (!trimmed) continue;
+
+      if (isUuid(trimmed)) {
+        const existing = await tx.uOM.findUnique({ where: { id: trimmed } });
+        if (existing) return existing.id;
+      }
+
+      const normalized = trimmed.toLowerCase();
+      const existingUom = await tx.uOM.findFirst({
+        where: {
+          isActive: true,
+          OR: [
+            { abbreviation: { equals: normalized, mode: 'insensitive' } },
+            { name: { equals: normalized, mode: 'insensitive' } }
+          ]
+        }
+      });
+      if (existingUom) return existingUom.id;
+    }
+
+    return po?.uomId;
+  }
+
   // Direct inventory update for exempt items
   for (const item of grnItemsData) {
     if (item.labTestRequired === false) {
@@ -158,6 +195,7 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
         }
 
         const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
+        const batchUomId = await resolveBatchUomId(item, rm, po, tx);
 
         await tx.inventoryBatch.create({
           data: {
@@ -171,7 +209,7 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
             receivedQty: item.actualReceivedQty,
             sampleQty: 0,
             netQty: acceptedQty,
-            uomId: po.uomId,
+            uomId: batchUomId,
             storageLocation: null,
             mfgDate: item.mfgDate ? new Date(item.mfgDate) : new Date(),
             expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
@@ -179,7 +217,7 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
             addedBy: reqUserId,
           }
         });
-        console.log(`[PO RECEIVED DIRECT] InventoryBatch ${batchNum} created for ${item.rmName} (+${acceptedQty})`);
+        console.log(`[PO RECEIVED DIRECT] InventoryBatch ${batchNum} created for ${item.rmName} (+${acceptedQty}) with UOM ${batchUomId}`);
       }
     }
   }
@@ -197,4 +235,5 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
 module.exports = {
   getNextBatchForRM,
   receivePOAndProcess,
+  resolveBatchUomId,
 };

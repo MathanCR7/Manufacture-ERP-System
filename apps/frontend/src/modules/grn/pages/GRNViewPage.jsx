@@ -509,8 +509,8 @@ export default function GRNViewPage() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">
-                        {Number(b.quantity).toLocaleString()} {b.uom || ''}
+                      <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base font-mono">
+                        {Number(b.netQty ?? b.receivedQty ?? b.quantity ?? 0).toLocaleString()} {b.uom?.abbreviation || b.uom?.name || (typeof b.uom === 'string' ? b.uom : '') || grn.po?.uom?.abbreviation || ''}
                       </span>
                       <div className="text-[11px] text-emerald-600 font-semibold mt-0.5 flex items-center justify-end gap-1">
                         <Check className="w-3 h-3" /> In Stock

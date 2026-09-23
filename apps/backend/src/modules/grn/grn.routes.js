@@ -6,7 +6,7 @@ const roleMiddleware = require('../../middlewares/role.middleware');
 const workflowNotifications = require('../notifications/workflow.notifications');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 
-const { getNextBatchForRM, receivePOAndProcess } = require('./grn.helper');
+const { getNextBatchForRM, receivePOAndProcess, resolveBatchUomId } = require('./grn.helper');
 
 const router = express.Router();
 
@@ -311,6 +311,7 @@ router.post('/receive',
               }
 
               const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
+              const batchUomId = await resolveBatchUomId(item, rm, po, tx);
 
               await tx.inventoryBatch.create({
                 data: {
@@ -324,7 +325,7 @@ router.post('/receive',
                   receivedQty: item.actualReceivedQty,
                   sampleQty: 0,
                   netQty: acceptedQty,
-                  uomId: po.uomId,
+                  uomId: batchUomId,
                   storageLocation: null,
                   mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
                   expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
@@ -440,7 +441,7 @@ router.get('/receive/:id',
           items: true,
           po: { include: { supplier: true, uom: true, user: { select: { name: true } } } },
           receiver: { select: { name: true, role: true } },
-          inventoryBatches: true,
+          inventoryBatches: { include: { uom: true }, orderBy: { createdAt: 'desc' } },
           labTest: {
             include: {
               testResults: {
@@ -474,7 +475,7 @@ router.get('/receive',
           items: true,
           po: { include: { supplier: true, uom: true } },
           receiver: { select: { name: true } },
-          inventoryBatches: true,
+          inventoryBatches: { include: { uom: true }, orderBy: { createdAt: 'desc' } },
           labTest: { select: { id: true, status: true, overallDecision: true, overrideReason: true, labNotes: true, sampleQty: true, categoryParams: true, testedBy: true, approvedBy: true, approvedAt: true, createdAt: true, updatedAt: true } },
         }
       });
@@ -726,6 +727,7 @@ router.post('/lab-test',
                 const netQty = Math.max(0, Number(item.actualReceivedQty) - Number(item.returnQty || item.rejectedQty || 0));
                 const category = rm ? await tx.rMCategory.findUnique({ where: { id: rm.categoryId } }) : null;
                 const finalExpiry = trResult?.expiryDate ? new Date(trResult.expiryDate) : (item.expiryDate || null);
+                const batchUomId = await resolveBatchUomId(item, rm, grn.po, tx);
 
                 await tx.inventoryBatch.create({
                   data: {
@@ -739,7 +741,7 @@ router.post('/lab-test',
                     receivedQty: item.actualReceivedQty,
                     sampleQty: Number(data.sampleQty || 0),
                     netQty,
-                    uomId: grn.po?.uomId || rm?.unitId,
+                    uomId: batchUomId,
                     storageLocation: null,
                     mfgDate: item.mfgDate || null,
                     expiryDate: finalExpiry,
