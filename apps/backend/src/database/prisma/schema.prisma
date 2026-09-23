@@ -170,6 +170,7 @@ model RawMaterialPO {
   expectedDelivery DateTime
   weight           String?             @db.VarChar(100)
   mfgBatchNo       String?             @map("mfg_batch_no") @db.VarChar(100)
+  batchQuantity    Decimal?            @map("batch_quantity")
   mfgDate          DateTime?           @map("mfg_date")
   expDate          DateTime?           @map("exp_date")
   expiryDate       DateTime?
@@ -645,6 +646,7 @@ model GRNReceiveItem {
   actualReceivedQty Decimal  @default(0)
   returnQty         Decimal  @default(0)
   batchNumber       String?
+  batchQuantity     Decimal? @map("batch_quantity")
   mfgDate           DateTime?
   expiryDate        DateTime?
   inspectionStatus  String?  @default("ACCEPTED")

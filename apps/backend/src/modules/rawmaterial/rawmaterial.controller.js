@@ -114,6 +114,11 @@ exports.getPOs = async (req, res, next) => {
       igst: po.igst,
       grandTotal: po.grandTotal,
       items: po.items,
+      batchQuantity: po.batchQuantity ? parseFloat(po.batchQuantity) : null,
+      weight: po.weight,
+      mfgBatchNo: po.mfgBatchNo,
+      mfgDate: po.mfgDate,
+      expDate: po.expDate,
       paymentStatus: po.paymentStatus || 'UNPAID',
       paidAmount: parseFloat(po.paidAmount || 0),
       supplierInvoiceNo: po.supplierInvoiceNo,
@@ -249,6 +254,7 @@ const createPOSchema = z.object({
   expiryDate: z.string().nullable().optional(),
   weight: z.string().nullable().optional(),
   mfgBatchNo: z.string().nullable().optional(),
+  batchQuantity: z.coerce.number().nullable().optional(),
   mfgDate: z.string().nullable().optional(),
   expDate: z.string().nullable().optional(),
   quotationId: z.string().nullable().optional(),
@@ -305,6 +311,16 @@ exports.createPO = async (req, res, next) => {
         ? parseDateSafe(parsedData.expiryDate) 
         : (Array.isArray(parsedData.items) && parsedData.items[0]?.expDate ? parseDateSafe(parsedData.items[0].expDate) : null);
 
+      const resolvedBatchQuantity = parsedData.batchQuantity !== undefined && parsedData.batchQuantity !== null
+        ? parsedData.batchQuantity
+        : (Array.isArray(parsedData.items) && parsedData.items[0]?.batches?.[0]?.batchQuantity !== undefined
+            ? parseFloat(parsedData.items[0].batches[0].batchQuantity)
+            : (Array.isArray(parsedData.items) && parsedData.items[0]?.batches?.[0]?.quantity !== undefined
+                ? parseFloat(parsedData.items[0].batches[0].quantity)
+                : (Array.isArray(parsedData.items) && parsedData.items[0]?.batchQuantity !== undefined
+                    ? parseFloat(parsedData.items[0].batchQuantity)
+                    : null)));
+
       const po = await tx.rawMaterialPO.create({
         data: {
           referenceNo,
@@ -317,6 +333,7 @@ exports.createPO = async (req, res, next) => {
           expiryDate: resolvedExpiryDate,
           weight: parsedData.weight || (Array.isArray(parsedData.items) && parsedData.items[0]?.weight ? parsedData.items[0].weight : null),
           mfgBatchNo: parsedData.mfgBatchNo || (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgBatchNo ? parsedData.items[0].mfgBatchNo : null),
+          batchQuantity: resolvedBatchQuantity,
           mfgDate: parseDateSafe(parsedData.mfgDate) || (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgDate ? parseDateSafe(parsedData.items[0].mfgDate) : null),
           expDate: parseDateSafe(parsedData.expDate) || (resolvedExpiryDate || null),
           supplierId: parsedData.supplierId,
@@ -333,11 +350,17 @@ exports.createPO = async (req, res, next) => {
           grandTotal: parsedData.grandTotal || 0,
           items: Array.isArray(parsedData.items) ? parsedData.items.map(item => ({
             ...item,
+            batchQuantity: Array.isArray(item.batches) && item.batches[0]
+              ? (parseFloat(item.batches[0].batchQuantity ?? item.batches[0].quantity) || null)
+              : (item.batchQuantity ? parseFloat(item.batchQuantity) : null),
             mfgDate: item.mfgDate ? (parseDateSafe(item.mfgDate)?.toISOString().split('T')[0] || item.mfgDate) : null,
             expDate: item.expDate ? (parseDateSafe(item.expDate)?.toISOString().split('T')[0] || item.expDate) : null,
             batches: Array.isArray(item.batches) ? item.batches.map(b => ({
               ...b,
-              quantity: parseFloat(b.quantity) || 0,
+              quantity: parseFloat(b.quantity ?? b.batchQuantity) || 0,
+              batchQuantity: parseFloat(b.batchQuantity ?? b.quantity) || 0,
+              weight: b.weight || null,
+              mfgBatchNo: b.mfgBatchNo || null,
               mfgDate: b.mfgDate ? (parseDateSafe(b.mfgDate)?.toISOString().split('T')[0] || b.mfgDate) : null,
               expDate: b.expDate ? (parseDateSafe(b.expDate)?.toISOString().split('T')[0] || b.expDate) : null,
             })) : null,
@@ -475,6 +498,7 @@ const updatePOSchema = z.object({
   expiryDate: z.string().nullable().optional(),
   weight: z.string().nullable().optional(),
   mfgBatchNo: z.string().nullable().optional(),
+  batchQuantity: z.coerce.number().nullable().optional(),
   mfgDate: z.string().nullable().optional(),
   expDate: z.string().nullable().optional(),
 
@@ -556,6 +580,15 @@ exports.updatePO = async (req, res, next) => {
     } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgBatchNo) {
       updateData.mfgBatchNo = parsedData.items[0].mfgBatchNo || null;
     }
+    if (parsedData.batchQuantity !== undefined) {
+      updateData.batchQuantity = parsedData.batchQuantity || null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.batches?.[0]?.batchQuantity !== undefined) {
+      updateData.batchQuantity = parseFloat(parsedData.items[0].batches[0].batchQuantity) || null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.batches?.[0]?.quantity !== undefined) {
+      updateData.batchQuantity = parseFloat(parsedData.items[0].batches[0].quantity) || null;
+    } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.batchQuantity !== undefined) {
+      updateData.batchQuantity = parseFloat(parsedData.items[0].batchQuantity) || null;
+    }
     if (parsedData.mfgDate !== undefined) {
       updateData.mfgDate = parseDateSafe(parsedData.mfgDate);
     } else if (Array.isArray(parsedData.items) && parsedData.items[0]?.mfgDate) {
@@ -580,11 +613,17 @@ exports.updatePO = async (req, res, next) => {
     if (parsedData.items !== undefined) {
       updateData.items = Array.isArray(parsedData.items) ? parsedData.items.map(item => ({
         ...item,
+        batchQuantity: Array.isArray(item.batches) && item.batches[0]
+          ? (parseFloat(item.batches[0].batchQuantity ?? item.batches[0].quantity) || null)
+          : (item.batchQuantity ? parseFloat(item.batchQuantity) : null),
         mfgDate: item.mfgDate ? (parseDateSafe(item.mfgDate)?.toISOString().split('T')[0] || item.mfgDate) : null,
         expDate: item.expDate ? (parseDateSafe(item.expDate)?.toISOString().split('T')[0] || item.expDate) : null,
         batches: Array.isArray(item.batches) ? item.batches.map(b => ({
           ...b,
-          quantity: parseFloat(b.quantity) || 0,
+          quantity: parseFloat(b.quantity ?? b.batchQuantity) || 0,
+          batchQuantity: parseFloat(b.batchQuantity ?? b.quantity) || 0,
+          weight: b.weight || null,
+          mfgBatchNo: b.mfgBatchNo || null,
           mfgDate: b.mfgDate ? (parseDateSafe(b.mfgDate)?.toISOString().split('T')[0] || b.mfgDate) : null,
           expDate: b.expDate ? (parseDateSafe(b.expDate)?.toISOString().split('T')[0] || b.expDate) : null,
         })) : null,
