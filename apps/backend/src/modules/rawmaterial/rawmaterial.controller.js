@@ -335,6 +335,12 @@ exports.createPO = async (req, res, next) => {
             ...item,
             mfgDate: item.mfgDate ? (parseDateSafe(item.mfgDate)?.toISOString().split('T')[0] || item.mfgDate) : null,
             expDate: item.expDate ? (parseDateSafe(item.expDate)?.toISOString().split('T')[0] || item.expDate) : null,
+            batches: Array.isArray(item.batches) ? item.batches.map(b => ({
+              ...b,
+              quantity: parseFloat(b.quantity) || 0,
+              mfgDate: b.mfgDate ? (parseDateSafe(b.mfgDate)?.toISOString().split('T')[0] || b.mfgDate) : null,
+              expDate: b.expDate ? (parseDateSafe(b.expDate)?.toISOString().split('T')[0] || b.expDate) : null,
+            })) : null,
           })) : null,
           notes: parsedData.notes || null,
           supplierInvoiceNo: parsedData.supplierInvoiceNo || null,
@@ -576,6 +582,12 @@ exports.updatePO = async (req, res, next) => {
         ...item,
         mfgDate: item.mfgDate ? (parseDateSafe(item.mfgDate)?.toISOString().split('T')[0] || item.mfgDate) : null,
         expDate: item.expDate ? (parseDateSafe(item.expDate)?.toISOString().split('T')[0] || item.expDate) : null,
+        batches: Array.isArray(item.batches) ? item.batches.map(b => ({
+          ...b,
+          quantity: parseFloat(b.quantity) || 0,
+          mfgDate: b.mfgDate ? (parseDateSafe(b.mfgDate)?.toISOString().split('T')[0] || b.mfgDate) : null,
+          expDate: b.expDate ? (parseDateSafe(b.expDate)?.toISOString().split('T')[0] || b.expDate) : null,
+        })) : null,
       })) : parsedData.items;
     }
     if (parsedData.notes !== undefined) updateData.notes = parsedData.notes || null;

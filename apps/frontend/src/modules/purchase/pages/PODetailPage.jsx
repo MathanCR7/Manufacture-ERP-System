@@ -737,7 +737,37 @@ export default function PODetailPage() {
                           <td className="py-2.5 px-3">
                             <div className="font-medium text-slate-900 dark:text-white">{item.name}</div>
                             <div className="text-[11px] font-mono text-slate-400">{item.rmId || item.code || '—'}</div>
-                            {(item.weight || item.mfgBatchNo || item.mfgDate || item.expDate) && (
+                            {Array.isArray(item.batches) && item.batches.length > 1 ? (
+                              <div className="mt-1.5 space-y-1">
+                                {item.batches.map((b, bIdx) => (
+                                  <div key={b.id || bIdx} className="flex items-center gap-1.5 flex-wrap text-[10px] text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/60 px-2 py-0.5 rounded border border-slate-200/70 dark:border-slate-800">
+                                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                                      Batch #{bIdx + 1} ({b.quantity} {item.uomLabel || item.uom || ''}):
+                                    </span>
+                                    {b.weight && (
+                                      <span className="inline-flex items-center gap-0.5">
+                                        <Scale className="w-2.5 h-2.5 text-indigo-500" /> {b.weight}
+                                      </span>
+                                    )}
+                                    {b.mfgBatchNo && (
+                                      <span className="inline-flex items-center gap-0.5 text-indigo-600 dark:text-indigo-400 font-mono font-medium">
+                                        <Tag className="w-2.5 h-2.5" /> {b.mfgBatchNo}
+                                      </span>
+                                    )}
+                                    {b.mfgDate && (
+                                      <span className="inline-flex items-center gap-0.5">
+                                        <Calendar className="w-2.5 h-2.5 text-indigo-500" /> MFG: {typeof b.mfgDate === 'string' && b.mfgDate.includes('T') ? format(new Date(b.mfgDate), 'dd-MM-yyyy') : b.mfgDate}
+                                      </span>
+                                    )}
+                                    {b.expDate && (
+                                      <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400">
+                                        <Clock className="w-2.5 h-2.5 text-amber-500" /> EXP: {typeof b.expDate === 'string' && b.expDate.includes('T') ? format(new Date(b.expDate), 'dd-MM-yyyy') : b.expDate}
+                                      </span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (item.weight || item.mfgBatchNo || item.mfgDate || item.expDate) ? (
                               <div className="flex items-center gap-1.5 mt-1.5 flex-wrap text-[10px] text-slate-500 dark:text-slate-400">
                                 {item.weight && (
                                   <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-medium border border-slate-200 dark:border-slate-700">
@@ -760,7 +790,7 @@ export default function PODetailPage() {
                                   </span>
                                 )}
                               </div>
-                            )}
+                            ) : null}
                           </td>
                           <td className="py-2.5 px-3">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${

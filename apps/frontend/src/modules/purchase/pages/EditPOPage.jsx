@@ -30,6 +30,7 @@ import {
   Scale,
   Trash2,
   GripVertical,
+  AlertCircle,
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import Swal from 'sweetalert2';
@@ -275,12 +276,38 @@ export default function EditPOPage({ id: propId, onBack }) {
         const q = Number(it.quantity || 0);
         const p = Number(it.unitPrice || 0);
         const sub = it.subtotal !== undefined && it.subtotal !== null ? it.subtotal : (Math.round(q * p * 100) / 100);
+        const itemWeight = it.weight || (idx === 0 ? po.weight || '' : '');
+        const itemMfgBatch = it.mfgBatchNo || (idx === 0 ? po.mfgBatchNo || '' : '');
+        const itemMfgDate = it.mfgDate ? (typeof it.mfgDate === 'string' && it.mfgDate.includes('T') ? it.mfgDate.split('T')[0] : it.mfgDate) : (idx === 0 && po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : '');
+        const itemExpDate = it.expDate ? (typeof it.expDate === 'string' && it.expDate.includes('T') ? it.expDate.split('T')[0] : it.expDate) : (idx === 0 && (po.expDate || po.expiryDate) ? (typeof (po.expDate || po.expiryDate) === 'string' && (po.expDate || po.expiryDate).includes('T') ? (po.expDate || po.expiryDate).split('T')[0] : (po.expDate || po.expiryDate)) : '');
+
+        const itemBatches = Array.isArray(it.batches) && it.batches.length > 0
+          ? it.batches.map((b, bIdx) => ({
+              id: b.id || 'batch-' + (it.id || idx) + '-' + bIdx,
+              quantity: parseFloat(b.quantity) || 0,
+              weight: b.weight || '',
+              mfgBatchNo: b.mfgBatchNo || '',
+              mfgDate: b.mfgDate ? (typeof b.mfgDate === 'string' && b.mfgDate.includes('T') ? b.mfgDate.split('T')[0] : b.mfgDate) : '',
+              expDate: b.expDate ? (typeof b.expDate === 'string' && b.expDate.includes('T') ? b.expDate.split('T')[0] : b.expDate) : '',
+            }))
+          : [
+              {
+                id: 'batch-' + (it.id || idx) + '-1',
+                quantity: q || 1,
+                weight: itemWeight,
+                mfgBatchNo: itemMfgBatch,
+                mfgDate: itemMfgDate,
+                expDate: itemExpDate,
+              }
+            ];
+
         return {
           ...it,
-          weight: it.weight || (idx === 0 ? po.weight || '' : ''),
-          mfgBatchNo: it.mfgBatchNo || (idx === 0 ? po.mfgBatchNo || '' : ''),
-          mfgDate: it.mfgDate ? (typeof it.mfgDate === 'string' && it.mfgDate.includes('T') ? it.mfgDate.split('T')[0] : it.mfgDate) : (idx === 0 && po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : ''),
-          expDate: it.expDate ? (typeof it.expDate === 'string' && it.expDate.includes('T') ? it.expDate.split('T')[0] : it.expDate) : (idx === 0 && (po.expDate || po.expiryDate) ? (typeof (po.expDate || po.expiryDate) === 'string' && (po.expDate || po.expiryDate).includes('T') ? (po.expDate || po.expiryDate).split('T')[0] : (po.expDate || po.expiryDate)) : ''),
+          weight: itemWeight,
+          mfgBatchNo: itemMfgBatch,
+          mfgDate: itemMfgDate,
+          expDate: itemExpDate,
+          batches: itemBatches,
           quantity: it.quantity,
           unitPrice: it.unitPrice,
           subtotal: sub,
@@ -355,6 +382,7 @@ export default function EditPOPage({ id: propId, onBack }) {
     const categoryName = item.categoryName || item.category?.name || (typeof item.category === 'string' ? item.category : '') || (item.itemType === 'NON_INVENTORY' ? 'Non-Inventory' : 'General');
     const unitPrice = Number(item.ratePerUnit || 0);
     const quantity = 1;
+    const initialBatchId = 'batch-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
 
     return {
       id: item.id,
@@ -366,6 +394,16 @@ export default function EditPOPage({ id: propId, onBack }) {
       mfgBatchNo: '',
       mfgDate: '',
       expDate: '',
+      batches: [
+        {
+          id: initialBatchId,
+          quantity: quantity,
+          weight: '',
+          mfgBatchNo: '',
+          mfgDate: '',
+          expDate: '',
+        }
+      ],
       quantity: quantity,
       unitPrice: unitPrice,
       subtotal: Math.round(quantity * unitPrice * 100) / 100,
@@ -440,9 +478,17 @@ export default function EditPOPage({ id: propId, onBack }) {
         if (it.id !== id) return it;
         const q = parseFloat(newQty) || 0;
         const p = parseFloat(it.unitPrice) || 0;
+        let updatedBatches = it.batches;
+        if (!Array.isArray(it.batches) || it.batches.length <= 1) {
+          updatedBatches = [{
+            ...(it.batches?.[0] || { id: 'batch-' + Date.now() }),
+            quantity: q
+          }];
+        }
         return {
           ...it,
           quantity: newQty,
+          batches: updatedBatches,
           subtotal: Math.round(q * p * 100) / 100,
         };
       })
@@ -491,10 +537,102 @@ export default function EditPOPage({ id: propId, onBack }) {
         const current = parseFloat(it.quantity) || 0;
         const updated = Math.max(1, Math.round((current + delta) * 1000) / 1000);
         const p = parseFloat(it.unitPrice) || 0;
+        let updatedBatches = it.batches;
+        if (!Array.isArray(it.batches) || it.batches.length <= 1) {
+          updatedBatches = [{
+            ...(it.batches?.[0] || { id: 'batch-' + Date.now() }),
+            quantity: updated
+          }];
+        }
         return { 
           ...it, 
           quantity: updated,
+          batches: updatedBatches,
           subtotal: Math.round(updated * p * 100) / 100,
+        };
+      })
+    }));
+  };
+
+  // Multi-Batch Management Functions
+  const updateBatchField = (itemId, batchId, field, value) => {
+    setForm(prev => ({
+      ...prev,
+      items: (prev.items || []).map(it => {
+        if (it.id !== itemId) return it;
+        const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
+          ? it.batches
+          : [{ id: 'b-' + it.id + '-1', quantity: it.quantity || 1, weight: it.weight || '', mfgBatchNo: it.mfgBatchNo || '', mfgDate: it.mfgDate || '', expDate: it.expDate || '' }];
+
+        const updatedBatches = currentBatches.map(b => {
+          if (b.id !== batchId) return b;
+          return { ...b, [field]: value };
+        });
+
+        const firstBatch = updatedBatches[0] || {};
+        return {
+          ...it,
+          batches: updatedBatches,
+          weight: firstBatch.weight || '',
+          mfgBatchNo: firstBatch.mfgBatchNo || '',
+          mfgDate: firstBatch.mfgDate || '',
+          expDate: firstBatch.expDate || ''
+        };
+      })
+    }));
+  };
+
+  const addBatchToItem = (itemId) => {
+    setForm(prev => ({
+      ...prev,
+      items: (prev.items || []).map(it => {
+        if (it.id !== itemId) return it;
+        const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
+          ? it.batches
+          : [{ id: 'b-' + it.id + '-1', quantity: it.quantity || 1, weight: it.weight || '', mfgBatchNo: it.mfgBatchNo || '', mfgDate: it.mfgDate || '', expDate: it.expDate || '' }];
+
+        const currentAlloc = currentBatches.reduce((s, b) => s + (parseFloat(b.quantity) || 0), 0);
+        const itemQty = parseFloat(it.quantity) || 0;
+        const remaining = Math.max(0, Math.round((itemQty - currentAlloc) * 1000) / 1000);
+
+        const newBatch = {
+          id: 'b-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+          quantity: remaining,
+          weight: '',
+          mfgBatchNo: '',
+          mfgDate: '',
+          expDate: '',
+        };
+
+        const combined = [...currentBatches, newBatch];
+        const firstBatch = combined[0] || {};
+        return {
+          ...it,
+          batches: combined,
+          weight: firstBatch.weight || '',
+          mfgBatchNo: firstBatch.mfgBatchNo || '',
+          mfgDate: firstBatch.mfgDate || '',
+          expDate: firstBatch.expDate || ''
+        };
+      })
+    }));
+  };
+
+  const removeBatchFromItem = (itemId, batchId) => {
+    setForm(prev => ({
+      ...prev,
+      items: (prev.items || []).map(it => {
+        if (it.id !== itemId) return it;
+        if (!Array.isArray(it.batches) || it.batches.length <= 1) return it;
+        const filtered = it.batches.filter(b => b.id !== batchId);
+        const firstBatch = filtered[0] || {};
+        return {
+          ...it,
+          batches: filtered,
+          weight: firstBatch.weight || '',
+          mfgBatchNo: firstBatch.mfgBatchNo || '',
+          mfgDate: firstBatch.mfgDate || '',
+          expDate: firstBatch.expDate || ''
         };
       })
     }));
@@ -608,6 +746,23 @@ export default function EditPOPage({ id: propId, onBack }) {
     if (!form.items || form.items.length === 0) {
       setErrorMsg('Please add at least one raw material or item.');
       return;
+    }
+
+    // Validate that batch quantities do not exceed ordered item quantity
+    for (const it of form.items) {
+      if (Array.isArray(it.batches) && it.batches.length > 0) {
+        const batchTotal = it.batches.reduce((sum, b) => sum + (parseFloat(b.quantity) || 0), 0);
+        const itemQty = parseFloat(it.quantity) || 0;
+        if (batchTotal > itemQty + 0.0001) {
+          Swal.fire({
+            icon: 'error',
+            title: 'Batch Quantity Exceeded',
+            html: `Total batch quantity (<b>${batchTotal} ${it.uomLabel}</b>) for item <b>${it.name}</b> exceeds the ordered quantity (<b>${itemQty} ${it.uomLabel}</b>).<br/><br/>Please reduce batch quantities so their sum does not exceed the item quantity.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+      }
     }
 
     const firstItem = form.items[0];
@@ -1356,60 +1511,161 @@ export default function EditPOPage({ id: propId, onBack }) {
                         </td>
                       </tr>
 
-                      {/* Row 2: Slim Integrated Batch Strip: Weight, MFG Batch No, MFG Date, Exp Date */}
-                      <tr className="bg-slate-50/60 dark:bg-slate-800/35 border-t border-slate-100 dark:border-slate-800/60">
-                        <td colSpan={9} className="px-3 py-1">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            {/* Weight */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
-                              <Scale className="w-3 h-3 text-indigo-500 shrink-0" />
-                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Weight:</span>
-                              <Input 
-                                type="text" 
-                                value={item.weight || ''} 
-                                onChange={(e) => updateItemField(item.id, 'weight', e.target.value)}
-                                placeholder="e.g. 25 kg / 50" 
-                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-medium px-2 py-0"
-                              />
-                            </div>
+                      {/* Row 2: Multi-Batch Strip with Allocation Badge and Split Controls */}
+                      <tr className="bg-slate-50/70 dark:bg-slate-800/40 border-t border-slate-100 dark:border-slate-800/80">
+                        <td colSpan={9} className="px-3 py-2">
+                          {(() => {
+                            const currentBatches = Array.isArray(item.batches) && item.batches.length > 0
+                              ? item.batches
+                              : [{ id: 'b-' + item.id + '-1', quantity: item.quantity, weight: item.weight || '', mfgBatchNo: item.mfgBatchNo || '', mfgDate: item.mfgDate || '', expDate: item.expDate || '' }];
+                            
+                            const batchAllocated = currentBatches.reduce((sum, b) => sum + (parseFloat(b.quantity) || 0), 0);
+                            const itemQty = parseFloat(item.quantity) || 0;
+                            const isAllocatedExceeded = batchAllocated > itemQty + 0.0001;
+                            const isFullyAllocated = Math.abs(batchAllocated - itemQty) <= 0.0001;
+                            const remainingQty = Math.max(0, Math.round((itemQty - batchAllocated) * 1000) / 1000);
 
-                            {/* MFG Batch No */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
-                              <Tag className="w-3 h-3 text-indigo-500 shrink-0" />
-                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Batch:</span>
-                              <Input 
-                                type="text" 
-                                value={item.mfgBatchNo || ''} 
-                                onChange={(e) => updateItemField(item.id, 'mfgBatchNo', e.target.value)}
-                                placeholder="e.g. BATCH-2026-09" 
-                                className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:border-indigo-400 focus:border-indigo-500 font-mono font-medium uppercase px-2 py-0"
-                              />
-                            </div>
+                            return (
+                              <div className="space-y-2">
+                                {/* Batches Header Strip */}
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                                      <Tag className="w-3 h-3 text-indigo-500" />
+                                      Batches ({currentBatches.length} {currentBatches.length === 1 ? 'Batch' : 'Batches'})
+                                    </span>
 
-                            {/* MFG Date */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
-                              <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
-                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
-                              <BatchDateInput 
-                                value={item.mfgDate || ''} 
-                                onChange={(val) => updateItemField(item.id, 'mfgDate', val)}
-                                placeholder="dd-mm-yyyy"
-                                title="MFG Date"
-                              />
-                            </div>
+                                    {/* Status Badge */}
+                                    {isAllocatedExceeded ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800 animate-pulse">
+                                        <AlertCircle className="w-3 h-3 text-rose-600" />
+                                        Exceeds Ordered Qty by {(batchAllocated - itemQty).toFixed(2)} {item.uomLabel}! (Total: {batchAllocated} / Max: {itemQty})
+                                      </span>
+                                    ) : isFullyAllocated ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        All {itemQty} {item.uomLabel} Allocated
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                                        Allocated: {batchAllocated} / {itemQty} {item.uomLabel} ({remainingQty} {item.uomLabel} remaining)
+                                      </span>
+                                    )}
+                                  </div>
 
-                            {/* Exp Date */}
-                            <div className="flex items-center gap-1.5 flex-1 min-w-[140px]">
-                              <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
-                              <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
-                              <BatchDateInput 
-                                value={item.expDate || ''} 
-                                onChange={(val) => updateItemField(item.id, 'expDate', val)}
-                                placeholder="dd-mm-yyyy"
-                                title="Exp Date"
-                              />
-                            </div>
-                          </div>
+                                  {/* Add / Split Batch Button */}
+                                  <button
+                                    type="button"
+                                    onClick={() => addBatchToItem(item.id)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-indigo-200 dark:border-indigo-800 shadow-2xs transition-colors cursor-pointer"
+                                    title="Split this item into another batch (e.g. 3 from batch A, 3 from batch B)"
+                                  >
+                                    <Plus className="w-3 h-3 text-indigo-600" />
+                                    + Split / Add Another Batch
+                                  </button>
+                                </div>
+
+                                {/* Batches Rows */}
+                                <div className="space-y-1.5">
+                                  {currentBatches.map((batch, bIdx) => (
+                                    <div
+                                      key={batch.id || bIdx}
+                                      className="flex flex-wrap items-center gap-2 p-1.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
+                                    >
+                                      {/* Batch Index Badge */}
+                                      <span className="font-bold text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md shrink-0">
+                                        #{bIdx + 1}
+                                      </span>
+
+                                      {/* Batch Quantity */}
+                                      <div className="flex items-center gap-1 min-w-[125px]">
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Batch Qty:</span>
+                                        <div className="relative flex items-center">
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            step="any"
+                                            value={batch.quantity}
+                                            onChange={(e) => updateBatchField(item.id, batch.id, 'quantity', e.target.value)}
+                                            className={`h-6 text-[11px] font-bold rounded pr-8 ${
+                                              isAllocatedExceeded 
+                                                ? 'border-rose-400 bg-rose-50 text-rose-700' 
+                                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                                            }`}
+                                          />
+                                          <span className="absolute right-1 text-[9px] font-semibold text-slate-400 select-none">
+                                            {item.uomLabel}
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      {/* Weight */}
+                                      <div className="flex items-center gap-1 min-w-[120px] flex-1">
+                                        <Scale className="w-3 h-3 text-indigo-500 shrink-0" />
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Weight:</span>
+                                        <Input
+                                          type="text"
+                                          value={batch.weight || ''}
+                                          onChange={(e) => updateBatchField(item.id, batch.id, 'weight', e.target.value)}
+                                          placeholder="e.g. 25 kg / 50"
+                                          className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2 py-0"
+                                        />
+                                      </div>
+
+                                      {/* MFG Batch No */}
+                                      <div className="flex items-center gap-1 min-w-[130px] flex-1">
+                                        <Tag className="w-3 h-3 text-indigo-500 shrink-0" />
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Batch:</span>
+                                        <Input
+                                          type="text"
+                                          value={batch.mfgBatchNo || ''}
+                                          onChange={(e) => updateBatchField(item.id, batch.id, 'mfgBatchNo', e.target.value)}
+                                          placeholder="e.g. BATCH-01"
+                                          className="h-6 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2 py-0"
+                                        />
+                                      </div>
+
+                                      {/* MFG Date */}
+                                      <div className="flex items-center gap-1 min-w-[135px] flex-1">
+                                        <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
+                                        <BatchDateInput
+                                          value={batch.mfgDate || ''}
+                                          onChange={(val) => updateBatchField(item.id, batch.id, 'mfgDate', val)}
+                                          placeholder="dd-mm-yyyy"
+                                          title="MFG Date"
+                                        />
+                                      </div>
+
+                                      {/* Exp Date */}
+                                      <div className="flex items-center gap-1 min-w-[135px] flex-1">
+                                        <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
+                                        <BatchDateInput
+                                          value={batch.expDate || ''}
+                                          onChange={(val) => updateBatchField(item.id, batch.id, 'expDate', val)}
+                                          placeholder="dd-mm-yyyy"
+                                          title="Exp Date"
+                                        />
+                                      </div>
+
+                                      {/* Remove Batch Split Button (if > 1 batch) */}
+                                      {currentBatches.length > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => removeBatchFromItem(item.id, batch.id)}
+                                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors shrink-0 cursor-pointer"
+                                          title="Remove this batch split"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </td>
                       </tr>
                     </tbody>
