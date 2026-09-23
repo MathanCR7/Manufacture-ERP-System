@@ -901,7 +901,7 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const qc = useQueryClient();
 
-  const isFinanceLocked = !!form.pqId || !!form.pqNo || !!prefillFromPQ || !!editPOId;
+  const isFinanceLocked = Boolean(isReadOnly);
 
   const { data: taxSettings } = useQuery({
     queryKey: ['tax-settings'],
@@ -981,15 +981,16 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
         supplierQuoteRef: editPO.supplierQuoteRef || '',
         isInterState: editPO.isInterState,
         applyGst: editPO.applyGst !== undefined ? Boolean(editPO.applyGst) : true,
-        termsAndConditions: editPO.termsBlock || '',
+        termsAndConditions: editPO.termsBlock || editPO.termsAndConditions || '',
         items: editPO.items?.map(i => ({
+          itemCode: i.itemCode,
           category: i.category || 'IT Equipment',
           itemDescription: i.itemDescription || i.description || '',
           hsnSac: i.hsnSac || i.hsnCode || '8471',
-          quantity: Number(i.quantity) || 1,
+          quantity: Number(i.quantity !== undefined ? i.quantity : (i.orderedQty !== undefined ? i.orderedQty : 1)) || 1,
           unit: i.unit || i.uom || 'Nos',
-          unitPrice: String(i.unitPrice),
-          gstRate: Number(i.gstRate || 18),
+          unitPrice: String(i.unitPrice !== undefined ? i.unitPrice : ''),
+          gstRate: Number(i.gstRate !== undefined ? i.gstRate : 18),
         })) || [],
       });
 
@@ -2040,8 +2041,12 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
 
         <div className="flex justify-end gap-3">
           <Button type="button" variant="outline" onClick={onBack} className="rounded-xl px-6 h-11">Cancel</Button>
-          <Button type="submit" disabled={mutation.isPending || isReadOnly} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2">
-            {mutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> Issuing...</> : <><ShoppingCart className="w-4 h-4" /> Issue PO</>}
+          <Button type="submit" disabled={mutation.isPending || isReadOnly} className="rounded-xl px-6 h-11 bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 gap-2 cursor-pointer">
+            {mutation.isPending ? (
+              <><Loader2 className="w-4 h-4 animate-spin" /> {editPOId ? 'Updating...' : 'Issuing...'}</>
+            ) : (
+              <><ShoppingCart className="w-4 h-4" /> {editPOId ? 'Update Purchase Order' : 'Issue PO'}</>
+            )}
           </Button>
         </div>
       </form>
