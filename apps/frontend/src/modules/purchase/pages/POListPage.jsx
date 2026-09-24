@@ -877,9 +877,10 @@ export default function POListPage() {
                   </TableHead>
 
                   {/* 4. Supplier: 13% */}
+                  {/* 4. Supplier: 20% */}
                   <TableHead 
                     onClick={handleToggleSortSupplier}
-                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[13%]"
+                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[20%]"
                   >
                     <div className="flex items-center gap-1 truncate">
                       <span>Supplier</span>
@@ -893,13 +894,8 @@ export default function POListPage() {
                     </div>
                   </TableHead>
 
-                  {/* 5. Raw Materials: 17% */}
-                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold w-[17%]">
-                    <div className="truncate">Raw Materials</div>
-                  </TableHead>
-
-                  {/* 6. Purchase Status: 9.5% */}
-                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold w-[9.5%]">
+                  {/* 5. Purchase Status: 11% */}
+                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold w-[11%]">
                     <div className="truncate">Purchase Status</div>
                   </TableHead>
 
@@ -958,14 +954,14 @@ export default function POListPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i} className="border-b border-slate-100 dark:border-slate-800">
-                      {Array.from({ length: 11 }).map((__, j) => (
+                      {Array.from({ length: 10 }).map((__, j) => (
                         <TableCell key={j} className="py-2 px-2"><Skeleton className="h-4.5 w-full rounded" /></TableCell>
                       ))}
                     </TableRow>
                   ))
                 ) : paginatedPOs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="h-44 text-center py-10 text-slate-400 dark:text-slate-500 font-medium">
+                    <TableCell colSpan={10} className="h-44 text-center py-10 text-slate-400 dark:text-slate-500 font-medium">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <FileText className="w-7 h-7 text-slate-300 dark:text-slate-600" />
                         <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">No purchase orders found</p>
@@ -1025,32 +1021,7 @@ export default function POListPage() {
                           </span>
                         </TableCell>
 
-                        {/* 5. Raw Materials (NO UOM Column) */}
-                        <TableCell className="py-2 px-2 text-xs truncate">
-                          {po.items && Array.isArray(po.items) && po.items.length > 1 ? (
-                            <div className="flex items-center gap-1.5 truncate" title={po.items.map(it => it.name || it.materialName).join(', ')}>
-                              <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
-                                {po.items[0].name || po.items[0].materialName || po.name}
-                              </span>
-                              <span className="font-bold text-[10px] bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 px-1.5 py-0.2 rounded border border-indigo-200 dark:border-indigo-800 shrink-0">
-                                +{po.items.length - 1} items
-                              </span>
-                            </div>
-                          ) : (
-                            <div className="truncate" title={po.items && po.items.length === 1 ? (po.items[0].name || po.items[0].materialName) : po.name}>
-                              <span className="font-semibold text-slate-800 dark:text-slate-200 truncate block">
-                                {po.items && po.items.length === 1 ? (po.items[0].name || po.items[0].materialName) : (po.name || '—')}
-                              </span>
-                              {po.rmId && (
-                                <span className="text-[9.5px] text-slate-400 dark:text-slate-500 font-mono truncate block">
-                                  {po.rmId}
-                                </span>
-                              )}
-                            </div>
-                          )}
-                        </TableCell>
-
-                        {/* 6. Purchase Status */}
+                        {/* 5. Purchase Status */}
                         <TableCell className="py-2 px-2">
                           <div className="flex items-center gap-1 flex-wrap">
                             <StatusChip status={po.status} />
