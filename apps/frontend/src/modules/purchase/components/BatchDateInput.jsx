@@ -251,7 +251,7 @@ export default function BatchDateInput({
         placeholder={placeholder}
         disabled={disabled}
         title={error ? `${title}: ${error}` : `${title} (format: dd-mm-yyyy, click or Ctrl+C to copy)`}
-        className={`w-full h-full min-h-[26px] text-[11px] font-mono font-medium pl-1.5 pr-11 rounded-lg border transition-colors ${
+        className={`w-full h-full min-h-[26px] text-xs font-mono font-medium pl-2.5 pr-9 rounded-lg border transition-colors ${
           error
             ? 'border-rose-400 bg-rose-50/70 text-rose-700 dark:border-rose-600 dark:bg-rose-950/40 dark:text-rose-300 focus:ring-1 focus:ring-rose-500'
             : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 hover:border-indigo-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20'

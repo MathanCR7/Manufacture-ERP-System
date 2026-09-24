@@ -1129,8 +1129,8 @@ export default function ReceiveDeliveryPage() {
 
                                 {/* Allocation Status Badge */}
                                 {isAllocatedExact ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                                    <Check className="w-3 h-3 text-emerald-600" /> All {item.actualReceivedQty} {item.uomLabel} Allocated
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> All {item.actualReceivedQty} {item.uomLabel} Allocated
                                   </span>
                                 ) : isAllocatedExceeded ? (
                                   <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded-full border border-rose-200 dark:border-rose-800">
@@ -1160,98 +1160,89 @@ export default function ReceiveDeliveryPage() {
                               {currentBatches.map((batch, bIdx) => (
                                 <div
                                   key={batch.id || bIdx}
-                                  className="flex flex-wrap items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
+                                  className="flex flex-wrap items-center gap-3.5 lg:gap-5 xl:gap-6 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
                                 >
                                   {/* Batch Index Badge */}
-                                  <span className="font-bold text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md shrink-0">
+                                  <span className="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 px-2 py-0.5 rounded-md shrink-0">
                                     #{bIdx + 1}
                                   </span>
 
-                                  {/* Our Internal Running Batch No (Auto-Generated & LOCKED) */}
-                                  <div className="flex items-center gap-1 min-w-[170px]">
-                                    <Lock className="w-3 h-3 text-slate-400 shrink-0" />
-                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0" title="Our Internal Sequential Batch (Auto & Locked)">Our Batch:</span>
-                                    <div className="relative flex items-center flex-1">
-                                      <Input
-                                        type="text"
-                                        value={batch.batchNumber || ''}
-                                        readOnly
-                                        className="h-7 text-[11px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700 cursor-not-allowed px-2 py-0 select-all"
-                                        title="Company running batch sequence (Locked for traceability)"
-                                      />
-                                    </div>
-                                  </div>
-
                                   {/* Batch Quantity */}
-                                  <div className="flex items-center gap-1 min-w-[130px]">
-                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Batch Qty:</span>
-                                    <div className="relative flex items-center">
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Batch Qty:</span>
+                                    <div className="flex items-center gap-1.5">
                                       <Input
                                         type="number"
                                         min="0"
                                         step="any"
                                         value={batch.quantity}
                                         onChange={(e) => updateBatchField(idx, batch.id, 'quantity', e.target.value)}
-                                        className={`h-7 text-[11px] font-bold rounded pr-8 ${
+                                        className={`h-7 text-xs font-bold rounded-lg px-2 text-center w-[65px] ${
                                           isAllocatedExceeded 
                                             ? 'border-rose-400 bg-rose-50 text-rose-700' 
                                             : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
                                         }`}
                                       />
-                                      <span className="absolute right-1 text-[9px] font-semibold text-slate-400 select-none">
+                                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase select-none">
                                         {item.uomLabel}
                                       </span>
                                     </div>
                                   </div>
 
                                   {/* Weight */}
-                                  <div className="flex items-center gap-1 min-w-[125px] flex-1">
-                                    <Scale className="w-3 h-3 text-indigo-500 shrink-0" />
-                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Weight:</span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
                                     <Input
                                       type="text"
                                       value={batch.weight || ''}
                                       onChange={(e) => updateBatchField(idx, batch.id, 'weight', e.target.value)}
-                                      placeholder="e.g. 25 kg / 50"
-                                      className="h-7 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2 py-0"
+                                      placeholder="25 kg / 50 kg"
+                                      className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2.5 py-0 w-[135px]"
                                     />
                                   </div>
 
                                   {/* MFG Batch (Manufacturer / Supplier Batch - EDITABLE) */}
-                                  <div className="flex items-center gap-1 min-w-[145px] flex-1">
-                                    <Tag className="w-3 h-3 text-indigo-500 shrink-0" />
-                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0" title="Manufacturer Batch No">MFG Batch:</span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0" title="Manufacturer Batch No">MFG Batch:</span>
                                     <Input
                                       type="text"
                                       value={batch.mfgBatchNo || ''}
                                       onChange={(e) => updateBatchField(idx, batch.id, 'mfgBatchNo', e.target.value)}
-                                      placeholder="e.g. BATCH-01"
-                                      className="h-7 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2 py-0"
+                                      placeholder="BATCH-01"
+                                      className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2.5 py-0 w-[125px]"
                                     />
                                   </div>
 
                                   {/* MFG Date */}
-                                  <div className="flex items-center gap-1 min-w-[145px] flex-1">
-                                    <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
-                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
-                                    <BatchDateInput
-                                      value={batch.mfgDate || ''}
-                                      onChange={(val) => updateBatchField(idx, batch.id, 'mfgDate', val)}
-                                      placeholder="dd-mm-yyyy"
-                                      title="MFG Date"
-                                    />
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
+                                    <div className="w-[135px]">
+                                      <BatchDateInput
+                                        value={batch.mfgDate || ''}
+                                        onChange={(val) => updateBatchField(idx, batch.id, 'mfgDate', val)}
+                                        placeholder="dd-mm-yyyy"
+                                        title="MFG Date"
+                                        className="h-7"
+                                      />
+                                    </div>
                                   </div>
 
                                   {/* Exp Date */}
-                                  <div className="flex items-center gap-1 min-w-[145px] flex-1">
-                                    <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
-                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
-                                    <BatchDateInput
-                                      value={batch.expDate || ''}
-                                      onChange={(val) => updateBatchField(idx, batch.id, 'expDate', val)}
-                                      placeholder="dd-mm-yyyy"
-                                      title="Exp Date"
-                                    />
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
+                                    <div className="w-[135px]">
+                                      <BatchDateInput
+                                        value={batch.expDate || ''}
+                                        onChange={(val) => updateBatchField(idx, batch.id, 'expDate', val)}
+                                        placeholder="dd-mm-yyyy"
+                                        title="Exp Date"
+                                        className="h-7"
+                                      />
+                                    </div>
                                   </div>
 
                                   {/* Remove Batch Split Button (if > 1 batch) */}
@@ -1259,7 +1250,7 @@ export default function ReceiveDeliveryPage() {
                                     <button
                                       type="button"
                                       onClick={() => removeBatchFromItem(idx, batch.id)}
-                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors shrink-0 cursor-pointer"
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors shrink-0 cursor-pointer ml-auto"
                                       title="Remove this batch split"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
