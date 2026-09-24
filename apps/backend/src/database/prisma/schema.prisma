@@ -26,6 +26,7 @@ enum IdRegistryStatus {
 enum RawMaterialPOStatus {
   PENDING
   ORDERED
+  PARTIALLY_RECEIVED
   RECEIVED
   APPROVED
   DELETED
@@ -206,6 +207,10 @@ model RawMaterialPO {
   // Payment Details
   paymentStatus    String?             @default("UNPAID")
   paidAmount       Decimal             @default(0.00) @map("paid_amount")
+  
+  // Delivery & Partial Receipt Tracking
+  totalReceivedQty Decimal?            @default(0.00) @map("total_received_qty")
+  deliveredStatus  String?             @default("PENDING") @map("delivered_status")
   
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
@@ -622,6 +627,8 @@ model GRNReceive {
   lrNumber          String?
   transportMode     String?  @default("ROAD")
   isExempt          Boolean  @default(false)
+  deliveryType      String?  @default("FULL") @map("delivery_type")
+  isFinalDelivery   Boolean  @default(false) @map("is_final_delivery")
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 

@@ -38,6 +38,21 @@ function QRDisplay({ text, onDragStart }) {
   );
 }
 
+// Date parser helper to reliably format date strings for input[type="date"]
+const toInputDate = (val) => {
+  if (!val) return '';
+  if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 10);
+  if (typeof val === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(val)) {
+    const [d, m, y] = val.split('-');
+    return `${y}-${m}-${d}`;
+  }
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return format(d, 'yyyy-MM-dd');
+  } catch {}
+  return '';
+};
+
 export default function ReceiveDeliveryPage() {
   const { poId } = useParams();
   const navigate = useNavigate();
@@ -62,6 +77,7 @@ export default function ReceiveDeliveryPage() {
   });
 
   const [items, setItems] = useState([]);
+  const [isFinalDelivery, setIsFinalDelivery] = useState(false);
   const [error, setError] = useState('');
   const [submittedData, setSubmittedData] = useState(null);
 
@@ -86,7 +102,7 @@ export default function ReceiveDeliveryPage() {
       lrNumber: po.ewayBillNo || po.lrNumber || '',
       driverName: po.driverName || '',
       invoiceNumber: po.supplierInvoiceNo || '',
-      invoiceDate: po.supplierInvoiceDate ? format(new Date(po.supplierInvoiceDate), 'yyyy-MM-dd') : '',
+      invoiceDate: po.supplierInvoiceDate ? toInputDate(po.supplierInvoiceDate) : '',
     });
 
     // Prefill financial details
@@ -96,41 +112,85 @@ export default function ReceiveDeliveryPage() {
       amountPaid: String(poTotal || 0)
     }));
 
-    // Setup items list with immediate auto-generated sequential batch format
     const getInitBatch = (name) => {
       const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
       return `BATCH-${clean || 'RM'}-001`;
     };
 
+    // Calculate previous receipts per raw material from all existing GRNs
+    const previousGrns = po.grnReceives || [];
+
     let rawItems = [];
     if (po.items && Array.isArray(po.items) && po.items.length > 0) {
-      rawItems = po.items.map(it => ({
-        rmId: it.rmId || it.code || it.id,
-        rmName: it.name,
-        expectedQty: Number(it.quantity || 0),
-        actualReceivedQty: Number(it.quantity || 0),
-        returnQty: 0,
-        batchNumber: getInitBatch(it.name),
-        mfgDate: format(new Date(), 'yyyy-MM-dd'),
-        expiryDate: '',
-        inspectionStatus: 'ACCEPTED',
-        coaRequired: false,
-        coaNumber: '',
-        rejectedQty: 0,
-        rejectionReason: '',
-        labTestRequired: it.labTestRequired !== false,
-        uomLabel: it.uomLabel || it.uom || po.uom?.abbreviation || 'units',
-      }));
+      rawItems = po.items.map(it => {
+        const itemIdentifier = it.rmId || it.code || it.id;
+        const totalOrderedQty = Number(it.quantity || 0);
+
+        // Sum previous received qty for this item across prior GRNs
+        const prevReceivedQty = previousGrns.reduce((sum, g) => {
+          const match = g.items?.find(gi => gi.rmId === itemIdentifier || gi.rmName === it.name);
+          return sum + (Number(match?.actualReceivedQty) || 0);
+        }, 0);
+
+        const remainingPendingQty = Math.max(0, totalOrderedQty - prevReceivedQty);
+
+        // Extract official PO batch information
+        const firstSubBatch = it.batches && Array.isArray(it.batches) && it.batches.length > 0 ? it.batches[0] : null;
+        const officialBatchNo = firstSubBatch?.batchNo || it.mfgBatchNo || it.batchNo || po.mfgBatchNo;
+        const hasOfficialBatch = Boolean(officialBatchNo && officialBatchNo.trim() !== '');
+
+        const officialMfgDate = toInputDate(firstSubBatch?.mfgDate || it.mfgDate || po.mfgDate);
+        const officialExpDate = toInputDate(firstSubBatch?.expDate || it.expDate || po.expDate);
+        const officialWeight = firstSubBatch?.weight || it.weight || '';
+
+        return {
+          rmId: itemIdentifier,
+          rmName: it.name,
+          totalOrderedQty,
+          prevReceivedQty,
+          remainingPendingQty,
+          expectedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
+          actualReceivedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
+          returnQty: 0,
+          batchNumber: hasOfficialBatch ? officialBatchNo.trim().toUpperCase() : getInitBatch(it.name),
+          isBatchLocked: hasOfficialBatch, // Lock batch if provided on PO!
+          mfgDate: officialMfgDate || format(new Date(), 'yyyy-MM-dd'),
+          expiryDate: officialExpDate || '',
+          weight: officialWeight,
+          batches: it.batches || [],
+          inspectionStatus: 'ACCEPTED',
+          coaRequired: false,
+          coaNumber: '',
+          rejectedQty: 0,
+          rejectionReason: '',
+          labTestRequired: it.labTestRequired !== false,
+          uomLabel: it.uomLabel || it.uom || po.uom?.abbreviation || 'units',
+        };
+      });
     } else {
+      const totalOrderedQty = Number(po.quantity || 0);
+      const prevReceivedQty = previousGrns.reduce((sum, g) => {
+        return sum + (g.items?.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0) || 0);
+      }, 0);
+      const remainingPendingQty = Math.max(0, totalOrderedQty - prevReceivedQty);
+
+      const hasOfficialBatch = Boolean(po.mfgBatchNo && po.mfgBatchNo.trim() !== '');
+
       rawItems = [{
         rmId: po.rmId,
         rmName: po.name,
-        expectedQty: Number(po.quantity || 0),
-        actualReceivedQty: Number(po.quantity || 0),
+        totalOrderedQty,
+        prevReceivedQty,
+        remainingPendingQty,
+        expectedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
+        actualReceivedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
         returnQty: 0,
-        batchNumber: getInitBatch(po.name),
-        mfgDate: format(new Date(), 'yyyy-MM-dd'),
-        expiryDate: '',
+        batchNumber: hasOfficialBatch ? po.mfgBatchNo.trim().toUpperCase() : getInitBatch(po.name),
+        isBatchLocked: hasOfficialBatch,
+        mfgDate: toInputDate(po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
+        expiryDate: toInputDate(po.expDate) || '',
+        weight: po.weight || '',
+        batches: [],
         inspectionStatus: 'ACCEPTED',
         coaRequired: false,
         coaNumber: '',
@@ -143,13 +203,19 @@ export default function ReceiveDeliveryPage() {
 
     setItems(rawItems);
 
-    // Auto-fetch precise sequential batch number from server per raw material
+    // Auto-mark final delivery if this delivery fulfills all remaining pending
+    const totalRemaining = rawItems.reduce((s, i) => s + i.remainingPendingQty, 0);
+    const totalReceivingNow = rawItems.reduce((s, i) => s + i.actualReceivedQty, 0);
+    setIsFinalDelivery(totalReceivingNow >= totalRemaining);
+
+    // Auto-fetch server sequential batch numbers ONLY for items that DO NOT have an official PO batch
     rawItems.forEach(async (item, idx) => {
+      if (item.isBatchLocked) return; // Do not overwrite PO batch!
       try {
         const res = await api.get(`/grn/next-batch/${encodeURIComponent(item.rmId)}?rmName=${encodeURIComponent(item.rmName)}`);
         const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
         if (generated) {
-          setItems(prev => prev.map((it, i) => i === idx ? { ...it, batchNumber: generated } : it));
+          setItems(prev => prev.map((it, i) => i === idx && !it.isBatchLocked ? { ...it, batchNumber: generated } : it));
         }
       } catch (e) {
         console.warn('Auto batch fetch fallback used for', item.rmName);
@@ -191,6 +257,8 @@ export default function ReceiveDeliveryPage() {
     const payload = {
       poId: po.id,
       receivedDate: new Date(receiptForm.receivedDate).toISOString(),
+      isFinalDelivery: Boolean(isFinalDelivery),
+      deliveryType: isFinalDelivery ? 'FINAL' : 'PARTIAL',
       amountPaid: Number(receiptForm.amountPaid) || 0,
       refundAmount: Number(receiptForm.refundAmount) || 0,
       discrepancyNotes: receiptForm.discrepancyNotes || undefined,
@@ -214,6 +282,8 @@ export default function ReceiveDeliveryPage() {
         batchNumber: it.batchNumber?.trim(),
         mfgDate: it.mfgDate ? new Date(it.mfgDate).toISOString() : null,
         expiryDate: it.expiryDate ? new Date(it.expiryDate).toISOString() : null,
+        weight: it.weight || null,
+        batches: it.batches || [],
         inspectionStatus: it.inspectionStatus || 'ACCEPTED',
         coaRequired: Boolean(it.coaRequired),
         coaNumber: it.coaNumber?.trim() || null,
@@ -227,12 +297,20 @@ export default function ReceiveDeliveryPage() {
   };
 
   const updateItem = (idx, field, val) => {
-    setItems(prev => prev.map((it, i) => i === idx ? { ...it, [field]: val } : it));
+    setItems(prev => {
+      const next = prev.map((it, i) => i === idx ? { ...it, [field]: val } : it);
+      if (field === 'actualReceivedQty') {
+        const totalRemaining = next.reduce((s, i) => s + (i.remainingPendingQty || i.expectedQty || 0), 0);
+        const totalReceivingNow = next.reduce((s, i) => s + (Number(i.actualReceivedQty) || 0), 0);
+        setIsFinalDelivery(totalReceivingNow >= totalRemaining);
+      }
+      return next;
+    });
   };
 
   const handleGenerateBatch = async (idx) => {
     const item = items[idx];
-    if (!item) return;
+    if (!item || item.isBatchLocked) return;
     try {
       const res = await api.get(`/grn/next-batch/${encodeURIComponent(item.rmId)}?rmName=${encodeURIComponent(item.rmName)}`);
       const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
@@ -252,6 +330,7 @@ export default function ReceiveDeliveryPage() {
   const totalDiff = totalActual - totalExpected;
   const hasDiscrepancy = Math.abs(totalDiff) > 0.001 || totalRejected > 0;
   const allItemsExempt = items.length > 0 && items.every(it => it.labTestRequired === false);
+  const previousDeliveries = po?.grnReceives || [];
 
   // ──────────────────────────────────────────────────────────────────────────
   // Success Confirmation Screen
@@ -549,6 +628,75 @@ export default function ReceiveDeliveryPage() {
             </div>
           </div>
 
+          {/* Multi-Shipment Delivery Status Card (if prior receipts exist) */}
+          {previousDeliveries && previousDeliveries.length > 0 && (
+            <div className="bg-gradient-to-r from-blue-50/80 via-indigo-50/50 to-slate-50 dark:from-blue-950/30 dark:via-indigo-950/20 dark:to-slate-900 border border-blue-200/80 dark:border-blue-800/60 rounded-xl p-4 sm:p-5 shadow-sm space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
+                    {previousDeliveries.length + 1}
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-2">
+                      <span>Multi-Shipment Delivery in Progress</span>
+                      <span className="text-[10px] uppercase font-extrabold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200">
+                        Shipment #{previousDeliveries.length + 1}
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {previousDeliveries.length} prior {previousDeliveries.length === 1 ? 'receipt has' : 'receipts have'} been logged for this Purchase Order.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress Summary Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <div className="bg-white/80 dark:bg-slate-900/80 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800 text-xs">
+                  <span className="text-slate-500 block">Total PO Ordered</span>
+                  <span className="font-bold text-slate-900 dark:text-white text-sm">
+                    {items.reduce((s, i) => s + (i.totalOrderedQty || i.expectedQty || 0), 0)} {items[0]?.uomLabel || 'units'}
+                  </span>
+                </div>
+
+                <div className="bg-white/80 dark:bg-slate-900/80 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800 text-xs">
+                  <span className="text-slate-500 block">Previously Received & Stocked</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm">
+                    {items.reduce((s, i) => s + (i.prevReceivedQty || 0), 0)} {items[0]?.uomLabel || 'units'}
+                  </span>
+                </div>
+
+                <div className="bg-white/80 dark:bg-slate-900/80 p-3 rounded-lg border border-slate-200/80 dark:border-slate-800 text-xs">
+                  <span className="text-slate-500 block">Remaining Pending</span>
+                  <span className="font-bold text-amber-600 dark:text-amber-400 text-sm">
+                    {items.reduce((s, i) => s + (i.remainingPendingQty || 0), 0)} {items[0]?.uomLabel || 'units'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Prior GRNs List */}
+              <div className="pt-2 border-t border-blue-100 dark:border-blue-900/40 text-xs">
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
+                  Prior Receipt History
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {previousDeliveries.map((g, gi) => {
+                    const rcvQty = g.items?.reduce((s, it) => s + Number(it.actualReceivedQty || 0), 0) || 0;
+                    return (
+                      <div key={g.id || gi} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-mono text-[11px]">
+                        <span className="font-bold text-indigo-600 dark:text-indigo-400">{g.referenceNo || `GRN-${gi+1}`}</span>
+                        <span>•</span>
+                        <span>{g.receivedDate ? format(new Date(g.receivedDate), 'dd MMM yyyy') : 'Received'}</span>
+                        <span>•</span>
+                        <span className="font-bold text-emerald-600">+{rcvQty} {items[0]?.uomLabel || ''}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Items Table & Batch / Quality Inspection Section */}
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2">
@@ -557,7 +705,7 @@ export default function ReceiveDeliveryPage() {
                   <Package className="w-5 h-5 text-indigo-500" /> Material Receipt, Inspection & Batch Assignment
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Sequential batch numbers are auto-assigned per raw material. Specify expiry, COA, and inspection status.
+                  Official PO batch numbers are locked for traceability. Enter actual quantity received for this shipment.
                 </p>
               </div>
 
@@ -584,10 +732,26 @@ export default function ReceiveDeliveryPage() {
                           {idx + 1}
                         </div>
                         <div>
-                          <h4 className="font-semibold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2">
+                          <h4 className="font-semibold text-slate-900 dark:text-white text-sm sm:text-base flex items-center gap-2 flex-wrap">
                             {item.rmName}
                             <span className="font-mono text-xs font-normal text-slate-400">({item.rmId})</span>
+                            {item.isBatchLocked && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                🔒 Locked to PO Batch
+                              </span>
+                            )}
                           </h4>
+                          {item.totalOrderedQty > 0 && (
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              PO Ordered: <strong className="text-slate-700 dark:text-slate-300">{item.totalOrderedQty} {item.uomLabel}</strong>
+                              {item.prevReceivedQty > 0 && (
+                                <span> • Received Prior: <strong className="text-emerald-600">{item.prevReceivedQty} {item.uomLabel}</strong></span>
+                              )}
+                              {item.remainingPendingQty > 0 && (
+                                <span> • Remaining: <strong className="text-amber-600">{item.remainingPendingQty} {item.uomLabel}</strong></span>
+                              )}
+                            </p>
+                          )}
                         </div>
                       </div>
 
@@ -608,7 +772,7 @@ export default function ReceiveDeliveryPage() {
                     {/* Quantities Grid & Shortage/Excess Tracker */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-lg border border-slate-200/70 dark:border-slate-700/60 text-xs">
                       <div>
-                        <span className="text-slate-500 block">Ordered / Expected</span>
+                        <span className="text-slate-500 block">Pending to Receive</span>
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">
                           {item.expectedQty} {item.uomLabel}
                         </span>
@@ -616,7 +780,7 @@ export default function ReceiveDeliveryPage() {
 
                       <div>
                         <Label className="text-slate-600 dark:text-slate-300 text-xs block mb-1">
-                          Actual Received *
+                          Actual Received Today *
                         </Label>
                         <Input 
                           type="number" 
@@ -661,27 +825,56 @@ export default function ReceiveDeliveryPage() {
                       {/* Sequential Batch Number */}
                       <div className="space-y-1.5 lg:col-span-2">
                         <Label className="text-xs font-medium flex items-center justify-between">
-                          <span>Batch / Lot Number *</span>
-                          <span className="text-[10px] text-indigo-500 font-normal">Auto-sequential per material</span>
+                          <span className="flex items-center gap-1.5">
+                            Batch / Lot Number *
+                            {item.isBatchLocked && (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">🔒 Locked to PO</span>
+                            )}
+                          </span>
+                          {!item.isBatchLocked && (
+                            <span className="text-[10px] text-indigo-500 font-normal">Auto-sequential per material</span>
+                          )}
                         </Label>
                         <div className="flex items-center gap-1.5">
                           <Input 
                             placeholder="e.g. BATCH-MILK-001" 
                             value={item.batchNumber} 
-                            onChange={e => updateItem(idx, 'batchNumber', e.target.value.toUpperCase())}
-                            className="font-mono font-bold text-xs uppercase flex-1" 
+                            readOnly={item.isBatchLocked}
+                            onChange={e => !item.isBatchLocked && updateItem(idx, 'batchNumber', e.target.value.toUpperCase())}
+                            className={`font-mono font-bold text-xs uppercase flex-1 ${
+                              item.isBatchLocked 
+                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 cursor-not-allowed border-slate-300 dark:border-slate-700' 
+                                : ''
+                            }`} 
                             required 
                           />
-                          <button
-                            type="button"
-                            onClick={() => handleGenerateBatch(idx)}
-                            className="h-9 px-2.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
-                            title="Auto-generate or refresh batch number"
-                          >
-                            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                            <span>Auto</span>
-                          </button>
+                          {!item.isBatchLocked && (
+                            <button
+                              type="button"
+                              onClick={() => handleGenerateBatch(idx)}
+                              className="h-9 px-2.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Auto-generate or refresh batch number"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                              <span>Auto</span>
+                            </button>
+                          )}
                         </div>
+
+                        {/* Multi-batch split breakdown if provided on PO */}
+                        {item.batches && Array.isArray(item.batches) && item.batches.length > 1 && (
+                          <div className="mt-1.5 space-y-1 bg-slate-50 dark:bg-slate-800/60 p-2 rounded border border-slate-200 dark:border-slate-700 text-[11px]">
+                            <span className="text-[10px] font-bold text-slate-500 uppercase block">PO Batch Allocations:</span>
+                            <div className="flex flex-wrap gap-1.5">
+                              {item.batches.map((b, bi) => (
+                                <span key={bi} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 font-mono text-[10px]">
+                                  <strong>{b.batchNo}</strong>: {b.quantity} {item.uomLabel}
+                                  {b.expDate && <span className="text-slate-400">· Exp: {b.expDate}</span>}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Manufacturing Date */}
@@ -694,6 +887,7 @@ export default function ReceiveDeliveryPage() {
                           className="text-xs" 
                         />
                       </div>
+
 
                       {/* Expiry Date */}
                       <div className="space-y-1.5">
@@ -868,6 +1062,56 @@ export default function ReceiveDeliveryPage() {
             </div>
           </div>
 
+          {/* Final Delivery / Multi-Shipment Completion Toggle */}
+          <div className="bg-gradient-to-r from-indigo-50/80 via-purple-50/50 to-slate-50 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-slate-900 border border-indigo-200 dark:border-indigo-800 rounded-xl p-4 sm:p-5 shadow-sm">
+            <div className="flex items-start sm:items-center justify-between flex-col sm:flex-row gap-4">
+              <div className="flex items-start gap-3">
+                <input 
+                  type="checkbox" 
+                  id="finalDeliveryToggle"
+                  checked={isFinalDelivery}
+                  onChange={e => setIsFinalDelivery(e.target.checked)}
+                  className="mt-0.5 sm:mt-0 w-5 h-5 rounded border-indigo-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <div>
+                  <label htmlFor="finalDeliveryToggle" className="font-bold text-sm text-slate-900 dark:text-white cursor-pointer flex items-center gap-2 flex-wrap">
+                    <span>Mark Purchase Order as Fully Delivered</span>
+                    {isFinalDelivery ? (
+                      <span className="text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300">
+                        ✓ Complete & Fulfill PO
+                      </span>
+                    ) : (
+                      <span className="text-[10px] uppercase font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300">
+                        Partial Shipment (Receive Pending)
+                      </span>
+                    )}
+                  </label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-xl leading-relaxed">
+                    {isFinalDelivery ? (
+                      <span>This shipment completes the PO in full. The order will be removed from <strong>Upcoming Deliveries</strong> and archived in <strong>Delivered</strong>.</span>
+                    ) : (
+                      <span>Only a portion is arriving today. The PO will <strong>remain active in Upcoming Deliveries</strong> with status <strong>"Receive Pending"</strong> so you can receive the remaining quantity tomorrow or in future deliveries.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="shrink-0 self-end sm:self-center">
+                <button
+                  type="button"
+                  onClick={() => setIsFinalDelivery(prev => !prev)}
+                  className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                    isFinalDelivery
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300'
+                      : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:text-indigo-300'
+                  }`}
+                >
+                  {isFinalDelivery ? 'Toggle to Partial' : 'Toggle to Final'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {error && (
             <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-lg text-sm text-rose-700 dark:text-rose-300 flex items-center gap-2">
               <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
@@ -896,7 +1140,11 @@ export default function ReceiveDeliveryPage() {
               ) : (
                 <Send className="w-4 h-4" />
               )}
-              {mutation.isPending ? 'Processing...' : allItemsExempt ? 'Receive & Stock (Exempt)' : 'Receive & Queue Lab'}
+              {mutation.isPending 
+                ? 'Processing...' 
+                : isFinalDelivery
+                  ? (allItemsExempt ? 'Fulfill & Stock (Exempt)' : 'Fulfill & Queue Lab')
+                  : `Receive Partial Delivery (${totalActual.toFixed(2)} ${items[0]?.uomLabel || 'units'})`}
             </Button>
           </div>
         </form>

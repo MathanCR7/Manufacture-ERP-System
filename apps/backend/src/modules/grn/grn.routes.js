@@ -93,36 +93,60 @@ router.patch('/po/:id/status',
 );
 
 // ─────────────────────── UPCOMING DELIVERIES ───────────────────────
-// GET /api/grn/upcoming — Only POs with status ORDERED (awaiting delivery for Material Receiver)
+// GET /api/grn/upcoming — POs with status ORDERED or PARTIALLY_RECEIVED awaiting deliveries
 router.get('/upcoming',
   authenticateToken,
   roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']),
   async (req, res, next) => {
     try {
       const pos = await prisma.rawMaterialPO.findMany({
-        where: { status: 'ORDERED' },
+        where: {
+          status: { in: ['ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED', 'APPROVED'] },
+        },
         orderBy: { updatedAt: 'desc' },
         include: { supplier: true, uom: true, user: { select: { name: true } } }
       });
 
-      // Check if GRN exists for each PO
+      // Check all GRNs for these POs
       const poIds = pos.map(p => p.id);
-      const existingGrns = await prisma.gRNReceive.findMany({
+      const allGrns = await prisma.gRNReceive.findMany({
         where: { poId: { in: poIds } },
-        select: { poId: true, id: true, status: true, receivedDate: true, amountPaid: true, refundAmount: true }
+        include: { items: true },
+        orderBy: { receivedDate: 'desc' }
       });
+
       const grnMap = {};
-      existingGrns.forEach(g => { grnMap[g.poId] = g; });
+      allGrns.forEach(g => {
+        if (!grnMap[g.poId]) grnMap[g.poId] = [];
+        grnMap[g.poId].push(g);
+      });
 
       const result = pos
         .map(po => {
-          const grn = grnMap[po.id] || null;
+          const grns = grnMap[po.id] || [];
+          const latestGrn = grns[0] || null;
+
+          const totalOrderedQty = po.items && Array.isArray(po.items) && po.items.length > 0
+            ? po.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
+            : (Number(po.quantity) || 0);
+
+          const totalReceivedQty = grns.reduce((sum, g) => sum + g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0), 0);
+          const pendingQty = Math.max(0, totalOrderedQty - totalReceivedQty);
+          const isPartiallyReceived = (po.status === 'PARTIALLY_RECEIVED' || (totalReceivedQty > 0 && pendingQty > 0)) && po.deliveredStatus !== 'FULLY_DELIVERED';
+          const isFullyDelivered = po.deliveredStatus === 'FULLY_DELIVERED' || po.status === 'RECEIVED' || po.status === 'APPROVED' || (totalOrderedQty > 0 && totalReceivedQty >= totalOrderedQty);
+
           return {
             id: po.id,
             referenceNo: po.referenceNo,
             rmId: po.rmId,
             name: po.name,
             quantity: po.quantity,
+            totalOrderedQty,
+            totalReceivedQty,
+            pendingQty,
+            deliveredStatus: po.deliveredStatus || (isPartiallyReceived ? 'PARTIALLY_DELIVERED' : (isFullyDelivered ? 'FULLY_DELIVERED' : 'PENDING')),
+            isPartiallyReceived,
+            isFullyDelivered,
             amount: po.amount,
             uom: po.uom,
             supplierName: po.supplier?.name || null,
@@ -131,12 +155,21 @@ router.get('/upcoming',
             status: po.status,
             createdAt: po.createdAt,
             updatedAt: po.updatedAt,
-            grnId: grn?.id || null,
-            hasGrn: !!grn,
-            grnStatus: grn?.status || null,
-            receivedDate: grn?.receivedDate || null,
-            amountPaid: grn?.amountPaid || null,
-            refundAmount: grn?.refundAmount || null,
+            grnId: latestGrn?.id || null,
+            hasGrn: grns.length > 0,
+            grnStatus: latestGrn?.status || null,
+            receivedDate: latestGrn?.receivedDate || null,
+            amountPaid: latestGrn?.amountPaid || null,
+            refundAmount: latestGrn?.refundAmount || null,
+            receiptCount: grns.length,
+            grnList: grns.map(g => ({
+              id: g.id,
+              referenceNo: g.referenceNo,
+              receivedDate: g.receivedDate,
+              status: g.status,
+              receivedQty: g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0),
+              isFinalDelivery: g.isFinalDelivery
+            })),
             items: po.items,
             vehicleNumber: po.vehicleNumber || null,
             transporterName: po.transporterName || null,
@@ -147,8 +180,8 @@ router.get('/upcoming',
             supplierInvoiceDate: po.supplierInvoiceDate || null,
           };
         })
-        // Exclude LAB_REJECTED entries from upcoming deliveries
-        .filter(item => item.grnStatus !== 'LAB_REJECTED');
+        // Exclude LAB_REJECTED single entries if rejected entirely
+        .filter(item => item.grnStatus !== 'LAB_REJECTED' || item.status === 'PARTIALLY_RECEIVED');
 
       res.json(result);
     } catch (error) {
@@ -174,10 +207,13 @@ router.get('/next-batch/:rmId',
 );
 
 // ─────────────────────── GRN RECEIVE DELIVERY ───────────────────────
-// POST /api/grn/receive — Submit a receive delivery form
+// POST /api/grn/receive — Submit a receive delivery form (supports partial & multi-shipment deliveries)
 const receiveSchema = z.object({
   poId: z.string().uuid(),
   receivedDate: z.string().min(1),
+  isFinalDelivery: z.boolean().default(false),
+  deliveryType: z.string().optional().default('FULL'), // 'FULL' | 'PARTIAL' | 'FINAL'
+
   // Transport details
   vehicleNumber: z.string().optional().nullable(),
   driverName: z.string().optional().nullable(),
@@ -203,6 +239,8 @@ const receiveSchema = z.object({
     rejectedQty: z.coerce.number().nonnegative().default(0),
     rejectionReason: z.string().optional().nullable(),
     labTestRequired: z.boolean().default(true),
+    weight: z.any().optional().nullable(),
+    batches: z.array(z.any()).optional().nullable(),
   })).min(1),
   amountPaid: z.coerce.number().nonnegative(),
   refundAmount: z.coerce.number().nonnegative().default(0),
@@ -221,11 +259,12 @@ router.post('/receive',
         include: { supplier: true, uom: true }
       });
       if (!po) return res.status(404).json({ error: 'Purchase Order not found' });
-      if (!['ORDERED', 'RECEIVED'].includes(po.status)) return res.status(409).json({ error: 'PO must be in ORDERED or RECEIVED status to log delivery' });
-
-      // Check if GRN already submitted for this PO
-      const existingGrn = await prisma.gRNReceive.findFirst({ where: { poId: data.poId } });
-      if (existingGrn) return res.status(409).json({ error: 'Delivery already received for this PO. GRN ID: ' + existingGrn.id });
+      if (!['ORDERED', 'PARTIALLY_RECEIVED', 'RECEIVED'].includes(po.status)) {
+        return res.status(409).json({ error: 'PO must be in ORDERED or PARTIALLY_RECEIVED status to log delivery' });
+      }
+      if (po.deliveredStatus === 'FULLY_DELIVERED') {
+        return res.status(409).json({ error: 'This Purchase Order has already been marked as fully delivered.' });
+      }
 
       // Check if all items in this receipt are exempt from lab testing
       const isAllExempt = data.items.every(item => item.labTestRequired === false);
@@ -247,6 +286,8 @@ router.post('/receive',
             status: initialStatus,
             inventoryStatus: initialInvStatus,
             isExempt: isAllExempt,
+            deliveryType: data.deliveryType || (data.isFinalDelivery ? 'FINAL' : 'PARTIAL'),
+            isFinalDelivery: !!data.isFinalDelivery,
             vehicleNumber: data.vehicleNumber || null,
             driverName: data.driverName || null,
             transporterName: data.transporterName || null,
@@ -299,49 +340,82 @@ router.post('/receive',
                 data: { currentStock: { increment: acceptedQty } }
               });
 
-              // Create InventoryBatch per item
-              let batchNum = item.batchNumber;
+              // Create or increment InventoryBatch per item
+              let batchNum = item.batchNumber?.trim();
               if (!batchNum) {
                 const auto = await getNextBatchForRM(item.rmId, item.rmName);
                 batchNum = auto.batchNumber;
               }
-              const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
-              if (clash) {
-                batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
-              }
 
-              const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
-              const batchUomId = await resolveBatchUomId(item, rm, po, tx);
-
-              await tx.inventoryBatch.create({
-                data: {
-                  batchNumber: batchNum,
-                  poId: g.poId,
-                  grnId: g.id,
-                  rawMaterialId: rm.id,
-                  rawMaterialName: item.rmName || rm.name,
-                  rmCategory: category?.name || null,
-                  supplierId: po.supplierId || null,
-                  receivedQty: item.actualReceivedQty,
-                  sampleQty: 0,
-                  netQty: acceptedQty,
-                  uomId: batchUomId,
-                  storageLocation: null,
-                  mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
-                  expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
-                  status: 'AVAILABLE',
-                  addedBy: req.user.id,
+              const existingBatch = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
+              if (existingBatch && existingBatch.poId === po.id) {
+                // Same PO delivering with same batch: increment stock quantity in batch
+                await tx.inventoryBatch.update({
+                  where: { id: existingBatch.id },
+                  data: {
+                    receivedQty: { increment: item.actualReceivedQty },
+                    netQty: { increment: acceptedQty }
+                  }
+                });
+                console.log(`[EXEMPT ITEM] InventoryBatch ${batchNum} incremented for ${item.rmName} (+${acceptedQty})`);
+              } else {
+                if (existingBatch) {
+                  batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
                 }
-              });
-              console.log(`[EXEMPT ITEM] InventoryBatch ${batchNum} directly created at receipt for ${item.rmName} (+${acceptedQty})`);
+
+                const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
+                const batchUomId = await resolveBatchUomId(item, rm, po, tx);
+
+                await tx.inventoryBatch.create({
+                  data: {
+                    batchNumber: batchNum,
+                    poId: g.poId,
+                    grnId: g.id,
+                    rawMaterialId: rm.id,
+                    rawMaterialName: item.rmName || rm.name,
+                    rmCategory: category?.name || null,
+                    supplierId: po.supplierId || null,
+                    receivedQty: item.actualReceivedQty,
+                    sampleQty: 0,
+                    netQty: acceptedQty,
+                    uomId: batchUomId,
+                    storageLocation: null,
+                    mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
+                    expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+                    status: 'AVAILABLE',
+                    addedBy: req.user.id,
+                  }
+                });
+                console.log(`[EXEMPT ITEM] InventoryBatch ${batchNum} created at receipt for ${item.rmName} (+${acceptedQty})`);
+              }
             }
           }
         }
 
-        // Update PO status: APPROVED if all exempt, otherwise RECEIVED
+        // Calculate cumulative received quantity across all GRNs for this PO
+        const priorGrns = await tx.gRNReceive.findMany({
+          where: { poId: data.poId, id: { not: g.id } },
+          include: { items: true }
+        });
+        const priorReceivedQty = priorGrns.reduce((sum, grn) => sum + grn.items.reduce((s, it) => s + Number(it.actualReceivedQty || 0), 0), 0);
+        const currentReceivedQty = data.items.reduce((s, it) => s + Number(it.actualReceivedQty || 0), 0);
+        const cumulativeReceivedQty = priorReceivedQty + currentReceivedQty;
+
+        const totalOrderedQty = po.items && Array.isArray(po.items) && po.items.length > 0
+          ? po.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
+          : (Number(po.quantity) || 0);
+
+        const isFullyReceived = data.isFinalDelivery === true || (totalOrderedQty > 0 && cumulativeReceivedQty >= totalOrderedQty);
+        const newPoStatus = isFullyReceived ? (isAllExempt ? 'APPROVED' : 'RECEIVED') : 'PARTIALLY_RECEIVED';
+        const newDeliveredStatus = isFullyReceived ? 'FULLY_DELIVERED' : 'PARTIALLY_DELIVERED';
+
         await tx.rawMaterialPO.update({
           where: { id: data.poId },
-          data: { status: isAllExempt ? 'APPROVED' : 'RECEIVED' }
+          data: {
+            status: newPoStatus,
+            totalReceivedQty: cumulativeReceivedQty,
+            deliveredStatus: newDeliveredStatus,
+          }
         });
 
         // Check if any item has returnQty > 0 or rejectedQty > 0
@@ -386,7 +460,7 @@ router.post('/receive',
           });
         }
 
-        return { grn: g, pr: pRecord };
+        return { grn: g, pr: pRecord, cumulativeReceivedQty, isFullyReceived, newPoStatus, newDeliveredStatus };
       });
 
       // Notify
@@ -422,6 +496,52 @@ router.post('/receive',
     }
   }
 );
+
+// ─────────────────────── MARK PO AS FULLY DELIVERED ───────────────────────
+// PATCH /api/grn/po/:poId/mark-fully-delivered — Close delivery loop manually
+router.patch('/po/:poId/mark-fully-delivered',
+  authenticateToken,
+  roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']),
+  async (req, res, next) => {
+    try {
+      const { poId } = req.params;
+      const po = await prisma.rawMaterialPO.findUnique({
+        where: { id: poId },
+        include: { grnReceives: true }
+      });
+      if (!po) return res.status(404).json({ error: 'Purchase Order not found' });
+
+      const newStatus = po.status === 'PARTIALLY_RECEIVED' ? 'RECEIVED' : po.status;
+
+      const updated = await prisma.rawMaterialPO.update({
+        where: { id: poId },
+        data: {
+          deliveredStatus: 'FULLY_DELIVERED',
+          status: newStatus
+        }
+      });
+
+      // Audit log
+      const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || 'unknown';
+      await prisma.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'STATUS_UPDATE',
+          tableName: 'RawMaterialPO',
+          recordId: poId,
+          oldValue: { deliveredStatus: po.deliveredStatus, status: po.status },
+          newValue: { deliveredStatus: 'FULLY_DELIVERED', status: newStatus },
+          ip: clientIp,
+        }
+      });
+
+      res.json({ message: 'Purchase Order marked as fully delivered.', po: updated });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 
 // GET /api/grn/receive/:id — Get a specific GRN
 router.get('/receive/:id',
@@ -753,8 +873,11 @@ router.post('/lab-test',
               }
             }
 
-            // Update PO status to APPROVED
-            await tx.rawMaterialPO.update({ where: { id: grn.poId }, data: { status: 'APPROVED' } });
+            // Update PO status to APPROVED if fully delivered, otherwise preserve PARTIALLY_RECEIVED
+            const targetPo = await tx.rawMaterialPO.findUnique({ where: { id: grn.poId } });
+            if (targetPo && (targetPo.deliveredStatus === 'FULLY_DELIVERED' || targetPo.status !== 'PARTIALLY_RECEIVED')) {
+              await tx.rawMaterialPO.update({ where: { id: grn.poId }, data: { status: 'APPROVED' } });
+            }
           }
         }
 

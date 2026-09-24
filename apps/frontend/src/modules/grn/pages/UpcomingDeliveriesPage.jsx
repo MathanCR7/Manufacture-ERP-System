@@ -35,15 +35,29 @@ function GRNStatusPill({ status }) {
   );
 }
 
-function POStatusPill({ hasGrn, grnStatus }) {
-  if (!hasGrn) {
+function POStatusPill({ d }) {
+  if (d.deliveredStatus === 'FULLY_DELIVERED' || d.isFullyDelivered) {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 animate-pulse select-none shadow-sm">
-        <Clock className="w-3 h-3" /> Awaiting Receipt
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-sm select-none">
+        <CheckCircle2 className="w-3 h-3" /> Fully Delivered
       </span>
     );
   }
-  return <GRNStatusPill status={grnStatus} />;
+  if (d.isPartiallyReceived || d.status === 'PARTIALLY_RECEIVED' || (d.totalReceivedQty > 0 && d.pendingQty > 0)) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 shadow-sm select-none animate-pulse">
+        <RefreshCw className="w-3 h-3 text-amber-500" /> Receive Pending ({d.pendingQty} {d.uom?.abbreviation || ''})
+      </span>
+    );
+  }
+  if (!d.hasGrn) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 select-none shadow-sm">
+        <Clock className="w-3 h-3" /> Awaiting Delivery
+      </span>
+    );
+  }
+  return <GRNStatusPill status={d.grnStatus} />;
 }
 
 // QR scan detail modal
@@ -58,9 +72,10 @@ function QRDetailModal({ delivery, onClose }) {
     expectedDelivery: delivery.expectedDelivery,
     paymentStatus: delivery.amount ? `₹${Number(delivery.amount).toLocaleString('en-IN')}` : 'N/A',
     grnStatus: delivery.grnStatus,
-    actualReceivedQty: delivery.actualReceivedQty,
+    actualReceivedQty: delivery.actualReceivedQty || delivery.totalReceivedQty,
+    pendingQty: delivery.pendingQty,
     refundAmount: delivery.refundAmount,
-    stage: delivery.grnStatus ? 'GRN_RECEIVED' : 'PO_RAISED',
+    stage: delivery.isFullyDelivered ? 'FULLY_DELIVERED' : (delivery.totalReceivedQty > 0 ? 'PARTIALLY_RECEIVED' : 'PO_RAISED'),
   });
 
   return (
@@ -84,14 +99,15 @@ function QRDetailModal({ delivery, onClose }) {
             { label: 'PO Number', value: delivery.referenceNo },
             { label: 'Supplier', value: delivery.supplierName || '—' },
             { label: 'Raw Material', value: delivery.name },
-            { label: 'Ordered Qty', value: `${Number(delivery.quantity).toLocaleString()} ${delivery.uom?.abbreviation || ''}` },
+            { label: 'Ordered Qty', value: `${Number(delivery.totalOrderedQty || delivery.quantity).toLocaleString()} ${delivery.uom?.abbreviation || ''}` },
+            { label: 'Total Received', value: `${Number(delivery.totalReceivedQty || 0).toLocaleString()} ${delivery.uom?.abbreviation || ''}` },
+            { label: 'Pending Qty', value: `${Number(delivery.pendingQty || 0).toLocaleString()} ${delivery.uom?.abbreviation || ''}` },
             { label: 'Expected Delivery', value: delivery.expectedDelivery ? format(new Date(delivery.expectedDelivery), 'dd MMM yyyy') : '—' },
             { label: 'Payment Amount', value: `₹${Number(delivery.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
             ...(delivery.hasGrn ? [
-              { label: 'GRN Status', value: delivery.grnStatus?.replace('_', ' ') || '—' },
-              { label: 'Received Qty', value: delivery.actualReceivedQty != null ? `${Number(delivery.actualReceivedQty).toLocaleString()} ${delivery.uom?.abbreviation || ''}` : '—' },
+              { label: 'Latest Status', value: delivery.grnStatus?.replace('_', ' ') || '—' },
               { label: 'Refund Amount', value: delivery.refundAmount != null ? `₹${Number(delivery.refundAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—' },
-              { label: 'Received Date', value: delivery.receivedDate ? format(new Date(delivery.receivedDate), 'dd MMM yyyy') : '—' },
+              { label: 'Latest Delivery Date', value: delivery.receivedDate ? format(new Date(delivery.receivedDate), 'dd MMM yyyy') : '—' },
             ] : []),
           ].map(({ label, value }) => (
             <div key={label} className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
@@ -112,11 +128,20 @@ function QRDetailModal({ delivery, onClose }) {
   );
 }
 
-function DeliveryCard({ d, navigate, onQRView, canReceive }) {
+function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered }) {
+  const isPartiallyReceived = d.isPartiallyReceived || d.status === 'PARTIALLY_RECEIVED' || (d.totalReceivedQty > 0 && d.pendingQty > 0);
+  const isFullyDelivered = d.isFullyDelivered || d.deliveredStatus === 'FULLY_DELIVERED';
+
   return (
     <div className="flex rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm hover:shadow transition-all duration-200 group">
       {/* Side accent color-coded (sleeker) */}
-      <div className={`w-1.5 shrink-0 ${d.hasGrn ? (d.grnStatus === 'LAB_APPROVED' ? 'bg-emerald-500' : d.grnStatus === 'PENDING_LAB' ? 'bg-amber-500' : 'bg-purple-500') : 'bg-indigo-500'}`} />
+      <div className={`w-1.5 shrink-0 ${
+        isFullyDelivered
+          ? 'bg-emerald-500'
+          : isPartiallyReceived
+            ? 'bg-amber-500'
+            : 'bg-indigo-500'
+      }`} />
 
       <div className="flex-1 p-4 min-w-0 flex flex-col justify-between">
         <div>
@@ -125,7 +150,7 @@ function DeliveryCard({ d, navigate, onQRView, canReceive }) {
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs tracking-tight">{d.referenceNo}</span>
-                <POStatusPill hasGrn={d.hasGrn} grnStatus={d.grnStatus} />
+                <POStatusPill d={d} />
               </div>
               {d.items && Array.isArray(d.items) && d.items.length > 1 ? (
                 <div className="mt-2.5 space-y-1.5 bg-slate-50/50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80">
@@ -161,6 +186,30 @@ function DeliveryCard({ d, navigate, onQRView, canReceive }) {
               </p>
             </div>
           </div>
+
+          {/* Multi-Shipment Progress Bar if any deliveries received */}
+          {d.totalReceivedQty > 0 && (
+            <div className="my-2 bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60 text-[11px] space-y-1.5">
+              <div className="flex justify-between items-center text-xs">
+                <span className="text-slate-500 font-medium">Delivery Progress:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200">
+                  {d.totalReceivedQty} / {d.totalOrderedQty} {d.uom?.abbreviation || ''} ({Math.min(100, Math.round((d.totalReceivedQty / (d.totalOrderedQty || 1)) * 100))}%)
+                </span>
+              </div>
+              <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${isFullyDelivered ? 'bg-emerald-500' : 'bg-indigo-600'}`}
+                  style={{ width: `${Math.min(100, (d.totalReceivedQty / (d.totalOrderedQty || 1)) * 100)}%` }} 
+                />
+              </div>
+              <div className="flex justify-between items-center text-[10px] text-slate-400 pt-0.5">
+                <span>{d.receiptCount || 1} shipment{d.receiptCount === 1 ? '' : 's'} logged</span>
+                <span className="font-bold text-amber-600 dark:text-amber-400">
+                  {isFullyDelivered ? '0 pending' : `${d.pendingQty} ${d.uom?.abbreviation || ''} pending`}
+                </span>
+              </div>
+            </div>
+          )}
           
           <div className="text-2xs text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1 my-1 flex-wrap">
             <Calendar className="w-3.5 h-3.5" />
@@ -169,14 +218,14 @@ function DeliveryCard({ d, navigate, onQRView, canReceive }) {
             ) : (
               <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-450 font-black">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>Rcvd: {d.receivedDate ? format(new Date(d.receivedDate), 'dd MMM yyyy') : '—'}</span>
+                <span>Last Rcvd: {d.receivedDate ? format(new Date(d.receivedDate), 'dd MMM yyyy') : '—'}</span>
               </div>
             )}
           </div>
         </div>
 
         {/* Actions bar */}
-        <div className="flex items-center gap-2 pt-3 border-t border-slate-100 dark:border-slate-800 mt-1">
+        <div className="flex items-center gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800 mt-1 flex-wrap">
           <Button
             variant="ghost"
             size="sm"
@@ -197,33 +246,50 @@ function DeliveryCard({ d, navigate, onQRView, canReceive }) {
             <span>QR</span>
           </Button>
 
-          {canReceive && !d.hasGrn ? (
-            <Button
-              size="sm"
-              onClick={() => navigate(`/grn/receive/${d.id}`)}
-              className="h-8 px-3 text-[11px] font-bold gap-1.5 ml-auto bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg active:scale-95 shadow-sm shadow-indigo-500/10 transition-all"
-            >
-              <ClipboardCheck className="w-3.5 h-3.5" /> 
-              <span>Receive</span>
-            </Button>
-          ) : !d.hasGrn ? (
-            <button
-              disabled
-              className="h-8 px-3 text-[11px] font-bold gap-1.5 ml-auto flex items-center justify-center bg-indigo-100 text-black border border-indigo-200 dark:bg-indigo-950/40 dark:text-white dark:border-indigo-900/30 cursor-not-allowed rounded-lg select-none"
-            >
-              <ClipboardCheck className="w-3.5 h-3.5" /> 
-              <span>Receive</span>
-            </button>
-          ) : (
+          {d.grnId && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => navigate(`/grn/view/${d.grnId}`)}
-              className="h-8 px-3 text-[11px] font-bold gap-1 ml-auto text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-900/30 rounded-lg active:scale-95 transition-all"
+              className="h-8 px-2.5 text-[11px] font-bold gap-1 text-slate-600 border-slate-200 hover:bg-slate-50 dark:text-slate-300 dark:border-slate-700 rounded-lg transition-all"
             >
               <ChevronRight className="w-3.5 h-3.5" /> 
-              <span>View GRN</span>
+              <span>GRN</span>
             </Button>
+          )}
+
+          {/* If PO can receive deliveries */}
+          {canReceive && !isFullyDelivered && (
+            <div className="flex items-center gap-1.5 ml-auto">
+              {d.totalReceivedQty > 0 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onMarkFullyDelivered(d.id)}
+                  title="Mark PO as Fully Delivered (Close Order)"
+                  className="h-8 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40 border-emerald-300 rounded-lg"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Mark Done</span>
+                </Button>
+              )}
+
+              <Button
+                size="sm"
+                onClick={() => navigate(`/grn/receive/${d.id}`)}
+                className="h-8 px-3 text-[11px] font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg active:scale-95 shadow-sm shadow-indigo-500/10 transition-all"
+              >
+                <ClipboardCheck className="w-3.5 h-3.5" /> 
+                <span>{d.totalReceivedQty > 0 ? "Receive Next" : "Receive"}</span>
+              </Button>
+            </div>
+          )}
+
+          {/* Completed badge if fully delivered */}
+          {isFullyDelivered && (
+            <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Fulfilled
+            </span>
           )}
         </div>
       </div>
@@ -271,6 +337,18 @@ export default function UpcomingDeliveriesPage() {
     refetchInterval: 30000,
   });
 
+  const handleMarkFullyDelivered = async (poId) => {
+    if (!window.confirm('Are you sure you want to mark this Purchase Order as fully delivered? It will conclude the order and move it to the Delivered tab.')) {
+      return;
+    }
+    try {
+      await api.patch(`/grn/po/${poId}/mark-fully-delivered`);
+      refetch();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to mark PO as fully delivered');
+    }
+  };
+
   // Reset pagination to first page when search filters or sorting change
   useEffect(() => {
     setCurrentPage(1);
@@ -285,9 +363,18 @@ export default function UpcomingDeliveriesPage() {
     { value: 'name_desc', label: 'Alphabet: Z to A' },
   ];
 
-  // Split into upcoming (no GRN) and delivered (has GRN, lab not rejected)
-  const upcoming = deliveries.filter(d => !d.hasGrn);
-  const delivered = deliveries.filter(d => d.hasGrn);
+  // Split into upcoming (pending delivery) and delivered (fully fulfilled)
+  const upcoming = deliveries.filter(d => 
+    d.deliveredStatus !== 'FULLY_DELIVERED' && 
+    !d.isFullyDelivered &&
+    (d.status === 'ORDERED' || d.status === 'PARTIALLY_RECEIVED')
+  );
+  const delivered = deliveries.filter(d => 
+    d.deliveredStatus === 'FULLY_DELIVERED' || 
+    d.isFullyDelivered || 
+    d.status === 'RECEIVED' || 
+    d.status === 'APPROVED'
+  );
 
   const activeList = activeTab === 'upcoming' ? upcoming : delivered;
 
@@ -339,9 +426,9 @@ export default function UpcomingDeliveriesPage() {
       {/* Stats Cards Grid (Tighter & Compact) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
-          { icon: Package, label: 'Total Active POs', value: deliveries.length, color: 'blue' },
-          { icon: Clock, label: 'Awaiting Receipt', value: upcoming.length, color: 'amber' },
-          { icon: CheckCircle2, label: 'GRN Received', value: delivered.length, color: 'emerald' },
+          { icon: Package, label: 'Total Active Orders', value: deliveries.length, color: 'blue' },
+          { icon: Clock, label: 'Pending Deliveries', value: upcoming.length, color: 'amber' },
+          { icon: CheckCircle2, label: 'Fully Delivered', value: delivered.length, color: 'emerald' },
         ].map(({ icon: Icon, label, value, color }) => {
           const colors = STATS_COLORS[color] || STATS_COLORS.blue;
           return (
@@ -443,7 +530,14 @@ export default function UpcomingDeliveriesPage() {
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {paginatedDeliveries.map((d) => (
-              <DeliveryCard key={d.id} d={d} navigate={navigate} onQRView={setQRDelivery} canReceive={canReceive} />
+              <DeliveryCard 
+                key={d.id} 
+                d={d} 
+                navigate={navigate} 
+                onQRView={setQRDelivery} 
+                canReceive={canReceive} 
+                onMarkFullyDelivered={handleMarkFullyDelivered}
+              />
             ))}
           </div>
           
