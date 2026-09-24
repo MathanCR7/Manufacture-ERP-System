@@ -1121,23 +1121,23 @@ export default function ReceiveDeliveryPage() {
                           <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-2.5">
                             {/* Batches Header Strip */}
                             <div className="flex items-center justify-between flex-wrap gap-2">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                                  <Tag className="w-3.5 h-3.5 text-indigo-500" />
+                                  <Package className="w-3.5 h-3.5 text-indigo-500" />
                                   BATCHES ({currentBatches.length} {currentBatches.length === 1 ? 'BATCH' : 'BATCHES'})
                                 </span>
 
                                 {/* Allocation Status Badge */}
                                 {isAllocatedExact ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> All {item.actualReceivedQty} {item.uomLabel} Allocated
+                                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> All {item.actualReceivedQty} {item.uomLabel} Allocated
                                   </span>
                                 ) : isAllocatedExceeded ? (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded-full border border-rose-200 dark:border-rose-800">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2.5 py-0.5 rounded-full border border-rose-200 dark:border-rose-800">
                                     <AlertCircle className="w-3 h-3 text-rose-600" /> Exceeded: {totalAllocated} / {item.actualReceivedQty} {item.uomLabel}
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
                                     <AlertTriangle className="w-3 h-3 text-amber-600" /> Allocated: {totalAllocated} / {item.actualReceivedQty} {item.uomLabel}
                                   </span>
                                 )}
@@ -1147,10 +1147,10 @@ export default function ReceiveDeliveryPage() {
                               <button
                                 type="button"
                                 onClick={() => addBatchToItem(idx)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-indigo-200 dark:border-indigo-800 shadow-2xs transition-colors cursor-pointer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-indigo-200 dark:border-indigo-800 shadow-2xs transition-colors cursor-pointer"
                                 title="Split this item into another batch (e.g. 3 from batch A, 7 from batch B)"
                               >
-                                <Plus className="w-3 h-3 text-indigo-600" />
+                                <Plus className="w-3.5 h-3.5 text-indigo-600" />
                                 + Split / Add Another Batch
                               </button>
                             </div>
@@ -1160,66 +1160,73 @@ export default function ReceiveDeliveryPage() {
                               {currentBatches.map((batch, bIdx) => (
                                 <div
                                   key={batch.id || bIdx}
-                                  className="flex flex-wrap items-center gap-3.5 lg:gap-5 xl:gap-6 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
+                                  className="flex flex-wrap items-center gap-3 lg:gap-4 xl:gap-5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
                                 >
                                   {/* Batch Index Badge */}
-                                  <span className="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 px-2 py-0.5 rounded-md shrink-0">
+                                  <span className="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200/80 dark:border-indigo-800/80 px-2.5 py-0.5 rounded-md shrink-0">
                                     #{bIdx + 1}
                                   </span>
+
+                                  {/* Our Internal Running Batch No (Auto-Generated & LOCKED) */}
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0" title="Our Internal Sequential Batch (Auto & Locked)">Our Batch:</span>
+                                    <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 select-all tracking-wide shrink-0" title="Company running batch sequence (Locked for traceability)">
+                                      {batch.batchNumber || '—'}
+                                    </span>
+                                  </div>
 
                                   {/* Batch Quantity */}
                                   <div className="flex items-center gap-1.5 shrink-0">
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Batch Qty:</span>
-                                    <div className="flex items-center gap-1.5">
-                                      <Input
-                                        type="number"
-                                        min="0"
-                                        step="any"
-                                        value={batch.quantity}
-                                        onChange={(e) => updateBatchField(idx, batch.id, 'quantity', e.target.value)}
-                                        className={`h-7 text-xs font-bold rounded-lg px-2 text-center w-[65px] ${
-                                          isAllocatedExceeded 
-                                            ? 'border-rose-400 bg-rose-50 text-rose-700' 
-                                            : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
-                                        }`}
-                                      />
-                                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase select-none">
-                                        {item.uomLabel}
-                                      </span>
-                                    </div>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="any"
+                                      value={batch.quantity}
+                                      onChange={(e) => updateBatchField(idx, batch.id, 'quantity', e.target.value)}
+                                      className={`h-7 w-20 text-xs font-bold rounded-lg text-center px-2 ${
+                                        isAllocatedExceeded 
+                                          ? 'border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300' 
+                                          : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100'
+                                      }`}
+                                    />
+                                    <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 select-none shrink-0">
+                                      {item.uomLabel}
+                                    </span>
                                   </div>
 
                                   {/* Weight */}
-                                  <div className="flex items-center gap-1.5 shrink-0">
+                                  <div className="flex items-center gap-1.5 min-w-[170px] sm:min-w-[185px] flex-1 max-w-[240px]">
                                     <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
                                     <Input
                                       type="text"
                                       value={batch.weight || ''}
                                       onChange={(e) => updateBatchField(idx, batch.id, 'weight', e.target.value)}
-                                      placeholder="25 kg / 50 kg"
-                                      className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2.5 py-0 w-[135px]"
+                                      placeholder="e.g. 25 kg / 50"
+                                      className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2.5 py-0 w-full"
                                     />
                                   </div>
 
                                   {/* MFG Batch (Manufacturer / Supplier Batch - EDITABLE) */}
-                                  <div className="flex items-center gap-1.5 shrink-0">
+                                  <div className="flex items-center gap-1.5 min-w-[160px] sm:min-w-[175px] flex-1 max-w-[230px]">
                                     <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0" title="Manufacturer Batch No">MFG Batch:</span>
                                     <Input
                                       type="text"
                                       value={batch.mfgBatchNo || ''}
                                       onChange={(e) => updateBatchField(idx, batch.id, 'mfgBatchNo', e.target.value)}
-                                      placeholder="BATCH-01"
-                                      className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2.5 py-0 w-[125px]"
+                                      placeholder="e.g. BATCH-01"
+                                      className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2.5 py-0 w-full"
                                     />
                                   </div>
 
                                   {/* MFG Date */}
-                                  <div className="flex items-center gap-1.5 shrink-0">
+                                  <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
                                     <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
-                                    <div className="w-[135px]">
+                                    <div className="flex-1 min-w-0">
                                       <BatchDateInput
                                         value={batch.mfgDate || ''}
                                         onChange={(val) => updateBatchField(idx, batch.id, 'mfgDate', val)}
@@ -1231,10 +1238,10 @@ export default function ReceiveDeliveryPage() {
                                   </div>
 
                                   {/* Exp Date */}
-                                  <div className="flex items-center gap-1.5 shrink-0">
-                                    <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                  <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
+                                    <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
-                                    <div className="w-[135px]">
+                                    <div className="flex-1 min-w-0">
                                       <BatchDateInput
                                         value={batch.expDate || ''}
                                         onChange={(val) => updateBatchField(idx, batch.id, 'expDate', val)}
