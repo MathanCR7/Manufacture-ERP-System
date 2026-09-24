@@ -35,7 +35,7 @@ router.patch('/po/:id/status',
       if (status === 'RECEIVED') {
         const procResult = await prisma.$transaction(async (tx) => {
           return await receivePOAndProcess({ po: existing, reqUserId: req.user.id, tx });
-        });
+        }, { maxWait: 15000, timeout: 30000 });
         finalStatus = procResult.finalPoStatus || 'RECEIVED';
       } else {
         await prisma.rawMaterialPO.update({
@@ -461,7 +461,7 @@ router.post('/receive',
         }
 
         return { grn: g, pr: pRecord, cumulativeReceivedQty, isFullyReceived, newPoStatus, newDeliveredStatus };
-      });
+      }, { maxWait: 15000, timeout: 30000 });
 
       // Notify
       try {
@@ -697,9 +697,14 @@ router.post('/lab-test',
       if (!grn) return res.status(404).json({ error: 'GRN not found' });
       if (grn.status !== 'PENDING_LAB') return res.status(409).json({ error: 'GRN is not pending lab test' });
 
+      const pendingLowStockAlerts = [];
+
       const labTest = await prisma.$transaction(async (tx) => {
         if (grn.labTest) {
-          // Delete old results and test record
+          // Delete old usages, results and test record to avoid foreign key errors
+          try {
+            await tx.labInventoryUsage.deleteMany({ where: { labTestId: grn.labTest.id } });
+          } catch (_) {}
           await tx.gRNLabTestResult.deleteMany({ where: { labTestId: grn.labTest.id } });
           await tx.gRNLabTest.delete({ where: { id: grn.labTest.id } });
         }
@@ -731,7 +736,7 @@ router.post('/lab-test',
           include: { testResults: true }
         });
 
-        // Update GRN status, stock, inventory batch and PO ONLY if this is NOT a draftbatch
+        // Update GRN status, stock, inventory batch and PO ONLY if this is NOT a draft batch
         if (!data.isDraft) {
           const newGrnStatus = data.overallDecision === 'APPROVED' ? 'LAB_APPROVED' : 
                                data.overallDecision === 'REJECTED' ? 'LAB_REJECTED' : 'LAB_RESAMPLE';
@@ -743,6 +748,8 @@ router.post('/lab-test',
 
           // If approved, update RM stock for each item
           if (data.overallDecision === 'APPROVED') {
+            const allActiveUoms = await tx.uOM.findMany({ where: { isActive: true } });
+
             for (const item of grn.items) {
               // Skip items that were marked labTestRequired === false (already stocked at receipt!)
               if (item.labTestRequired === false) {
@@ -786,21 +793,16 @@ router.post('/lab-test',
 
                 console.log(`[LAB APPROVED] Stock updated for PASSED/EXEMPT item: ${rm.name} +${netQty} → new stock: ${updatedRm.currentStock}`);
 
-                // Check if still at or below alert level → trigger notification
+                // Queue alert if still at or below alert level (executed post-commit)
                 if (Number(updatedRm.currentStock) <= Number(updatedRm.alertLevel)) {
-                  try {
-                    await workflowNotifications.triggerRMLowStockAlert({
-                      rmId: rm.id,
-                      rmName: rm.name,
-                      currentStock: updatedRm.currentStock,
-                      reorderLevel: updatedRm.alertLevel,
-                    });
-                  } catch (e) {
-                    console.error('Low stock notification error:', e.message);
-                  }
+                  pendingLowStockAlerts.push({
+                    rmId: rm.id,
+                    rmName: rm.name,
+                    currentStock: updatedRm.currentStock,
+                    reorderLevel: updatedRm.alertLevel,
+                  });
                 }
               } else {
-                // Log warning — stock NOT updated (no matching RawMaterial found)
                 console.warn(
                   `[LAB APPROVED] WARNING: Could not find RawMaterial to update stock.`,
                   `GRN item rmId="${item.rmId}", rmName="${item.rmName}", PO name="${grn.po?.name}".`,
@@ -836,7 +838,7 @@ router.post('/lab-test',
               if (!existingBatch) {
                 let batchNum = item.batchNumber;
                 if (!batchNum) {
-                  const auto = await getNextBatchForRM(item.rmId, item.rmName);
+                  const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
                   batchNum = auto.batchNumber;
                 }
                 const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
@@ -847,7 +849,10 @@ router.post('/lab-test',
                 const netQty = Math.max(0, Number(item.actualReceivedQty) - Number(item.returnQty || item.rejectedQty || 0));
                 const category = rm ? await tx.rMCategory.findUnique({ where: { id: rm.categoryId } }) : null;
                 const finalExpiry = trResult?.expiryDate ? new Date(trResult.expiryDate) : (item.expiryDate || null);
-                const batchUomId = await resolveBatchUomId(item, rm, grn.po, tx);
+                let batchUomId = await resolveBatchUomId(item, rm, grn.po, tx, allActiveUoms);
+                if (!batchUomId) {
+                  batchUomId = allActiveUoms[0]?.id;
+                }
 
                 await tx.inventoryBatch.create({
                   data: {
@@ -882,7 +887,16 @@ router.post('/lab-test',
         }
 
         return lt;
-      });
+      }, { maxWait: 15000, timeout: 30000 });
+
+      // Run pending low stock alerts outside the transaction
+      for (const alert of pendingLowStockAlerts) {
+        try {
+          await workflowNotifications.triggerRMLowStockAlert(alert);
+        } catch (e) {
+          console.error('Low stock notification error:', e.message);
+        }
+      }
 
       // Notify lab result only if finalized
       if (!data.isDraft) {
@@ -918,6 +932,7 @@ router.post('/lab-test',
 
       res.status(201).json(labTest);
     } catch (error) {
+      console.error('[LAB TEST ROUTE ERROR]:', error);
       if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
       next(error);
     }

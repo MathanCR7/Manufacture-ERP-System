@@ -45,8 +45,11 @@ const isUuid = (value) => {
 
 /**
  * Resolve correct UOM UUID for an item batch based on item details, RM master, and PO.
+ * Supports passing pre-fetched active UOM list to prevent excessive DB queries during transactions.
  */
-async function resolveBatchUomId(item, rm, po, tx = prisma) {
+async function resolveBatchUomId(item, rm, po, tx = prisma, cachedUoms = null) {
+  const uoms = cachedUoms || await tx.uOM.findMany({ where: { isActive: true } });
+
   // 1. Try matching from poItem in po.items
   let poItem = null;
   if (Array.isArray(po?.items)) {
@@ -58,53 +61,46 @@ async function resolveBatchUomId(item, rm, po, tx = prisma) {
     );
   }
 
+  const matchByText = (val) => {
+    if (!val) return null;
+    const rawVal = typeof val === 'object' ? (val.abbreviation || val.name) : val;
+    const trimmed = String(rawVal).trim().toLowerCase();
+    if (!trimmed) return null;
+    return uoms.find(u => {
+      const abbr = (u.abbreviation || '').toLowerCase();
+      const name = (u.name || '').toLowerCase();
+      return abbr === trimmed || name === trimmed ||
+        (trimmed === 'l' && (abbr === 'liter' || abbr === 'litre' || name === 'liter')) ||
+        (trimmed === 'litre' && (abbr === 'liter' || name === 'liter'));
+    });
+  };
+
   // 2. Prioritize looking up UOM by label / abbreviation / unitId from poItem or rm
   const candidateLabel = poItem?.uomLabel || poItem?.uom || item?.uomLabel || rm?.unitId || rm?.consumptionUnit;
-  if (candidateLabel) {
-    const rawVal = typeof candidateLabel === 'object' ? (candidateLabel.abbreviation || candidateLabel.name) : candidateLabel;
-    const trimmed = String(rawVal).trim().toLowerCase();
-    const existingUom = await tx.uOM.findFirst({
-      where: {
-        isActive: true,
-        OR: [
-          { abbreviation: { equals: trimmed, mode: 'insensitive' } },
-          { name: { equals: trimmed, mode: 'insensitive' } },
-          ...(trimmed === 'l' ? [{ abbreviation: { equals: 'liter', mode: 'insensitive' } }] : []),
-          ...(trimmed === 'litre' ? [{ abbreviation: { equals: 'liter', mode: 'insensitive' } }] : [])
-        ]
-      }
-    });
-    if (existingUom) return existingUom.id;
-  }
+  const m1 = matchByText(candidateLabel);
+  if (m1) return m1.id;
 
   // 3. Check if poItem or item has a valid UOM UUID
   const candidateUuid = poItem?.uomId || item?.uomId;
   if (candidateUuid && isUuid(candidateUuid)) {
-    const existing = await tx.uOM.findUnique({ where: { id: candidateUuid } });
+    const existing = uoms.find(u => u.id === candidateUuid);
     if (existing) return existing.id;
   }
 
   // 4. Fallback to rm.unitId if rm is found
   if (rm?.unitId) {
-    const trimmed = String(rm.unitId).trim().toLowerCase();
-    const existingUom = await tx.uOM.findFirst({
-      where: {
-        isActive: true,
-        OR: [
-          { abbreviation: { equals: trimmed, mode: 'insensitive' } },
-          { name: { equals: trimmed, mode: 'insensitive' } }
-        ]
-      }
-    });
-    if (existingUom) return existingUom.id;
+    const m2 = matchByText(rm.unitId);
+    if (m2) return m2.id;
   }
 
   // 5. Fallback to po.uomId if available
-  if (po?.uomId) return po.uomId;
+  if (po?.uomId) {
+    const m3 = uoms.find(u => u.id === po.uomId);
+    if (m3) return m3.id;
+  }
 
   // 6. Fallback to first active UOM
-  const fallbackUom = await tx.uOM.findFirst({ where: { isActive: true } });
-  return fallbackUom?.id || null;
+  return uoms[0]?.id || null;
 }
 
 /**
