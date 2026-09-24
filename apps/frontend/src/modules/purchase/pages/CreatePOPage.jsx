@@ -1640,151 +1640,158 @@ export default function CreatePOPage({ onBack }) {
                             const remainingQty = Math.max(0, Math.round((itemQty - batchAllocated) * 1000) / 1000);
 
                             return (
-                              <div className="space-y-2">
-                                {/* Batches Header Strip */}
-                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-bold text-[11px] uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                                      <Tag className="w-3 h-3 text-indigo-500" />
-                                      Batches ({currentBatches.length} {currentBatches.length === 1 ? 'Batch' : 'Batches'})
-                                    </span>
+                                <div className="space-y-2">
+                                  {/* Batches Header Strip */}
+                                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-bold text-[11px] uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                                        <Package className="w-3.5 h-3.5 text-indigo-500" />
+                                        BATCHES ({currentBatches.length} {currentBatches.length === 1 ? 'BATCH' : 'BATCHES'})
+                                      </span>
 
-                                    {/* Status Badge */}
-                                    {isAllocatedExceeded ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800 animate-pulse">
-                                        <AlertCircle className="w-3 h-3 text-rose-600" />
-                                        Exceeds Ordered Qty by {(batchAllocated - itemQty).toFixed(2)} {item.uomLabel}! (Total: {batchAllocated} / Max: {itemQty})
-                                      </span>
-                                    ) : isFullyAllocated ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
-                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                        All {itemQty} {item.uomLabel} Allocated
-                                      </span>
-                                    ) : (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
-                                        Allocated: {batchAllocated} / {itemQty} {item.uomLabel} ({remainingQty} {item.uomLabel} remaining)
-                                      </span>
-                                    )}
+                                      {/* Status Badge */}
+                                      {isAllocatedExceeded ? (
+                                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 dark:border-rose-800 animate-pulse">
+                                          <AlertCircle className="w-3 h-3 text-rose-600" />
+                                          Exceeds Ordered Qty by {(batchAllocated - itemQty).toFixed(2)} {item.uomLabel}! (Total: {batchAllocated} / Max: {itemQty})
+                                        </span>
+                                      ) : isFullyAllocated ? (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                          All {itemQty} {item.uomLabel} Allocated
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                          Allocated: {batchAllocated} / {itemQty} {item.uomLabel} ({remainingQty} {item.uomLabel} remaining)
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Add / Split Batch Button */}
+                                    <button
+                                      type="button"
+                                      onClick={() => addBatchToItem(item.id)}
+                                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-indigo-200 dark:border-indigo-800 shadow-2xs transition-colors cursor-pointer"
+                                      title="Split this item into another batch (e.g. 3 from batch A, 3 from batch B)"
+                                    >
+                                      <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                                      + Split / Add Another Batch
+                                    </button>
                                   </div>
 
-                                  {/* Add / Split Batch Button */}
-                                  <button
-                                    type="button"
-                                    onClick={() => addBatchToItem(item.id)}
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-indigo-200 dark:border-indigo-800 shadow-2xs transition-colors cursor-pointer"
-                                    title="Split this item into another batch (e.g. 3 from batch A, 3 from batch B)"
-                                  >
-                                    <Plus className="w-3 h-3 text-indigo-600" />
-                                    + Split / Add Another Batch
-                                  </button>
-                                </div>
+                                  {/* Batches Rows */}
+                                  <div className="space-y-2">
+                                    {currentBatches.map((batch, bIdx) => (
+                                      <div
+                                        key={batch.id || bIdx}
+                                        className="flex flex-wrap items-center gap-3 lg:gap-4 xl:gap-5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
+                                      >
+                                        {/* Batch Index Badge */}
+                                        <span className="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200/80 dark:border-indigo-800/80 px-2.5 py-0.5 rounded-md shrink-0">
+                                          #{bIdx + 1}
+                                        </span>
 
-                                {/* Batches Rows */}
-                                <div className="space-y-2">
-                                  {currentBatches.map((batch, bIdx) => (
-                                    <div
-                                      key={batch.id || bIdx}
-                                      className="flex flex-wrap items-center gap-3.5 lg:gap-5 xl:gap-6 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
-                                    >
-                                      {/* Batch Index Badge */}
-                                      <span className="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/80 px-2 py-0.5 rounded-md shrink-0">
-                                        #{bIdx + 1}
-                                      </span>
+                                        {/* Our Internal Running Batch No (Auto-Generated & LOCKED) */}
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0" title="Our Internal Sequential Batch (Auto & Locked)">Our Batch:</span>
+                                          <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 select-all tracking-wide shrink-0" title="Company running batch sequence (Locked for internal traceability)">
+                                            {batch.batchNumber || '—'}
+                                          </span>
+                                        </div>
 
-                                      {/* Batch Quantity */}
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Batch Qty:</span>
-                                        <div className="flex items-center gap-1.5">
+                                        {/* Batch Quantity */}
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Batch Qty:</span>
                                           <Input
                                             type="number"
                                             min="0"
                                             step="any"
                                             value={batch.quantity}
                                             onChange={(e) => updateBatchField(item.id, batch.id, 'quantity', e.target.value)}
-                                            className={`h-7 text-xs font-bold rounded-lg px-2 text-center w-[65px] ${
+                                            className={`h-7 w-20 text-xs font-bold rounded-lg text-center px-2 ${
                                               isAllocatedExceeded 
-                                                ? 'border-rose-400 bg-rose-50 text-rose-700' 
-                                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                                                ? 'border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300' 
+                                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100'
                                             }`}
                                           />
-                                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase select-none">
+                                          <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 select-none shrink-0">
                                             {item.uomLabel}
                                           </span>
                                         </div>
-                                      </div>
 
-                                      {/* Weight */}
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
-                                        <Input
-                                          type="text"
-                                          value={batch.weight || ''}
-                                          onChange={(e) => updateBatchField(item.id, batch.id, 'weight', e.target.value)}
-                                          placeholder="25 kg / 50 kg"
-                                          className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2.5 py-0 w-[135px]"
-                                        />
-                                      </div>
-
-                                      {/* MFG Batch No */}
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Batch:</span>
-                                        <Input
-                                          type="text"
-                                          value={batch.mfgBatchNo || ''}
-                                          onChange={(e) => updateBatchField(item.id, batch.id, 'mfgBatchNo', e.target.value)}
-                                          placeholder="BATCH-01"
-                                          className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2.5 py-0 w-[125px]"
-                                        />
-                                      </div>
-
-                                      {/* MFG Date */}
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
-                                        <div className="w-[135px]">
-                                          <BatchDateInput
-                                            value={batch.mfgDate || ''}
-                                            onChange={(val) => updateBatchField(item.id, batch.id, 'mfgDate', val)}
-                                            placeholder="dd-mm-yyyy"
-                                            title="MFG Date"
-                                            className="h-7"
+                                        {/* Weight */}
+                                        <div className="flex items-center gap-1.5 min-w-[170px] sm:min-w-[185px] flex-1 max-w-[240px]">
+                                          <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
+                                          <Input
+                                            type="text"
+                                            value={batch.weight || ''}
+                                            onChange={(e) => updateBatchField(item.id, batch.id, 'weight', e.target.value)}
+                                            placeholder="e.g. 25 kg / 50"
+                                            className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2.5 py-0 w-full"
                                           />
                                         </div>
-                                      </div>
 
-                                      {/* Exp Date */}
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
-                                        <div className="w-[135px]">
-                                          <BatchDateInput
-                                            value={batch.expDate || ''}
-                                            onChange={(val) => updateBatchField(item.id, batch.id, 'expDate', val)}
-                                            placeholder="dd-mm-yyyy"
-                                            title="Exp Date"
-                                            className="h-7"
+                                        {/* MFG Batch No */}
+                                        <div className="flex items-center gap-1.5 min-w-[160px] sm:min-w-[175px] flex-1 max-w-[230px]">
+                                          <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Batch:</span>
+                                          <Input
+                                            type="text"
+                                            value={batch.mfgBatchNo || ''}
+                                            onChange={(e) => updateBatchField(item.id, batch.id, 'mfgBatchNo', e.target.value)}
+                                            placeholder="e.g. BATCH-01"
+                                            className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2.5 py-0 w-full"
                                           />
                                         </div>
-                                      </div>
 
-                                      {/* Remove Batch Split Button (if > 1 batch) */}
-                                      {currentBatches.length > 1 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => removeBatchFromItem(item.id, batch.id)}
-                                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors shrink-0 cursor-pointer ml-auto"
-                                          title="Remove this batch split"
-                                        >
-                                          <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                      )}
-                                    </div>
-                                  ))}
+                                        {/* MFG Date */}
+                                        <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
+                                          <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
+                                          <div className="flex-1 min-w-0">
+                                            <BatchDateInput
+                                              value={batch.mfgDate || ''}
+                                              onChange={(val) => updateBatchField(item.id, batch.id, 'mfgDate', val)}
+                                              placeholder="dd-mm-yyyy"
+                                              title="MFG Date"
+                                              className="h-7"
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Exp Date */}
+                                        <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
+                                          <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
+                                          <div className="flex-1 min-w-0">
+                                            <BatchDateInput
+                                              value={batch.expDate || ''}
+                                              onChange={(val) => updateBatchField(item.id, batch.id, 'expDate', val)}
+                                              placeholder="dd-mm-yyyy"
+                                              title="Exp Date"
+                                              className="h-7"
+                                            />
+                                          </div>
+                                        </div>
+
+                                        {/* Remove Batch Split Button (if > 1 batch) */}
+                                        {currentBatches.length > 1 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => removeBatchFromItem(item.id, batch.id)}
+                                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors shrink-0 cursor-pointer ml-auto"
+                                            title="Remove this batch split"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
                                 </div>
-                              </div>
-                            );
+                              );
                           })()}
                         </td>
                       </tr>
