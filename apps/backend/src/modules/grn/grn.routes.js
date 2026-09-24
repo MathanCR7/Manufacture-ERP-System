@@ -274,6 +274,49 @@ router.post('/receive',
       const { grn, pr } = await prisma.$transaction(async (tx) => {
         const referenceNo = await generateReferenceNo(tx, 'GRNReceive', 'GRN');
 
+        // Expand multi-batch items so every batch split gets its own traceable item record
+        const expandedItems = [];
+        for (const item of data.items) {
+          if (Array.isArray(item.batches) && item.batches.length > 0) {
+            item.batches.forEach((b, bIdx) => {
+              const bQty = Number(b.quantity ?? b.batchQuantity ?? 0);
+              expandedItems.push({
+                rmId: item.rmId,
+                rmName: item.rmName,
+                expectedQty: bIdx === 0 ? item.expectedQty : 0,
+                actualReceivedQty: bQty,
+                returnQty: bIdx === 0 ? (item.returnQty || item.rejectedQty || 0) : 0,
+                batchNumber: (b.batchNumber || item.batchNumber || '').trim() || null,
+                mfgDate: b.mfgDate ? new Date(b.mfgDate) : (item.mfgDate ? new Date(item.mfgDate) : null),
+                expiryDate: b.expDate ? new Date(b.expDate) : (item.expiryDate ? new Date(item.expiryDate) : null),
+                inspectionStatus: item.inspectionStatus || 'ACCEPTED',
+                coaRequired: !!item.coaRequired,
+                coaNumber: item.coaNumber || null,
+                rejectedQty: bIdx === 0 ? (item.rejectedQty || 0) : 0,
+                rejectionReason: item.rejectionReason || null,
+                labTestRequired: item.labTestRequired !== false,
+              });
+            });
+          } else {
+            expandedItems.push({
+              rmId: item.rmId,
+              rmName: item.rmName,
+              expectedQty: item.expectedQty,
+              actualReceivedQty: item.actualReceivedQty,
+              returnQty: item.returnQty || item.rejectedQty || 0,
+              batchNumber: item.batchNumber || null,
+              mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
+              expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+              inspectionStatus: item.inspectionStatus || 'ACCEPTED',
+              coaRequired: !!item.coaRequired,
+              coaNumber: item.coaNumber || null,
+              rejectedQty: item.rejectedQty || 0,
+              rejectionReason: item.rejectionReason || null,
+              labTestRequired: item.labTestRequired !== false,
+            });
+          }
+        }
+
         const g = await tx.gRNReceive.create({
           data: {
             referenceNo,
@@ -298,21 +341,21 @@ router.post('/receive',
             challanNumber: data.challanNumber || null,
             isShortDelivery: data.items.some(i => Number(i.actualReceivedQty) < Number(i.expectedQty)),
             items: {
-              create: data.items.map(item => ({
+              create: expandedItems.map(item => ({
                 rmId: item.rmId,
                 rmName: item.rmName,
                 expectedQty: item.expectedQty,
                 actualReceivedQty: item.actualReceivedQty,
-                returnQty: item.returnQty || item.rejectedQty || 0,
-                batchNumber: item.batchNumber || null,
-                mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
-                expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
-                inspectionStatus: item.inspectionStatus || 'ACCEPTED',
-                coaRequired: !!item.coaRequired,
-                coaNumber: item.coaNumber || null,
-                rejectedQty: item.rejectedQty || 0,
-                rejectionReason: item.rejectionReason || null,
-                labTestRequired: item.labTestRequired !== false,
+                returnQty: item.returnQty,
+                batchNumber: item.batchNumber,
+                mfgDate: item.mfgDate,
+                expiryDate: item.expiryDate,
+                inspectionStatus: item.inspectionStatus,
+                coaRequired: item.coaRequired,
+                coaNumber: item.coaNumber,
+                rejectedQty: item.rejectedQty,
+                rejectionReason: item.rejectionReason,
+                labTestRequired: item.labTestRequired,
               }))
             }
           },
@@ -320,7 +363,7 @@ router.post('/receive',
         });
 
         // FOR ALL ITEMS THAT ARE LAB TEST EXEMPT: DIRECT INVENTORY UPDATE AT RECEIPT!
-        for (const item of data.items) {
+        for (const item of expandedItems) {
           if (item.labTestRequired === false) {
             const acceptedQty = Math.max(0, Number(item.actualReceivedQty) - Number(item.rejectedQty || item.returnQty || 0));
             if (acceptedQty <= 0) continue;
@@ -831,16 +874,17 @@ router.post('/lab-test',
                 rm = await tx.rawMaterial.findFirst({ where: { name: { equals: grn.po.name, mode: 'insensitive' } } });
               }
 
+              let batchNum = item.batchNumber;
+              if (!batchNum) {
+                const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
+                batchNum = auto.batchNumber;
+              }
+
               const existingBatch = await tx.inventoryBatch.findFirst({
-                where: { grnId: grn.id, rawMaterialId: rm ? rm.id : item.rmId }
+                where: { grnId: grn.id, batchNumber: batchNum }
               });
 
               if (!existingBatch) {
-                let batchNum = item.batchNumber;
-                if (!batchNum) {
-                  const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
-                  batchNum = auto.batchNumber;
-                }
                 const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
                 if (clash) {
                   batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;

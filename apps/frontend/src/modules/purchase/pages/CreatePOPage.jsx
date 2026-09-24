@@ -7,7 +7,7 @@ import {
   CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown, 
   Plus, Minus, AlertTriangle, FileText, CheckCircle2, Package, Tag, Calculator, 
   Info, Trash2, Scale, Building2, CreditCard, ShieldCheck, ArrowRight, Layers,
-  Truck, Calendar, Clock, FlaskConical, GripVertical, AlertCircle
+  Truck, Calendar, Clock, FlaskConical, GripVertical, AlertCircle, Lock
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import Swal from 'sweetalert2';
@@ -396,6 +396,11 @@ export default function CreatePOPage({ onBack }) {
     return null;
   };
 
+  const getInitBatch = (name) => {
+    const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    return `BATCH-${clean || 'RM'}-001`;
+  };
+
   const createItemFromCatalog = (item) => {
     const defaultUom = getDefaultUomForItem(item);
     const uomLabel = (defaultUom ? defaultUom.abbreviation : (item.displayUom || item.unitId || item.consumptionUnit || 'units')).toUpperCase();
@@ -404,6 +409,7 @@ export default function CreatePOPage({ onBack }) {
     const unitPrice = Number(item.ratePerUnit || 0);
     const quantity = 1;
     const initialBatchId = 'batch-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+    const baseBatch = getInitBatch(item.name);
 
     return {
       id: item.id,
@@ -411,6 +417,8 @@ export default function CreatePOPage({ onBack }) {
       name: item.name,
       itemType: item.itemType || 'RAW_MATERIAL',
       category: categoryName,
+      baseBatchNumber: baseBatch,
+      batchNumber: baseBatch,
       weight: '',
       mfgBatchNo: '',
       mfgDate: '',
@@ -418,6 +426,7 @@ export default function CreatePOPage({ onBack }) {
       batches: [
         {
           id: initialBatchId,
+          batchNumber: baseBatch,
           quantity: quantity,
           batchQuantity: quantity,
           weight: '',
@@ -438,6 +447,32 @@ export default function CreatePOPage({ onBack }) {
     };
   };
 
+  const fetchBatchNumberForItem = async (item) => {
+    if (!item?.id) return;
+    try {
+      const codeOrId = item.rmId || item.code || item.id;
+      const res = await api.get(`/grn/next-batch/${encodeURIComponent(codeOrId)}?rmName=${encodeURIComponent(item.name)}`);
+      const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
+      if (generated) {
+        setItems(prev => prev.map(it => {
+          if (it.id !== item.id) return it;
+          const updatedBatches = (it.batches || []).map((b, bi, arr) => ({
+            ...b,
+            batchNumber: arr.length > 1 ? `${generated}-${String.fromCharCode(65 + bi)}` : generated
+          }));
+          return {
+            ...it,
+            baseBatchNumber: generated,
+            batchNumber: updatedBatches[0]?.batchNumber || generated,
+            batches: updatedBatches,
+          };
+        }));
+      }
+    } catch (e) {
+      // Fallback batch number already in place
+    }
+  };
+
   const handleAddRmItem = (rm) => {
     if (!rm) return;
     const exists = items.some(item => item.id === rm.id);
@@ -450,7 +485,9 @@ export default function CreatePOPage({ onBack }) {
       });
       return;
     }
-    setItems(prev => [...prev, createItemFromCatalog(rm)]);
+    const newItem = createItemFromCatalog(rm);
+    setItems(prev => [...prev, newItem]);
+    fetchBatchNumberForItem(newItem);
   };
 
   const handleAddMultipleItems = (newItems) => {
@@ -469,6 +506,7 @@ export default function CreatePOPage({ onBack }) {
 
     if (toAdd.length > 0) {
       setItems(prev => [...prev, ...toAdd]);
+      toAdd.forEach(it => fetchBatchNumberForItem(it));
     }
 
     if (duplicateCount > 0 && toAdd.length === 0) {
@@ -499,8 +537,11 @@ export default function CreatePOPage({ onBack }) {
       // If item only has 1 batch, automatically sync that batch quantity
       let updatedBatches = it.batches;
       if (!Array.isArray(it.batches) || it.batches.length <= 1) {
+        const first = it.batches?.[0] || {};
         updatedBatches = [{
-          ...(it.batches?.[0] || { id: 'batch-' + Date.now() }),
+          ...first,
+          id: first.id || 'batch-' + Date.now(),
+          batchNumber: first.batchNumber || it.batchNumber || getInitBatch(it.name),
           quantity: q,
           batchQuantity: q,
         }];
@@ -523,8 +564,11 @@ export default function CreatePOPage({ onBack }) {
       const p = parseFloat(it.unitPrice) || 0;
       let updatedBatches = it.batches;
       if (!Array.isArray(it.batches) || it.batches.length <= 1) {
+        const first = it.batches?.[0] || {};
         updatedBatches = [{
-          ...(it.batches?.[0] || { id: 'batch-' + Date.now() }),
+          ...first,
+          id: first.id || 'batch-' + Date.now(),
+          batchNumber: first.batchNumber || it.batchNumber || getInitBatch(it.name),
           quantity: updated,
           batchQuantity: updated,
         }];
@@ -573,7 +617,16 @@ export default function CreatePOPage({ onBack }) {
       if (it.id !== itemId) return it;
       const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
         ? it.batches
-        : [{ id: 'b-' + it.id + '-1', quantity: it.quantity || 1, batchQuantity: it.quantity || 1, weight: it.weight || '', mfgBatchNo: it.mfgBatchNo || '', mfgDate: it.mfgDate || '', expDate: it.expDate || '' }];
+        : [{ 
+            id: 'b-' + it.id + '-1', 
+            batchNumber: it.batchNumber || getInitBatch(it.name),
+            quantity: it.quantity || 1, 
+            batchQuantity: it.quantity || 1, 
+            weight: it.weight || '', 
+            mfgBatchNo: it.mfgBatchNo || '', 
+            mfgDate: it.mfgDate || '', 
+            expDate: it.expDate || '' 
+          }];
 
       const updatedBatches = currentBatches.map(b => {
         if (b.id !== batchId) return b;
@@ -604,26 +657,44 @@ export default function CreatePOPage({ onBack }) {
       if (it.id !== itemId) return it;
       const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
         ? it.batches
-        : [{ id: 'b-' + it.id + '-1', quantity: it.quantity || 1, batchQuantity: it.quantity || 1, weight: it.weight || '', mfgBatchNo: it.mfgBatchNo || '', mfgDate: it.mfgDate || '', expDate: it.expDate || '' }];
+        : [{ 
+            id: 'b-' + it.id + '-1', 
+            batchNumber: it.batchNumber || getInitBatch(it.name),
+            quantity: it.quantity || 1, 
+            batchQuantity: it.quantity || 1, 
+            weight: it.weight || '', 
+            mfgBatchNo: it.mfgBatchNo || '', 
+            mfgDate: it.mfgDate || '', 
+            expDate: it.expDate || '' 
+          }];
 
       const currentAlloc = currentBatches.reduce((s, b) => s + (parseFloat(b.quantity ?? b.batchQuantity) || 0), 0);
       const itemQty = parseFloat(it.quantity) || 0;
       const remaining = Math.max(0, Math.round((itemQty - currentAlloc) * 1000) / 1000);
 
+      const baseBatch = (it.baseBatchNumber || it.batchNumber || currentBatches[0]?.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
+
       const newBatch = {
         id: 'b-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+        batchNumber: '',
         quantity: remaining,
         batchQuantity: remaining,
         weight: '',
         mfgBatchNo: '',
-        mfgDate: '',
-        expDate: '',
+        mfgDate: currentBatches[0]?.mfgDate || it.mfgDate || '',
+        expDate: currentBatches[0]?.expDate || it.expDate || '',
       };
 
-      const combined = [...currentBatches, newBatch];
+      const combined = [...currentBatches, newBatch].map((b, bIdx, arr) => ({
+        ...b,
+        batchNumber: arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch
+      }));
+
       const firstBatch = combined[0] || {};
       return {
         ...it,
+        baseBatchNumber: baseBatch,
+        batchNumber: firstBatch.batchNumber || baseBatch,
         batches: combined,
         batchQuantity: firstBatch.batchQuantity || firstBatch.quantity || it.quantity,
         weight: firstBatch.weight || '',
@@ -639,10 +710,19 @@ export default function CreatePOPage({ onBack }) {
       if (it.id !== itemId) return it;
       if (!Array.isArray(it.batches) || it.batches.length <= 1) return it;
       const filtered = it.batches.filter(b => b.id !== batchId);
-      const firstBatch = filtered[0] || {};
+      const baseBatch = (it.baseBatchNumber || it.batchNumber || filtered[0]?.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
+
+      const reindexed = filtered.map((b, bIdx, arr) => ({
+        ...b,
+        batchNumber: arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch
+      }));
+
+      const firstBatch = reindexed[0] || {};
       return {
         ...it,
-        batches: filtered,
+        baseBatchNumber: baseBatch,
+        batchNumber: firstBatch.batchNumber || baseBatch,
+        batches: reindexed,
         weight: firstBatch.weight || '',
         mfgBatchNo: firstBatch.mfgBatchNo || '',
         mfgDate: firstBatch.mfgDate || '',
@@ -1603,6 +1683,21 @@ export default function CreatePOPage({ onBack }) {
                                       <span className="font-bold text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md shrink-0">
                                         #{bIdx + 1}
                                       </span>
+
+                                      {/* Our Internal Running Batch No (Auto-Generated & LOCKED) */}
+                                      <div className="flex items-center gap-1 min-w-[160px]">
+                                        <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0" title="Our Internal Sequential Batch (Auto & Locked)">Our Batch:</span>
+                                        <div className="relative flex items-center flex-1">
+                                          <Input
+                                            type="text"
+                                            value={batch.batchNumber || ''}
+                                            readOnly
+                                            className="h-6 text-[11px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700 cursor-not-allowed px-2 py-0 select-all"
+                                            title="Company running batch sequence (Locked for internal traceability)"
+                                          />
+                                        </div>
+                                      </div>
 
                                       {/* Batch Quantity */}
                                       <div className="flex items-center gap-1 min-w-[125px]">

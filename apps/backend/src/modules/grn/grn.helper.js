@@ -139,20 +139,52 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
   const grnStatus = isAllExempt ? 'LAB_APPROVED' : 'PENDING_LAB';
   const inventoryStatus = isAllExempt ? 'UPLOADED' : 'NOT_UPLOADED';
 
-  const grnItemsData = parsedItems.map(item => ({
-    rmId: item.rmId || item.code || po.rmId,
-    rmName: item.name || item.materialName || po.name,
-    expectedQty: Number(item.quantity || po.quantity || 0),
-    actualReceivedQty: Number(item.quantity || po.quantity || 0),
-    returnQty: 0,
-    batchNumber: item.batchNumber || null,
-    mfgDate: item.mfgDate ? new Date(item.mfgDate) : new Date(),
-    expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
-    inspectionStatus: 'ACCEPTED',
-    coaRequired: false,
-    rejectedQty: 0,
-    labTestRequired: item.labTestRequired !== false,
-  }));
+  const grnItemsData = [];
+  for (const item of parsedItems) {
+    const itemRmId = item.rmId || item.code || po.rmId;
+    const itemRmName = item.name || item.materialName || po.name;
+    const isLabRequired = item.labTestRequired !== false;
+
+    if (Array.isArray(item.batches) && item.batches.length > 0) {
+      item.batches.forEach((b, bIdx) => {
+        const bQty = Number(b.quantity ?? b.batchQuantity ?? 0);
+        if (bQty > 0 || item.batches.length === 1) {
+          grnItemsData.push({
+            rmId: itemRmId,
+            rmName: itemRmName,
+            expectedQty: bIdx === 0 ? Number(item.quantity || bQty) : 0,
+            actualReceivedQty: bQty,
+            batchQuantity: bQty,
+            returnQty: 0,
+            batchNumber: (b.batchNumber || item.batchNumber || '').trim() || null,
+            mfgDate: b.mfgDate ? new Date(b.mfgDate) : (item.mfgDate ? new Date(item.mfgDate) : new Date()),
+            expiryDate: b.expDate ? new Date(b.expDate) : (item.expiryDate ? new Date(item.expiryDate) : (item.expDate ? new Date(item.expDate) : null)),
+            inspectionStatus: 'ACCEPTED',
+            coaRequired: false,
+            rejectedQty: 0,
+            labTestRequired: isLabRequired,
+          });
+        }
+      });
+    } else {
+      const qty = Number(item.quantity || po.quantity || 0);
+      grnItemsData.push({
+        rmId: itemRmId,
+        rmName: itemRmName,
+        expectedQty: qty,
+        actualReceivedQty: qty,
+        batchQuantity: qty,
+        returnQty: 0,
+        batchNumber: (item.batchNumber || '').trim() || null,
+        mfgDate: item.mfgDate ? new Date(item.mfgDate) : new Date(),
+        expiryDate: item.expiryDate ? new Date(item.expiryDate) : (item.expDate ? new Date(item.expDate) : null),
+        inspectionStatus: 'ACCEPTED',
+        coaRequired: false,
+        rejectedQty: 0,
+        labTestRequired: isLabRequired,
+      });
+    }
+  }
 
   let grn = existingGrn;
   if (!grn) {

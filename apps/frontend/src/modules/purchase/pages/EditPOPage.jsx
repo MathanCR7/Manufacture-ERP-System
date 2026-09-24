@@ -246,6 +246,11 @@ export default function EditPOPage({ id: propId, onBack }) {
     return [...rmList, ...nonInvList];
   }, [rawMaterials, nonInventoryItems, lowStockIds]);
 
+  const getInitBatch = (name) => {
+    const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    return `BATCH-${clean || 'RM'}-001`;
+  };
+
   /* ── Initialise form once PO is loaded ── */
   useEffect(() => {
     if (!po) return;
@@ -256,6 +261,7 @@ export default function EditPOPage({ id: propId, onBack }) {
       const initialBatchMfg = po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : '';
       const initialBatchExp = po.expDate ? (typeof po.expDate === 'string' && po.expDate.includes('T') ? po.expDate.split('T')[0] : (po.expiryDate ? (typeof po.expiryDate === 'string' && po.expiryDate.includes('T') ? po.expiryDate.split('T')[0] : po.expiryDate) : '')) : '';
       const initialBatchQty = po.batchQuantity ? parseFloat(po.batchQuantity) : q;
+      const baseBatch = (po.baseBatchNumber || po.batchNumber || getInitBatch(po.name)).replace(/-[A-Z]$/, '');
       initialItems = [{
         id: po.rmId || 'item-1',
         rmId: po.rmId || '',
@@ -268,9 +274,12 @@ export default function EditPOPage({ id: propId, onBack }) {
         mfgDate: initialBatchMfg,
         expDate: initialBatchExp,
         batchQuantity: initialBatchQty,
+        baseBatchNumber: baseBatch,
+        batchNumber: baseBatch,
         batches: [
           {
             id: 'batch-' + (po.rmId || '1') + '-1',
+            batchNumber: baseBatch,
             quantity: initialBatchQty,
             batchQuantity: initialBatchQty,
             weight: po.weight || '',
@@ -294,10 +303,12 @@ export default function EditPOPage({ id: propId, onBack }) {
         const itemMfgBatch = it.mfgBatchNo || (idx === 0 ? po.mfgBatchNo || '' : '');
         const itemMfgDate = it.mfgDate ? (typeof it.mfgDate === 'string' && it.mfgDate.includes('T') ? it.mfgDate.split('T')[0] : it.mfgDate) : (idx === 0 && po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : '');
         const itemExpDate = it.expDate ? (typeof it.expDate === 'string' && it.expDate.includes('T') ? it.expDate.split('T')[0] : it.expDate) : (idx === 0 && (po.expDate || po.expiryDate) ? (typeof (po.expDate || po.expiryDate) === 'string' && (po.expDate || po.expiryDate).includes('T') ? (po.expDate || po.expiryDate).split('T')[0] : (po.expDate || po.expiryDate)) : '');
+        const baseBatch = (it.baseBatchNumber || it.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
 
         const itemBatches = Array.isArray(it.batches) && it.batches.length > 0
-          ? it.batches.map((b, bIdx) => ({
+          ? it.batches.map((b, bIdx, arr) => ({
               id: b.id || 'batch-' + (it.id || idx) + '-' + bIdx,
+              batchNumber: b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch),
               quantity: parseFloat(b.quantity ?? b.batchQuantity) || 0,
               batchQuantity: parseFloat(b.batchQuantity ?? b.quantity) || 0,
               weight: b.weight || '',
@@ -308,6 +319,7 @@ export default function EditPOPage({ id: propId, onBack }) {
           : [
               {
                 id: 'batch-' + (it.id || idx) + '-1',
+                batchNumber: it.batchNumber || baseBatch,
                 quantity: parseFloat(it.batchQuantity ?? (idx === 0 ? po.batchQuantity : null) ?? q) || 1,
                 batchQuantity: parseFloat(it.batchQuantity ?? (idx === 0 ? po.batchQuantity : null) ?? q) || 1,
                 weight: itemWeight,
@@ -319,6 +331,8 @@ export default function EditPOPage({ id: propId, onBack }) {
 
         return {
           ...it,
+          baseBatchNumber: baseBatch,
+          batchNumber: itemBatches[0]?.batchNumber || baseBatch,
           weight: itemWeight,
           mfgBatchNo: itemMfgBatch,
           mfgDate: itemMfgDate,
@@ -400,6 +414,7 @@ export default function EditPOPage({ id: propId, onBack }) {
     const unitPrice = Number(item.ratePerUnit || 0);
     const quantity = 1;
     const initialBatchId = 'batch-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
+    const baseBatch = getInitBatch(item.name);
 
     return {
       id: item.id,
@@ -407,6 +422,8 @@ export default function EditPOPage({ id: propId, onBack }) {
       name: item.name,
       itemType: item.itemType || 'RAW_MATERIAL',
       category: categoryName,
+      baseBatchNumber: baseBatch,
+      batchNumber: baseBatch,
       weight: '',
       mfgBatchNo: '',
       mfgDate: '',
@@ -414,6 +431,7 @@ export default function EditPOPage({ id: propId, onBack }) {
       batches: [
         {
           id: initialBatchId,
+          batchNumber: baseBatch,
           quantity: quantity,
           batchQuantity: quantity,
           weight: '',
@@ -434,6 +452,35 @@ export default function EditPOPage({ id: propId, onBack }) {
     };
   };
 
+  const fetchBatchNumberForItem = async (item) => {
+    if (!item?.id) return;
+    try {
+      const codeOrId = item.rmId || item.code || item.id;
+      const res = await api.get(`/grn/next-batch/${encodeURIComponent(codeOrId)}?rmName=${encodeURIComponent(item.name)}`);
+      const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
+      if (generated) {
+        setForm(prev => ({
+          ...prev,
+          items: (prev.items || []).map(it => {
+            if (it.id !== item.id) return it;
+            const updatedBatches = (it.batches || []).map((b, bi, arr) => ({
+              ...b,
+              batchNumber: arr.length > 1 ? `${generated}-${String.fromCharCode(65 + bi)}` : generated
+            }));
+            return {
+              ...it,
+              baseBatchNumber: generated,
+              batchNumber: updatedBatches[0]?.batchNumber || generated,
+              batches: updatedBatches,
+            };
+          })
+        }));
+      }
+    } catch (e) {
+      // Fallback batch number already in place
+    }
+  };
+
   const handleAddRmItem = (rm) => {
     if (!rm) return;
     const exists = form.items.some(item => item.id === rm.id);
@@ -446,10 +493,12 @@ export default function EditPOPage({ id: propId, onBack }) {
       });
       return;
     }
+    const newItem = createItemFromCatalog(rm);
     setForm(prev => ({
       ...prev,
-      items: [...prev.items, createItemFromCatalog(rm)]
+      items: [...prev.items, newItem]
     }));
+    fetchBatchNumberForItem(newItem);
   };
 
   const handleAddMultipleItems = (newItems) => {
@@ -471,6 +520,7 @@ export default function EditPOPage({ id: propId, onBack }) {
         ...prev,
         items: [...prev.items, ...toAdd]
       }));
+      toAdd.forEach(it => fetchBatchNumberForItem(it));
     }
 
     if (duplicateCount > 0 && toAdd.length === 0) {
@@ -560,8 +610,11 @@ export default function EditPOPage({ id: propId, onBack }) {
         const p = parseFloat(it.unitPrice) || 0;
         let updatedBatches = it.batches;
         if (!Array.isArray(it.batches) || it.batches.length <= 1) {
+          const first = it.batches?.[0] || {};
           updatedBatches = [{
-            ...(it.batches?.[0] || { id: 'batch-' + Date.now() }),
+            ...first,
+            id: first.id || 'batch-' + Date.now(),
+            batchNumber: first.batchNumber || it.batchNumber || getInitBatch(it.name),
             quantity: updated,
             batchQuantity: updated,
           }];
@@ -585,7 +638,16 @@ export default function EditPOPage({ id: propId, onBack }) {
         if (it.id !== itemId) return it;
         const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
           ? it.batches
-          : [{ id: 'b-' + it.id + '-1', quantity: it.quantity || 1, batchQuantity: it.quantity || 1, weight: it.weight || '', mfgBatchNo: it.mfgBatchNo || '', mfgDate: it.mfgDate || '', expDate: it.expDate || '' }];
+          : [{ 
+              id: 'b-' + it.id + '-1', 
+              batchNumber: it.batchNumber || getInitBatch(it.name),
+              quantity: it.quantity || 1, 
+              batchQuantity: it.quantity || 1, 
+              weight: it.weight || '', 
+              mfgBatchNo: it.mfgBatchNo || '', 
+              mfgDate: it.mfgDate || '', 
+              expDate: it.expDate || '' 
+            }];
 
         const updatedBatches = currentBatches.map(b => {
           if (b.id !== batchId) return b;
@@ -619,26 +681,44 @@ export default function EditPOPage({ id: propId, onBack }) {
         if (it.id !== itemId) return it;
         const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
           ? it.batches
-          : [{ id: 'b-' + it.id + '-1', quantity: it.quantity || 1, batchQuantity: it.quantity || 1, weight: it.weight || '', mfgBatchNo: it.mfgBatchNo || '', mfgDate: it.mfgDate || '', expDate: it.expDate || '' }];
+          : [{ 
+              id: 'b-' + it.id + '-1', 
+              batchNumber: it.batchNumber || getInitBatch(it.name),
+              quantity: it.quantity || 1, 
+              batchQuantity: it.quantity || 1, 
+              weight: it.weight || '', 
+              mfgBatchNo: it.mfgBatchNo || '', 
+              mfgDate: it.mfgDate || '', 
+              expDate: it.expDate || '' 
+            }];
 
         const currentAlloc = currentBatches.reduce((s, b) => s + (parseFloat(b.quantity ?? b.batchQuantity) || 0), 0);
         const itemQty = parseFloat(it.quantity) || 0;
         const remaining = Math.max(0, Math.round((itemQty - currentAlloc) * 1000) / 1000);
 
+        const baseBatch = (it.baseBatchNumber || it.batchNumber || currentBatches[0]?.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
+
         const newBatch = {
           id: 'b-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4),
+          batchNumber: '',
           quantity: remaining,
           batchQuantity: remaining,
           weight: '',
           mfgBatchNo: '',
-          mfgDate: '',
-          expDate: '',
+          mfgDate: currentBatches[0]?.mfgDate || it.mfgDate || '',
+          expDate: currentBatches[0]?.expDate || it.expDate || '',
         };
 
-        const combined = [...currentBatches, newBatch];
+        const combined = [...currentBatches, newBatch].map((b, bIdx, arr) => ({
+          ...b,
+          batchNumber: arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch
+        }));
+
         const firstBatch = combined[0] || {};
         return {
           ...it,
+          baseBatchNumber: baseBatch,
+          batchNumber: firstBatch.batchNumber || baseBatch,
           batches: combined,
           batchQuantity: firstBatch.batchQuantity || firstBatch.quantity || it.quantity,
           weight: firstBatch.weight || '',
@@ -657,10 +737,19 @@ export default function EditPOPage({ id: propId, onBack }) {
         if (it.id !== itemId) return it;
         if (!Array.isArray(it.batches) || it.batches.length <= 1) return it;
         const filtered = it.batches.filter(b => b.id !== batchId);
-        const firstBatch = filtered[0] || {};
+        const baseBatch = (it.baseBatchNumber || it.batchNumber || filtered[0]?.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
+
+        const reindexed = filtered.map((b, bIdx, arr) => ({
+          ...b,
+          batchNumber: arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch
+        }));
+
+        const firstBatch = reindexed[0] || {};
         return {
           ...it,
-          batches: filtered,
+          baseBatchNumber: baseBatch,
+          batchNumber: firstBatch.batchNumber || baseBatch,
+          batches: reindexed,
           weight: firstBatch.weight || '',
           mfgBatchNo: firstBatch.mfgBatchNo || '',
           mfgDate: firstBatch.mfgDate || '',
@@ -1617,6 +1706,21 @@ export default function EditPOPage({ id: propId, onBack }) {
                                       <span className="font-bold text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md shrink-0">
                                         #{bIdx + 1}
                                       </span>
+
+                                      {/* Our Internal Running Batch No (Auto-Generated & LOCKED) */}
+                                      <div className="flex items-center gap-1 min-w-[160px]">
+                                        <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0" title="Our Internal Sequential Batch (Auto & Locked)">Our Batch:</span>
+                                        <div className="relative flex items-center flex-1">
+                                          <Input
+                                            type="text"
+                                            value={batch.batchNumber || ''}
+                                            readOnly
+                                            className="h-6 text-[11px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700 cursor-not-allowed px-2 py-0 select-all"
+                                            title="Company running batch sequence (Locked for internal traceability)"
+                                          />
+                                        </div>
+                                      </div>
 
                                       {/* Batch Quantity */}
                                       <div className="flex items-center gap-1 min-w-[125px]">

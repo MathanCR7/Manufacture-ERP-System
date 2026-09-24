@@ -8,12 +8,13 @@ import {
   ArrowLeft, Loader2, QrCode, Package, Truck, AlertTriangle, 
   CheckCircle2, Send, FlaskConical, ShieldCheck, FileText, 
   Calendar, Layers, Check, X, Info, Tag, Sparkles, Building2,
-  ChevronDown, ChevronUp, AlertCircle, FileCheck
+  ChevronDown, ChevronUp, AlertCircle, FileCheck, Lock, Plus, Trash2, Scale, Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import BatchDateInput from '@/modules/purchase/components/BatchDateInput';
 
 function QRDisplay({ text, onDragStart }) {
   const canvasRef = useRef(null);
@@ -133,15 +134,36 @@ export default function ReceiveDeliveryPage() {
         }, 0);
 
         const remainingPendingQty = Math.max(0, totalOrderedQty - prevReceivedQty);
+        const actualReceivedQty = remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty;
 
-        // Extract official PO batch information
-        const firstSubBatch = it.batches && Array.isArray(it.batches) && it.batches.length > 0 ? it.batches[0] : null;
-        const officialBatchNo = firstSubBatch?.batchNo || it.mfgBatchNo || it.batchNo || po.mfgBatchNo;
-        const hasOfficialBatch = Boolean(officialBatchNo && officialBatchNo.trim() !== '');
+        // Extract batches from PO item if present
+        let initialBatches = [];
+        const baseBatch = (it.baseBatchNumber || it.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
+        if (Array.isArray(it.batches) && it.batches.length > 0) {
+          initialBatches = it.batches.map((b, bIdx, arr) => ({
+            id: b.id || `b-${itemIdentifier}-${bIdx + 1}`,
+            batchNumber: b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch),
+            quantity: Number(b.quantity ?? b.batchQuantity ?? (bIdx === 0 ? actualReceivedQty : 0)),
+            batchQuantity: Number(b.batchQuantity ?? b.quantity ?? (bIdx === 0 ? actualReceivedQty : 0)),
+            weight: b.weight || it.weight || '',
+            mfgBatchNo: b.mfgBatchNo || b.batchNo || it.mfgBatchNo || '',
+            mfgDate: toInputDate(b.mfgDate || it.mfgDate || po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
+            expDate: toInputDate(b.expDate || it.expDate || po.expDate) || '',
+          }));
+        } else {
+          initialBatches = [{
+            id: `b-${itemIdentifier}-1`,
+            batchNumber: it.batchNumber || baseBatch,
+            quantity: actualReceivedQty,
+            batchQuantity: actualReceivedQty,
+            weight: it.weight || '',
+            mfgBatchNo: it.mfgBatchNo || it.batchNo || po.mfgBatchNo || '',
+            mfgDate: toInputDate(it.mfgDate || po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
+            expDate: toInputDate(it.expDate || po.expDate) || '',
+          }];
+        }
 
-        const officialMfgDate = toInputDate(firstSubBatch?.mfgDate || it.mfgDate || po.mfgDate);
-        const officialExpDate = toInputDate(firstSubBatch?.expDate || it.expDate || po.expDate);
-        const officialWeight = firstSubBatch?.weight || it.weight || '';
+        const firstBatch = initialBatches[0] || {};
 
         return {
           rmId: itemIdentifier,
@@ -149,15 +171,16 @@ export default function ReceiveDeliveryPage() {
           totalOrderedQty,
           prevReceivedQty,
           remainingPendingQty,
-          expectedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
-          actualReceivedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
+          expectedQty: actualReceivedQty,
+          actualReceivedQty: actualReceivedQty,
           returnQty: 0,
-          batchNumber: hasOfficialBatch ? officialBatchNo.trim().toUpperCase() : getInitBatch(it.name),
-          isBatchLocked: hasOfficialBatch, // Lock batch if provided on PO!
-          mfgDate: officialMfgDate || format(new Date(), 'yyyy-MM-dd'),
-          expiryDate: officialExpDate || '',
-          weight: officialWeight,
-          batches: it.batches || [],
+          baseBatchNumber: baseBatch,
+          batchNumber: firstBatch.batchNumber || baseBatch,
+          mfgBatchNo: firstBatch.mfgBatchNo || '',
+          mfgDate: firstBatch.mfgDate || format(new Date(), 'yyyy-MM-dd'),
+          expiryDate: firstBatch.expDate || '',
+          weight: firstBatch.weight || '',
+          batches: initialBatches,
           inspectionStatus: 'ACCEPTED',
           coaRequired: false,
           coaNumber: '',
@@ -173,8 +196,19 @@ export default function ReceiveDeliveryPage() {
         return sum + (g.items?.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0) || 0);
       }, 0);
       const remainingPendingQty = Math.max(0, totalOrderedQty - prevReceivedQty);
+      const actualReceivedQty = remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty;
+      const baseBatch = (po.baseBatchNumber || po.batchNumber || getInitBatch(po.name)).replace(/-[A-Z]$/, '');
 
-      const hasOfficialBatch = Boolean(po.mfgBatchNo && po.mfgBatchNo.trim() !== '');
+      const initialBatches = [{
+        id: `b-${po.rmId}-1`,
+        batchNumber: po.batchNumber || baseBatch,
+        quantity: actualReceivedQty,
+        batchQuantity: actualReceivedQty,
+        weight: po.weight || '',
+        mfgBatchNo: po.mfgBatchNo || '',
+        mfgDate: toInputDate(po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
+        expDate: toInputDate(po.expDate) || '',
+      }];
 
       rawItems = [{
         rmId: po.rmId,
@@ -182,15 +216,16 @@ export default function ReceiveDeliveryPage() {
         totalOrderedQty,
         prevReceivedQty,
         remainingPendingQty,
-        expectedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
-        actualReceivedQty: remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty,
+        expectedQty: actualReceivedQty,
+        actualReceivedQty: actualReceivedQty,
         returnQty: 0,
-        batchNumber: hasOfficialBatch ? po.mfgBatchNo.trim().toUpperCase() : getInitBatch(po.name),
-        isBatchLocked: hasOfficialBatch,
+        baseBatchNumber: getInitBatch(po.name),
+        batchNumber: getInitBatch(po.name),
+        mfgBatchNo: po.mfgBatchNo || '',
         mfgDate: toInputDate(po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
         expiryDate: toInputDate(po.expDate) || '',
         weight: po.weight || '',
-        batches: [],
+        batches: initialBatches,
         inspectionStatus: 'ACCEPTED',
         coaRequired: false,
         coaNumber: '',
@@ -208,14 +243,25 @@ export default function ReceiveDeliveryPage() {
     const totalReceivingNow = rawItems.reduce((s, i) => s + i.actualReceivedQty, 0);
     setIsFinalDelivery(totalReceivingNow >= totalRemaining);
 
-    // Auto-fetch server sequential batch numbers ONLY for items that DO NOT have an official PO batch
+    // Auto-fetch server sequential batch numbers for each item
     rawItems.forEach(async (item, idx) => {
-      if (item.isBatchLocked) return; // Do not overwrite PO batch!
       try {
         const res = await api.get(`/grn/next-batch/${encodeURIComponent(item.rmId)}?rmName=${encodeURIComponent(item.rmName)}`);
         const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
         if (generated) {
-          setItems(prev => prev.map((it, i) => i === idx && !it.isBatchLocked ? { ...it, batchNumber: generated } : it));
+          setItems(prev => prev.map((it, i) => {
+            if (i !== idx) return it;
+            const updatedBatches = (it.batches || []).map((b, bi, arr) => ({
+              ...b,
+              batchNumber: b.batchNumber || (arr.length > 1 ? `${generated}-${String.fromCharCode(65 + bi)}` : generated)
+            }));
+            return {
+              ...it,
+              baseBatchNumber: it.baseBatchNumber || generated,
+              batchNumber: it.batchNumber || updatedBatches[0]?.batchNumber || generated,
+              batches: updatedBatches,
+            };
+          }));
         }
       } catch (e) {
         console.warn('Auto batch fetch fallback used for', item.rmName);
@@ -237,20 +283,174 @@ export default function ReceiveDeliveryPage() {
     },
   });
 
+  const updateBatchField = (itemIdx, batchId, field, value) => {
+    setItems(prev => prev.map((it, idx) => {
+      if (idx !== itemIdx) return it;
+      const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
+        ? it.batches
+        : [{
+            id: `b-${it.rmId}-1`,
+            batchNumber: it.batchNumber || '',
+            quantity: it.actualReceivedQty || 0,
+            batchQuantity: it.actualReceivedQty || 0,
+            weight: it.weight || '',
+            mfgBatchNo: it.mfgBatchNo || '',
+            mfgDate: it.mfgDate || '',
+            expDate: it.expiryDate || '',
+          }];
+
+      const updatedBatches = currentBatches.map(b => {
+        if (b.id !== batchId) return b;
+        const updated = { ...b, [field]: value };
+        if (field === 'quantity') {
+          updated.batchQuantity = value;
+        } else if (field === 'batchQuantity') {
+          updated.quantity = value;
+        }
+        return updated;
+      });
+
+      const firstBatch = updatedBatches[0] || {};
+      return {
+        ...it,
+        batches: updatedBatches,
+        batchNumber: firstBatch.batchNumber || it.batchNumber,
+        mfgBatchNo: firstBatch.mfgBatchNo || it.mfgBatchNo,
+        mfgDate: firstBatch.mfgDate || it.mfgDate,
+        expiryDate: firstBatch.expDate || it.expiryDate,
+        weight: firstBatch.weight || it.weight,
+      };
+    }));
+  };
+
+  const addBatchToItem = (itemIdx) => {
+    setItems(prev => prev.map((it, idx) => {
+      if (idx !== itemIdx) return it;
+      const currentBatches = Array.isArray(it.batches) && it.batches.length > 0
+        ? it.batches
+        : [{
+            id: `b-${it.rmId}-1`,
+            batchNumber: it.batchNumber || '',
+            quantity: it.actualReceivedQty || 0,
+            batchQuantity: it.actualReceivedQty || 0,
+            weight: it.weight || '',
+            mfgBatchNo: it.mfgBatchNo || '',
+            mfgDate: it.mfgDate || '',
+            expDate: it.expiryDate || '',
+          }];
+
+      const currentAlloc = currentBatches.reduce((s, b) => s + (parseFloat(b.quantity ?? b.batchQuantity) || 0), 0);
+      const itemQty = parseFloat(it.actualReceivedQty) || 0;
+      const remaining = Math.max(0, Math.round((itemQty - currentAlloc) * 1000) / 1000);
+
+      const baseBatch = (it.baseBatchNumber || it.batchNumber || 'BATCH-RM-001').replace(/-[A-Z]$/, '');
+      const nextIndex = currentBatches.length;
+      const charSuffix = String.fromCharCode(65 + nextIndex); // A=0, B=1, C=2
+
+      const normalizedBatches = currentBatches.map((b, i) => {
+        if (i === 0 && !b.batchNumber.includes('-A')) {
+          return { ...b, batchNumber: `${baseBatch}-A` };
+        }
+        return b;
+      });
+
+      const firstBatch = currentBatches[0] || {};
+      const newBatch = {
+        id: `b-${it.rmId}-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        batchNumber: `${baseBatch}-${charSuffix}`,
+        quantity: remaining,
+        batchQuantity: remaining,
+        weight: '',
+        mfgBatchNo: firstBatch.mfgBatchNo || '',
+        mfgDate: firstBatch.mfgDate || it.mfgDate || format(new Date(), 'yyyy-MM-dd'),
+        expDate: firstBatch.expDate || it.expiryDate || '',
+      };
+
+      return {
+        ...it,
+        baseBatchNumber: baseBatch,
+        batches: [...normalizedBatches, newBatch],
+      };
+    }));
+  };
+
+  const removeBatchFromItem = (itemIdx, batchId) => {
+    setItems(prev => prev.map((it, idx) => {
+      if (idx !== itemIdx) return it;
+      const currentBatches = Array.isArray(it.batches) ? it.batches : [];
+      if (currentBatches.length <= 1) return it;
+
+      const remainingBatches = currentBatches.filter(b => b.id !== batchId);
+      const baseBatch = (it.baseBatchNumber || it.batchNumber || 'BATCH-RM-001').replace(/-[A-Z]$/, '');
+
+      let finalBatches = remainingBatches;
+      if (remainingBatches.length === 1) {
+        finalBatches = [{ ...remainingBatches[0], batchNumber: baseBatch }];
+      }
+
+      const firstBatch = finalBatches[0] || {};
+      return {
+        ...it,
+        batches: finalBatches,
+        batchNumber: firstBatch.batchNumber || it.batchNumber,
+        mfgBatchNo: firstBatch.mfgBatchNo || it.mfgBatchNo,
+        mfgDate: firstBatch.mfgDate || it.mfgDate,
+        expiryDate: firstBatch.expDate || it.expiryDate,
+        weight: firstBatch.weight || it.weight,
+      };
+    }));
+  };
+
+  const updateItem = (idx, field, val) => {
+    setItems(prev => {
+      const next = prev.map((it, i) => {
+        if (i !== idx) return it;
+        const updated = { ...it, [field]: val };
+        // If updating actualReceivedQty and there is only 1 batch, automatically sync batch quantity
+        if (field === 'actualReceivedQty') {
+          const numVal = parseFloat(val) || 0;
+          if (Array.isArray(updated.batches) && updated.batches.length === 1) {
+            updated.batches = [{
+              ...updated.batches[0],
+              quantity: numVal,
+              batchQuantity: numVal
+            }];
+          }
+        }
+        return updated;
+      });
+      if (field === 'actualReceivedQty') {
+        const totalRemaining = next.reduce((s, i) => s + (i.remainingPendingQty || i.expectedQty || 0), 0);
+        const totalReceivingNow = next.reduce((s, i) => s + (Number(i.actualReceivedQty) || 0), 0);
+        setIsFinalDelivery(totalReceivingNow >= totalRemaining);
+      }
+      return next;
+    });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setError('');
     if (!po) return;
 
-    // Validate that actual received qty is provided
+    // Validate that actual received qty is provided and batch allocations match
     for (const it of items) {
       if (it.actualReceivedQty < 0 || isNaN(it.actualReceivedQty)) {
         setError(`Please enter a valid received quantity for ${it.rmName}`);
         return;
       }
-      if (!it.batchNumber?.trim()) {
-        setError(`Batch / Lot number is required for ${it.rmName}`);
+      const currentBatches = Array.isArray(it.batches) && it.batches.length > 0 ? it.batches : [];
+      const totalAllocated = currentBatches.reduce((s, b) => s + (parseFloat(b.quantity ?? b.batchQuantity) || 0), 0);
+      const itemQty = parseFloat(it.actualReceivedQty) || 0;
+      if (currentBatches.length > 1 && Math.abs(totalAllocated - itemQty) > 0.001) {
+        setError(`Total batch allocated (${totalAllocated} ${it.uomLabel}) must match received quantity (${itemQty} ${it.uomLabel}) for ${it.rmName}.`);
         return;
+      }
+      for (const b of currentBatches) {
+        if (!b.batchNumber?.trim()) {
+          setError(`Our batch number is required for all batches of ${it.rmName}`);
+          return;
+        }
       }
     }
 
@@ -272,55 +472,51 @@ export default function ReceiveDeliveryPage() {
       invoiceNumber: transportForm.invoiceNumber?.trim() || null,
       invoiceDate: transportForm.invoiceDate ? new Date(transportForm.invoiceDate).toISOString() : null,
 
-      // Items list
-      items: items.map(it => ({
-        rmId: it.rmId,
-        rmName: it.rmName,
-        expectedQty: Number(it.expectedQty),
-        actualReceivedQty: Number(it.actualReceivedQty),
-        returnQty: Number(it.rejectedQty || it.returnQty || 0),
-        batchNumber: it.batchNumber?.trim(),
-        mfgDate: it.mfgDate ? new Date(it.mfgDate).toISOString() : null,
-        expiryDate: it.expiryDate ? new Date(it.expiryDate).toISOString() : null,
-        weight: it.weight || null,
-        batches: it.batches || [],
-        inspectionStatus: it.inspectionStatus || 'ACCEPTED',
-        coaRequired: Boolean(it.coaRequired),
-        coaNumber: it.coaNumber?.trim() || null,
-        rejectedQty: Number(it.rejectedQty || 0),
-        rejectionReason: it.rejectionReason?.trim() || null,
-        labTestRequired: it.labTestRequired !== false,
-      })),
+      // Items list with multi-batch breakdown
+      items: items.map(it => {
+        const currentBatches = Array.isArray(it.batches) && it.batches.length > 0 ? it.batches : [{
+          batchNumber: it.batchNumber?.trim(),
+          quantity: Number(it.actualReceivedQty),
+          batchQuantity: Number(it.actualReceivedQty),
+          weight: it.weight || '',
+          mfgBatchNo: it.mfgBatchNo || '',
+          mfgDate: it.mfgDate ? new Date(it.mfgDate).toISOString() : null,
+          expDate: it.expiryDate ? new Date(it.expiryDate).toISOString() : null,
+        }];
+
+        const firstB = currentBatches[0] || {};
+
+        return {
+          rmId: it.rmId,
+          rmName: it.rmName,
+          expectedQty: Number(it.expectedQty),
+          actualReceivedQty: Number(it.actualReceivedQty),
+          returnQty: Number(it.rejectedQty || it.returnQty || 0),
+          batchNumber: (firstB.batchNumber || it.batchNumber)?.trim(),
+          mfgDate: firstB.mfgDate ? new Date(firstB.mfgDate).toISOString() : (it.mfgDate ? new Date(it.mfgDate).toISOString() : null),
+          expiryDate: firstB.expDate ? new Date(firstB.expDate).toISOString() : (it.expiryDate ? new Date(it.expiryDate).toISOString() : null),
+          weight: firstB.weight || it.weight || null,
+          batches: currentBatches.map(b => ({
+            id: b.id,
+            batchNumber: b.batchNumber,
+            quantity: Number(b.quantity || b.batchQuantity || 0),
+            batchQuantity: Number(b.batchQuantity || b.quantity || 0),
+            weight: b.weight || '',
+            mfgBatchNo: b.mfgBatchNo || '',
+            mfgDate: b.mfgDate ? new Date(b.mfgDate).toISOString() : null,
+            expDate: b.expDate ? new Date(b.expDate).toISOString() : null,
+          })),
+          inspectionStatus: it.inspectionStatus || 'ACCEPTED',
+          coaRequired: Boolean(it.coaRequired),
+          coaNumber: it.coaNumber?.trim() || null,
+          rejectedQty: Number(it.rejectedQty || 0),
+          rejectionReason: it.rejectionReason?.trim() || null,
+          labTestRequired: it.labTestRequired !== false,
+        };
+      }),
     };
 
     mutation.mutate(payload);
-  };
-
-  const updateItem = (idx, field, val) => {
-    setItems(prev => {
-      const next = prev.map((it, i) => i === idx ? { ...it, [field]: val } : it);
-      if (field === 'actualReceivedQty') {
-        const totalRemaining = next.reduce((s, i) => s + (i.remainingPendingQty || i.expectedQty || 0), 0);
-        const totalReceivingNow = next.reduce((s, i) => s + (Number(i.actualReceivedQty) || 0), 0);
-        setIsFinalDelivery(totalReceivingNow >= totalRemaining);
-      }
-      return next;
-    });
-  };
-
-  const handleGenerateBatch = async (idx) => {
-    const item = items[idx];
-    if (!item || item.isBatchLocked) return;
-    try {
-      const res = await api.get(`/grn/next-batch/${encodeURIComponent(item.rmId)}?rmName=${encodeURIComponent(item.rmName)}`);
-      const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
-      if (generated) {
-        updateItem(idx, 'batchNumber', generated);
-      }
-    } catch (e) {
-      const clean = (item.rmName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
-      updateItem(idx, 'batchNumber', `BATCH-${clean || 'RM'}-001`);
-    }
   };
 
   const totalExpected = items.reduce((s, i) => s + (Number(i.expectedQty) || 0), 0);
@@ -820,91 +1016,189 @@ export default function ReceiveDeliveryPage() {
                       </div>
                     </div>
 
-                    {/* Batch Number & Inspection Details Row */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 text-xs pt-1">
-                      {/* Sequential Batch Number */}
-                      <div className="space-y-1.5 lg:col-span-2">
-                        <Label className="text-xs font-medium flex items-center justify-between">
-                          <span className="flex items-center gap-1.5">
-                            Batch / Lot Number *
-                            {item.isBatchLocked && (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">🔒 Locked to PO</span>
-                            )}
-                          </span>
-                          {!item.isBatchLocked && (
-                            <span className="text-[10px] text-indigo-500 font-normal">Auto-sequential per material</span>
-                          )}
-                        </Label>
-                        <div className="flex items-center gap-1.5">
-                          <Input 
-                            placeholder="e.g. BATCH-MILK-001" 
-                            value={item.batchNumber} 
-                            readOnly={item.isBatchLocked}
-                            onChange={e => !item.isBatchLocked && updateItem(idx, 'batchNumber', e.target.value.toUpperCase())}
-                            className={`font-mono font-bold text-xs uppercase flex-1 ${
-                              item.isBatchLocked 
-                                ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 cursor-not-allowed border-slate-300 dark:border-slate-700' 
-                                : ''
-                            }`} 
-                            required 
-                          />
-                          {!item.isBatchLocked && (
-                            <button
-                              type="button"
-                              onClick={() => handleGenerateBatch(idx)}
-                              className="h-9 px-2.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-bold shrink-0 flex items-center gap-1 cursor-pointer transition-colors"
-                              title="Auto-generate or refresh batch number"
-                            >
-                              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                              <span>Auto</span>
-                            </button>
-                          )}
-                        </div>
+                    {/* Multi-Batch & Traceability Allocation Section */}
+                    <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
+                      {(() => {
+                        const currentBatches = Array.isArray(item.batches) && item.batches.length > 0
+                          ? item.batches
+                          : [{
+                              id: `b-${item.rmId}-1`,
+                              batchNumber: item.batchNumber || '',
+                              quantity: item.actualReceivedQty || 0,
+                              batchQuantity: item.actualReceivedQty || 0,
+                              weight: item.weight || '',
+                              mfgBatchNo: item.mfgBatchNo || '',
+                              mfgDate: item.mfgDate || '',
+                              expDate: item.expiryDate || '',
+                            }];
 
-                        {/* Multi-batch split breakdown if provided on PO */}
-                        {item.batches && Array.isArray(item.batches) && item.batches.length > 1 && (
-                          <div className="mt-1.5 space-y-1 bg-slate-50 dark:bg-slate-800/60 p-2 rounded border border-slate-200 dark:border-slate-700 text-[11px]">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase block">PO Batch Allocations:</span>
-                            <div className="flex flex-wrap gap-1.5">
-                              {item.batches.map((b, bi) => (
-                                <span key={bi} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 font-mono text-[10px]">
-                                  <strong>{b.batchNo}</strong>: {b.quantity} {item.uomLabel}
-                                  {b.expDate && <span className="text-slate-400">· Exp: {b.expDate}</span>}
+                        const totalAllocated = currentBatches.reduce((s, b) => s + (parseFloat(b.quantity ?? b.batchQuantity) || 0), 0);
+                        const itemQty = parseFloat(item.actualReceivedQty) || 0;
+                        const isAllocatedExact = Math.abs(totalAllocated - itemQty) < 0.001 && itemQty > 0;
+                        const isAllocatedExceeded = totalAllocated > itemQty;
+
+                        return (
+                          <div className="bg-slate-50/70 dark:bg-slate-800/40 p-3 rounded-xl border border-slate-200/80 dark:border-slate-700/60 space-y-2.5">
+                            {/* Batches Header Strip */}
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                                  <Tag className="w-3.5 h-3.5 text-indigo-500" />
+                                  BATCHES ({currentBatches.length} {currentBatches.length === 1 ? 'BATCH' : 'BATCHES'})
                                 </span>
+
+                                {/* Allocation Status Badge */}
+                                {isAllocatedExact ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                                    <Check className="w-3 h-3 text-emerald-600" /> All {item.actualReceivedQty} {item.uomLabel} Allocated
+                                  </span>
+                                ) : isAllocatedExceeded ? (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 px-2 py-0.5 rounded-full border border-rose-200 dark:border-rose-800">
+                                    <AlertCircle className="w-3 h-3 text-rose-600" /> Exceeded: {totalAllocated} / {item.actualReceivedQty} {item.uomLabel}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                                    <AlertTriangle className="w-3 h-3 text-amber-600" /> Allocated: {totalAllocated} / {item.actualReceivedQty} {item.uomLabel}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Add / Split Batch Button */}
+                              <button
+                                type="button"
+                                onClick={() => addBatchToItem(idx)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 bg-white hover:bg-indigo-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-indigo-200 dark:border-indigo-800 shadow-2xs transition-colors cursor-pointer"
+                                title="Split this item into another batch (e.g. 3 from batch A, 7 from batch B)"
+                              >
+                                <Plus className="w-3 h-3 text-indigo-600" />
+                                + Split / Add Another Batch
+                              </button>
+                            </div>
+
+                            {/* Batches Rows */}
+                            <div className="space-y-2">
+                              {currentBatches.map((batch, bIdx) => (
+                                <div
+                                  key={batch.id || bIdx}
+                                  className="flex flex-wrap items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
+                                >
+                                  {/* Batch Index Badge */}
+                                  <span className="font-bold text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md shrink-0">
+                                    #{bIdx + 1}
+                                  </span>
+
+                                  {/* Our Internal Running Batch No (Auto-Generated & LOCKED) */}
+                                  <div className="flex items-center gap-1 min-w-[170px]">
+                                    <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0" title="Our Internal Sequential Batch (Auto & Locked)">Our Batch:</span>
+                                    <div className="relative flex items-center flex-1">
+                                      <Input
+                                        type="text"
+                                        value={batch.batchNumber || ''}
+                                        readOnly
+                                        className="h-7 text-[11px] font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700 cursor-not-allowed px-2 py-0 select-all"
+                                        title="Company running batch sequence (Locked for traceability)"
+                                      />
+                                    </div>
+                                  </div>
+
+                                  {/* Batch Quantity */}
+                                  <div className="flex items-center gap-1 min-w-[130px]">
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Batch Qty:</span>
+                                    <div className="relative flex items-center">
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        step="any"
+                                        value={batch.quantity}
+                                        onChange={(e) => updateBatchField(idx, batch.id, 'quantity', e.target.value)}
+                                        className={`h-7 text-[11px] font-bold rounded pr-8 ${
+                                          isAllocatedExceeded 
+                                            ? 'border-rose-400 bg-rose-50 text-rose-700' 
+                                            : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                                        }`}
+                                      />
+                                      <span className="absolute right-1 text-[9px] font-semibold text-slate-400 select-none">
+                                        {item.uomLabel}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  {/* Weight */}
+                                  <div className="flex items-center gap-1 min-w-[125px] flex-1">
+                                    <Scale className="w-3 h-3 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Weight:</span>
+                                    <Input
+                                      type="text"
+                                      value={batch.weight || ''}
+                                      onChange={(e) => updateBatchField(idx, batch.id, 'weight', e.target.value)}
+                                      placeholder="e.g. 25 kg / 50"
+                                      className="h-7 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2 py-0"
+                                    />
+                                  </div>
+
+                                  {/* MFG Batch (Manufacturer / Supplier Batch - EDITABLE) */}
+                                  <div className="flex items-center gap-1 min-w-[145px] flex-1">
+                                    <Tag className="w-3 h-3 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0" title="Manufacturer Batch No">MFG Batch:</span>
+                                    <Input
+                                      type="text"
+                                      value={batch.mfgBatchNo || ''}
+                                      onChange={(e) => updateBatchField(idx, batch.id, 'mfgBatchNo', e.target.value)}
+                                      placeholder="e.g. BATCH-01"
+                                      className="h-7 text-[11px] rounded border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2 py-0"
+                                    />
+                                  </div>
+
+                                  {/* MFG Date */}
+                                  <div className="flex items-center gap-1 min-w-[145px] flex-1">
+                                    <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">MFG Date:</span>
+                                    <BatchDateInput
+                                      value={batch.mfgDate || ''}
+                                      onChange={(val) => updateBatchField(idx, batch.id, 'mfgDate', val)}
+                                      placeholder="dd-mm-yyyy"
+                                      title="MFG Date"
+                                    />
+                                  </div>
+
+                                  {/* Exp Date */}
+                                  <div className="flex items-center gap-1 min-w-[145px] flex-1">
+                                    <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
+                                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-[10px] shrink-0">Exp Date:</span>
+                                    <BatchDateInput
+                                      value={batch.expDate || ''}
+                                      onChange={(val) => updateBatchField(idx, batch.id, 'expDate', val)}
+                                      placeholder="dd-mm-yyyy"
+                                      title="Exp Date"
+                                    />
+                                  </div>
+
+                                  {/* Remove Batch Split Button (if > 1 batch) */}
+                                  {currentBatches.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => removeBatchFromItem(idx, batch.id)}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/60 rounded-md transition-colors shrink-0 cursor-pointer"
+                                      title="Remove this batch split"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
                               ))}
                             </div>
                           </div>
-                        )}
-                      </div>
+                        );
+                      })()}
+                    </div>
 
-                      {/* Manufacturing Date */}
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium">Mfg Date</Label>
-                        <Input 
-                          type="date"
-                          value={item.mfgDate} 
-                          onChange={e => updateItem(idx, 'mfgDate', e.target.value)}
-                          className="text-xs" 
-                        />
-                      </div>
-
-
-                      {/* Expiry Date */}
-                      <div className="space-y-1.5">
-                        <Label className="text-xs font-medium">Expiry Date (if applicable)</Label>
-                        <Input 
-                          type="date"
-                          value={item.expiryDate} 
-                          onChange={e => updateItem(idx, 'expiryDate', e.target.value)}
-                          className="text-xs" 
-                        />
-                      </div>
-
-                      {/* Inspection Status */}
+                    {/* Inspection Status & Quality Check Row */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs pt-1">
                       <div className="space-y-1.5">
                         <Label className="text-xs font-medium">Inspection Status</Label>
                         <select 
-                          className="w-full h-9 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-semibold focus:ring-2 focus:ring-indigo-500"
+                          className="w-full h-8 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-1 text-xs font-semibold focus:ring-2 focus:ring-indigo-500"
                           value={item.inspectionStatus}
                           onChange={e => updateItem(idx, 'inspectionStatus', e.target.value)}
                         >
