@@ -127,19 +127,29 @@ export default function ReceiveDeliveryPage() {
         const itemIdentifier = it.rmId || it.code || it.id;
         const totalOrderedQty = Number(it.quantity || 0);
 
-        // Sum previous received qty for this item across prior GRNs
+        // Sum previous received qty for this item across all prior GRNs
         const prevReceivedQty = previousGrns.reduce((sum, g) => {
-          const match = g.items?.find(gi => gi.rmId === itemIdentifier || gi.rmName === it.name);
-          return sum + (Number(match?.actualReceivedQty) || 0);
+          if (!g.items || !Array.isArray(g.items)) return sum;
+          const matches = g.items.filter(gi => 
+            gi.rmId === itemIdentifier || 
+            gi.rmId === it.rmId || 
+            gi.rmId === it.code || 
+            gi.rmId === it.id || 
+            (gi.rmName && it.name && gi.rmName.trim().toLowerCase() === it.name.trim().toLowerCase())
+          );
+          return sum + matches.reduce((s, mi) => s + (Number(mi.actualReceivedQty) || 0), 0);
         }, 0);
 
         const remainingPendingQty = Math.max(0, totalOrderedQty - prevReceivedQty);
-        const actualReceivedQty = remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty;
+        const isCompleted = remainingPendingQty <= 0 && totalOrderedQty > 0;
+        // If already completed in prior deliveries, default today's receipt to 0 (disabled).
+        // If not completed, enable with the remaining pending quantity!
+        const actualReceivedQty = isCompleted ? 0 : remainingPendingQty;
 
         // Extract batches from PO item if present
         let initialBatches = [];
         const baseBatch = (it.baseBatchNumber || it.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
-        if (Array.isArray(it.batches) && it.batches.length > 0) {
+        if (!isCompleted && Array.isArray(it.batches) && it.batches.length > 0) {
           initialBatches = it.batches.map((b, bIdx, arr) => ({
             id: b.id || `b-${itemIdentifier}-${bIdx + 1}`,
             batchNumber: b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch),
@@ -171,7 +181,9 @@ export default function ReceiveDeliveryPage() {
           totalOrderedQty,
           prevReceivedQty,
           remainingPendingQty,
-          expectedQty: actualReceivedQty,
+          isCompleted,
+          allowExtraDelivery: false,
+          expectedQty: remainingPendingQty,
           actualReceivedQty: actualReceivedQty,
           returnQty: 0,
           baseBatchNumber: baseBatch,
@@ -193,10 +205,12 @@ export default function ReceiveDeliveryPage() {
     } else {
       const totalOrderedQty = Number(po.quantity || 0);
       const prevReceivedQty = previousGrns.reduce((sum, g) => {
-        return sum + (g.items?.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0) || 0);
+        if (!g.items || !Array.isArray(g.items)) return sum;
+        return sum + g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0);
       }, 0);
       const remainingPendingQty = Math.max(0, totalOrderedQty - prevReceivedQty);
-      const actualReceivedQty = remainingPendingQty > 0 ? remainingPendingQty : totalOrderedQty;
+      const isCompleted = remainingPendingQty <= 0 && totalOrderedQty > 0;
+      const actualReceivedQty = isCompleted ? 0 : remainingPendingQty;
       const baseBatch = (po.baseBatchNumber || po.batchNumber || getInitBatch(po.name)).replace(/-[A-Z]$/, '');
 
       const initialBatches = [{
@@ -216,7 +230,9 @@ export default function ReceiveDeliveryPage() {
         totalOrderedQty,
         prevReceivedQty,
         remainingPendingQty,
-        expectedQty: actualReceivedQty,
+        isCompleted,
+        allowExtraDelivery: false,
+        expectedQty: remainingPendingQty,
         actualReceivedQty: actualReceivedQty,
         returnQty: 0,
         baseBatchNumber: getInitBatch(po.name),
@@ -238,10 +254,8 @@ export default function ReceiveDeliveryPage() {
 
     setItems(rawItems);
 
-    // Auto-mark final delivery if this delivery fulfills all remaining pending
-    const totalRemaining = rawItems.reduce((s, i) => s + i.remainingPendingQty, 0);
-    const totalReceivingNow = rawItems.reduce((s, i) => s + i.actualReceivedQty, 0);
-    setIsFinalDelivery(totalReceivingNow >= totalRemaining);
+    // Never auto-check final delivery! Fulfillment is strictly user-controlled via the checkbox
+    setIsFinalDelivery(false);
 
     // Auto-fetch server sequential batch numbers for each item
     rawItems.forEach(async (item, idx) => {
@@ -403,7 +417,7 @@ export default function ReceiveDeliveryPage() {
 
   const updateItem = (idx, field, val) => {
     setItems(prev => {
-      const next = prev.map((it, i) => {
+      return prev.map((it, i) => {
         if (i !== idx) return it;
         const updated = { ...it, [field]: val };
         // If updating actualReceivedQty and there is only 1 batch, automatically sync batch quantity
@@ -419,13 +433,26 @@ export default function ReceiveDeliveryPage() {
         }
         return updated;
       });
-      if (field === 'actualReceivedQty') {
-        const totalRemaining = next.reduce((s, i) => s + (i.remainingPendingQty || i.expectedQty || 0), 0);
-        const totalReceivingNow = next.reduce((s, i) => s + (Number(i.actualReceivedQty) || 0), 0);
-        setIsFinalDelivery(totalReceivingNow >= totalRemaining);
-      }
-      return next;
+      // Do not auto-change isFinalDelivery here! Respect user's explicit checkbox choice
     });
+  };
+
+  const toggleExtraDelivery = (idx) => {
+    setItems(prev => prev.map((it, i) => {
+      if (i !== idx) return it;
+      const willAllow = !it.allowExtraDelivery;
+      const newQty = willAllow ? (it.actualReceivedQty || 1) : 0;
+      return {
+        ...it,
+        allowExtraDelivery: willAllow,
+        actualReceivedQty: newQty,
+        batches: (it.batches || []).map(b => ({
+          ...b,
+          quantity: newQty,
+          batchQuantity: newQty,
+        }))
+      };
+    }));
   };
 
   const handleSubmit = (e) => {
@@ -433,15 +460,22 @@ export default function ReceiveDeliveryPage() {
     setError('');
     if (!po) return;
 
-    // Validate that actual received qty is provided and batch allocations match
-    for (const it of items) {
-      if (it.actualReceivedQty < 0 || isNaN(it.actualReceivedQty)) {
+    // Filter items actually being received in this delivery
+    const receivingItems = items.filter(it => (Number(it.actualReceivedQty) || 0) > 0);
+    if (receivingItems.length === 0) {
+      setError('Please enter a received quantity greater than 0 for at least one material in this delivery.');
+      return;
+    }
+
+    // Validate that actual received qty is provided and batch allocations match for receiving items
+    for (const it of receivingItems) {
+      const itemQty = parseFloat(it.actualReceivedQty) || 0;
+      if (itemQty <= 0 || isNaN(itemQty)) {
         setError(`Please enter a valid received quantity for ${it.rmName}`);
         return;
       }
       const currentBatches = Array.isArray(it.batches) && it.batches.length > 0 ? it.batches : [];
       const totalAllocated = currentBatches.reduce((s, b) => s + (parseFloat(b.quantity ?? b.batchQuantity) || 0), 0);
-      const itemQty = parseFloat(it.actualReceivedQty) || 0;
       if (currentBatches.length > 1 && Math.abs(totalAllocated - itemQty) > 0.001) {
         setError(`Total batch allocated (${totalAllocated} ${it.uomLabel}) must match received quantity (${itemQty} ${it.uomLabel}) for ${it.rmName}.`);
         return;
@@ -472,8 +506,8 @@ export default function ReceiveDeliveryPage() {
       invoiceNumber: transportForm.invoiceNumber?.trim() || null,
       invoiceDate: transportForm.invoiceDate ? new Date(transportForm.invoiceDate).toISOString() : null,
 
-      // Items list with multi-batch breakdown
-      items: items.map(it => {
+      // Only send items being received in this delivery
+      items: receivingItems.map(it => {
         const currentBatches = Array.isArray(it.batches) && it.batches.length > 0 ? it.batches : [{
           batchNumber: it.batchNumber?.trim(),
           quantity: Number(it.actualReceivedQty),
@@ -944,8 +978,10 @@ export default function ReceiveDeliveryPage() {
                               {item.prevReceivedQty > 0 && (
                                 <span> • Received Prior: <strong className="text-emerald-600">{item.prevReceivedQty} {item.uomLabel}</strong></span>
                               )}
-                              {item.remainingPendingQty > 0 && (
+                              {item.remainingPendingQty > 0 ? (
                                 <span> • Remaining: <strong className="text-amber-600">{item.remainingPendingQty} {item.uomLabel}</strong></span>
+                              ) : (
+                                <span> • <strong className="text-emerald-600 font-bold">✓ Fully Received in Prior Delivery</strong></span>
                               )}
                             </p>
                           )}
@@ -966,7 +1002,50 @@ export default function ReceiveDeliveryPage() {
                       </div>
                     </div>
 
-                    {/* Quantities Grid & Shortage/Excess Tracker */}
+                    {/* If item was already received in full in prior delivery */}
+                    {item.isCompleted && !item.allowExtraDelivery ? (
+                      <div className="bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                            <CheckCircle2 className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200 flex items-center gap-2">
+                              <span>Already Fully Received</span>
+                              <span className="font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-100/70 dark:bg-emerald-900/40 px-2 py-0.5 rounded text-[11px]">
+                                {item.prevReceivedQty} / {item.totalOrderedQty} {item.uomLabel}
+                              </span>
+                            </p>
+                            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-0.5">
+                              This material has been received in full in prior delivery. Quantity for today's delivery is 0 {item.uomLabel}.
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleExtraDelivery(idx)}
+                          className="text-[11px] font-bold px-3 py-1.5 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-slate-800 cursor-pointer shrink-0 transition-colors shadow-2xs"
+                        >
+                          + Receive Additional Stock
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {item.isCompleted && item.allowExtraDelivery && (
+                          <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 flex items-center justify-between text-xs text-amber-800 dark:text-amber-300">
+                            <span className="font-semibold flex items-center gap-1.5">
+                              <Sparkles className="w-4 h-4 text-amber-600" /> Additional / Over-delivery mode enabled for {item.rmName}.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => toggleExtraDelivery(idx)}
+                              className="font-bold underline text-[11px] hover:text-amber-950 cursor-pointer"
+                            >
+                              Cancel & Re-lock
+                            </button>
+                          </div>
+                        )}
+                        {/* Quantities Grid & Shortage/Excess Tracker */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3.5 rounded-lg border border-slate-200/70 dark:border-slate-700/60 text-xs">
                       <div>
                         <span className="text-slate-500 block">Pending to Receive</span>
@@ -1263,6 +1342,8 @@ export default function ReceiveDeliveryPage() {
                         />
                       </div>
                     </div>
+                  </div>
+                )}
 
                   </div>
                 );

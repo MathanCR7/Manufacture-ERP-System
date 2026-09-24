@@ -154,26 +154,68 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered 
               </div>
               {d.items && Array.isArray(d.items) && d.items.length > 1 ? (
                 <div className="mt-2.5 space-y-1.5 bg-slate-50/50 dark:bg-slate-900/50 p-3 rounded-xl border border-slate-100 dark:border-slate-800/80">
-                  <p className="text-[9px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wider flex items-center gap-1">
-                    <Package className="w-3 h-3" /> Items ({d.items.length})
-                  </p>
-                  <div className="grid grid-cols-1 gap-0.5">
-                    {d.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center text-[11px] py-1 border-b border-dashed border-slate-100 dark:border-slate-800 last:border-b-0">
-                        <span className="font-bold text-slate-700 dark:text-slate-300 truncate max-w-[150px]">{item.name}</span>
-                        <span className="font-mono text-slate-650 dark:text-slate-400 font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded text-[10px] shrink-0 ml-2">
-                          {Number(item.quantity).toLocaleString()} <span className="text-[9px] font-normal text-slate-400">{item.uomLabel || d.uom?.abbreviation || 'units'}</span>
-                        </span>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between">
+                    <p className="text-[9px] uppercase font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wider flex items-center gap-1">
+                      <Package className="w-3 h-3" /> Items ({d.items.length})
+                    </p>
+                    {d.totalReceivedQty > 0 && (
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                        {d.pendingQty > 0 ? `${d.pendingQty} ${d.uom?.abbreviation || ''} Pending` : 'All Quantities Arrived (Pending Final Close)'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 gap-1">
+                    {d.items.map((item, idx) => {
+                      const uom = item.uomLabel || d.uom?.abbreviation || 'units';
+                      const ord = Number(item.orderedQty ?? item.quantity ?? 0);
+                      const rcv = Number(item.receivedQty ?? 0);
+                      const pnd = Number(item.pendingQty ?? Math.max(0, ord - rcv));
+                      const isDone = item.isComplete || (rcv >= ord && ord > 0);
+
+                      return (
+                        <div key={idx} className="flex justify-between items-center text-[11px] py-1 border-b border-dashed border-slate-100 dark:border-slate-800 last:border-b-0">
+                          <div className="flex items-center gap-1.5 truncate max-w-[170px]">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isDone ? 'bg-emerald-500' : (rcv > 0 ? 'bg-amber-500' : 'bg-slate-300')}`} />
+                            <span className="font-bold text-slate-700 dark:text-slate-300 truncate" title={item.name}>{item.name}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                            {d.totalReceivedQty > 0 ? (
+                              <>
+                                <span className="font-mono text-slate-650 dark:text-slate-400 font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded text-[10px]">
+                                  {rcv} / {ord} <span className="text-[9px] font-normal text-slate-400">{uom}</span>
+                                </span>
+                                {isDone ? (
+                                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                                    <CheckCircle2 className="w-3 h-3" /> Received
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400">
+                                    ({pnd} pending)
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <span className="font-mono text-slate-650 dark:text-slate-400 font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded text-[10px]">
+                                {ord} <span className="text-[9px] font-normal text-slate-400">{uom}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ) : (
                 <div className="flex items-baseline gap-1.5 flex-wrap">
                   <span className="font-bold text-slate-800 dark:text-slate-200 text-sm leading-tight truncate max-w-[180px]" title={d.name}>{d.name}</span>
                   <span className="font-mono text-slate-500 font-bold text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-150 dark:border-slate-800 px-1 py-0.2 rounded">
-                    {Number(d.quantity).toLocaleString()} <span className="text-[10px] font-normal text-slate-400">{d.uom?.abbreviation}</span>
+                    {d.totalReceivedQty > 0 
+                      ? `${d.totalReceivedQty} / ${Number(d.quantity).toLocaleString()} ${d.uom?.abbreviation || ''}`
+                      : `${Number(d.quantity).toLocaleString()} ${d.uom?.abbreviation || ''}`}
                   </span>
+                  {d.totalReceivedQty > 0 && d.pendingQty > 0 && (
+                    <span className="text-[10px] font-bold text-amber-600">({d.pendingQty} pending)</span>
+                  )}
                 </div>
               )}
               <div className="text-[11px] text-slate-550 dark:text-slate-400 font-semibold">{d.supplierName}</div>
@@ -364,16 +406,14 @@ export default function UpcomingDeliveriesPage() {
   ];
 
   // Split into upcoming (pending delivery) and delivered (fully fulfilled)
+  // A PO strictly stays in upcoming until the user explicitly checks final delivery or marks it fully delivered
   const upcoming = deliveries.filter(d => 
     d.deliveredStatus !== 'FULLY_DELIVERED' && 
-    !d.isFullyDelivered &&
-    (d.status === 'ORDERED' || d.status === 'PARTIALLY_RECEIVED')
+    !d.isFullyDelivered
   );
   const delivered = deliveries.filter(d => 
     d.deliveredStatus === 'FULLY_DELIVERED' || 
-    d.isFullyDelivered || 
-    d.status === 'RECEIVED' || 
-    d.status === 'APPROVED'
+    d.isFullyDelivered
   );
 
   const activeList = activeTab === 'upcoming' ? upcoming : delivered;

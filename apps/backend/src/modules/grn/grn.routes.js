@@ -132,8 +132,42 @@ router.get('/upcoming',
 
           const totalReceivedQty = grns.reduce((sum, g) => sum + g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0), 0);
           const pendingQty = Math.max(0, totalOrderedQty - totalReceivedQty);
-          const isPartiallyReceived = (po.status === 'PARTIALLY_RECEIVED' || (totalReceivedQty > 0 && pendingQty > 0)) && po.deliveredStatus !== 'FULLY_DELIVERED';
-          const isFullyDelivered = po.deliveredStatus === 'FULLY_DELIVERED' || po.status === 'RECEIVED' || po.status === 'APPROVED' || (totalOrderedQty > 0 && totalReceivedQty >= totalOrderedQty);
+          
+          // Strict user-controlled fulfillment:
+          // A PO is ONLY fully delivered if explicitly marked via deliveredStatus === 'FULLY_DELIVERED'
+          const isFullyDelivered = po.deliveredStatus === 'FULLY_DELIVERED';
+          const isPartiallyReceived = !isFullyDelivered && (po.status === 'PARTIALLY_RECEIVED' || totalReceivedQty > 0);
+
+          // Enrich item list with per-item received and pending quantities across prior shipments
+          const enrichedItems = Array.isArray(po.items) && po.items.length > 0
+            ? po.items.map(it => {
+                const itemIdentifier = it.rmId || it.code || it.id;
+                const itemOrderedQty = Number(it.quantity) || 0;
+                
+                const itemReceivedQty = grns.reduce((sum, g) => {
+                  if (!g.items || !Array.isArray(g.items)) return sum;
+                  const matches = g.items.filter(gi => 
+                    gi.rmId === itemIdentifier || 
+                    gi.rmId === it.rmId || 
+                    gi.rmId === it.code || 
+                    gi.rmId === it.id || 
+                    (gi.rmName && it.name && gi.rmName.trim().toLowerCase() === it.name.trim().toLowerCase())
+                  );
+                  return sum + matches.reduce((s, m) => s + (Number(m.actualReceivedQty) || 0), 0);
+                }, 0);
+
+                const itemPendingQty = Math.max(0, itemOrderedQty - itemReceivedQty);
+                const isComplete = itemReceivedQty >= itemOrderedQty && itemOrderedQty > 0;
+
+                return {
+                  ...it,
+                  orderedQty: itemOrderedQty,
+                  receivedQty: itemReceivedQty,
+                  pendingQty: itemPendingQty,
+                  isComplete,
+                };
+              })
+            : po.items;
 
           return {
             id: po.id,
@@ -170,7 +204,7 @@ router.get('/upcoming',
               receivedQty: g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0),
               isFinalDelivery: g.isFinalDelivery
             })),
-            items: po.items,
+            items: enrichedItems,
             vehicleNumber: po.vehicleNumber || null,
             transporterName: po.transporterName || null,
             transportMode: po.transportMode || 'ROAD',
@@ -448,7 +482,8 @@ router.post('/receive',
           ? po.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
           : (Number(po.quantity) || 0);
 
-        const isFullyReceived = data.isFinalDelivery === true || (totalOrderedQty > 0 && cumulativeReceivedQty >= totalOrderedQty);
+        // Only mark PO as fully delivered if the receiver explicitly checked isFinalDelivery
+        const isFullyReceived = data.isFinalDelivery === true;
         const newPoStatus = isFullyReceived ? (isAllExempt ? 'APPROVED' : 'RECEIVED') : 'PARTIALLY_RECEIVED';
         const newDeliveredStatus = isFullyReceived ? 'FULLY_DELIVERED' : 'PARTIALLY_DELIVERED';
 
@@ -922,9 +957,9 @@ router.post('/lab-test',
               }
             }
 
-            // Update PO status to APPROVED if fully delivered, otherwise preserve PARTIALLY_RECEIVED
+            // Update PO status to APPROVED only if explicitly fully delivered, otherwise preserve PARTIALLY_RECEIVED
             const targetPo = await tx.rawMaterialPO.findUnique({ where: { id: grn.poId } });
-            if (targetPo && (targetPo.deliveredStatus === 'FULLY_DELIVERED' || targetPo.status !== 'PARTIALLY_RECEIVED')) {
+            if (targetPo && targetPo.deliveredStatus === 'FULLY_DELIVERED') {
               await tx.rawMaterialPO.update({ where: { id: grn.poId }, data: { status: 'APPROVED' } });
             }
           }
