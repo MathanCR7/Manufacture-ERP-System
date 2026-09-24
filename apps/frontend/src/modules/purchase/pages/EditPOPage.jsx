@@ -253,7 +253,9 @@ export default function EditPOPage({ id: propId, onBack }) {
     if (!initialItems || !Array.isArray(initialItems) || initialItems.length === 0) {
       const q = Number(po.quantity || 0);
       const sub = Number(po.subtotal && Number(po.subtotal) > 0 ? po.subtotal : (po.amount || 0));
-      const unitP = q > 0 ? sub / q : sub;
+      const initialBatchMfg = po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : '';
+      const initialBatchExp = po.expDate ? (typeof po.expDate === 'string' && po.expDate.includes('T') ? po.expDate.split('T')[0] : (po.expiryDate ? (typeof po.expiryDate === 'string' && po.expiryDate.includes('T') ? po.expiryDate.split('T')[0] : po.expiryDate) : '')) : '';
+      const initialBatchQty = po.batchQuantity ? parseFloat(po.batchQuantity) : q;
       initialItems = [{
         id: po.rmId || 'item-1',
         rmId: po.rmId || '',
@@ -263,8 +265,20 @@ export default function EditPOPage({ id: propId, onBack }) {
         subtotal: Math.round(sub * 100) / 100,
         weight: po.weight || '',
         mfgBatchNo: po.mfgBatchNo || '',
-        mfgDate: po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : '',
-        expDate: po.expDate ? (typeof po.expDate === 'string' && po.expDate.includes('T') ? po.expDate.split('T')[0] : (po.expiryDate ? (typeof po.expiryDate === 'string' && po.expiryDate.includes('T') ? po.expiryDate.split('T')[0] : po.expiryDate) : '')) : '',
+        mfgDate: initialBatchMfg,
+        expDate: initialBatchExp,
+        batchQuantity: initialBatchQty,
+        batches: [
+          {
+            id: 'batch-' + (po.rmId || '1') + '-1',
+            quantity: initialBatchQty,
+            batchQuantity: initialBatchQty,
+            weight: po.weight || '',
+            mfgBatchNo: po.mfgBatchNo || '',
+            mfgDate: initialBatchMfg,
+            expDate: initialBatchExp,
+          }
+        ],
         uomLabel: po.uom ? po.uom.abbreviation : 'units',
         uomId: po.uomId || '',
         gstApplicable: false,
@@ -505,7 +519,7 @@ export default function EditPOPage({ id: propId, onBack }) {
   const updateItemUnitPrice = (id, newPrice) => {
     setForm(prev => ({
       ...prev,
-      items: prev.items.map(it => {
+      items: (prev.items || []).map(it => {
         if (it.id !== id) return it;
         const p = parseFloat(newPrice) || 0;
         const q = parseFloat(it.quantity) || 0;
@@ -522,7 +536,7 @@ export default function EditPOPage({ id: propId, onBack }) {
   const updateItemSubtotal = (id, newSubtotal) => {
     setForm(prev => ({
       ...prev,
-      items: prev.items.map(it => {
+      items: (prev.items || []).map(it => {
         if (it.id !== id) return it;
         const sub = parseFloat(newSubtotal) || 0;
         const q = parseFloat(it.quantity) || 0;
