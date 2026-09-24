@@ -79,6 +79,15 @@ exports.rotateRmId = async (req, res, next) => {
   }
 };
 
+exports.getNextPoReferenceNo = async (req, res, next) => {
+  try {
+    const candidateId = await generateReferenceNo(prisma, 'RawMaterialPO', 'PO');
+    res.json({ candidateId, nextReferenceNo: candidateId, referenceNo: candidateId });
+  } catch (error) {
+    next(error);
+  }
+};
+
 exports.getPOs = async (req, res, next) => {
   try {
     const pos = await prisma.rawMaterialPO.findMany({

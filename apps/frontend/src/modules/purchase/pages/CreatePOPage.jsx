@@ -539,6 +539,34 @@ export default function CreatePOPage({ onBack }) {
     }));
   };
 
+  const updateItemUnitPrice = (id, newPrice) => {
+    setItems(prev => prev.map(it => {
+      if (it.id !== id) return it;
+      const p = parseFloat(newPrice) || 0;
+      const q = parseFloat(it.quantity) || 0;
+      return {
+        ...it,
+        unitPrice: newPrice,
+        subtotal: Math.round(q * p * 100) / 100,
+      };
+    }));
+  };
+
+  // Two-way calculation: entering subtotal calculates unit price = subtotal / quantity
+  const updateItemSubtotal = (id, newSubtotal) => {
+    setItems(prev => prev.map(it => {
+      if (it.id !== id) return it;
+      const sub = parseFloat(newSubtotal) || 0;
+      const q = parseFloat(it.quantity) || 0;
+      const calcUnitPrice = q > 0 ? Math.round((sub / q) * 10000) / 10000 : 0;
+      return {
+        ...it,
+        subtotal: newSubtotal,
+        unitPrice: calcUnitPrice,
+      };
+    }));
+  };
+
   // Multi-Batch Management Functions
   const updateBatchField = (itemId, batchId, field, value) => {
     setItems(prev => prev.map(it => {
@@ -831,7 +859,7 @@ export default function CreatePOPage({ onBack }) {
                 Create Purchase Order
               </h1>
               <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/60 shrink-0">
-                {isRotatingPo ? <Loader2 className="w-3 h-3 animate-spin inline" /> : (poRefData?.candidateId || 'NEW PO')}
+                {isRotatingPo ? <Loader2 className="w-3 h-3 animate-spin inline" /> : (poRefData?.candidateId || poRefData?.nextReferenceNo || poRefData?.referenceNo || 'NEW PO')}
               </span>
             </div>
             <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate hidden sm:block">

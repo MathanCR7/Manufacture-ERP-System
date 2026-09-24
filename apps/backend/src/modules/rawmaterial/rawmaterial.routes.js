@@ -11,6 +11,7 @@ router.post('/rm/id/rotate', authenticateToken, roleMiddleware(['PURCHASE_ACCOUN
 
 router.get('/rm/po', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']), rmController.getPOs);
 router.post('/rm/po', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.createPO);
+router.get('/rm/po/next-reference-id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']), rmController.getNextPoReferenceNo);
 router.get('/rm/po/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']), rmController.getPOById);
 router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.updatePO);
 router.patch('/rm/po/:id/payment', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.updatePOPayment);
