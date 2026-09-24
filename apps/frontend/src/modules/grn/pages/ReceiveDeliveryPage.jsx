@@ -814,11 +814,12 @@ export default function ReceiveDeliveryPage() {
 
               <div className="space-y-1.5">
                 <Label className="text-xs font-medium">Supplier Invoice Date</Label>
-                <Input 
-                  type="date"
-                  value={transportForm.invoiceDate} 
-                  onChange={e => setTransportForm(p => ({ ...p, invoiceDate: e.target.value }))}
-                  className="text-xs"
+                <BatchDateInput 
+                  value={transportForm.invoiceDate || ''} 
+                  onChange={val => setTransportForm(p => ({ ...p, invoiceDate: val }))}
+                  placeholder="dd-mm-yyyy"
+                  title="Supplier Invoice Date"
+                  className="h-9"
                 />
               </div>
             </div>

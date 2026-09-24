@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Search, X, ChevronDown, Check, Plus, Package, Layers, Tag, Scale, CheckSquare, Square } from 'lucide-react';
+import { 
+  Search, X, ChevronDown, Check, Plus, Package, Layers, Tag, Scale, 
+  CheckSquare, Square, AlertTriangle, Sparkles, CheckCircle2 
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export const normalizeForSearch = (str) => (str || '').toLowerCase().replace(/[\s\-_.,/]+/g, '');
@@ -24,6 +27,39 @@ export default React.forwardRef(function SearchableItemSelect(
   const containerRef = useRef(null);
   const searchRef = useRef(null);
 
+  // Keep a ref to the latest props so close handlers always have latest data
+  const propsRef = useRef({ rawMaterials, addedItemIds, onAddMultiple, onChange });
+  useEffect(() => {
+    propsRef.current = { rawMaterials, addedItemIds, onAddMultiple, onChange };
+  }, [rawMaterials, addedItemIds, onAddMultiple, onChange]);
+
+  const insertItems = (itemsToInsert) => {
+    if (!itemsToInsert || itemsToInsert.length === 0) return;
+    const { onAddMultiple: addMulti, onChange: addSingle, addedItemIds: currentAdded } = propsRef.current;
+    const unadded = itemsToInsert.filter(i => !currentAdded.has(i.id));
+    if (unadded.length === 0) return;
+
+    if (addMulti) {
+      addMulti(unadded);
+    } else if (addSingle) {
+      unadded.forEach(item => addSingle(item));
+    }
+  };
+
+  const closeDropdown = () => {
+    // Automatically insert any pending selected items before closing
+    if (selectedIds.size > 0) {
+      const { rawMaterials: allRms, addedItemIds: currentAdded } = propsRef.current;
+      const pending = allRms.filter(i => selectedIds.has(i.id) && !currentAdded.has(i.id));
+      if (pending.length > 0) {
+        insertItems(pending);
+      }
+    }
+    setOpen(false);
+    setSearch('');
+    setSelectedIds(new Set());
+  };
+
   React.useImperativeHandle(ref, () => ({
     openDropdown: () => {
       setOpen(true);
@@ -32,7 +68,7 @@ export default React.forwardRef(function SearchableItemSelect(
         searchRef.current?.focus();
       }, 50);
     },
-    closeDropdown: () => setOpen(false),
+    closeDropdown,
     focusSearch: () => searchRef.current?.focus(),
   }));
 
@@ -77,14 +113,12 @@ export default React.forwardRef(function SearchableItemSelect(
   useEffect(() => {
     const handler = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setOpen(false);
-        setSearch('');
-        setSelectedIds(new Set());
+        closeDropdown();
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  }, [selectedIds]);
 
   useEffect(() => {
     if (open && searchRef.current) {
@@ -92,56 +126,41 @@ export default React.forwardRef(function SearchableItemSelect(
     }
   }, [open]);
 
-  const toggleSelect = (item, e) => {
+  // When clicking an item or its checkbox: AUTO-INSERT IMMEDIATELY!
+  const handleItemClick = (item, e) => {
     if (e) e.stopPropagation();
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (next.has(item.id)) {
-        next.delete(item.id);
-      } else {
+    
+    // If not already in the order table, insert it immediately!
+    if (!addedItemIds.has(item.id)) {
+      insertItems([item]);
+      setSelectedIds(prev => {
+        const next = new Set(prev);
         next.add(item.id);
-      }
-      return next;
-    });
+        return next;
+      });
+    } else {
+      // Already added, update selected indicator
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
+    }
   };
 
   const handleSelectAllFiltered = (e) => {
     if (e) e.preventDefault();
+    const unadded = filtered.filter(i => !addedItemIds.has(i.id));
+    if (unadded.length > 0) {
+      insertItems(unadded);
+    }
     setSelectedIds(new Set(filtered.map(i => i.id)));
   };
 
   const handleClearSelection = (e) => {
     if (e) e.preventDefault();
     setSelectedIds(new Set());
-  };
-
-  const handleAddSelected = (e) => {
-    if (e) e.preventDefault();
-    const itemsToAdd = rawMaterials.filter(i => selectedIds.has(i.id));
-    if (itemsToAdd.length > 0) {
-      if (onAddMultiple) {
-        onAddMultiple(itemsToAdd);
-      } else if (onChange) {
-        itemsToAdd.forEach(item => onChange(item));
-      }
-    }
-    setSelectedIds(new Set());
-    setOpen(false);
-    setSearch('');
-  };
-
-  const handleSingleAdd = (item, e) => {
-    if (e) e.stopPropagation();
-    if (onChange) {
-      onChange(item);
-    } else if (onAddMultiple) {
-      onAddMultiple([item]);
-    }
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      next.delete(item.id);
-      return next;
-    });
   };
 
   const handleClear = (e) => {
@@ -159,7 +178,10 @@ export default React.forwardRef(function SearchableItemSelect(
       {/* Trigger Button */}
       <button
         type="button"
-        onClick={() => setOpen(prev => !prev)}
+        onClick={() => {
+          if (open) closeDropdown();
+          else setOpen(true);
+        }}
         className={`w-full px-2.5 sm:px-3.5 h-10 border rounded-xl text-left flex items-center justify-between transition-all duration-150 shadow-xs ${
           open 
             ? 'bg-indigo-50/70 border-indigo-500 ring-2 ring-indigo-500/15 dark:bg-indigo-950/40 dark:border-indigo-500' 
@@ -223,7 +245,7 @@ export default React.forwardRef(function SearchableItemSelect(
 
       {/* Dropdown Menu */}
       {open && (
-        <div className="absolute z-50 mt-1.5 left-0 right-0 w-full max-w-[calc(100vw-1.5rem)] sm:max-w-none bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150 ring-1 ring-black/5 dark:ring-white/5">
+        <div className="absolute z-50 mt-1.5 left-0 right-0 w-full max-w-[calc(100vw-1.5rem)] sm:max-w-none bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in-50 zoom-in-95 duration-150 ring-1 ring-black/5 dark:ring-white/5">
           {/* Quick Filter Tabs */}
           <div className="flex items-center gap-1.5 p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 overflow-x-auto">
             <button
@@ -291,19 +313,17 @@ export default React.forwardRef(function SearchableItemSelect(
               <span className="font-semibold">
                 {filtered.length} matching item{filtered.length === 1 ? '' : 's'}
               </span>
-              {selectedIds.size > 0 && (
-                <span className="font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.2 rounded border border-indigo-200 dark:border-indigo-800">
-                  {selectedIds.size} checked
-                </span>
-              )}
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                ⚡ Auto-inserts on click/checkbox
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onMouseDown={handleSelectAllFiltered}
-                className="text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+                className="text-indigo-600 dark:text-indigo-400 hover:underline font-bold"
               >
-                Select All
+                + Insert All Filtered
               </button>
               {selectedIds.size > 0 && (
                 <>
@@ -321,7 +341,7 @@ export default React.forwardRef(function SearchableItemSelect(
           </div>
 
           {/* Items List */}
-          <ul className="max-h-60 sm:max-h-72 overflow-y-auto p-1.5 space-y-1">
+          <ul className="max-h-64 sm:max-h-80 overflow-y-auto p-1.5 space-y-1">
             {filtered.length === 0 ? (
               <li className="px-3 py-6 text-xs text-slate-400 flex flex-col items-center justify-center">
                 <Search className="w-5 h-5 text-slate-300 dark:text-slate-600 mb-1" />
@@ -331,21 +351,25 @@ export default React.forwardRef(function SearchableItemSelect(
             ) : (
               filtered.map(rm => {
                 const isNonInv = rm.itemType === 'NON_INVENTORY';
-                const isLow = rm.isLowStock || lowStockIds.has(rm.id);
                 const isAlreadyAdded = addedItemIds.has(rm.id);
-                const isChecked = selectedIds.has(rm.id);
+                const isChecked = isAlreadyAdded || selectedIds.has(rm.id);
                 const categoryName = rm.categoryName || rm.category?.name || (typeof rm.category === 'string' ? rm.category : '') || (isNonInv ? 'Non-Inventory' : 'General');
                 const uomLabel = (rm.displayUom || rm.unitId || rm.consumptionUnit || 'units').toUpperCase();
+
+                // Live Stock calculation
+                const liveStockQty = rm.currentStock != null ? Number(rm.currentStock) : (rm.availableQuantity != null ? Number(rm.availableQuantity) : null);
+                const alertLevel = rm.alertLevel != null ? Number(rm.alertLevel) : null;
+                const isLow = rm.isLowStock || (alertLevel != null && liveStockQty != null && liveStockQty <= alertLevel);
 
                 return (
                   <li
                     key={rm.id}
-                    onMouseDown={(e) => toggleSelect(rm, e)}
-                    className={`px-2.5 sm:px-3 py-2 text-xs cursor-pointer rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 transition-colors ${
-                      isChecked
+                    onMouseDown={(e) => handleItemClick(rm, e)}
+                    className={`px-2.5 sm:px-3 py-2 text-xs cursor-pointer rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-3 transition-all ${
+                      isAlreadyAdded
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/80 shadow-2xs'
+                        : isChecked
                         ? 'bg-indigo-50/90 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800'
-                        : isAlreadyAdded
-                        ? 'bg-slate-50 dark:bg-slate-800/40 opacity-90'
                         : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/90 dark:hover:bg-slate-800/80 border border-transparent'
                     }`}
                   >
@@ -353,17 +377,18 @@ export default React.forwardRef(function SearchableItemSelect(
                     <div className="flex items-center gap-2.5 min-w-0 flex-1">
                       <button
                         type="button"
-                        onClick={(e) => toggleSelect(rm, e)}
+                        onClick={(e) => handleItemClick(rm, e)}
                         className="text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 shrink-0 transition-colors"
+                        title={isAlreadyAdded ? "Item already in order" : "Click to insert item"}
                       >
                         {isChecked ? (
-                          <CheckSquare className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                          <CheckSquare className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                         ) : (
-                          <Square className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+                          <Square className="w-4 h-4 text-slate-300 dark:text-slate-600 hover:text-indigo-500" />
                         )}
                       </button>
 
-                      <div className={`p-1 rounded-md shrink-0 ${
+                      <div className={`p-1 rounded-lg shrink-0 ${
                         isNonInv 
                           ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400' 
                           : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400'
@@ -373,9 +398,10 @@ export default React.forwardRef(function SearchableItemSelect(
 
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`font-semibold text-xs truncate ${isLow ? 'text-rose-700 dark:text-rose-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                          <span className={`font-semibold text-xs truncate ${isLow ? 'text-amber-800 dark:text-amber-300' : 'text-slate-900 dark:text-slate-100'}`}>
                             {rm.name}
                           </span>
+
                           {isNonInv ? (
                             <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-950/80 dark:text-purple-300 font-bold border border-purple-200 dark:border-purple-800 shrink-0">
                               Non-Inventory
@@ -385,17 +411,15 @@ export default React.forwardRef(function SearchableItemSelect(
                               Raw Material
                             </span>
                           )}
-                          {isLow && (
-                            <span className="text-[9px] uppercase tracking-wider px-1.5 py-0.2 rounded-full bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-400 font-bold border border-rose-200 dark:border-rose-800 shrink-0">
-                              Low Stock
-                            </span>
-                          )}
+
                           {isAlreadyAdded && (
-                            <span className="text-[9px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800 shrink-0">
-                              ✓ In Order
+                            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100/90 dark:bg-emerald-950/90 px-1.5 py-0.2 rounded-md border border-emerald-300 dark:border-emerald-700 shrink-0">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                              In Order
                             </span>
                           )}
                         </div>
+
                         {rm.description && rm.description !== rm.name && (
                           <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
                             {rm.description}
@@ -404,36 +428,65 @@ export default React.forwardRef(function SearchableItemSelect(
                       </div>
                     </div>
 
-                    {/* Metadata & Actions */}
+                    {/* Metadata, Live Stock & Actions */}
                     <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:flex-nowrap pl-6 sm:pl-0 justify-between sm:justify-end">
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60">
+                      {/* Live Stock Display Badge */}
+                      {isNonInv ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200/80 dark:border-purple-800/60">
+                          Non-Stock
+                        </span>
+                      ) : liveStockQty != null ? (
+                        liveStockQty <= 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                            🔴 Out of Stock: 0 {uomLabel}
+                          </span>
+                        ) : isLow ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800 animate-pulse">
+                            ⚠️ Stock: {liveStockQty} {uomLabel} (Low)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold font-mono bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800">
+                            📦 Stock: {liveStockQty} {uomLabel}
+                          </span>
+                        )
+                      ) : null}
+
+                      {/* Category */}
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/60">
                         <Tag className="w-2.5 h-2.5 mr-1 opacity-70" />
                         {categoryName}
                       </span>
 
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200/80 dark:border-emerald-800/60 font-mono">
+                      {/* UOM */}
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-mono">
                         <Scale className="w-2.5 h-2.5 mr-1 opacity-70" />
                         {uomLabel}
                       </span>
 
-                      <span className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                      {/* Code */}
+                      <span className="text-[10px] font-mono font-medium text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-md border border-slate-200 dark:border-slate-700">
                         {rm.code}
                       </span>
 
+                      {/* Unit Rate if available */}
                       {rm.ratePerUnit ? (
                         <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-200 font-mono ml-0.5">
                           ₹{Number(rm.ratePerUnit).toFixed(2)}
                         </span>
                       ) : null}
 
-                      {/* Single Add Button */}
+                      {/* Auto-Add Indicator / Button */}
                       <button
                         type="button"
-                        onMouseDown={(e) => handleSingleAdd(rm, e)}
-                        className="ml-1 p-1 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 dark:text-indigo-300 transition-colors"
-                        title="Add this item directly"
+                        onClick={(e) => handleItemClick(rm, e)}
+                        className={`ml-1 p-1 rounded-md transition-colors ${
+                          isAlreadyAdded
+                            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300 cursor-default'
+                            : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 dark:text-indigo-300 cursor-pointer'
+                        }`}
+                        title={isAlreadyAdded ? "In Order" : "Click to insert"}
                       >
-                        <Plus className="w-3.5 h-3.5" />
+                        {isAlreadyAdded ? <Check className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
                       </button>
                     </div>
                   </li>
@@ -442,37 +495,24 @@ export default React.forwardRef(function SearchableItemSelect(
             )}
           </ul>
 
-          {/* Sticky Bottom Actions Bar (for Batch Multi-Select) */}
-          <div className="p-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/90 flex items-center justify-between gap-2">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              {selectedIds.size > 0 ? (
-                <span>
-                  <strong>{selectedIds.size}</strong> item{selectedIds.size === 1 ? '' : 's'} ready to add
-                </span>
-              ) : (
-                <span>Check items to add in bulk, or click <strong>+</strong></span>
-              )}
+          {/* Sticky Bottom Actions Bar */}
+          <div className="p-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-950/90 flex items-center justify-between gap-2">
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              <span>
+                Items insert <strong>instantly</strong> when clicked or checked.
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
               <Button
                 type="button"
-                variant="outline"
                 size="sm"
-                onClick={() => { setOpen(false); setSelectedIds(new Set()); setSearch(''); }}
-                className="h-7 px-2.5 text-xs rounded-lg"
+                onClick={closeDropdown}
+                className="h-7 px-3.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
               >
-                Close
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={selectedIds.size === 0}
-                onClick={handleAddSelected}
-                className="h-7 px-3 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-40 shadow-xs"
-              >
-                <Plus className="w-3.5 h-3.5 mr-1" />
-                Add Selected ({selectedIds.size})
+                <Check className="w-3.5 h-3.5 mr-1" />
+                Done
               </Button>
             </div>
           </div>

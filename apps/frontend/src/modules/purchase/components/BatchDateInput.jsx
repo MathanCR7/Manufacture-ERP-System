@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, AlertCircle } from 'lucide-react';
+import { Calendar, AlertCircle, Copy, Check } from 'lucide-react';
 
 /**
  * Validates and parses multiple date formats:
@@ -116,6 +116,7 @@ export function formatToDisplay(val) {
  * - Supports direct copy-pasting of DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD
  * - Validates date format & real calendar dates (leap years, 28/30/31 day limits)
  * - Offers a built-in calendar picker button
+ * - Quick copy button and click-to-select-all
  * - Stores ISO YYYY-MM-DD for backend/Prisma safety
  */
 export default function BatchDateInput({
@@ -128,6 +129,7 @@ export default function BatchDateInput({
 }) {
   const [textVal, setTextVal] = useState(() => formatToDisplay(value));
   const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
   const hiddenDateRef = useRef(null);
 
   // Sync state if external value changes (and not currently focused on input)
@@ -225,20 +227,31 @@ export default function BatchDateInput({
     }
   };
 
+  const handleCopy = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (textVal) {
+      navigator.clipboard.writeText(textVal);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+
   const currentIso = value ? (validateAndParseDate(value).iso || '') : '';
 
   return (
-    <div className={`relative flex items-center w-full min-w-[125px] ${className}`}>
+    <div className={`relative flex items-center w-full min-w-[115px] ${className}`}>
       <input
         type="text"
         value={textVal}
         onChange={handleChange}
         onPaste={handlePaste}
         onBlur={handleBlur}
+        onFocus={(e) => e.target.select()}
         placeholder={placeholder}
         disabled={disabled}
-        title={error ? `${title}: ${error}` : `${title} (format: dd-mm-yyyy)`}
-        className={`w-full h-6 text-[11px] font-mono font-medium pl-1.5 pr-6 rounded border transition-colors ${
+        title={error ? `${title}: ${error}` : `${title} (format: dd-mm-yyyy, click or Ctrl+C to copy)`}
+        className={`w-full h-full min-h-[26px] text-[11px] font-mono font-medium pl-1.5 pr-11 rounded-lg border transition-colors ${
           error
             ? 'border-rose-400 bg-rose-50/70 text-rose-700 dark:border-rose-600 dark:bg-rose-950/40 dark:text-rose-300 focus:ring-1 focus:ring-rose-500'
             : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200 hover:border-indigo-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20'
@@ -256,21 +269,37 @@ export default function BatchDateInput({
         aria-hidden="true"
       />
 
-      {/* Calendar Icon Button / Error Indicator */}
-      <button
-        type="button"
-        tabIndex={-1}
-        onClick={openCalendar}
-        disabled={disabled}
-        title={error ? error : 'Click to pick from calendar'}
-        className="absolute right-1 p-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-      >
-        {error ? (
-          <AlertCircle className="w-3 h-3 text-rose-500" />
-        ) : (
-          <Calendar className="w-3 h-3" />
+      <div className="absolute right-1 flex items-center gap-0.5">
+        {/* Quick Copy Button */}
+        {textVal && (
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={handleCopy}
+            disabled={disabled}
+            title={copied ? "Copied!" : "Copy date (Ctrl+C)"}
+            className="p-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+          >
+            {copied ? <Check className="w-2.5 h-2.5 text-emerald-600" /> : <Copy className="w-2.5 h-2.5" />}
+          </button>
         )}
-      </button>
+
+        {/* Calendar Icon Button / Error Indicator */}
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={openCalendar}
+          disabled={disabled}
+          title={error ? error : 'Click to pick from calendar'}
+          className="p-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+        >
+          {error ? (
+            <AlertCircle className="w-3 h-3 text-rose-500" />
+          ) : (
+            <Calendar className="w-3 h-3" />
+          )}
+        </button>
+      </div>
     </div>
   );
 }
