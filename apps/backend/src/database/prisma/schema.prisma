@@ -207,6 +207,11 @@ model RawMaterialPO {
   // Payment Details
   paymentStatus    String?             @default("UNPAID")
   paidAmount       Decimal             @default(0.00) @map("paid_amount")
+  paymentMode      String?             @map("payment_mode")
+  paymentRef       String?             @map("payment_ref")
+  paymentImage     String?             @map("payment_image") @db.Text
+  paymentNotes     String?             @map("payment_notes") @db.Text
+  paymentDate      DateTime?           @map("payment_date")
   
   // Delivery & Partial Receipt Tracking
   totalReceivedQty Decimal?            @default(0.00) @map("total_received_qty")

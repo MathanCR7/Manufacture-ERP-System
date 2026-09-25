@@ -4,6 +4,7 @@ const { generateRmId } = require('../../utils/rmIdGenerator');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 const workflowNotifications = require('../notifications/workflow.notifications');
 const { receivePOAndProcess } = require('../grn/grn.helper');
+const { savePaymentImageToDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
 
 const isUuid = (value) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -130,6 +131,11 @@ exports.getPOs = async (req, res, next) => {
       expDate: po.expDate,
       paymentStatus: po.paymentStatus || 'UNPAID',
       paidAmount: parseFloat(po.paidAmount || 0),
+      paymentMode: po.paymentMode || null,
+      paymentRef: po.paymentRef || null,
+      paymentImage: po.paymentImage || null,
+      paymentNotes: po.paymentNotes || null,
+      paymentDate: po.paymentDate || null,
       supplierInvoiceNo: po.supplierInvoiceNo,
       supplierInvoiceDate: po.supplierInvoiceDate,
       transportMode: po.transportMode || 'ROAD',
@@ -147,14 +153,19 @@ exports.getPOs = async (req, res, next) => {
 };
 
 const updatePOPaymentSchema = z.object({
-  paymentStatus: z.enum(['UNPAID', 'PARTIALLY_PAID', 'PAID']),
-  paidAmount: z.coerce.number().nonnegative().optional()
+  paymentStatus: z.string().trim().optional(),
+  paidAmount: z.coerce.number().nonnegative().optional(),
+  paymentMode: z.string().trim().nullable().optional(),
+  paymentRef: z.string().trim().nullable().optional(),
+  paymentImage: z.string().trim().nullable().optional(),
+  paymentNotes: z.string().trim().nullable().optional(),
+  paymentDate: z.string().nullable().optional(),
 });
 
 exports.updatePOPayment = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { paymentStatus, paidAmount } = updatePOPaymentSchema.parse(req.body);
+    const { paymentStatus, paidAmount, paymentMode, paymentRef, paymentImage, paymentNotes, paymentDate } = updatePOPaymentSchema.parse(req.body);
 
     const po = await prisma.rawMaterialPO.findUnique({ where: { id } });
     if (!po) {
@@ -164,18 +175,53 @@ exports.updatePOPayment = async (req, res, next) => {
     const totalAmount = Number(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount);
     let finalPaidAmount = paidAmount !== undefined ? Number(paidAmount) : Number(po.paidAmount || 0);
 
-    if (paymentStatus === 'PAID') {
-      finalPaidAmount = totalAmount;
-    } else if (paymentStatus === 'UNPAID') {
-      finalPaidAmount = 0;
+    let resolvedStatus = paymentStatus;
+    if (resolvedStatus) {
+      const upper = resolvedStatus.toUpperCase();
+      if (upper === 'PENDING' || upper === 'DRAFT' || upper === 'DUE') resolvedStatus = 'UNPAID';
+      else if (upper === 'PARTIAL') resolvedStatus = 'PARTIALLY_PAID';
+      else if (upper === 'PAID') resolvedStatus = 'PAID';
+      else if (upper === 'UNPAID') resolvedStatus = 'UNPAID';
+      else resolvedStatus = upper;
+    }
+
+    if (finalPaidAmount === 0 && (!resolvedStatus || resolvedStatus === 'PARTIALLY_PAID')) {
+      resolvedStatus = 'UNPAID';
+    } else if (finalPaidAmount >= totalAmount && totalAmount > 0) {
+      resolvedStatus = 'PAID';
+    } else if (finalPaidAmount > 0 && finalPaidAmount < totalAmount) {
+      resolvedStatus = 'PARTIALLY_PAID';
+    } else if (!resolvedStatus) {
+      resolvedStatus = 'UNPAID';
+    }
+
+    const updateData = {
+      paymentStatus: resolvedStatus,
+      paidAmount: finalPaidAmount
+    };
+
+    if (paymentMode !== undefined) updateData.paymentMode = paymentMode || null;
+    if (paymentRef !== undefined) updateData.paymentRef = paymentRef || null;
+    if (paymentImage !== undefined) {
+      if (paymentImage) {
+        updateData.paymentImage = savePaymentImageToDisk(paymentImage, po.referenceNo || po.id, po.paymentImage);
+      } else {
+        if (po.paymentImage) {
+          deletePaymentImageFromDisk(po.paymentImage, po.referenceNo || po.id);
+        }
+        updateData.paymentImage = null;
+      }
+    }
+    if (paymentNotes !== undefined) updateData.paymentNotes = paymentNotes || null;
+    if (paymentDate !== undefined) {
+      updateData.paymentDate = paymentDate ? new Date(paymentDate) : null;
+    } else if (finalPaidAmount > 0 && !po.paymentDate) {
+      updateData.paymentDate = new Date();
     }
 
     const updated = await prisma.rawMaterialPO.update({
       where: { id },
-      data: {
-        paymentStatus,
-        paidAmount: finalPaidAmount
-      },
+      data: updateData,
       include: {
         uom: true,
         supplier: true
@@ -277,6 +323,15 @@ const createPOSchema = z.object({
   ewayBillNo: z.string().trim().nullable().optional(),
   ewayBillDate: z.string().nullable().optional(),
   tillDate: z.string().nullable().optional(),
+
+  // Payment Details
+  paymentStatus: z.string().trim().nullable().optional(),
+  paidAmount: z.coerce.number().nonnegative().optional(),
+  paymentMode: z.string().trim().nullable().optional(),
+  paymentRef: z.string().trim().nullable().optional(),
+  paymentImage: z.string().trim().nullable().optional(),
+  paymentNotes: z.string().trim().nullable().optional(),
+  paymentDate: z.string().nullable().optional(),
 });
 
 exports.createPO = async (req, res, next) => {
@@ -330,6 +385,27 @@ exports.createPO = async (req, res, next) => {
                     ? parseFloat(parsedData.items[0].batchQuantity)
                     : null)));
 
+      let resolvedPaymentStatus = parsedData.paymentStatus || 'UNPAID';
+      const upperPay = resolvedPaymentStatus.toUpperCase();
+      if (upperPay === 'PENDING' || upperPay === 'DRAFT' || upperPay === 'DUE') resolvedPaymentStatus = 'UNPAID';
+      else if (upperPay === 'PARTIAL') resolvedPaymentStatus = 'PARTIALLY_PAID';
+      else if (upperPay === 'PAID') resolvedPaymentStatus = 'PAID';
+      else if (upperPay === 'UNPAID') resolvedPaymentStatus = 'UNPAID';
+      else resolvedPaymentStatus = upperPay;
+
+      const grandTotalVal = Number(parsedData.grandTotal || parsedData.amount || 0);
+      let resolvedPaidAmount = parsedData.paidAmount !== undefined ? Number(parsedData.paidAmount) : 0;
+      if (resolvedPaymentStatus === 'PAID' && resolvedPaidAmount === 0 && grandTotalVal > 0) {
+        resolvedPaidAmount = grandTotalVal;
+      }
+      if (resolvedPaidAmount >= grandTotalVal && grandTotalVal > 0) {
+        resolvedPaymentStatus = 'PAID';
+      } else if (resolvedPaidAmount > 0 && resolvedPaidAmount < grandTotalVal) {
+        resolvedPaymentStatus = 'PARTIALLY_PAID';
+      } else if (resolvedPaidAmount === 0) {
+        resolvedPaymentStatus = 'UNPAID';
+      }
+
       const po = await tx.rawMaterialPO.create({
         data: {
           referenceNo,
@@ -375,6 +451,16 @@ exports.createPO = async (req, res, next) => {
             })) : null,
           })) : null,
           notes: parsedData.notes || null,
+
+          // Payment Details
+          paymentStatus: resolvedPaymentStatus,
+          paidAmount: resolvedPaidAmount,
+          paymentMode: parsedData.paymentMode || null,
+          paymentRef: parsedData.paymentRef || null,
+          paymentImage: parsedData.paymentImage ? savePaymentImageToDisk(parsedData.paymentImage, referenceNo || 'PO') : null,
+          paymentNotes: parsedData.paymentNotes || null,
+          paymentDate: parsedData.paymentDate ? new Date(parsedData.paymentDate) : (resolvedPaidAmount > 0 ? new Date() : null),
+
           supplierInvoiceNo: parsedData.supplierInvoiceNo || null,
           supplierInvoiceDate: parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null,
           transportMode: parsedData.transportMode || 'ROAD',
@@ -520,6 +606,15 @@ const updatePOSchema = z.object({
   ewayBillNo: z.string().trim().nullable().optional(),
   ewayBillDate: z.string().nullable().optional(),
   tillDate: z.string().nullable().optional(),
+
+  // Payment Details
+  paymentStatus: z.string().trim().nullable().optional(),
+  paidAmount: z.coerce.number().nonnegative().optional(),
+  paymentMode: z.string().trim().nullable().optional(),
+  paymentRef: z.string().trim().nullable().optional(),
+  paymentImage: z.string().trim().nullable().optional(),
+  paymentNotes: z.string().trim().nullable().optional(),
+  paymentDate: z.string().nullable().optional(),
 });
 
 exports.updatePO = async (req, res, next) => {
@@ -539,7 +634,7 @@ exports.updatePO = async (req, res, next) => {
       return res.status(404).json({ error: 'Purchase Order not found' });
     }
 
-    if (existing.status !== 'PENDING') {
+    if (existing.status !== 'PENDING' && existing.status !== 'DRAFT') {
       return res.status(409).json({ error: 'Only PENDING purchase orders can be edited.' });
     }
 
@@ -648,6 +743,43 @@ exports.updatePO = async (req, res, next) => {
     if (parsedData.ewayBillNo !== undefined) updateData.ewayBillNo = parsedData.ewayBillNo || null;
     if (parsedData.ewayBillDate !== undefined) updateData.ewayBillDate = parsedData.ewayBillDate ? new Date(parsedData.ewayBillDate) : null;
     if (parsedData.tillDate !== undefined) updateData.tillDate = parsedData.tillDate ? new Date(parsedData.tillDate) : null;
+
+    // Payment Details
+    if (parsedData.paymentStatus !== undefined || parsedData.paidAmount !== undefined) {
+      const grandTotalVal = Number(parsedData.grandTotal !== undefined ? parsedData.grandTotal : (existing.grandTotal || existing.amount || 0));
+      let resolvedPaidAmount = parsedData.paidAmount !== undefined ? Number(parsedData.paidAmount) : Number(existing.paidAmount || 0);
+      let resolvedPaymentStatus = parsedData.paymentStatus || existing.paymentStatus || 'UNPAID';
+      const upperPay = resolvedPaymentStatus.toUpperCase();
+      if (upperPay === 'PENDING' || upperPay === 'DRAFT' || upperPay === 'DUE') resolvedPaymentStatus = 'UNPAID';
+      else if (upperPay === 'PARTIAL') resolvedPaymentStatus = 'PARTIALLY_PAID';
+      else if (upperPay === 'PAID') resolvedPaymentStatus = 'PAID';
+      else if (upperPay === 'UNPAID') resolvedPaymentStatus = 'UNPAID';
+      else resolvedPaymentStatus = upperPay;
+
+      if (resolvedPaidAmount >= grandTotalVal && grandTotalVal > 0) {
+        resolvedPaymentStatus = 'PAID';
+      } else if (resolvedPaidAmount > 0 && resolvedPaidAmount < grandTotalVal) {
+        resolvedPaymentStatus = 'PARTIALLY_PAID';
+      } else if (resolvedPaidAmount === 0) {
+        resolvedPaymentStatus = 'UNPAID';
+      }
+      updateData.paymentStatus = resolvedPaymentStatus;
+      updateData.paidAmount = resolvedPaidAmount;
+    }
+    if (parsedData.paymentMode !== undefined) updateData.paymentMode = parsedData.paymentMode || null;
+    if (parsedData.paymentRef !== undefined) updateData.paymentRef = parsedData.paymentRef || null;
+    if (parsedData.paymentImage !== undefined) {
+      if (parsedData.paymentImage) {
+        updateData.paymentImage = savePaymentImageToDisk(parsedData.paymentImage, existing.referenceNo || existing.id, existing.paymentImage);
+      } else {
+        if (existing.paymentImage) {
+          deletePaymentImageFromDisk(existing.paymentImage, existing.referenceNo || existing.id);
+        }
+        updateData.paymentImage = null;
+      }
+    }
+    if (parsedData.paymentNotes !== undefined) updateData.paymentNotes = parsedData.paymentNotes || null;
+    if (parsedData.paymentDate !== undefined) updateData.paymentDate = parsedData.paymentDate ? new Date(parsedData.paymentDate) : null;
 
     const oldSnapshot = {
       referenceNo: existing.referenceNo,
@@ -778,12 +910,16 @@ exports.deletePO = async (req, res, next) => {
       return res.status(404).json({ error: 'Purchase Order not found' });
     }
 
-    if (po.status !== 'PENDING') {
+    if (po.status !== 'PENDING' && po.status !== 'DRAFT') {
       return res.status(409).json({ error: 'Cannot delete after GRN' });
     }
 
     if (req.user.role === 'PURCHASE_ACCOUNTANT' && po.createdBy !== req.user.id) {
       return res.status(403).json({ error: 'You can only delete your own purchase orders.' });
+    }
+
+    if (po.paymentImage) {
+      deletePaymentImageFromDisk(po.paymentImage, po.referenceNo || po.id);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -1956,6 +2092,22 @@ exports.getMaterialHistory = async (req, res, next) => {
       productionUsages: formattedUsages,
       purchaseReturns: formattedReturns
     });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.uploadPaymentImage = async (req, res, next) => {
+  try {
+    const { image, referenceNo, oldImage } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: 'Image data is required' });
+    }
+    const savedPath = savePaymentImageToDisk(image, referenceNo || 'PAYMENT', oldImage);
+    if (!savedPath) {
+      return res.status(500).json({ error: 'Failed to save payment proof image to server disk' });
+    }
+    res.json({ success: true, url: savedPath });
   } catch (error) {
     next(error);
   }

@@ -46,6 +46,7 @@ import { Badge } from '@/components/ui/badge';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 const AddSupplierInline = QuickAddSupplierModal;
 import BatchDateInput from '../components/BatchDateInput';
+import PaymentFieldsSection from '../components/PaymentFieldsSection';
 
 /* ─────────────────────── Searchable Raw Material Dropdown ─────────────────────── */
 import RawMaterialSelect from '../components/SearchableItemSelect';
@@ -382,7 +383,12 @@ export default function EditPOPage({ id: propId, onBack }) {
       ewayBillNo: po.ewayBillNo || '',
       ewayBillDate: po.ewayBillDate ? new Date(po.ewayBillDate) : null,
       tillDate: po.tillDate ? new Date(po.tillDate) : null,
-      paymentStatus: po.paymentStatus || 'Pending',
+      paymentStatus: po.paymentStatus || 'UNPAID',
+      paidAmount: String(po.paidAmount ?? '0'),
+      paymentMode: po.paymentMode || 'BANK_TRANSFER',
+      paymentRef: po.paymentRef || '',
+      paymentImage: po.paymentImage || null,
+      paymentNotes: po.paymentNotes || '',
     });
   }, [po]);
 
@@ -925,6 +931,14 @@ export default function EditPOPage({ id: propId, onBack }) {
         })) : null,
       })),
 
+      // Payment Details
+      paymentStatus: form.paymentStatus || 'UNPAID',
+      paidAmount: parseFloat(form.paidAmount) || 0,
+      paymentMode: form.paymentMode || null,
+      paymentRef: form.paymentRef || null,
+      paymentImage: form.paymentImage || null,
+      paymentNotes: form.paymentNotes || null,
+
       // Directly sync top-level batch columns on RawMaterialPO model
       batchQuantity: firstItem?.batches?.[0]?.quantity !== undefined ? parseFloat(firstItem.batches[0].quantity) : (parseFloat(firstItem?.quantity) || null),
       weight: firstItem.weight || null,
@@ -971,14 +985,14 @@ export default function EditPOPage({ id: propId, onBack }) {
     );
   }
 
-  if (po.status !== 'PENDING') {
+  if (po.status?.toUpperCase() !== 'PENDING' && po.status?.toUpperCase() !== 'DRAFT') {
     return (
       <div className="w-full max-w-[1720px] mx-auto px-4 py-16 text-center">
         <div className="max-w-md mx-auto bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800 rounded-2xl p-6 shadow-sm">
           <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-3" />
           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-200">Cannot Edit This PO</h2>
           <p className="text-xs text-slate-500 mt-1">
-            Only <strong>PENDING</strong> purchase orders can be edited. This PO status is <strong>{po.status}</strong>.
+            Only <strong>PENDING / DRAFT</strong> purchase orders can be edited. This PO status is <strong>{po.status}</strong>.
           </p>
           <Button onClick={handleBack} variant="outline" className="mt-4 rounded-xl text-xs">
             Back to Purchase Orders
@@ -1059,6 +1073,19 @@ export default function EditPOPage({ id: propId, onBack }) {
           </Button>
         </div>
       </div>
+
+      {/* Fully Paid Notice Banner */}
+      {form.paymentStatus === 'PAID' && (
+        <div className="flex items-center gap-2 px-3.5 py-2.5 bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-900 dark:text-emerald-200 text-xs shadow-xs animate-in fade-in duration-150">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+          <div>
+            <span className="font-bold">Order is Fully Paid.</span>
+            <span className="text-[11px] text-emerald-700 dark:text-emerald-300 ml-1.5">
+              You can freely edit item quantities, pricing, supplier, logistics, or payment details.
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Audit Banner */}
       <div className="flex items-center gap-2 px-3 py-2 bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-amber-800 dark:text-amber-300 text-xs">
@@ -1884,7 +1911,7 @@ export default function EditPOPage({ id: propId, onBack }) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start">
           {/* Left Column (7 cols): Additional Charges Inputs & Notes */}
           <div className="lg:col-span-7 space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {/* Discount */}
               <div className="space-y-1">
                 <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Discount (₹)</Label>
@@ -1927,24 +1954,6 @@ export default function EditPOPage({ id: propId, onBack }) {
                     onChange={(e) => setForm({ ...form, otherCharges: e.target.value })}
                     className="h-9 text-xs pl-6 rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
                   />
-                </div>
-              </div>
-
-              {/* Payment Status */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Payment Status</Label>
-                <div className="relative">
-                  <select 
-                    value={form.paymentStatus || 'Pending'}
-                    onChange={(e) => setForm({ ...form, paymentStatus: e.target.value })}
-                    className="w-full h-9 px-2.5 py-1 text-xs border rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 text-slate-700 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-2xs"
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="Due">Due</option>
-                    <option value="Partial">Partial</option>
-                    <option value="Paid">Paid</option>
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -2038,6 +2047,52 @@ export default function EditPOPage({ id: propId, onBack }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────────
+          SECTION 5: PAYMENT & SETTLEMENT DETAILS
+          ─────────────────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <div className="flex items-center justify-between gap-3 pb-3 mb-4 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-black text-sm border border-emerald-200/60 dark:border-emerald-800/60">
+              5
+            </div>
+            <div>
+              <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                5. Payment & Settlement Details
+              </span>
+              <p className="text-[11px] text-slate-400">
+                Record advance, partial, or full payment with payment channel, transaction ref & proof image
+              </p>
+            </div>
+          </div>
+          <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
+            form.paymentStatus === 'PAID'
+              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+              : form.paymentStatus === 'PARTIALLY_PAID'
+              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+              : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+          }`}>
+            {form.paymentStatus === 'PAID' ? 'Fully Settled' : form.paymentStatus === 'PARTIALLY_PAID' ? 'Partial Advance' : 'Unpaid Order'}
+          </span>
+        </div>
+
+        <PaymentFieldsSection
+          paymentStatus={form.paymentStatus}
+          setPaymentStatus={(status) => setForm(prev => ({ ...prev, paymentStatus: status }))}
+          paidAmount={form.paidAmount}
+          setPaidAmount={(amt) => setForm(prev => ({ ...prev, paidAmount: amt }))}
+          paymentMode={form.paymentMode}
+          setPaymentMode={(mode) => setForm(prev => ({ ...prev, paymentMode: mode }))}
+          paymentRef={form.paymentRef}
+          setPaymentRef={(ref) => setForm(prev => ({ ...prev, paymentRef: ref }))}
+          paymentImage={form.paymentImage}
+          setPaymentImage={(img) => setForm(prev => ({ ...prev, paymentImage: img }))}
+          paymentNotes={form.paymentNotes}
+          setPaymentNotes={(notes) => setForm(prev => ({ ...prev, paymentNotes: notes }))}
+          totalAmount={grandTotal}
+        />
       </div>
 
       {/* ───────────────────────────────────────────────────────────────────

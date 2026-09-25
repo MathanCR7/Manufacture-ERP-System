@@ -6,6 +6,7 @@ const compression = require('compression');
 const routes = require('./routes');
 const errorHandler = require('./middlewares/error.middleware');
 
+const path = require('path');
 const app = express();
 
 // Trust proxy header when running behind Nginx reverse proxy
@@ -21,7 +22,9 @@ app.use(compression({
     return compression.filter(req, res);
   }
 }));
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
 
 const configuredOrigins = process.env.FRONTEND_URL 
   ? process.env.FRONTEND_URL.split(',').map(s => s.trim()) 
@@ -55,6 +58,14 @@ app.get('/', (req, res) => {
     version: '1.0.0'
   });
 });
+
+// Static file serving for uploads (receipts, proof images, documents)
+app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
+  setHeaders: (res) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+}));
 
 // Load domain routes
 app.use('/api', routes);

@@ -15,6 +15,7 @@ router.get('/rm/po/next-reference-id', authenticateToken, roleMiddleware(['MAIN_
 router.get('/rm/po/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER']), rmController.getPOById);
 router.put('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.updatePO);
 router.patch('/rm/po/:id/payment', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.updatePOPayment);
+router.post('/rm/upload-payment-image', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER', 'SUPERVISOR']), rmController.uploadPaymentImage);
 router.delete('/rm/po/:id', authenticateToken, roleMiddleware(['PURCHASE_ACCOUNTANT', 'MAIN_MASTER']), rmController.deletePO);
 
 // --- UOM Routes (/api/uom) ---

@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 const AddSupplierInline = QuickAddSupplierModal;
 import BatchDateInput from '../components/BatchDateInput';
+import PaymentFieldsSection from '../components/PaymentFieldsSection';
 
 /* ─────────────────────────────────────────────────────────────────────────────
    Searchable Supplier Select Component (Responsive for All Devices)
@@ -143,7 +144,12 @@ export default function CreatePOPage({ onBack }) {
     selectedRm: null,
     selectedSupplier: null,
     purchaseStatus: 'Draft',
-    paymentStatus: 'Pending',
+    paymentStatus: 'UNPAID',
+    paidAmount: '0',
+    paymentMode: 'BANK_TRANSFER',
+    paymentRef: '',
+    paymentImage: null,
+    paymentNotes: '',
     expectedDelivery: null,
     discount: '0',
     shipping: '0',
@@ -902,6 +908,14 @@ export default function CreatePOPage({ onBack }) {
       })),
       quotationId: location.state?.prefillFromQuotation?.quotationId || null,
       notes: formData.notes || null,
+
+      // Payment Details
+      paymentStatus: formData.paymentStatus || 'UNPAID',
+      paidAmount: parseFloat(formData.paidAmount) || 0,
+      paymentMode: formData.paymentMode || null,
+      paymentRef: formData.paymentRef || null,
+      paymentImage: formData.paymentImage || null,
+      paymentNotes: formData.paymentNotes || null,
 
       // Directly sync top-level batch columns on RawMaterialPO model
       batchQuantity: firstItem?.batches?.[0]?.quantity !== undefined ? parseFloat(firstItem.batches[0].quantity) : (parseFloat(firstItem?.quantity) || null),
@@ -1861,7 +1875,7 @@ export default function CreatePOPage({ onBack }) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-4 items-start">
           {/* Left Column (7 cols): Additional Charges Inputs & Notes */}
           <div className="lg:col-span-7 space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {/* Discount */}
               <div className="space-y-1">
                 <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Discount (₹)</Label>
@@ -1904,24 +1918,6 @@ export default function CreatePOPage({ onBack }) {
                     onChange={(e) => setFormData({ ...formData, otherCharges: e.target.value })}
                     className="h-9 text-xs pl-6 rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
                   />
-                </div>
-              </div>
-
-              {/* Payment Status */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Payment Status</Label>
-                <div className="relative">
-                  <select 
-                    value={formData.paymentStatus}
-                    onChange={(e) => setFormData({ ...formData, paymentStatus: e.target.value })}
-                    className="w-full h-9 px-2.5 py-1 text-xs border rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:border-indigo-600 text-slate-700 dark:text-slate-200 font-medium cursor-pointer appearance-none shadow-2xs"
-                  >
-                    <option value="Pending">Pending</option>
-                    <option value="Due">Due</option>
-                    <option value="Partial">Partial</option>
-                    <option value="Paid">Paid</option>
-                  </select>
-                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -2015,6 +2011,52 @@ export default function CreatePOPage({ onBack }) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ───────────────────────────────────────────────────────────────────
+          5. PAYMENT & SETTLEMENT DETAILS
+          ─────────────────────────────────────────────────────────────────── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3.5 sm:p-5 shadow-xs space-y-3.5 w-full">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-800">
+              <CreditCard className="w-4 h-4" />
+            </div>
+            <div>
+              <span className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200">
+                5. Payment & Settlement Details
+              </span>
+              <p className="text-[11px] text-slate-400">
+                Record advance, partial, or full payment with payment channel, transaction ref & proof image
+              </p>
+            </div>
+          </div>
+          <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border uppercase tracking-wider ${
+            formData.paymentStatus === 'PAID'
+              ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+              : formData.paymentStatus === 'PARTIALLY_PAID'
+              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+              : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+          }`}>
+            {formData.paymentStatus === 'PAID' ? 'Fully Settled' : formData.paymentStatus === 'PARTIALLY_PAID' ? 'Partial Advance' : 'Unpaid Order'}
+          </span>
+        </div>
+
+        <PaymentFieldsSection
+          paymentStatus={formData.paymentStatus}
+          setPaymentStatus={(status) => setFormData(prev => ({ ...prev, paymentStatus: status }))}
+          paidAmount={formData.paidAmount}
+          setPaidAmount={(amt) => setFormData(prev => ({ ...prev, paidAmount: amt }))}
+          paymentMode={formData.paymentMode}
+          setPaymentMode={(mode) => setFormData(prev => ({ ...prev, paymentMode: mode }))}
+          paymentRef={formData.paymentRef}
+          setPaymentRef={(ref) => setFormData(prev => ({ ...prev, paymentRef: ref }))}
+          paymentImage={formData.paymentImage}
+          setPaymentImage={(img) => setFormData(prev => ({ ...prev, paymentImage: img }))}
+          paymentNotes={formData.paymentNotes}
+          setPaymentNotes={(notes) => setFormData(prev => ({ ...prev, paymentNotes: notes }))}
+          totalAmount={grandTotal}
+        />
       </div>
 
       {/* ───────────────────────────────────────────────────────────────────

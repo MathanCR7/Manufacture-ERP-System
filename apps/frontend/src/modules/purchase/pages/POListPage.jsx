@@ -8,8 +8,10 @@ import Swal from 'sweetalert2';
 import {
   Plus, Search, Eye, Edit, Trash2, ChevronRight, ChevronDown,
   CheckCircle2, Clock, Package, TrendingUp, AlertCircle, FileText,
-  RotateCcw, X, CreditCard, Loader2, ArrowUpDown, ArrowUp, ArrowDown
+  RotateCcw, X, CreditCard, Loader2, ArrowUpDown, ArrowUp, ArrowDown,
+  Image as ImageIcon, Lock
 } from 'lucide-react';
+import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
@@ -115,79 +117,69 @@ function StatCard({ icon: Icon, label, value, borderClass, bgClass, iconColorCla
   );
 }
 
-function PaymentUpdateModal({ po, onClose, onUpdated }) {
-  const total = Number(po.totalAmount || po.amount || 0);
-  const initialPaid = Number(po.paidAmount !== undefined && po.paidAmount !== null ? po.paidAmount : (po.paymentStatus === 'PAID' ? total : 0));
+function PaymentUpdateModal({ po: modalData, onClose, onUpdated }) {
+  const po = modalData?.po || modalData;
+  const initialStatus = modalData?.initialStatus;
 
-  const [paidInput, setPaidInput] = useState(initialPaid.toString());
-  const [paymentStatusMode, setPaymentStatusMode] = useState(
-    po.paymentStatus || (initialPaid >= total && total > 0 ? 'PAID' : initialPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID')
-  );
+  const total = Number(po.totalAmount || po.amount || 0);
+  const existingPaid = Number(po.paidAmount !== undefined && po.paidAmount !== null ? po.paidAmount : (po.paymentStatus === 'PAID' ? total : 0));
+
+  let resolvedInitialStatus = initialStatus || po.paymentStatus;
+  if (!resolvedInitialStatus) {
+    resolvedInitialStatus = existingPaid >= total && total > 0 ? 'PAID' : existingPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID';
+  }
+
+  let defaultPaid = existingPaid;
+  if (resolvedInitialStatus === 'PAID') {
+    defaultPaid = total;
+  } else if (resolvedInitialStatus === 'UNPAID') {
+    defaultPaid = 0;
+  } else if (resolvedInitialStatus === 'PARTIALLY_PAID' && (existingPaid <= 0 || existingPaid >= total)) {
+    defaultPaid = Math.round((total / 2) * 100) / 100;
+  }
+
+  const [paidInput, setPaidInput] = useState(defaultPaid.toString());
+  const [paymentStatusMode, setPaymentStatusMode] = useState(resolvedInitialStatus);
+  const [paymentMode, setPaymentMode] = useState(po.paymentMode || 'BANK_TRANSFER');
+  const [paymentRef, setPaymentRef] = useState(po.paymentRef || '');
+  const [paymentImage, setPaymentImage] = useState(po.paymentImage || null);
+  const [paymentNotes, setPaymentNotes] = useState(po.paymentNotes || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const numPaid = parseFloat(paidInput) || 0;
-  const numDue = Math.max(0, total - numPaid);
-
-  const handleAmountChange = (val) => {
-    setPaidInput(val);
-    setError('');
-    const parsed = parseFloat(val) || 0;
-    if (parsed <= 0) {
-      setPaymentStatusMode('UNPAID');
-    } else if (parsed >= total) {
-      setPaymentStatusMode('PAID');
-    } else {
-      setPaymentStatusMode('PARTIALLY_PAID');
-    }
-  };
-
-  const handleSetPreset = (percentage) => {
-    setError('');
-    let calculated = (total * percentage) / 100;
-    calculated = Math.round(calculated * 100) / 100;
-    setPaidInput(calculated.toString());
-    if (percentage === 0) setPaymentStatusMode('UNPAID');
-    else if (percentage === 100) setPaymentStatusMode('PAID');
-    else setPaymentStatusMode('PARTIALLY_PAID');
-  };
-
-  const handleSelectMode = (mode) => {
-    setPaymentStatusMode(mode);
-    setError('');
-    if (mode === 'UNPAID') {
-      setPaidInput('0');
-    } else if (mode === 'PAID') {
-      setPaidInput(total.toString());
-    } else if (mode === 'PARTIALLY_PAID') {
-      if (numPaid <= 0 || numPaid >= total) {
-        setPaidInput((Math.round((total / 2) * 100) / 100).toString());
-      }
-    }
-  };
-
   const handleSubmit = async (e) => {
-    if (e) e.preventDefault();
-    const finalPaid = parseFloat(paidInput);
-    if (isNaN(finalPaid) || finalPaid < 0) {
-      setError('Please enter a valid paid amount (cannot be negative).');
-      return;
-    }
-    if (finalPaid > total) {
-      setError(`Paid amount cannot exceed the Grand Total (₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}).`);
-      return;
-    }
-
+    if (e && e.preventDefault) e.preventDefault();
+    let finalPaid = parseFloat(paidInput);
     let resolvedStatus = paymentStatusMode;
-    if (finalPaid === 0) resolvedStatus = 'UNPAID';
-    else if (finalPaid >= total) resolvedStatus = 'PAID';
-    else resolvedStatus = 'PARTIALLY_PAID';
+
+    if (paymentStatusMode === 'UNPAID') {
+      finalPaid = 0;
+      resolvedStatus = 'UNPAID';
+    } else if (paymentStatusMode === 'PAID') {
+      finalPaid = total;
+      resolvedStatus = 'PAID';
+    } else {
+      // PARTIALLY_PAID
+      if (isNaN(finalPaid) || finalPaid <= 0) {
+        setError('Please enter a valid partial amount greater than 0.');
+        return;
+      }
+      if (finalPaid >= total) {
+        setError(`Partial amount must be less than Grand Total (₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}). Select 'Full Paid' if settling the full amount.`);
+        return;
+      }
+      resolvedStatus = 'PARTIALLY_PAID';
+    }
 
     setIsSubmitting(true);
     try {
       await api.patch(`/rm/po/${po.id}/payment`, {
         paymentStatus: resolvedStatus,
-        paidAmount: finalPaid
+        paidAmount: finalPaid,
+        paymentMode: resolvedStatus === 'UNPAID' ? null : paymentMode,
+        paymentRef: resolvedStatus === 'UNPAID' ? null : paymentRef,
+        paymentImage: resolvedStatus === 'UNPAID' ? null : paymentImage,
+        paymentNotes: resolvedStatus === 'UNPAID' ? null : paymentNotes,
       });
 
       Swal.fire({
@@ -211,24 +203,32 @@ function PaymentUpdateModal({ po, onClose, onUpdated }) {
     }
   };
 
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
     <div 
-      className="fixed inset-0 z-50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div 
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-150"
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 flex items-center justify-between">
+        <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/50">
               <CreditCard className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">Update Payment</h3>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">Update Payment Settlement</h3>
                 <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-indigo-100/70 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
                   {po.referenceNo}
                 </span>
@@ -248,139 +248,24 @@ function PaymentUpdateModal({ po, onClose, onUpdated }) {
           </Button>
         </div>
 
-        {/* Content */}
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
-          <div className="grid grid-cols-3 gap-2.5">
-            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">Total Amount</span>
-              <span className="text-sm sm:text-base font-extrabold font-mono text-slate-900 dark:text-slate-100 mt-0.5 block">
-                ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-900/40 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 block">Paid Amount</span>
-              <span className="text-sm sm:text-base font-extrabold font-mono text-emerald-700 dark:text-emerald-300 mt-0.5 block">
-                ₹{numPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40 text-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 block">Due Amount</span>
-              <span className="text-sm sm:text-base font-extrabold font-mono text-rose-700 dark:text-rose-300 mt-0.5 block">
-                ₹{numDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-              Payment Status Mode
-            </label>
-            <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
-              <button
-                type="button"
-                onClick={() => handleSelectMode('UNPAID')}
-                className={`py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                  paymentStatusMode === 'UNPAID'
-                    ? 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-400 shadow-xs ring-1 ring-amber-400/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <span>🔴</span>
-                <span>Unpaid</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSelectMode('PARTIALLY_PAID')}
-                className={`py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                  paymentStatusMode === 'PARTIALLY_PAID'
-                    ? 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-400 shadow-xs ring-1 ring-indigo-400/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <span>🔵</span>
-                <span>Partial</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSelectMode('PAID')}
-                className={`py-1.5 px-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                  paymentStatusMode === 'PAID'
-                    ? 'bg-white dark:bg-slate-900 text-emerald-700 dark:text-emerald-400 shadow-xs ring-1 ring-emerald-400/30'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
-              >
-                <span>🟢</span>
-                <span>Full Paid</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
-                Paid Amount (₹) <span className="text-rose-500">*</span>
-              </label>
-              <span className="text-[11px] font-medium text-slate-500">
-                Max: ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            <div className="relative">
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold font-mono text-sm">
-                ₹
-              </div>
-              <Input
-                type="number"
-                step="0.01"
-                min="0"
-                max={total}
-                value={paidInput}
-                onChange={(e) => handleAmountChange(e.target.value)}
-                placeholder="0.00"
-                className="pl-8 text-base font-extrabold font-mono rounded-xl h-11 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 focus:border-indigo-500"
-                autoFocus
-              />
-            </div>
-
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Quick Fill:</span>
-              <button
-                type="button"
-                onClick={() => handleSetPreset(0)}
-                className="text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-pointer"
-              >
-                0%
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetPreset(25)}
-                className="text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-pointer"
-              >
-                25% (₹{(total * 0.25).toFixed(2)})
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetPreset(50)}
-                className="text-[11px] font-bold px-2 py-0.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 cursor-pointer"
-              >
-                50% Half (₹{(total * 0.5).toFixed(2)})
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetPreset(75)}
-                className="text-[11px] font-semibold px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-400 cursor-pointer"
-              >
-                75% (₹{(total * 0.75).toFixed(2)})
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetPreset(100)}
-                className="text-[11px] font-bold px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 cursor-pointer"
-              >
-                100% Full
-              </button>
-            </div>
-          </div>
+        {/* Content Body - Scrollable */}
+        <form onSubmit={handleSubmit} className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
+          <PaymentFieldsSection
+            paymentStatus={paymentStatusMode}
+            setPaymentStatus={setPaymentStatusMode}
+            paidAmount={paidInput}
+            setPaidAmount={setPaidInput}
+            paymentMode={paymentMode}
+            setPaymentMode={setPaymentMode}
+            paymentRef={paymentRef}
+            setPaymentRef={setPaymentRef}
+            paymentImage={paymentImage}
+            setPaymentImage={setPaymentImage}
+            paymentNotes={paymentNotes}
+            setPaymentNotes={setPaymentNotes}
+            totalAmount={total}
+            isCompact={true}
+          />
 
           {error && (
             <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
@@ -389,7 +274,7 @@ function PaymentUpdateModal({ po, onClose, onUpdated }) {
             </div>
           )}
 
-          <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
             <Button
               type="button"
               variant="outline"
@@ -402,17 +287,27 @@ function PaymentUpdateModal({ po, onClose, onUpdated }) {
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-xl text-xs h-9 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 shadow-sm cursor-pointer"
+              className={`rounded-xl text-xs h-9 font-bold px-4 shadow-sm cursor-pointer text-white ${
+                paymentStatusMode === 'UNPAID'
+                  ? 'bg-amber-600 hover:bg-amber-700'
+                  : paymentStatusMode === 'PAID'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-indigo-600 hover:bg-indigo-700'
+              }`}
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  Updating...
+                  Saving...
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                  Save Payment
+                  {paymentStatusMode === 'UNPAID'
+                    ? 'Save as Unpaid'
+                    : paymentStatusMode === 'PAID'
+                    ? 'Save Full Payment'
+                    : 'Save Partial Payment'}
                 </>
               )}
             </Button>
@@ -423,66 +318,271 @@ function PaymentUpdateModal({ po, onClose, onUpdated }) {
   );
 }
 
-function PaymentStatusDropdown({ po, onUpdate, onOpenModal }) {
-  const [updating, setUpdating] = useState(false);
+function PaymentSummaryModal({ po, onClose, onEditPayment, onPreviewImage }) {
+  if (!po) return null;
+
   const total = Number(po.totalAmount || po.amount || 0);
-  const currentStatus = po.paymentStatus || (Number(po.paidAmount) >= total && total > 0 ? 'PAID' : Number(po.paidAmount) > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
+  const paid = Number(po.paidAmount || 0);
+  const due = Math.max(0, total - paid);
+  const currentStatus = po.paymentStatus || (paid >= total && total > 0 ? 'PAID' : paid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
 
-  const handleSelect = async (newStatus) => {
-    if (newStatus === 'PARTIALLY_PAID') {
-      if (onOpenModal) onOpenModal(po);
-      return;
-    }
+  const modeObj = PAYMENT_MODES.find(m => m.id === po.paymentMode) || (po.paymentMode ? { label: po.paymentMode } : null);
+  const ModeIcon = modeObj?.icon || CreditCard;
 
-    let amt = Number(po.paidAmount || 0);
-    if (newStatus === 'PAID') {
-      amt = total;
-    } else if (newStatus === 'UNPAID') {
-      amt = 0;
-    }
-
-    setUpdating(true);
-    try {
-      await api.patch(`/rm/po/${po.id}/payment`, {
-        paymentStatus: newStatus,
-        paidAmount: amt
-      });
-      Swal.fire({
-        toast: true,
-        position: 'top-end',
-        icon: 'success',
-        title: `Payment status updated to ${newStatus === 'PAID' ? 'PAID' : 'UNPAID'} (Paid: ₹${amt.toLocaleString('en-IN', { minimumFractionDigits: 2 })})`,
-        showConfirmButton: false,
-        timer: 2500
-      });
-      onUpdate();
-    } catch (e) {
-      console.error(e);
-      Swal.fire({ icon: 'error', title: 'Failed to update payment status' });
-    } finally {
-      setUpdating(false);
-    }
+  const statusConfig = {
+    PAID: {
+      label: 'Fully Paid',
+      badge: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
+      dot: 'bg-emerald-500',
+    },
+    PARTIALLY_PAID: {
+      label: 'Partial Advance Settled',
+      badge: 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800',
+      dot: 'bg-indigo-500',
+    },
+    UNPAID: {
+      label: 'Unpaid / Payment Due',
+      badge: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+      dot: 'bg-amber-500',
+    },
+  }[currentStatus] || {
+    label: currentStatus,
+    badge: 'bg-slate-100 text-slate-700 border-slate-200',
+    dot: 'bg-slate-400',
   };
 
+  const proofUrl = po.paymentImage ? resolvePaymentImageUrl(po.paymentImage) : null;
+
+  React.useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
-    <div className="relative inline-block" onClick={e => e.stopPropagation()}>
-      <select
-        value={currentStatus}
-        disabled={updating}
-        onChange={(e) => handleSelect(e.target.value)}
-        className={`px-1.5 py-0.5 text-[9.5px] font-extrabold rounded-md border appearance-none pr-5 cursor-pointer focus:outline-none transition-all shadow-3xs ${
-          currentStatus === 'PAID'
-            ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-            : currentStatus === 'PARTIALLY_PAID'
-            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
-            : 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
-        }`}
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transform transition-all cursor-default"
+        onClick={e => e.stopPropagation()}
       >
-        <option value="UNPAID" className="bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 font-bold">UNPAID</option>
-        <option value="PARTIALLY_PAID" className="bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 font-bold">PARTIAL</option>
-        <option value="PAID" className="bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 font-bold">PAID</option>
-      </select>
-      <ChevronDown className="w-2.5 h-2.5 text-slate-400 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        {/* Header */}
+        <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/50 dark:border-indigo-800/50 shrink-0">
+              <CreditCard className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
+                  Payment Settlement Details
+                </h3>
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
+                  {po.referenceNo}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate max-w-[250px]">
+                Supplier: <span className="font-semibold text-slate-700 dark:text-slate-300">{po.supplierName || po.supplier?.name || '—'}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Status Chip */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Settlement Status</span>
+            <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-extrabold ${statusConfig.badge}`}>
+              <span className={`w-2 h-2 rounded-full ${statusConfig.dot}`} />
+              <span>{statusConfig.label}</span>
+            </div>
+          </div>
+
+          {/* 3 Metric Cards */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 text-center">
+              <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Payable</span>
+              <span className="text-xs sm:text-sm font-extrabold font-mono text-slate-900 dark:text-slate-100 mt-0.5 block truncate">
+                ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/70 dark:border-emerald-800/60 text-center">
+              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block uppercase">Amount Paid</span>
+              <span className="text-xs sm:text-sm font-extrabold font-mono text-emerald-700 dark:text-emerald-300 mt-0.5 block truncate">
+                ₹{paid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="p-2.5 rounded-xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-800/60 text-center">
+              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 block uppercase">Balance Due</span>
+              <span className="text-xs sm:text-sm font-extrabold font-mono text-rose-700 dark:text-rose-300 mt-0.5 block truncate">
+                ₹{due.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+          </div>
+
+          {/* Payment Details Box */}
+          <div className="p-3 rounded-xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-2 text-xs">
+            <div className="flex items-center justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
+              <span className="text-slate-500 font-medium">Payment Mode</span>
+              <span className="font-bold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1.5">
+                <ModeIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                {modeObj?.label || (paid > 0 ? 'Not specified' : '—')}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
+              <span className="text-slate-500 font-medium">Bank Reference / UTR</span>
+              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                {po.paymentRef || (paid > 0 ? 'Not provided' : '—')}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
+              <span className="text-slate-500 font-medium">Payment Date</span>
+              <span className="font-mono text-slate-700 dark:text-slate-300">
+                {po.paymentDate ? format(new Date(po.paymentDate), 'dd-MM-yyyy') : (paid > 0 ? 'Recorded' : '—')}
+              </span>
+            </div>
+
+            {po.paymentNotes && (
+              <div className="pt-1">
+                <span className="text-slate-500 font-medium block mb-1">Notes / Remarks</span>
+                <p className="text-slate-700 dark:text-slate-300 italic bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/60 dark:border-slate-800 text-[11px]">
+                  "{po.paymentNotes}"
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Payment Proof Preview Box */}
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Proof / Voucher</span>
+            {proofUrl ? (
+              <div className="p-3 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-center justify-between gap-3">
+                <div 
+                  className="flex items-center gap-3 cursor-pointer group"
+                  onClick={() => onPreviewImage(proofUrl, `Payment Receipt — ${po.referenceNo}`)}
+                >
+                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-emerald-300 dark:border-emerald-700 shrink-0 bg-white shadow-2xs group-hover:ring-2 group-hover:ring-emerald-500 transition-all">
+                    <img 
+                      src={proofUrl} 
+                      alt="Payment Receipt" 
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 block group-hover:underline">
+                      Receipt Photo Attached
+                    </span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
+                      Click image or button to zoom
+                    </span>
+                  </div>
+                </div>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onPreviewImage(proofUrl, `Payment Receipt — ${po.referenceNo}`)}
+                  className="h-8 text-xs font-bold border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 gap-1.5 shrink-0 cursor-pointer"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  View Photo
+                </Button>
+              </div>
+            ) : (
+              <div className="p-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-slate-400 text-xs">
+                No receipt photo or transfer proof uploaded yet.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer Actions */}
+        <div className="p-3 sm:p-4 bg-slate-50/80 dark:bg-slate-900/80 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="rounded-xl text-xs h-9 cursor-pointer"
+          >
+            Close
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              onClose();
+              onEditPayment(po, currentStatus);
+            }}
+            className="rounded-xl text-xs h-9 font-bold px-4 bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 shadow-sm cursor-pointer"
+          >
+            <Edit className="w-3.5 h-3.5" />
+            Update Payment
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentStatusCell({ po, onOpenSummary }) {
+  const total = Number(po.totalAmount || po.amount || 0);
+  const paid = Number(po.paidAmount || 0);
+  const currentStatus = po.paymentStatus || (paid >= total && total > 0 ? 'PAID' : paid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
+
+  const config = {
+    PAID: {
+      label: 'PAID',
+      dotColor: 'bg-emerald-500',
+      badgeClass: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200/90 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 hover:border-emerald-300',
+    },
+    PARTIALLY_PAID: {
+      label: 'PARTIAL',
+      dotColor: 'bg-indigo-500',
+      badgeClass: 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-200/90 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 hover:border-indigo-300',
+    },
+    UNPAID: {
+      label: 'UNPAID',
+      dotColor: 'bg-amber-500',
+      badgeClass: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200/90 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 hover:border-amber-300',
+    },
+  }[currentStatus] || {
+    label: currentStatus,
+    dotColor: 'bg-slate-400',
+    badgeClass: 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100',
+  };
+
+  const hasProof = !!po.paymentImage;
+
+  return (
+    <div className="flex items-center justify-center whitespace-nowrap">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenSummary(po);
+        }}
+        className={`group/pay inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-extrabold tracking-wide cursor-pointer transition-all shadow-3xs ${config.badgeClass}`}
+        title="Click to view payment settlement details & proof"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full ${config.dotColor}`} />
+        <span>{config.label}</span>
+        {hasProof && (
+          <ImageIcon className="w-2.5 h-2.5 opacity-80 group-hover/pay:opacity-100 text-emerald-600 dark:text-emerald-400" />
+        )}
+      </button>
     </div>
   );
 }
@@ -498,7 +598,9 @@ export default function POListPage() {
   const [paymentFilter, setPaymentFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('recent');
   const [paymentModalPO, setPaymentModalPO] = useState(null);
-  
+  const [summaryModalPO, setSummaryModalPO] = useState(null);
+  const [previewImage, setPreviewImage] = useState(null);
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -553,6 +655,9 @@ export default function POListPage() {
         (po.supplierInvoiceNo || '').toLowerCase().includes(term) ||
         (po.ewayBillNo || '').toLowerCase().includes(term) ||
         (po.vehicleNumber || '').toLowerCase().includes(term) ||
+        (po.paymentMode || '').toLowerCase().includes(term) ||
+        (po.paymentRef || '').toLowerCase().includes(term) ||
+        (po.paymentNotes || '').toLowerCase().includes(term) ||
         (po.items && Array.isArray(po.items) && po.items.some(it => (it.name || it.materialName || '').toLowerCase().includes(term)))
       );
 
@@ -1041,7 +1146,7 @@ export default function POListPage() {
                           className="py-2 px-2 text-right cursor-pointer group/paid hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-colors truncate"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPaymentModalPO(po);
+                            setPaymentModalPO({ po, initialStatus: po.paymentStatus });
                           }}
                           title="Click to update payment"
                         >
@@ -1056,7 +1161,10 @@ export default function POListPage() {
                           className="py-2 px-2 text-right cursor-pointer group/due hover:bg-rose-50/40 dark:hover:bg-rose-950/20 transition-colors truncate"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPaymentModalPO(po);
+                            setPaymentModalPO({ 
+                              po, 
+                              initialStatus: po.dueAmount > 0 && po.paidAmount > 0 ? 'PARTIALLY_PAID' : (Number(po.dueAmount) === 0 ? 'PAID' : 'PARTIALLY_PAID') 
+                            });
                           }}
                           title="Click to update payment"
                         >
@@ -1068,10 +1176,9 @@ export default function POListPage() {
 
                         {/* 10. Payment Status */}
                         <TableCell className="py-2 px-1 text-center">
-                          <PaymentStatusDropdown 
+                          <PaymentStatusCell 
                             po={po} 
-                            onUpdate={refetch} 
-                            onOpenModal={(selectedPo) => setPaymentModalPO(selectedPo)} 
+                            onOpenSummary={(selectedPo) => setSummaryModalPO(selectedPo)} 
                           />
                         </TableCell>
 
@@ -1087,18 +1194,18 @@ export default function POListPage() {
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </Button>
-                            {po.status === 'PENDING' && canAddPurchase && (
+                            {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT') && (
                               <Button
                                 variant="ghost" 
                                 size="icon"
                                 onClick={() => navigate(`/purchase-orders/edit/${po.id}`)}
                                 className="h-7 w-7 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer"
-                                title="Edit"
+                                title="Edit Purchase Order"
                               >
-                                <Edit className="w-3 h-3" />
+                                <Edit className="w-3.5 h-3.5" />
                               </Button>
                             )}
-                            {po.status === 'PENDING' && canAddPurchase && (
+                            {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT') && (
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                   <Button
@@ -1184,12 +1291,34 @@ export default function POListPage() {
         </CardContent>
       </Card>
 
+      {/* Payment Settlement Summary Popup (View Mode, Bank, Reference, Proof & Notes) */}
+      {summaryModalPO && (
+        <PaymentSummaryModal
+          po={summaryModalPO}
+          onClose={() => setSummaryModalPO(null)}
+          onEditPayment={(po, initialStatus) => {
+            setSummaryModalPO(null);
+            setPaymentModalPO({ po, initialStatus });
+          }}
+          onPreviewImage={(src, title) => setPreviewImage({ src, title })}
+        />
+      )}
+
       {/* Modern Payment Update Modal */}
       {paymentModalPO && (
         <PaymentUpdateModal
           po={paymentModalPO}
           onClose={() => setPaymentModalPO(null)}
           onUpdated={refetch}
+        />
+      )}
+
+      {/* Payment Proof Fullscreen Image Modal */}
+      {previewImage && (
+        <ImagePreviewModal
+          src={previewImage.src}
+          title={previewImage.title}
+          onClose={() => setPreviewImage(null)}
         />
       )}
     </div>
