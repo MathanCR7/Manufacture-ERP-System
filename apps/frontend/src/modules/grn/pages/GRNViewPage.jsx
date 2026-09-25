@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import { 
   ArrowLeft, Package, Truck, FlaskConical, CheckCircle2, XCircle, 
   AlertTriangle, Clock, QrCode, ShieldCheck, Calendar, Tag, FileText, 
-  Layers, Check, Sparkles, Building2, Boxes, ArrowUpRight
+  Layers, Check, Sparkles, Building2, Boxes, ArrowUpRight, ChevronRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -71,6 +71,26 @@ export default function GRNViewPage() {
 
   const isExempt = grn?.isExempt || (grn?.items && grn.items.length > 0 && grn.items.every(i => i.labTestRequired === false));
   const status = grn ? (isExempt ? GRN_STATUS_MAP.LAB_EXEMPT : (GRN_STATUS_MAP[grn.status] || GRN_STATUS_MAP.PENDING_LAB)) : null;
+
+  // Multi-GRN Shipments for the same PO
+  const allGrns = Array.isArray(grn?.allGrns) && grn.allGrns.length > 0 
+    ? grn.allGrns 
+    : (grn ? [grn] : []);
+
+  // Chronological sorting (earliest received date first for Shipment 1, Shipment 2...)
+  const sortedAllGrns = [...allGrns].sort((a, b) => new Date(a.receivedDate || a.createdAt || 0) - new Date(b.receivedDate || b.createdAt || 0));
+  const currentShipmentIndex = sortedAllGrns.findIndex(g => g.id === grn?.id || g.referenceNo === grn?.referenceNo);
+  const currentShipmentNum = currentShipmentIndex >= 0 ? currentShipmentIndex + 1 : 1;
+
+  const totalOrderedForPO = Number(grn?.po?.totalOrderedQty || grn?.po?.quantity || 0);
+  const totalReceivedAcrossAll = allGrns.reduce((sum, g) => {
+    const gQty = g.totalReceivedQty != null 
+      ? Number(g.totalReceivedQty) 
+      : (Array.isArray(g.items) ? g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0) : 0);
+    return sum + gQty;
+  }, 0);
+  const overallPct = totalOrderedForPO > 0 ? Math.min(100, Math.round((totalReceivedAcrossAll / totalOrderedForPO) * 100)) : 100;
+  const totalPendingForPO = Math.max(0, totalOrderedForPO - totalReceivedAcrossAll);
 
   // Robust stock extractor: handles netQty, receivedQty, string Decimals, nulls, undefined
   const getBatchStock = (b) => {
@@ -156,6 +176,107 @@ export default function GRNViewPage() {
         <div className="text-center py-16 text-slate-400">GRN not found.</div>
       ) : (
         <div className="space-y-4 sm:space-y-6">
+          {/* Multi-Shipment Switcher Bar (Appears when PO has multiple GRNs) */}
+          {sortedAllGrns.length > 1 && (
+            <div className="bg-gradient-to-r from-indigo-50/90 via-white to-purple-50/90 dark:from-indigo-950/40 dark:via-slate-900 dark:to-purple-950/40 border border-indigo-100 dark:border-indigo-900/60 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3.5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm shrink-0">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
+                        Shipments & GRN Receipts for {grn.po?.referenceNo || 'PO'}
+                      </h2>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                        {sortedAllGrns.length} Shipments Logged
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      This purchase order was fulfilled across multiple installments. Click any shipment below to inspect its receipt record.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Overall PO Progress Badge */}
+                <div className="flex items-center gap-2 bg-white/80 dark:bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80 text-xs shrink-0 self-start sm:self-auto">
+                  <span className="text-slate-500 dark:text-slate-400 font-medium">PO Fulfillment:</span>
+                  <span className="font-mono font-extrabold text-slate-900 dark:text-white">
+                    {totalReceivedAcrossAll.toLocaleString()} / {totalOrderedForPO.toLocaleString()} {grn.po?.uom?.abbreviation || ''}
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200">
+                    {overallPct}%
+                  </span>
+                </div>
+              </div>
+
+              {/* Shipment Selector Tabs / Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-1">
+                {sortedAllGrns.map((sGrn, idx) => {
+                  const isCurrent = sGrn.id === grn.id || sGrn.referenceNo === grn.referenceNo;
+                  const sQty = sGrn.totalReceivedQty || sGrn.items?.reduce((s, it) => s + Number(it.actualReceivedQty || 0), 0) || 0;
+                  const sItems = sGrn.items || [];
+                  const sExempt = sGrn.isExempt || (sItems.length > 0 && sItems.every(i => i.labTestRequired === false));
+                  const sLabCfg = sExempt ? GRN_STATUS_MAP.LAB_EXEMPT : (GRN_STATUS_MAP[sGrn.status] || GRN_STATUS_MAP.PENDING_LAB);
+
+                  return (
+                    <button
+                      key={sGrn.id}
+                      type="button"
+                      onClick={() => {
+                        if (!isCurrent) navigate(`/grn/view/${sGrn.id}`);
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer relative overflow-hidden group ${
+                        isCurrent
+                          ? 'bg-white dark:bg-slate-800 border-indigo-500 ring-2 ring-indigo-500/20 shadow-sm'
+                          : 'bg-white/70 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800 hover:bg-white dark:hover:bg-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
+                    >
+                      {isCurrent && (
+                        <div className="absolute top-0 right-0 w-1.5 h-full bg-indigo-600" />
+                      )}
+                      <div className="flex items-center justify-between gap-1.5 mb-1">
+                        <span className={`font-mono text-xs font-bold ${isCurrent ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                          {sGrn.referenceNo}
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-400">
+                          Shipment #{idx + 1}
+                        </span>
+                      </div>
+                      
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                        <span>{sGrn.receivedDate ? format(new Date(sGrn.receivedDate), 'dd MMM yyyy') : '—'}</span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-200 font-mono">
+                          {sQty} {grn.po?.uom?.abbreviation || ''}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/80">
+                        <span className={`inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded ${
+                          sGrn.status === 'LAB_APPROVED' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300' :
+                          sGrn.status === 'LAB_REJECTED' ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300' :
+                          'bg-amber-50 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300'
+                        }`}>
+                          {sGrn.status === 'LAB_APPROVED' ? '✓ Approved' : sGrn.status === 'LAB_REJECTED' ? '✕ Rejected' : '⏳ Pending Lab'}
+                        </span>
+                        {isCurrent ? (
+                          <span className="text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400">
+                            ● Active View
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium text-slate-400 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                            Switch →
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Header Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
             <div className={`lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6 transition-all duration-1000 ${highlightActive ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 shadow-md shadow-indigo-200 dark:shadow-indigo-900 bg-indigo-50/10 dark:bg-indigo-950/15 animate-pulse' : ''}`}>
@@ -626,6 +747,128 @@ export default function GRNViewPage() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Multi-GRN Shipments Audit Section for this PO */}
+          {sortedAllGrns.length > 1 && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+              <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-800/40">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100 dark:border-indigo-900/60 shadow-xs">
+                    <Layers className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                      All Shipments for {grn.po?.referenceNo || 'PO'}
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800">
+                        {sortedAllGrns.length} GRN Receipts
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Overall PO Fulfillment: <strong className="text-slate-700 dark:text-slate-300 font-mono">{totalReceivedAcrossAll.toLocaleString()}</strong> of <strong className="text-slate-700 dark:text-slate-300 font-mono">{totalOrderedForPO.toLocaleString()} {grn.po?.uom?.abbreviation || ''}</strong> ({overallPct}%)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-slate-400 font-medium">Pending Balance:</span>
+                  <span className={`font-mono font-bold ${totalPendingForPO === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {totalPendingForPO === 0 ? '0 pending (Fully Delivered)' : `${totalPendingForPO.toLocaleString()} ${grn.po?.uom?.abbreviation || ''} pending`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Table of all shipments */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50/70 dark:bg-slate-800/60 text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left">Shipment</th>
+                      <th className="px-4 py-2.5 text-left">GRN Reference</th>
+                      <th className="px-4 py-2.5 text-left">Received Date</th>
+                      <th className="px-4 py-2.5 text-left">Received By</th>
+                      <th className="px-4 py-2.5 text-left">Delivered Items</th>
+                      <th className="px-4 py-2.5 text-right">Received Qty</th>
+                      <th className="px-4 py-2.5 text-center">Lab Status</th>
+                      <th className="px-4 py-2.5 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {sortedAllGrns.map((sGrn, sIdx) => {
+                      const isCurrent = sGrn.id === grn.id || sGrn.referenceNo === grn.referenceNo;
+                      const sQty = sGrn.totalReceivedQty || sGrn.items?.reduce((s, it) => s + Number(it.actualReceivedQty || 0), 0) || 0;
+                      const sItems = sGrn.items || [];
+                      const sExempt = sGrn.isExempt || (sItems.length > 0 && sItems.every(i => i.labTestRequired === false));
+                      const sLabCfg = sExempt ? GRN_STATUS_MAP.LAB_EXEMPT : (GRN_STATUS_MAP[sGrn.status] || GRN_STATUS_MAP.PENDING_LAB);
+
+                      return (
+                        <tr 
+                          key={sGrn.id}
+                          className={`transition-colors ${
+                            isCurrent 
+                              ? 'bg-indigo-50/40 dark:bg-indigo-950/20 font-medium' 
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                          }`}
+                        >
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <span className="font-bold text-slate-700 dark:text-slate-300">
+                              Shipment #{sIdx + 1}
+                            </span>
+                            {isCurrent && (
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200">
+                                Current
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
+                            {sGrn.referenceNo}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                            {sGrn.receivedDate ? format(new Date(sGrn.receivedDate), 'dd MMM yyyy, HH:mm') : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                            {sGrn.receiver?.name || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 dark:text-slate-400 max-w-[220px]">
+                            {sItems.length > 0 ? (
+                              <div className="truncate" title={sItems.map(i => `${i.actualReceivedQty} ${i.rmName}`).join(', ')}>
+                                {sItems.map(i => `${i.actualReceivedQty} ${i.rmName}`).join(', ')}
+                              </div>
+                            ) : (
+                              <span>—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right font-mono font-bold text-slate-900 dark:text-white whitespace-nowrap">
+                            {sQty.toLocaleString()} {grn.po?.uom?.abbreviation || ''}
+                          </td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${sLabCfg.cls}`}>
+                              <sLabCfg.Icon className="w-3 h-3" /> {sLabCfg.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            {isCurrent ? (
+                              <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400">
+                                Active View
+                              </span>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => navigate(`/grn/view/${sGrn.id}`)}
+                                className="h-7 px-2.5 text-[11px] font-semibold text-slate-700 hover:text-indigo-600 dark:text-slate-300 dark:hover:text-indigo-400 border-slate-200 dark:border-slate-700 rounded-lg cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800"
+                              >
+                                View GRN →
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

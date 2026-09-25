@@ -650,9 +650,36 @@ router.get('/receive/:id',
         }
       });
       if (!grn) return res.status(404).json({ error: 'GRN not found' });
+
+      // Fetch all sibling GRNs for this PO if available
+      let allGrnsForPO = [];
+      if (grn.poId) {
+        allGrnsForPO = await prisma.gRNReceive.findMany({
+          where: { poId: grn.poId },
+          include: {
+            items: true,
+            receiver: { select: { name: true, role: true } },
+            labTest: {
+              select: {
+                id: true,
+                status: true,
+                overallDecision: true
+              }
+            },
+            inventoryBatches: { include: { uom: true }, orderBy: { createdAt: 'desc' } }
+          },
+          orderBy: { receivedDate: 'desc' }
+        });
+      }
+
       const mapped = {
         ...grn,
-        inventoryStatus: (grn.status === 'LAB_APPROVED' || grn.inventoryStatus === 'UPLOADED') ? 'UPLOADED' : (grn.inventoryStatus || 'NOT_UPLOADED')
+        inventoryStatus: (grn.status === 'LAB_APPROVED' || grn.inventoryStatus === 'UPLOADED') ? 'UPLOADED' : (grn.inventoryStatus || 'NOT_UPLOADED'),
+        allGrns: allGrnsForPO.map(g => ({
+          ...g,
+          inventoryStatus: (g.status === 'LAB_APPROVED' || g.inventoryStatus === 'UPLOADED') ? 'UPLOADED' : (g.inventoryStatus || 'NOT_UPLOADED'),
+          totalReceivedQty: g.items?.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0) || 0
+        }))
       };
       res.json(mapped);
     } catch (error) {

@@ -434,10 +434,11 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered 
               variant="outline"
               size="sm"
               onClick={() => navigate(`/grn/view/${d.grnId}`)}
-              className="h-8 px-2.5 text-[11px] font-bold gap-1 text-slate-600 border-slate-200 hover:bg-slate-50 dark:text-slate-300 dark:border-slate-700 rounded-lg transition-all"
+              className="h-8 px-2.5 text-[11px] font-bold gap-1 text-indigo-600 dark:text-indigo-400 border-indigo-200/80 dark:border-indigo-900/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-all"
+              title={d.grnList && d.grnList.length > 1 ? `View all ${d.grnList.length} GRN shipments for this PO` : 'View Goods Received Note'}
             >
               <ChevronRight className="w-3.5 h-3.5" /> 
-              <span>GRN</span>
+              <span>{d.grnList && d.grnList.length > 1 ? `GRN (${d.grnList.length})` : 'GRN'}</span>
             </Button>
           )}
 
