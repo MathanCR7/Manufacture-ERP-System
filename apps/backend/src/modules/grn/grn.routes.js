@@ -111,7 +111,11 @@ router.get('/upcoming',
       const poIds = pos.map(p => p.id);
       const allGrns = await prisma.gRNReceive.findMany({
         where: { poId: { in: poIds } },
-        include: { items: true },
+        include: { 
+          items: true,
+          receiver: { select: { name: true } },
+          labTest: { select: { overallDecision: true, labNotes: true } }
+        },
         orderBy: { receivedDate: 'desc' }
       });
 
@@ -200,9 +204,24 @@ router.get('/upcoming',
               id: g.id,
               referenceNo: g.referenceNo,
               receivedDate: g.receivedDate,
+              createdAt: g.createdAt,
               status: g.status,
-              receivedQty: g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0),
-              isFinalDelivery: g.isFinalDelivery
+              inventoryStatus: (g.status === 'LAB_APPROVED' || g.inventoryStatus === 'UPLOADED') ? 'UPLOADED' : (g.inventoryStatus || 'NOT_UPLOADED'),
+              invoiceNumber: g.invoiceNumber,
+              lrNumber: g.lrNumber,
+              receivedQty: g.items?.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0) || 0,
+              isFinalDelivery: g.isFinalDelivery,
+              receiverName: g.receiver?.name || null,
+              labDecision: g.labTest?.overallDecision || null,
+              labNotes: g.labTest?.labNotes || null,
+              items: g.items?.map(it => ({
+                id: it.id,
+                rmName: it.rmName,
+                expectedQty: it.expectedQty,
+                actualReceivedQty: it.actualReceivedQty,
+                batchNumber: it.batchNumber,
+                status: it.status,
+              })) || []
             })),
             items: enrichedItems,
             vehicleNumber: po.vehicleNumber || null,

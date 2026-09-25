@@ -7,7 +7,8 @@ import { format } from 'date-fns';
 import {
   Truck, Package, Search, Eye, ClipboardCheck, AlertCircle, Clock,
   CheckCircle2, RefreshCw, QrCode, FlaskConical, XCircle, Printer,
-  ChevronRight, Calendar, User, X, Loader2, PackageCheck, AlertTriangle
+  ChevronRight, Calendar, User, X, Loader2, PackageCheck, AlertTriangle,
+  Layers, ArrowRight, FileText
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { Button } from '@/components/ui/button';
@@ -18,6 +19,17 @@ import _QRCode from 'react-qr-code';
 import { Pagination } from '@/components/ui/Pagination';
 
 const QRCode = typeof _QRCode === 'function' ? _QRCode : (_QRCode?.default || _QRCode?.QRCode || 'div');
+
+const safeFormatDate = (dateVal, formatStr = 'dd MMM yyyy') => {
+  if (!dateVal) return '—';
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '—';
+    return format(d, formatStr);
+  } catch (e) {
+    return '—';
+  }
+};
 
 const GRN_STATUS_CONFIG = {
   PENDING_LAB:    { label: 'Pending Lab',    color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20', icon: FlaskConical },
@@ -269,7 +281,256 @@ function ConfirmFullyDeliveredModal({ delivery, onClose, onConfirm, isSubmitting
   );
 }
 
-function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered }) {
+// Stylish Multi-GRN Shipments Modal
+function POGRNsListModal({ delivery, onClose, onQRView }) {
+  const navigate = useNavigate();
+  if (!delivery) return null;
+
+  const shipments = (delivery.grnList && delivery.grnList.length > 0)
+    ? delivery.grnList
+    : (delivery.grnId ? [{
+        id: delivery.grnId,
+        referenceNo: delivery.referenceNo ? `GRN (${delivery.referenceNo})` : 'GRN-RECORD',
+        receivedDate: delivery.receivedDate,
+        status: delivery.grnStatus,
+        inventoryStatus: 'UPLOADED',
+        receivedQty: delivery.totalReceivedQty || delivery.quantity,
+        items: delivery.items || []
+      }] : []);
+
+  const totalOrdered = Number(delivery.totalOrderedQty || delivery.quantity || 0);
+  const totalReceived = Number(delivery.totalReceivedQty || 0);
+  const pendingQty = Number(delivery.pendingQty != null ? delivery.pendingQty : Math.max(0, totalOrdered - totalReceived));
+  const uom = delivery.uom?.abbreviation || 'pcs';
+  const pct = totalOrdered > 0 ? Math.min(100, Math.round((totalReceived / totalOrdered) * 100)) : 100;
+  const isAllArrived = pendingQty <= 0 || totalReceived >= totalOrdered;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-2xl bg-white dark:bg-[#0f172a] border border-slate-200/90 dark:border-slate-800 rounded-3xl shadow-2xl z-10 animate-in zoom-in-95 duration-200 overflow-hidden flex flex-col max-h-[88vh]"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Top vibrant gradient accent line */}
+        <div className="h-1.5 bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-500 shrink-0" />
+
+        {/* Modal Header */}
+        <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/50 flex items-start justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/80 dark:border-indigo-800/60 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shadow-sm shrink-0">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white leading-tight">
+                  Shipment Receipts (GRNs)
+                </h3>
+                <span className="font-mono text-xs font-extrabold px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800">
+                  {delivery.referenceNo}
+                </span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                  {shipments.length} {shipments.length === 1 ? 'Shipment' : 'Shipments'} Logged
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Supplier: <strong className="text-slate-700 dark:text-slate-200">{delivery.supplierName || '—'}</strong>
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors cursor-pointer shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* PO Progress bar summary banner */}
+        <div className="px-4 sm:px-5 py-3 bg-indigo-50/30 dark:bg-indigo-950/20 border-b border-indigo-100/60 dark:border-indigo-900/40 shrink-0">
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="text-slate-600 dark:text-slate-400 font-medium">Fulfillment Progress</span>
+            <span className="font-mono font-extrabold text-slate-900 dark:text-slate-100">
+              {totalReceived.toLocaleString()} / {totalOrdered.toLocaleString()} {uom} ({pct}%)
+            </span>
+          </div>
+          <div className="w-full bg-slate-200/80 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                pct >= 100
+                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500'
+                  : 'bg-gradient-to-r from-amber-500 to-indigo-500'
+              }`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex justify-between items-center text-[11px] pt-1">
+            <span className={isAllArrived ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400 font-semibold'}>
+              {isAllArrived ? '✓ All quantities received for this order' : `⚠ ${pendingQty.toLocaleString()} ${uom} pending`}
+            </span>
+            <span className="text-slate-400 text-[10px]">
+              Expected: {safeFormatDate(delivery.expectedDelivery)}
+            </span>
+          </div>
+        </div>
+
+        {/* Shipment Cards Body - Scrollable */}
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5 flex-1">
+          {shipments.length === 0 ? (
+            <div className="text-center py-10 text-slate-400">
+              <Package className="w-10 h-10 mx-auto mb-2 opacity-30" />
+              <p className="font-semibold text-sm">No GRN shipments logged yet</p>
+              <p className="text-xs mt-1">Receive deliveries to generate GRN records for this order.</p>
+            </div>
+          ) : (
+            shipments.map((grn, idx) => {
+              const cfg = GRN_STATUS_CONFIG[grn.status] || { label: grn.status || 'Received', color: 'bg-slate-100 text-slate-700 border-slate-200', icon: Clock };
+              const StatusIcon = cfg?.icon || Clock;
+
+              return (
+                <div
+                  key={grn.id || idx}
+                  className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-all space-y-3 relative group"
+                >
+                  {/* Top line of shipment card */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700">
+                        Shipment #{idx + 1}
+                      </span>
+                      <span className="font-mono text-sm font-black text-indigo-600 dark:text-indigo-400">
+                        {grn.referenceNo}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${cfg.color || 'border-slate-200'}`}>
+                        <StatusIcon className="w-3 h-3" />
+                        <span>{cfg.label}</span>
+                      </span>
+                      {grn.inventoryStatus === 'UPLOADED' && (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                          Stock In
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1 font-medium">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{safeFormatDate(grn.receivedDate, 'dd MMM yyyy, hh:mm a')}</span>
+                    </div>
+                  </div>
+
+                  {/* Metadata line: Invoice, LR, Receiver */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 bg-slate-50/70 dark:bg-slate-950/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/80 text-[11px]">
+                    <div>
+                      <span className="text-slate-400 block text-[9.5px] uppercase font-bold">Received Qty</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        {Number(grn.receivedQty || 0).toLocaleString()} {uom}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[9.5px] uppercase font-bold">Invoice #</span>
+                      <span className="font-mono font-medium text-slate-700 dark:text-slate-300 truncate block">
+                        {grn.invoiceNumber || '—'}
+                      </span>
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <span className="text-slate-400 block text-[9.5px] uppercase font-bold">Received By</span>
+                      <span className="font-medium text-slate-700 dark:text-slate-300 truncate block">
+                        {grn.receiverName || 'Materials Receiver'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Items received in this shipment */}
+                  {grn.items && grn.items.length > 0 && (
+                    <div className="space-y-1.5 pt-0.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                        <Package className="w-3 h-3 text-indigo-500" />
+                        <span>Materials Received ({grn.items.length})</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {grn.items.map((it, iIdx) => (
+                          <div
+                            key={it.id || iIdx}
+                            className="bg-white dark:bg-slate-800/70 border border-slate-200/70 dark:border-slate-700/70 rounded-xl px-2.5 py-1.5 flex items-center justify-between text-[11px]"
+                          >
+                            <div className="truncate pr-2">
+                              <span className="font-semibold text-slate-800 dark:text-slate-200 block truncate" title={it.rmName}>
+                                {it.rmName}
+                              </span>
+                              {it.batchNumber && (
+                                <span className="font-mono text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1 py-0.2 rounded border border-indigo-200/50 dark:border-indigo-800/50">
+                                  {it.batchNumber}
+                                </span>
+                              )}
+                            </div>
+                            <span className="font-mono font-extrabold text-slate-900 dark:text-slate-100 bg-slate-50 dark:bg-slate-900 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 shrink-0">
+                              {Number(it.actualReceivedQty || 0).toLocaleString()} {uom}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions for this GRN */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onQRView(grn)}
+                      className="h-8 px-2.5 text-xs text-slate-500 hover:text-purple-600 dark:text-slate-400 dark:hover:text-purple-400 cursor-pointer rounded-xl"
+                    >
+                      <QrCode className="w-3.5 h-3.5 mr-1" />
+                      QR
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => navigate(`/grn/view/${grn.id}`)}
+                      className="h-8 px-3 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-3xs cursor-pointer inline-flex items-center gap-1 active:scale-95 transition-all"
+                    >
+                      <span>View GRN File</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-4 sm:p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/50 flex flex-col sm:flex-row items-center justify-between gap-3 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate(`/grn/list?search=${encodeURIComponent(delivery.referenceNo)}`)}
+            className="w-full sm:w-auto h-9 px-3.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-xl cursor-pointer inline-flex items-center justify-center gap-1.5 shadow-3xs"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>View All in GRN Records List →</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="w-full sm:w-auto h-9 px-4 text-xs font-semibold rounded-xl cursor-pointer border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            Close
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered, onOpenGRNModal }) {
   const isPartiallyReceived = d.isPartiallyReceived || d.status === 'PARTIALLY_RECEIVED' || (d.totalReceivedQty > 0 && d.pendingQty > 0);
   const isFullyDelivered = d.isFullyDelivered || d.deliveredStatus === 'FULLY_DELIVERED';
 
@@ -433,8 +694,8 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered 
             <Button
               variant="outline"
               size="sm"
-              onClick={() => navigate(`/grn/view/${d.grnId}`)}
-              className="h-8 px-2.5 text-[11px] font-bold gap-1 text-indigo-600 dark:text-indigo-400 border-indigo-200/80 dark:border-indigo-900/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-all"
+              onClick={() => onOpenGRNModal(d)}
+              className="h-8 px-2.5 text-[11px] font-bold gap-1 text-indigo-600 dark:text-indigo-400 border-indigo-200/80 dark:border-indigo-900/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-all cursor-pointer shadow-3xs hover:border-indigo-300"
               title={d.grnList && d.grnList.length > 1 ? `View all ${d.grnList.length} GRN shipments for this PO` : 'View Goods Received Note'}
             >
               <ChevronRight className="w-3.5 h-3.5" /> 
@@ -507,6 +768,7 @@ export default function UpcomingDeliveriesPage() {
   const [activeTab, setActiveTab] = useState('upcoming'); // upcoming | delivered
   const [qrDelivery, setQRDelivery] = useState(null);
   const [sortBy, setSortBy] = useState('recent');
+  const [selectedPOGRNs, setSelectedPOGRNs] = useState(null);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -745,6 +1007,7 @@ export default function UpcomingDeliveriesPage() {
                 onQRView={setQRDelivery} 
                 canReceive={canReceive} 
                 onMarkFullyDelivered={(item) => setMarkingDelivery(item)}
+                onOpenGRNModal={(item) => setSelectedPOGRNs(item)}
               />
             ))}
           </div>
@@ -772,6 +1035,24 @@ export default function UpcomingDeliveriesPage() {
 
       {/* QR Details Modal */}
       {qrDelivery && <QRDetailModal delivery={qrDelivery} onClose={() => setQRDelivery(null)} />}
+
+      {/* Multi-GRN Shipments Modal */}
+      {selectedPOGRNs && (
+        <POGRNsListModal
+          delivery={selectedPOGRNs}
+          onClose={() => setSelectedPOGRNs(null)}
+          onQRView={(grn) => {
+            setQRDelivery({
+              ...selectedPOGRNs,
+              grnId: grn.id,
+              referenceNo: grn.referenceNo || selectedPOGRNs.referenceNo,
+              grnStatus: grn.status || selectedPOGRNs.grnStatus,
+              actualReceivedQty: grn.receivedQty || selectedPOGRNs.totalReceivedQty,
+              receivedDate: grn.receivedDate || selectedPOGRNs.receivedDate,
+            });
+          }}
+        />
+      )}
 
       {/* Modern In-App Confirmation Modal to Mark PO as Fully Delivered */}
       {markingDelivery && (
