@@ -212,6 +212,7 @@ model RawMaterialPO {
   paymentImage     String?             @map("payment_image") @db.Text
   paymentNotes     String?             @map("payment_notes") @db.Text
   paymentDate      DateTime?           @map("payment_date")
+  paymentHistory   Json?               @map("payment_history")
   
   // Delivery & Partial Receipt Tracking
   totalReceivedQty Decimal?            @default(0.00) @map("total_received_qty")

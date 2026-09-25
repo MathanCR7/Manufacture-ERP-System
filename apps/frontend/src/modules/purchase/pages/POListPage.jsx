@@ -11,6 +11,10 @@ import {
   RotateCcw, X, CreditCard, Loader2, ArrowUpDown, ArrowUp, ArrowDown,
   Image as ImageIcon, Lock
 } from 'lucide-react';
+import { 
+  UpdatePaymentSettlementModal, 
+  PaymentSettlementDetailsModal 
+} from '../components/PaymentSettlementManager';
 import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -117,208 +121,14 @@ function StatCard({ icon: Icon, label, value, borderClass, bgClass, iconColorCla
   );
 }
 
-function PaymentUpdateModal({ po: modalData, onClose, onUpdated }) {
-  const po = modalData?.po || modalData;
-  const initialStatus = modalData?.initialStatus;
+// Payment modals are managed via UpdatePaymentSettlementModal & PaymentSettlementDetailsModal in PaymentSettlementManager
 
-  const total = Number(po.totalAmount || po.amount || 0);
-  const existingPaid = Number(po.paidAmount !== undefined && po.paidAmount !== null ? po.paidAmount : (po.paymentStatus === 'PAID' ? total : 0));
 
-  let resolvedInitialStatus = initialStatus || po.paymentStatus;
-  if (!resolvedInitialStatus) {
-    resolvedInitialStatus = existingPaid >= total && total > 0 ? 'PAID' : existingPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID';
-  }
-
-  let defaultPaid = existingPaid;
-  if (resolvedInitialStatus === 'PAID') {
-    defaultPaid = total;
-  } else if (resolvedInitialStatus === 'UNPAID') {
-    defaultPaid = 0;
-  } else if (resolvedInitialStatus === 'PARTIALLY_PAID' && (existingPaid <= 0 || existingPaid >= total)) {
-    defaultPaid = Math.round((total / 2) * 100) / 100;
-  }
-
-  const [paidInput, setPaidInput] = useState(defaultPaid.toString());
-  const [paymentStatusMode, setPaymentStatusMode] = useState(resolvedInitialStatus);
-  const [paymentMode, setPaymentMode] = useState(po.paymentMode || 'BANK_TRANSFER');
-  const [paymentRef, setPaymentRef] = useState(po.paymentRef || '');
-  const [paymentImage, setPaymentImage] = useState(po.paymentImage || null);
-  const [paymentNotes, setPaymentNotes] = useState(po.paymentNotes || '');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    let finalPaid = parseFloat(paidInput);
-    let resolvedStatus = paymentStatusMode;
-
-    if (paymentStatusMode === 'UNPAID') {
-      finalPaid = 0;
-      resolvedStatus = 'UNPAID';
-    } else if (paymentStatusMode === 'PAID') {
-      finalPaid = total;
-      resolvedStatus = 'PAID';
-    } else {
-      // PARTIALLY_PAID
-      if (isNaN(finalPaid) || finalPaid <= 0) {
-        setError('Please enter a valid partial amount greater than 0.');
-        return;
-      }
-      if (finalPaid >= total) {
-        setError(`Partial amount must be less than Grand Total (₹${total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}). Select 'Full Paid' if settling the full amount.`);
-        return;
-      }
-      resolvedStatus = 'PARTIALLY_PAID';
-    }
-
-    setIsSubmitting(true);
-    try {
-      await api.patch(`/rm/po/${po.id}/payment`, {
-        paymentStatus: resolvedStatus,
-        paidAmount: finalPaid,
-        paymentMode: resolvedStatus === 'UNPAID' ? null : paymentMode,
-        paymentRef: resolvedStatus === 'UNPAID' ? null : paymentRef,
-        paymentImage: resolvedStatus === 'UNPAID' ? null : paymentImage,
-        paymentNotes: resolvedStatus === 'UNPAID' ? null : paymentNotes,
-      });
-
-      Swal.fire({
-        toast: true,
-        position: 'top-end',
-        icon: 'success',
-        title: `Payment Updated for ${po.referenceNo}`,
-        html: `<span class="text-xs">Status: <b>${resolvedStatus}</b> · Paid: <b>₹${finalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</b></span>`,
-        showConfirmButton: false,
-        timer: 3000,
-        timerProgressBar: true
-      });
-
-      onUpdated();
-      onClose();
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.error || 'Failed to update payment status. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  React.useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div 
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
-      onClick={onClose}
-    >
-      <div 
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/50">
-              <CreditCard className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">Update Payment Settlement</h3>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-indigo-100/70 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                  {po.referenceNo}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                Supplier: <span className="font-semibold text-slate-700 dark:text-slate-300">{po.supplierName || po.supplier?.name || 'N/A'}</span>
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 h-8 w-8"
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Content Body - Scrollable */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
-          <PaymentFieldsSection
-            paymentStatus={paymentStatusMode}
-            setPaymentStatus={setPaymentStatusMode}
-            paidAmount={paidInput}
-            setPaidAmount={setPaidInput}
-            paymentMode={paymentMode}
-            setPaymentMode={setPaymentMode}
-            paymentRef={paymentRef}
-            setPaymentRef={setPaymentRef}
-            paymentImage={paymentImage}
-            setPaymentImage={setPaymentImage}
-            paymentNotes={paymentNotes}
-            setPaymentNotes={setPaymentNotes}
-            totalAmount={total}
-            isCompact={true}
-          />
-
-          {error && (
-            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="rounded-xl text-xs h-9 cursor-pointer"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className={`rounded-xl text-xs h-9 font-bold px-4 shadow-sm cursor-pointer text-white ${
-                paymentStatusMode === 'UNPAID'
-                  ? 'bg-amber-600 hover:bg-amber-700'
-                  : paymentStatusMode === 'PAID'
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : 'bg-indigo-600 hover:bg-indigo-700'
-              }`}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                  {paymentStatusMode === 'UNPAID'
-                    ? 'Save as Unpaid'
-                    : paymentStatusMode === 'PAID'
-                    ? 'Save Full Payment'
-                    : 'Save Partial Payment'}
-                </>
-              )}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
+function PaymentSummaryModal() {
+  return null;
 }
 
-function PaymentSummaryModal({ po, onClose, onEditPayment, onPreviewImage }) {
+function _OldPaymentSummaryModal_Unused({ po, onClose, onEditPayment, onPreviewImage }) {
   if (!po) return null;
 
   const total = Number(po.totalAmount || po.amount || 0);
@@ -1291,25 +1101,28 @@ export default function POListPage() {
         </CardContent>
       </Card>
 
-      {/* Payment Settlement Summary Popup (View Mode, Bank, Reference, Proof & Notes) */}
+      {/* Payment Settlement Details Modal (Multi-installment, DateTime, Modes, Receipt Zoom) */}
       {summaryModalPO && (
-        <PaymentSummaryModal
+        <PaymentSettlementDetailsModal
           po={summaryModalPO}
           onClose={() => setSummaryModalPO(null)}
-          onEditPayment={(po, initialStatus) => {
+          onEditPayment={() => {
+            const selected = summaryModalPO;
             setSummaryModalPO(null);
-            setPaymentModalPO({ po, initialStatus });
+            setPaymentModalPO(selected);
           }}
-          onPreviewImage={(src, title) => setPreviewImage({ src, title })}
         />
       )}
 
-      {/* Modern Payment Update Modal */}
+      {/* Modern Multi-Installment Payment Settlement Modal */}
       {paymentModalPO && (
-        <PaymentUpdateModal
+        <UpdatePaymentSettlementModal
           po={paymentModalPO}
           onClose={() => setPaymentModalPO(null)}
-          onUpdated={refetch}
+          onUpdated={() => {
+            refetch();
+            queryClient.invalidateQueries({ queryKey: ['pos'] });
+          }}
         />
       )}
 

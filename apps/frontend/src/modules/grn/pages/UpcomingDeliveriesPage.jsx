@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -7,7 +7,7 @@ import { format } from 'date-fns';
 import {
   Truck, Package, Search, Eye, ClipboardCheck, AlertCircle, Clock,
   CheckCircle2, RefreshCw, QrCode, FlaskConical, XCircle, Printer,
-  ChevronRight, Calendar, User, X, Loader2, PackageCheck, AlertTriangle,
+  ChevronRight, Calendar, X, Loader2, PackageCheck,
   Layers, ArrowRight, FileText
 } from 'lucide-react';
 import Swal from 'sweetalert2';
@@ -26,7 +26,7 @@ const safeFormatDate = (dateVal, formatStr = 'dd MMM yyyy') => {
     const d = new Date(dateVal);
     if (isNaN(d.getTime())) return '—';
     return format(d, formatStr);
-  } catch (e) {
+  } catch {
     return '—';
   }
 };
@@ -115,12 +115,12 @@ function QRDetailModal({ delivery, onClose }) {
             { label: 'Ordered Qty', value: `${Number(delivery.totalOrderedQty || delivery.quantity).toLocaleString()} ${delivery.uom?.abbreviation || ''}` },
             { label: 'Total Received', value: `${Number(delivery.totalReceivedQty || 0).toLocaleString()} ${delivery.uom?.abbreviation || ''}` },
             { label: 'Pending Qty', value: `${Number(delivery.pendingQty || 0).toLocaleString()} ${delivery.uom?.abbreviation || ''}` },
-            { label: 'Expected Delivery', value: delivery.expectedDelivery ? format(new Date(delivery.expectedDelivery), 'dd MMM yyyy') : '—' },
-            { label: 'Payment Amount', value: `₹${Number(delivery.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
+            { label: 'Expected Delivery', value: safeFormatDate(delivery.expectedDelivery) },
+            { label: 'Payment Amount', value: `₹${Number(delivery.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` },
             ...(delivery.hasGrn ? [
               { label: 'Latest Status', value: delivery.grnStatus?.replace('_', ' ') || '—' },
               { label: 'Refund Amount', value: delivery.refundAmount != null ? `₹${Number(delivery.refundAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '—' },
-              { label: 'Latest Delivery Date', value: delivery.receivedDate ? format(new Date(delivery.receivedDate), 'dd MMM yyyy') : '—' },
+              { label: 'Latest Delivery Date', value: safeFormatDate(delivery.receivedDate) },
             ] : []),
           ].map(({ label, value }) => (
             <div key={label} className="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-slate-800 last:border-0">
@@ -658,11 +658,11 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered,
           <div className="text-2xs text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1 my-1 flex-wrap">
             <Calendar className="w-3.5 h-3.5" />
             {!d.hasGrn ? (
-              <span>Expected: {d.expectedDelivery ? format(new Date(d.expectedDelivery), 'dd MMM yyyy') : '—'}</span>
+              <span>Expected: {safeFormatDate(d.expectedDelivery)}</span>
             ) : (
               <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-450 font-black">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                <span>Last Rcvd: {d.receivedDate ? format(new Date(d.receivedDate), 'dd MMM yyyy') : '—'}</span>
+                <span>Last Rcvd: {safeFormatDate(d.receivedDate)}</span>
               </div>
             )}
           </div>
@@ -821,10 +821,20 @@ export default function UpcomingDeliveriesPage() {
     }
   };
 
-  // Reset pagination to first page when search filters or sorting change
-  useEffect(() => {
+  const handleSearchChange = (val) => {
+    setSearch(val);
     setCurrentPage(1);
-  }, [search, activeTab, sortBy]);
+  };
+
+  const handleTabChange = (tabId) => {
+    setActiveTab(tabId);
+    setCurrentPage(1);
+  };
+
+  const handleSortChange = (sortVal) => {
+    setSortBy(sortVal);
+    setCurrentPage(1);
+  };
 
   const sortOptions = [
     { value: 'recent', label: 'Recent Expected' },
@@ -848,14 +858,17 @@ export default function UpcomingDeliveriesPage() {
 
   const activeList = activeTab === 'upcoming' ? upcoming : delivered;
 
+  const searchLower = (search || '').trim().toLowerCase();
   const filtered = activeList.filter(d =>
-    d.referenceNo?.toLowerCase().includes(search.toLowerCase()) ||
-    d.name?.toLowerCase().includes(search.toLowerCase()) ||
-    d.supplierName?.toLowerCase().includes(search.toLowerCase())
+    !searchLower ||
+    d.referenceNo?.toLowerCase().includes(searchLower) ||
+    d.name?.toLowerCase().includes(searchLower) ||
+    d.supplierName?.toLowerCase().includes(searchLower)
   );
 
   const getSortDate = (d) => {
-    return new Date(d.receivedDate || d.expectedDelivery || d.createdAt || 0);
+    const ts = new Date(d.receivedDate || d.expectedDelivery || d.createdAt || 0).getTime();
+    return isNaN(ts) ? 0 : ts;
   };
 
   const sorted = [...filtered].sort((a, b) => {
@@ -929,7 +942,7 @@ export default function UpcomingDeliveriesPage() {
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 ${
                 activeTab === tab.id
                   ? 'bg-white dark:bg-slate-900 text-indigo-605 dark:text-indigo-400 shadow'
@@ -953,14 +966,14 @@ export default function UpcomingDeliveriesPage() {
             <Input
               placeholder="Search PO ref, material, supplier..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => handleSearchChange(e.target.value)}
               className="pl-10 h-9 w-full text-xs bg-white dark:bg-slate-950 border-slate-205 dark:border-slate-800 focus-visible:ring-indigo-500/20 rounded-xl shadow-sm"
             />
           </div>
 
           <SortSelect
             value={sortBy}
-            onChange={setSortBy}
+            onChange={handleSortChange}
             options={sortOptions}
             className="w-full sm:w-auto h-9 text-xs"
           />
@@ -1027,7 +1040,7 @@ export default function UpcomingDeliveriesPage() {
             </div>
             
             <div className="text-xs font-bold text-slate-800 dark:text-slate-250 bg-slate-100/50 dark:bg-slate-950 px-3 py-1 rounded-lg border border-slate-200/50 dark:border-slate-850 order-3">
-              Total Listed Value: ₹{filtered.reduce((sum, d) => sum + Number(d.amount || 0), 0).toLocaleString('en-IN', { minimumFractionDigits: 1 })}
+              Total Listed Value: ₹{filtered.reduce((sum, d) => sum + (isNaN(Number(d.amount)) ? 0 : Number(d.amount)), 0).toLocaleString('en-IN', { minimumFractionDigits: 1 })}
             </div>
           </div>
         </div>

@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from '@/components/guards/ProtectedRoute';
 import RoleGuard from '@/components/guards/RoleGuard';
 import AppShell from '@/components/layout/AppShell';
-import { RotateCw } from 'lucide-react';
+import { RotateCw, AlertCircle } from 'lucide-react';
 import useAuthStore, { getRedirectPathByRole } from '@/app/store/authStore';
 
 const LoginPage = lazy(() => import('@/modules/auth/pages/LoginPage'));
@@ -162,48 +162,97 @@ const DashboardRouteWrapper = ({ children }) => {
 class RouteErrorBoundary extends Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, isChunkError: false };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error('[RouteErrorBoundary] Caught error:', error, errorInfo);
     const isChunkError = 
       error?.message?.includes('dynamically imported module') ||
       error?.message?.includes('Loading chunk') ||
       error?.message?.includes('Failed to fetch') ||
       error?.name === 'ChunkLoadError';
+    return { hasError: true, error, isChunkError };
+  }
 
-    if (isChunkError) {
+  componentDidCatch(error, errorInfo) {
+    console.error('[RouteErrorBoundary] Caught error:', error, errorInfo);
+    const isChunk = 
+      error?.message?.includes('dynamically imported module') ||
+      error?.message?.includes('Loading chunk') ||
+      error?.message?.includes('Failed to fetch') ||
+      error?.name === 'ChunkLoadError';
+
+    if (isChunk) {
       const lastReload = sessionStorage.getItem('chunk_reload_time');
       const now = Date.now();
-      if (!lastReload || now - Number(lastReload) > 10000) {
+      if (!lastReload || now - Number(lastReload) > 8000) {
         sessionStorage.setItem('chunk_reload_time', String(now));
-        window.location.reload();
+        const url = new URL(window.location.href);
+        url.searchParams.set('_v', String(now));
+        window.location.replace(url.toString());
       }
     }
   }
 
+  handleReload = () => {
+    sessionStorage.removeItem('chunk_reload_time');
+    const url = new URL(window.location.href);
+    url.searchParams.set('_v', Date.now().toString());
+    window.location.replace(url.toString());
+  };
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null, isChunkError: false });
+  };
+
   render() {
     if (this.state.hasError) {
+      if (this.state.isChunkError) {
+        return (
+          <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
+            <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-indigo-100 dark:border-indigo-900/50">
+              <RotateCw className="w-6 h-6 animate-spin-hover" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Page Update Available</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md">
+              A newer version of this module is available. Click below to load the latest version.
+            </p>
+            <button
+              onClick={this.handleReload}
+              className="mt-5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+            >
+              <RotateCw className="w-3.5 h-3.5" /> Reload Page
+            </button>
+          </div>
+        );
+      }
+
       return (
         <div className="flex h-[80vh] flex-col items-center justify-center p-6 text-center">
-          <div className="w-14 h-14 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-indigo-100 dark:border-indigo-900/50">
-            <RotateCw className="w-6 h-6 animate-spin-hover" />
+          <div className="w-14 h-14 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-2xl flex items-center justify-center mb-4 shadow-sm border border-rose-100 dark:border-rose-900/50">
+            <AlertCircle className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Page Update Available</h2>
+          <h2 className="text-xl font-bold text-slate-900 dark:text-white">Something Went Wrong</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md">
-            This module has been updated. Please click below to refresh and load the latest version.
+            {this.state.error?.message || 'An unexpected error occurred while loading this view.'}
           </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="mt-5 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition-all active:scale-95 flex items-center gap-2"
-          >
-            <RotateCw className="w-3.5 h-3.5" /> Reload Page
-          </button>
+          <div className="mt-5 flex items-center gap-3">
+            <button
+              onClick={this.handleReset}
+              className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow transition-all active:scale-95 flex items-center gap-2 cursor-pointer"
+            >
+              <RotateCw className="w-3.5 h-3.5" /> Try Again
+            </button>
+            <button
+              onClick={() => {
+                this.handleReset();
+                window.location.href = '/dashboard';
+              }}
+              className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-xl transition-all cursor-pointer"
+            >
+              Dashboard
+            </button>
+          </div>
         </div>
       );
     }

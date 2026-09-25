@@ -18,58 +18,35 @@ try {
  * @param {string|null} imagePath - Stored path (e.g. /uploads/payments/PO-000004-receipt.webp)
  * @param {string|null} [cleanRef=null] - Clean PO reference (e.g. PO-000004)
  */
-function deletePaymentImageFromDisk(imagePath, cleanRef = null) {
-  // 1. Delete by specific file path
+function deletePaymentImageFromDisk(imagePath) {
   if (imagePath && typeof imagePath === 'string') {
-    const cleanUrl = imagePath.split('?')[0]; // remove query string
+    const cleanUrl = imagePath.split('?')[0];
     if (cleanUrl.startsWith('/uploads/payments/')) {
       const filename = path.basename(cleanUrl);
       const fullPath = path.join(UPLOADS_DIR, filename);
       try {
         if (fs.existsSync(fullPath)) {
           fs.unlinkSync(fullPath);
-          console.log(`[Storage] Cleaned up previous payment receipt: ${filename}`);
+          console.log(`[Storage] Cleaned up payment receipt file: ${filename}`);
         }
       } catch (err) {
-        console.error('Error deleting previous payment image file:', err);
+        console.error('Error deleting payment image file:', err);
       }
-    }
-  }
-
-  // 2. Scan and delete any files starting with the same PO reference name
-  if (cleanRef && cleanRef !== 'PO' && cleanRef !== 'PAYMENT') {
-    try {
-      if (fs.existsSync(UPLOADS_DIR)) {
-        const files = fs.readdirSync(UPLOADS_DIR);
-        const targetPrefix = `${cleanRef}-receipt.`;
-        for (const file of files) {
-          if (file.startsWith(targetPrefix)) {
-            try {
-              fs.unlinkSync(path.join(UPLOADS_DIR, file));
-              console.log(`[Storage] Deleted existing receipt file for ${cleanRef}: ${file}`);
-            } catch (e) {
-              // ignore
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Error scanning/cleaning old receipt files:', err);
     }
   }
 }
 
 /**
- * Saves a base64 payment proof image to the disk folder apps/backend/uploads/payments/
- * Automatically removes any old photo for this PO so disk space is kept minimal,
- * and names the new photo using the same clean PO reference (e.g. PO-000004-receipt.webp).
+ * Saves a base64 payment proof image to apps/backend/uploads/payments/
+ * Supports multiple installments using uniqueKey (e.g. installment ID or timestamp).
  *
  * @param {string|null} imageData - Base64 Data URL or existing file URL
  * @param {string} [referenceOrId='PO'] - PO reference number or ID
- * @param {string|null} [oldImagePath=null] - The previous paymentImage stored in database
- * @returns {string|null} - Clean URL path with cache-busting timestamp query parameter
+ * @param {string|null} [oldImagePath=null] - Previous specific payment image to clean up
+ * @param {string|null} [uniqueKey=null] - Unique identifier for the installment
+ * @returns {string|null} - URL path with cache-busting timestamp query parameter
  */
-function savePaymentImageToDisk(imageData, referenceOrId = 'PO', oldImagePath = null) {
+function savePaymentImageToDisk(imageData, referenceOrId = 'PO', oldImagePath = null, uniqueKey = null) {
   if (!imageData || typeof imageData !== 'string') return null;
 
   const trimmed = imageData.trim();
@@ -96,19 +73,22 @@ function savePaymentImageToDisk(imageData, referenceOrId = 'PO', oldImagePath = 
 
   const cleanRef = String(referenceOrId || 'PO').replace(/[^a-zA-Z0-9_-]/g, '_');
 
-  // Automatically delete old image(s) for this PO before saving the new one
-  deletePaymentImageFromDisk(oldImagePath, cleanRef);
+  // If an old image path was specifically provided to replace, remove that specific file
+  if (oldImagePath && typeof oldImagePath === 'string' && oldImagePath.startsWith('/uploads/payments/')) {
+    deletePaymentImageFromDisk(oldImagePath);
+  }
 
-  // Keep the exact same clean name for this PO: <PO_REF>-receipt.<ext>
-  const filename = `${cleanRef}-receipt.${ext}`;
+  const keyPart = uniqueKey 
+    ? String(uniqueKey).replace(/[^a-zA-Z0-9_-]/g, '_') 
+    : `${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const filename = `${cleanRef}-pay-${keyPart}.${ext}`;
   const targetPath = path.join(UPLOADS_DIR, filename);
 
   try {
     const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(targetPath, buffer);
-    console.log(`[Storage] Saved updated payment proof to: ${filename}`);
+    console.log(`[Storage] Saved payment proof to: ${filename}`);
 
-    // Return the URL with a cache-buster query parameter so browsers instantly show the new photo
     return `/uploads/payments/${filename}?t=${Date.now()}`;
   } catch (err) {
     console.error('Error writing payment proof image to disk:', err);
