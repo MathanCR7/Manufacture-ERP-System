@@ -18,6 +18,8 @@ import {
   ChevronDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { exportRMHistoryToExcel } from '@/modules/purchase/utils/exportRMHistoryExcel';
+import Swal from 'sweetalert2';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -63,6 +65,7 @@ export default function RMStockPage() {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [drawerInitialTab, setDrawerInitialTab] = useState(initialTabParam || 'grn');
   const [drawerTargetBatch, setDrawerTargetBatch] = useState(batchParam || null);
+  const [exportingItemId, setExportingItemId] = useState(null);
 
   const { data: stock = [], isLoading, isFetching, refetch } = useQuery({
     queryKey: ['rm-stock'],
@@ -141,6 +144,35 @@ export default function RMStockPage() {
       newParams.delete('openHistory');
       newParams.delete('batch');
       navigate({ search: newParams.toString() ? `?${newParams.toString()}` : '' }, { replace: true, state: {} });
+    }
+  };
+
+  const handleExportSingleItem = async (itemId) => {
+    try {
+      setExportingItemId(itemId);
+      const res = await api.get(`/rm-stock/${itemId}/history`);
+      if (!res.data || !res.data.material) {
+        throw new Error('Failed to retrieve history for this item.');
+      }
+      const fileName = await exportRMHistoryToExcel(res.data);
+      Swal.fire({
+        icon: 'success',
+        title: 'Excel Export Complete!',
+        text: `Exported full lifecycle & stock audit to: ${fileName}`,
+        timer: 3500,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
+    } catch (err) {
+      console.error('Export error:', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Export Failed',
+        text: err.response?.data?.error || err.message || 'Failed to export item history.'
+      });
+    } finally {
+      setExportingItemId(null);
     }
   };
 
@@ -841,8 +873,8 @@ export default function RMStockPage() {
                     </button>
                   </TableHead>
 
-                  {/* 9. Action / History */}
-                  <TableHead className="py-2 px-2.5 text-center w-20">History</TableHead>
+                  {/* 9. Action / History & Export */}
+                  <TableHead className="py-2 px-2.5 text-center w-28">Actions</TableHead>
                 </TableRow>
               </TableHeader>
 
@@ -1043,20 +1075,39 @@ export default function RMStockPage() {
                           )}
                         </TableCell>
 
-                        {/* 9. Action / History */}
+                        {/* 9. Action / History & Export */}
                         <TableCell className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenHistory(item.id);
-                            }}
-                            title="View Material Lifecycle & Audit History"
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 transition-all cursor-pointer shadow-3xs h-6"
-                          >
-                            <Clock className="w-3 h-3" />
-                            <span>History</span>
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenHistory(item.id);
+                              }}
+                              title="View Material Lifecycle & Audit History"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 transition-all cursor-pointer shadow-3xs h-6"
+                            >
+                              <Clock className="w-3 h-3" />
+                              <span>History</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleExportSingleItem(item.id);
+                              }}
+                              disabled={exportingItemId === item.id}
+                              title="Export Complete Lifecycle History to Excel (.xlsx)"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800 transition-all cursor-pointer shadow-3xs h-6 disabled:opacity-50"
+                            >
+                              {exportingItemId === item.id ? (
+                                <RefreshCw className="w-3 h-3 animate-spin text-emerald-600" />
+                              ) : (
+                                <FileSpreadsheet className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                              )}
+                              <span>Export</span>
+                            </button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     );

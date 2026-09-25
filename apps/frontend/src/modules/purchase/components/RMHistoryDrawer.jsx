@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
-import * as XLSX from 'xlsx';
+import { exportRMHistoryToExcel } from '../utils/exportRMHistoryExcel';
+import Swal from 'sweetalert2';
 import {
   X,
   Clock,
@@ -45,6 +46,7 @@ export default function RMHistoryDrawer({
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(initialTab || 'timeline');
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Sync activeTab when initialTab or isOpen changes
   useEffect(() => {
@@ -116,184 +118,31 @@ export default function RMHistoryDrawer({
     });
   };
 
-  const handleExportExcel = () => {
-    if (!material) return;
+  const handleExportExcel = async () => {
+    if (!material || !data) return;
 
-    const workbook = XLSX.utils.book_new();
-
-    // 1. Overview Sheet
-    const overviewData = [
-      { Field: 'Material Name', Value: material.name },
-      { Field: 'Material Code', Value: material.code },
-      { Field: 'Category', Value: material.category },
-      { Field: 'Unit of Measure', Value: material.unit },
-      { Field: 'Standard Rate Per Unit (INR)', Value: Number(material.ratePerUnit || 0) },
-      { Field: 'Current Available Stock', Value: Number(material.currentStock || 0) },
-      { Field: 'Current Stock Valuation (INR)', Value: Number(material.stockValue || 0) },
-      { Field: 'Alert / Reorder Level', Value: Number(material.alertLevel || 0) },
-      { Field: 'Stock Health Status', Value: material.stockHealth },
-      { Field: '', Value: '' },
-      { Field: '--- SUMMARY METRICS ---', Value: '' },
-      { Field: 'Total Lifetime Purchased Qty', Value: summary?.totalPurchasedQty || 0 },
-      { Field: 'Total Lifetime Purchased Value (INR)', Value: summary?.totalPurchasedValue || 0 },
-      { Field: 'Total Inwarded Qty (GRN)', Value: summary?.totalInwardedQty || 0 },
-      { Field: 'Total Consumed in Production', Value: summary?.totalConsumedQty || 0 },
-      { Field: 'Total Production Consumption Cost (INR)', Value: summary?.totalConsumedCost || 0 },
-      { Field: 'Stock Adjustments Added (+)', Value: summary?.totalAdjustmentAddition || 0 },
-      { Field: 'Stock Adjustments Subtracted (-)', Value: summary?.totalAdjustmentSubtraction || 0 },
-      { Field: 'Net Adjusted Quantity', Value: summary?.netAdjustedQty || 0 },
-      { Field: 'Total Wasted Quantity', Value: summary?.totalWastedQty || 0 },
-      { Field: 'Total Wastage Loss (INR)', Value: summary?.totalWastedLoss || 0 },
-      { Field: 'Report Generated At', Value: new Date().toLocaleString('en-IN') }
-    ];
-    const overviewSheet = XLSX.utils.json_to_sheet(overviewData);
-    XLSX.utils.book_append_sheet(workbook, overviewSheet, 'Summary Overview');
-
-    // 2. Purchases Sheet
-    const poData = purchases.length > 0 ? purchases.map(p => ({
-      'PO Reference': p.referenceNo,
-      'Order Date': formatShortDate(p.orderDate),
-      'Expected Delivery': formatShortDate(p.expectedDelivery),
-      'Supplier Name': p.supplierName,
-      'Supplier Contact': p.supplierContact || 'N/A',
-      'Ordered Quantity': p.orderedQty,
-      'Unit': p.uom,
-      'Unit Price (INR)': p.unitPrice,
-      'Item Total (INR)': p.itemTotal,
-      'PO Grand Total (INR)': p.grandTotal,
-      'PO Status': p.status,
-      'Payment Status': p.paymentStatus,
-      'Paid Amount (INR)': p.paidAmount,
-      'Created By': p.createdBy || 'N/A'
-    })) : [{ Note: 'No purchase orders recorded for this raw material' }];
-    const poSheet = XLSX.utils.json_to_sheet(poData);
-    XLSX.utils.book_append_sheet(workbook, poSheet, 'Purchases (POs)');
-
-    // 3. GRN & Batches Sheet
-    const grnData = grnReceipts.length > 0 ? grnReceipts.map(g => ({
-      'GRN Reference': g.referenceNo,
-      'Received Date': formatShortDate(g.receivedDate),
-      'PO Reference': g.poReferenceNo,
-      'Supplier': g.supplierName,
-      'Expected Qty': g.expectedQty,
-      'Actual Received Qty': g.actualReceivedQty,
-      'Unit': material.unit,
-      'Short Delivery': g.isShortDelivery ? 'YES' : 'NO',
-      'Gate Receiver': g.receivedByName,
-      'Challan Number': g.challanNumber || 'N/A',
-      'Invoice Number': g.invoiceNumber || 'N/A',
-      'Invoice Date': formatShortDate(g.invoiceDate),
-      'Vehicle Number': g.vehicleNumber || 'N/A',
-      'Driver Name': g.driverName || 'N/A',
-      'Batch Number': g.batch?.batchNumber || 'N/A',
-      'Storage Location': g.batch?.storageLocation || 'N/A',
-      'Batch Net Qty': g.batch?.netQty || 'N/A',
-      'Batch Expiry': formatShortDate(g.batch?.expiryDate),
-      'Batch Status': g.batch?.status || 'N/A'
-    })) : [{ Note: 'No GRN inward receipts recorded for this raw material' }];
-    const grnSheet = XLSX.utils.json_to_sheet(grnData);
-    XLSX.utils.book_append_sheet(workbook, grnSheet, 'GRN & Batches');
-
-    // 4. Lab & QC Reports Sheet
-    const labData = labReports.length > 0 ? labReports.map(l => ({
-      'Lab Test ID': l.labTestId || l.id,
-      'GRN Reference': l.grnReferenceNo,
-      'PO Reference': l.poReferenceNo,
-      'Supplier': l.supplierName,
-      'Tested Date': formatShortDate(l.testDate),
-      'QC Overall Decision': l.overallDecision,
-      'Inspection Status': l.status,
-      'Tested By (Inspector)': l.testedByName,
-      'Sample Qty Tested': l.sampleQty,
-      'Assigned Expiry Date': formatShortDate(l.expiryDate),
-      'Findings & Notes': l.testNotes || 'N/A',
-      'Manual Override Reason': l.overrideReason || 'N/A'
-    })) : [{ Note: 'No lab/QC tests recorded for this raw material' }];
-    const labSheet = XLSX.utils.json_to_sheet(labData);
-    XLSX.utils.book_append_sheet(workbook, labSheet, 'Lab & QC Reports');
-
-    // 5. Stock Adjustments Sheet
-    const adjData = stockAdjustments.length > 0 ? stockAdjustments.map(a => ({
-      'Adjustment ID': a.id,
-      'Date & Time': formatDate(a.createdAt),
-      'Type': a.type,
-      'Quantity': a.quantity,
-      'Unit': material.unit,
-      'Reason / Notes': a.notes,
-      'Adjusted By': a.userName,
-      'User Role': a.userRole
-    })) : [{ Note: 'No stock adjustments recorded for this raw material' }];
-    const adjSheet = XLSX.utils.json_to_sheet(adjData);
-    XLSX.utils.book_append_sheet(workbook, adjSheet, 'Stock Adjustments');
-
-    // 6. RM Wastage Sheet
-    const wasteData = wasteRecords.length > 0 ? wasteRecords.map(w => ({
-      'Waste Reference': w.referenceNo,
-      'Date': formatShortDate(w.date),
-      'Wasted Quantity': w.quantity,
-      'Unit': w.uom,
-      'Loss Amount (INR)': w.lossAmount,
-      'Reason / Notes': w.notes,
-      'Responsible Person': w.responsiblePerson,
-      'Logged By': w.createdBy
-    })) : [{ Note: 'No wastage records logged for this raw material' }];
-    const wasteSheet = XLSX.utils.json_to_sheet(wasteData);
-    XLSX.utils.book_append_sheet(workbook, wasteSheet, 'RM Wastage');
-
-    // 7. Production Usage Sheet
-    const usageData = productionUsages.length > 0 ? productionUsages.map(u => ({
-      'Production Batch Number': u.batchNumber,
-      'Finished Product': u.productName,
-      'Date': formatShortDate(u.date),
-      'Required Quantity': u.requiredQty,
-      'Actual Used Quantity': u.actualUsedQty,
-      'Unit': material.unit,
-      'Unit Cost (INR)': u.unitCost,
-      'Total Cost (INR)': u.totalCost,
-      'Usage Status': u.usageStatus,
-      'Batch Status': u.batchStatus
-    })) : [{ Note: 'No production batch consumption recorded for this raw material' }];
-    const usageSheet = XLSX.utils.json_to_sheet(usageData);
-    XLSX.utils.book_append_sheet(workbook, usageSheet, 'Production Usage');
-
-    // 8. Purchase Returns Sheet (if any)
-    if (purchaseReturns.length > 0) {
-      const returnData = purchaseReturns.map(r => ({
-        'Return Reference': r.referenceNo,
-        'Return Date': formatShortDate(r.returnDate),
-        'Supplier': r.supplierName,
-        'PO Reference': r.poReferenceNo,
-        'GRN Reference': r.grnReferenceNo,
-        'Returned Quantity': r.returnQty,
-        'Unit': material.unit,
-        'Return Reason': r.returnReason,
-        'Reason Description': r.reasonDescription || 'N/A',
-        'Status': r.status,
-        'Created By': r.createdByName
-      }));
-      const returnSheet = XLSX.utils.json_to_sheet(returnData);
-      XLSX.utils.book_append_sheet(workbook, returnSheet, 'Purchase Returns');
+    try {
+      setIsExporting(true);
+      const fileName = await exportRMHistoryToExcel(data);
+      Swal.fire({
+        icon: 'success',
+        title: 'Excel Export Complete!',
+        text: `Full lifecycle audit report exported: ${fileName}`,
+        timer: 3500,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
+    } catch (err) {
+      console.error('Failed to export raw material history:', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Export Failed',
+        text: err.message || 'An error occurred while generating the Excel report.'
+      });
+    } finally {
+      setIsExporting(false);
     }
-
-    // 9. Full Chronological Audit Timeline Sheet
-    const timelineData = timeline.length > 0 ? timeline.map(t => ({
-      'Date & Time': formatDate(t.timestamp),
-      'Event Type': t.type,
-      'Title': t.title,
-      'Details': t.subtitle,
-      'Status': t.status || 'N/A',
-      'Actor / Logged By': t.user || 'N/A'
-    })) : [{ Note: 'No activity recorded for this raw material' }];
-    const timelineSheet = XLSX.utils.json_to_sheet(timelineData);
-    XLSX.utils.book_append_sheet(workbook, timelineSheet, 'Audit Timeline');
-
-    // File Name
-    const cleanCode = (material.code || 'RM').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const cleanName = (material.name || 'Material').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const dateStamp = new Date().toISOString().slice(0, 10);
-    const fileName = `${cleanCode}_${cleanName}_Lifecycle_Report_${dateStamp}.xlsx`;
-
-    XLSX.writeFile(workbook, fileName);
   };
 
   const getTimelineIcon = (type) => {
@@ -383,11 +232,12 @@ export default function RMHistoryDrawer({
               <button
                 type="button"
                 onClick={handleExportExcel}
+                disabled={isExporting || isFetching || !material}
                 title="Export Complete Lifecycle Report to Excel (.xlsx)"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/80 transition-colors cursor-pointer shadow-xs"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border border-emerald-200 dark:border-emerald-800/80 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                <span className="hidden sm:inline">Export Excel</span>
+                <FileSpreadsheet className={`w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ${isExporting ? 'animate-bounce' : ''}`} />
+                <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export Excel'}</span>
               </button>
 
               <button
@@ -763,6 +613,7 @@ export default function RMHistoryDrawer({
                             <table className="w-full text-xs text-left">
                               <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                                 <tr>
+                                  <th className="p-3 w-10 text-center">#</th>
                                   <th className="p-3">PO Reference</th>
                                   <th className="p-3">Order Date</th>
                                   <th className="p-3">Supplier</th>
@@ -774,8 +625,9 @@ export default function RMHistoryDrawer({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {purchases.map((po) => (
+                                {purchases.map((po, pIdx) => (
                                   <tr key={po.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <td className="p-3 text-center text-slate-400 font-mono font-medium">{pIdx + 1}</td>
                                     <td className="p-3 font-mono font-bold">
                                       <button
                                         type="button"
@@ -824,6 +676,21 @@ export default function RMHistoryDrawer({
                                   </tr>
                                 ))}
                               </tbody>
+                              <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
+                                <tr>
+                                  <td colSpan={4} className="p-3 text-right text-slate-600 dark:text-slate-300">
+                                    Total Ordered ({purchases.length} POs):
+                                  </td>
+                                  <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                    {purchases.reduce((acc, p) => acc + Number(p.orderedQty || 0), 0).toLocaleString()} <span className="text-[10px] text-slate-400">{material?.unit}</span>
+                                  </td>
+                                  <td></td>
+                                  <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                    {formatCurrency(purchases.reduce((acc, p) => acc + Number(p.itemTotal || 0), 0))}
+                                  </td>
+                                  <td colSpan={2}></td>
+                                </tr>
+                              </tfoot>
                             </table>
                           </div>
                         )}
@@ -1221,7 +1088,9 @@ export default function RMHistoryDrawer({
                             <table className="w-full text-xs text-left">
                               <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                                 <tr>
-                                  <th className="p-3">Date & Time</th>
+                                  <th className="p-3 w-10 text-center">#</th>
+                                  <th className="p-3">Created Date</th>
+                                  <th className="p-3">Updated At</th>
                                   <th className="p-3">Type</th>
                                   <th className="p-3 text-right">Quantity</th>
                                   <th className="p-3">Reason / Notes</th>
@@ -1229,12 +1098,16 @@ export default function RMHistoryDrawer({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {stockAdjustments.map((adj) => {
+                                {stockAdjustments.map((adj, aIdx) => {
                                   const isAdd = adj.type === 'ADDITION';
                                   return (
                                     <tr key={adj.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                      <td className="p-3 text-center text-slate-400 font-mono font-medium">{aIdx + 1}</td>
                                       <td className="p-3 font-mono text-slate-600 dark:text-slate-300 whitespace-nowrap">
                                         {formatDate(adj.createdAt)}
+                                      </td>
+                                      <td className="p-3 font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap text-[11px]">
+                                        {formatDate(adj.updatedAt || adj.createdAt)}
                                       </td>
                                       <td className="p-3">
                                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 w-fit ${
@@ -1260,6 +1133,17 @@ export default function RMHistoryDrawer({
                                   );
                                 })}
                               </tbody>
+                              <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
+                                <tr>
+                                  <td colSpan={4} className="p-3 text-right text-slate-600 dark:text-slate-300">
+                                    Net Stock Adjustment (+{summary?.totalAdjustmentAddition || 0} / -{summary?.totalAdjustmentSubtraction || 0}):
+                                  </td>
+                                  <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                    {summary?.netAdjustedQty > 0 ? `+${summary.netAdjustedQty}` : (summary?.netAdjustedQty || 0)} {material?.unit}
+                                  </td>
+                                  <td colSpan={2}></td>
+                                </tr>
+                              </tfoot>
                             </table>
                           </div>
                         )}
@@ -1284,6 +1168,7 @@ export default function RMHistoryDrawer({
                             <table className="w-full text-xs text-left">
                               <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                                 <tr>
+                                  <th className="p-3 w-10 text-center">#</th>
                                   <th className="p-3">Waste Ref</th>
                                   <th className="p-3">Date</th>
                                   <th className="p-3 text-right">Wasted Qty</th>
@@ -1293,8 +1178,9 @@ export default function RMHistoryDrawer({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {wasteRecords.map((waste) => (
+                                {wasteRecords.map((waste, wIdx) => (
                                   <tr key={waste.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <td className="p-3 text-center text-slate-400 font-mono font-medium">{wIdx + 1}</td>
                                     <td className="p-3 font-mono font-bold">
                                       <button
                                         type="button"
@@ -1325,6 +1211,20 @@ export default function RMHistoryDrawer({
                                   </tr>
                                 ))}
                               </tbody>
+                              <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
+                                <tr>
+                                  <td colSpan={3} className="p-3 text-right text-slate-600 dark:text-slate-300">
+                                    Total Wastage ({wasteRecords.length} records):
+                                  </td>
+                                  <td className="p-3 text-right font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                                    {summary?.totalWastedQty?.toLocaleString() || 0} {material?.unit}
+                                  </td>
+                                  <td className="p-3 text-right font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                                    {formatCurrency(summary?.totalWastedLoss || 0)}
+                                  </td>
+                                  <td colSpan={2}></td>
+                                </tr>
+                              </tfoot>
                             </table>
                           </div>
                         )}
@@ -1349,6 +1249,7 @@ export default function RMHistoryDrawer({
                             <table className="w-full text-xs text-left">
                               <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                                 <tr>
+                                  <th className="p-3 w-10 text-center">#</th>
                                   <th className="p-3">Batch Number</th>
                                   <th className="p-3">Finished Product</th>
                                   <th className="p-3">Date</th>
@@ -1359,8 +1260,9 @@ export default function RMHistoryDrawer({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {productionUsages.map((usage) => (
+                                {productionUsages.map((usage, uIdx) => (
                                   <tr key={usage.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <td className="p-3 text-center text-slate-400 font-mono font-medium">{uIdx + 1}</td>
                                     <td className="p-3 font-mono font-bold">
                                       <button
                                         type="button"
@@ -1400,6 +1302,23 @@ export default function RMHistoryDrawer({
                                   </tr>
                                 ))}
                               </tbody>
+                              <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
+                                <tr>
+                                  <td colSpan={4} className="p-3 text-right text-slate-600 dark:text-slate-300">
+                                    Total Consumption ({productionUsages.length} Batches):
+                                  </td>
+                                  <td className="p-3 text-right text-slate-600 dark:text-slate-300">
+                                    {productionUsages.reduce((acc, u) => acc + Number(u.requiredQty || 0), 0).toLocaleString()} {material?.unit}
+                                  </td>
+                                  <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                    {summary?.totalConsumedQty?.toLocaleString() || 0} {material?.unit}
+                                  </td>
+                                  <td></td>
+                                  <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap font-mono">
+                                    {formatCurrency(summary?.totalConsumedCost || 0)}
+                                  </td>
+                                </tr>
+                              </tfoot>
                             </table>
                           </div>
                         )}
@@ -1485,10 +1404,11 @@ export default function RMHistoryDrawer({
                 variant="outline"
                 size="sm"
                 onClick={handleExportExcel}
-                className="h-9 px-3.5 text-xs rounded-xl flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 shadow-xs"
+                disabled={isExporting || isFetching || !material}
+                className="h-9 px-3.5 text-xs rounded-xl flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50/80 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 shadow-xs disabled:opacity-50"
               >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                Export Excel Report (.xlsx)
+                <FileSpreadsheet className={`w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 ${isExporting ? 'animate-bounce' : ''}`} />
+                {isExporting ? 'Generating Excel...' : 'Export Excel Report (.xlsx)'}
               </Button>
               <Button
                 size="sm"

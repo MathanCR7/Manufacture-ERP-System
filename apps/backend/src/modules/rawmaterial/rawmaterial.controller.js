@@ -1606,6 +1606,7 @@ exports.getMaterialHistory = async (req, res, next) => {
       quantity: Number(a.quantity || 0),
       notes: a.notes || 'No reason provided',
       createdAt: a.createdAt,
+      updatedAt: a.updatedAt || a.createdAt,
       userName: a.user?.name || 'Supervisor',
       userRole: a.user?.role || 'SUPERVISOR'
     }));
