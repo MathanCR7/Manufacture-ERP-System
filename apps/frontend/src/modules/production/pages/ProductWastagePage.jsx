@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/Pagination';
 import DatePicker from '@/components/ui/DatePicker';
+import Swal from 'sweetalert2';
 
 export default function ProductWastagePage() {
   const user = useAuthStore(s => s.user);
@@ -167,18 +168,33 @@ export default function ProductWastagePage() {
   };
 
   const handleDeleteClick = async (id) => {
-    // We will show a premium confirmation styled dialog, or standard prompt for safety
-    if (window.confirm('Are you sure you want to delete this wastage record? The product stock will be automatically restored.')) {
-      try {
-        await api.delete(`/products/wastage/${id}`);
-        triggerAlert('success', 'Deletion Successful', 'Wastage record deleted and stock restored successfully.');
-        fetchProducts();
-        fetchWastages();
-      } catch (err) {
-        console.error(err);
-        triggerAlert('error', 'Deletion Failed', err.response?.data?.error || 'Could not delete record.');
+    Swal.fire({
+      title: 'Delete Wastage Record?',
+      text: 'Are you sure you want to delete this wastage record? The product stock will be automatically restored.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#e11d48',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        popup: 'rounded-2xl shadow-xl',
+        confirmButton: 'rounded-xl text-xs font-bold px-4 py-2',
+        cancelButton: 'rounded-xl text-xs font-bold px-4 py-2'
       }
-    }
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          await api.delete(`/products/wastage/${id}`);
+          triggerAlert('success', 'Deletion Successful', 'Wastage record deleted and stock restored successfully.');
+          fetchProducts();
+          fetchWastages();
+        } catch (err) {
+          console.error(err);
+          triggerAlert('error', 'Deletion Failed', err.response?.data?.error || 'Could not delete record.');
+        }
+      }
+    });
   };
 
   const resetForm = () => {

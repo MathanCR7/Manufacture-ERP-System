@@ -137,11 +137,42 @@ export default function OrderListPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this order?')) return;
-    try {
-      await api.delete(`/orders/${id}`);
-      fetchOrders();
-    } catch (e) { alert(e.response?.data?.error || 'Failed to delete order'); }
+    Swal.fire({
+      title: 'Delete Order?',
+      text: 'Are you sure you want to delete this order? This action cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#e11d48',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        popup: 'rounded-2xl shadow-xl',
+        confirmButton: 'rounded-xl text-xs font-bold px-4 py-2',
+        cancelButton: 'rounded-xl text-xs font-bold px-4 py-2'
+      }
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          await api.delete(`/orders/${id}`);
+          fetchOrders();
+          Swal.fire({
+            title: 'Deleted!',
+            text: 'Order has been deleted successfully.',
+            icon: 'success',
+            timer: 2000,
+            showConfirmButton: false
+          });
+        } catch (e) {
+          Swal.fire({
+            title: 'Error',
+            text: e.response?.data?.error || 'Failed to delete order',
+            icon: 'error',
+            confirmButtonColor: '#6366f1'
+          });
+        }
+      }
+    });
   };
 
   const compileInvoiceA4PDF = (order, companySettings) => {

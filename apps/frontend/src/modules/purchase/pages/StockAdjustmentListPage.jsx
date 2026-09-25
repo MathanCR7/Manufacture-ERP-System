@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/Pagination';
+import Swal from 'sweetalert2';
 
 function StockAdjustmentForm({ editData, onBack }) {
   const isEdit = !!editData;
@@ -232,9 +233,25 @@ const StockAdjustmentListPage = () => {
   });
 
   const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this adjustment? It will revert the stock changes.')) {
-      deleteMutation.mutate(id);
-    }
+    Swal.fire({
+      title: 'Delete Adjustment?',
+      text: 'Are you sure you want to delete this adjustment? It will revert the stock changes.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#e11d48',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        popup: 'rounded-2xl shadow-xl',
+        confirmButton: 'rounded-xl text-xs font-bold px-4 py-2',
+        cancelButton: 'rounded-xl text-xs font-bold px-4 py-2'
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(id);
+      }
+    });
   };
 
   // Reset pagination when search changes

@@ -21,6 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import AddSupplierPage from './AddSupplierPage';
 import { Pagination } from '@/components/ui/Pagination';
+import Swal from 'sweetalert2';
 
 export default function SupplierListPage() {
   const queryClient = useQueryClient();
@@ -64,9 +65,25 @@ export default function SupplierListPage() {
   });
 
   const handleDelete = (id) => {
-    if (window.confirm('Are you sure you want to delete this supplier?')) {
-      deleteMutation.mutate(id);
-    }
+    Swal.fire({
+      title: 'Delete Supplier?',
+      text: 'Are you sure you want to delete this supplier? This action cannot be undone.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#e11d48',
+      cancelButtonColor: '#64748b',
+      confirmButtonText: 'Yes, delete',
+      cancelButtonText: 'Cancel',
+      customClass: {
+        popup: 'rounded-2xl shadow-xl',
+        confirmButton: 'rounded-xl text-xs font-bold px-4 py-2',
+        cancelButton: 'rounded-xl text-xs font-bold px-4 py-2'
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        deleteMutation.mutate(id);
+      }
+    });
   };
 
   // Filter and Sort Logic

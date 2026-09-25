@@ -7,8 +7,9 @@ import { format } from 'date-fns';
 import {
   Truck, Package, Search, Eye, ClipboardCheck, AlertCircle, Clock,
   CheckCircle2, RefreshCw, QrCode, FlaskConical, XCircle, Printer,
-  ChevronRight, Calendar, User
+  ChevronRight, Calendar, User, X, Loader2, PackageCheck, AlertTriangle
 } from 'lucide-react';
+import Swal from 'sweetalert2';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -122,6 +123,146 @@ function QRDetailModal({ delivery, onClose }) {
             <Printer className="w-3.5 h-3.5" /> Print
           </Button>
           <Button size="sm" onClick={onClose} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl h-9 text-xs">Close</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Stylish In-App Confirmation Modal to Mark PO as Fully Delivered
+function ConfirmFullyDeliveredModal({ delivery, onClose, onConfirm, isSubmitting }) {
+  if (!delivery) return null;
+
+  const totalOrdered = Number(delivery.totalOrderedQty || delivery.quantity || 0);
+  const totalReceived = Number(delivery.totalReceivedQty || 0);
+  const pendingQty = Number(delivery.pendingQty != null ? delivery.pendingQty : Math.max(0, totalOrdered - totalReceived));
+  const uom = delivery.uom?.abbreviation || '';
+  const pct = totalOrdered > 0 ? Math.min(100, Math.round((totalReceived / totalOrdered) * 100)) : 100;
+  const isAllArrived = pendingQty <= 0 || totalReceived >= totalOrdered;
+
+  return (
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div 
+        className="relative w-full max-w-md bg-white dark:bg-[#0f172a] border border-slate-200/90 dark:border-slate-800 rounded-3xl p-6 shadow-2xl shadow-emerald-500/10 z-10 animate-in zoom-in-95 duration-200 overflow-hidden"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Top vibrant gradient accent line */}
+        <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 via-teal-400 to-indigo-500" />
+
+        {/* Header with Icon, Title, and Close Button */}
+        <div className="flex items-start justify-between gap-3 mb-5">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shadow-sm shrink-0">
+              <PackageCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white leading-tight">
+                Mark as Fully Delivered?
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Conclude order and move to Delivered
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800/80 transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* PO Details Card */}
+        <div className="bg-slate-50/80 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800/80 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-2 py-0.5 rounded-lg border border-indigo-200/60 dark:border-indigo-800/60">
+                {delivery.referenceNo || 'PO'}
+              </span>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-[180px]">
+                {delivery.supplierName || 'Supplier'}
+              </span>
+            </div>
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 truncate max-w-[140px]">
+              {delivery.name}
+            </span>
+          </div>
+
+          {/* Quantity Progress Bar & Stats */}
+          <div className="space-y-1.5 pt-1">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">Received Fulfillment</span>
+              <span className="font-bold text-slate-900 dark:text-slate-100 font-mono">
+                {totalReceived.toLocaleString()} / {totalOrdered.toLocaleString()} {uom} ({pct}%)
+              </span>
+            </div>
+            <div className="w-full bg-slate-200 dark:bg-slate-800 h-2.5 rounded-full overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-500 rounded-full ${
+                  pct >= 100 
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500' 
+                    : 'bg-gradient-to-r from-amber-500 to-emerald-500'
+                }`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-[11px] font-medium pt-0.5">
+              <span className={isAllArrived ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400 font-semibold'}>
+                {isAllArrived ? '✓ 100% of quantity has arrived' : `⚠ ${pendingQty.toLocaleString()} ${uom} still pending`}
+              </span>
+              <span className="text-slate-400">
+                {delivery.shipmentsCount || 1} shipment logged
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Informational Guidance Callout */}
+        <div className="mt-3.5 bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 rounded-2xl p-3 text-[11.5px] text-slate-600 dark:text-slate-300 leading-relaxed flex items-start gap-2.5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+          <div>
+            <span>
+              This action will officially conclude the procurement workflow and move this PO to the <strong>Delivered</strong> archive tab.
+              {isAllArrived ? ' All items have arrived safely.' : ' Any unreceived quantity balance will be finalized.'}
+            </span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="mt-6 flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="rounded-xl h-10 px-4 text-xs font-semibold border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+          >
+            Cancel
+          </Button>
+
+          <Button
+            type="button"
+            onClick={() => onConfirm(delivery.id)}
+            disabled={isSubmitting}
+            className="rounded-xl h-10 px-5 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-md shadow-emerald-600/25 active:scale-95 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-70 disabled:pointer-events-none"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Marking Delivered...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Confirm Delivery Done</span>
+              </>
+            )}
+          </Button>
         </div>
       </div>
     </div>
@@ -307,9 +448,9 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered 
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => onMarkFullyDelivered(d.id)}
+                  onClick={() => onMarkFullyDelivered(d)}
                   title="Mark PO as Fully Delivered (Close Order)"
-                  className="h-8 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40 border-emerald-300 rounded-lg"
+                  className="h-8 px-2 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40 border-emerald-300 rounded-lg cursor-pointer"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Mark Done</span>
@@ -379,15 +520,41 @@ export default function UpcomingDeliveriesPage() {
     refetchInterval: 30000,
   });
 
-  const handleMarkFullyDelivered = async (poId) => {
-    if (!window.confirm('Are you sure you want to mark this Purchase Order as fully delivered? It will conclude the order and move it to the Delivered tab.')) {
-      return;
-    }
+  const [markingDelivery, setMarkingDelivery] = useState(null);
+  const [isSubmittingMarkDone, setIsSubmittingMarkDone] = useState(false);
+
+  const executeMarkFullyDelivered = async (poId) => {
+    setIsSubmittingMarkDone(true);
     try {
       await api.patch(`/grn/po/${poId}/mark-fully-delivered`);
-      refetch();
+      const refNo = markingDelivery?.referenceNo;
+      setMarkingDelivery(null);
+      await refetch();
+      Swal.fire({
+        icon: 'success',
+        title: 'Delivery Completed!',
+        text: `Purchase Order ${refNo || ''} has been marked as fully delivered and moved to the Delivered tab.`,
+        confirmButtonColor: '#059669',
+        timer: 3000,
+        timerProgressBar: true,
+        customClass: {
+          popup: 'rounded-2xl shadow-xl',
+          confirmButton: 'rounded-xl text-xs font-bold px-5 py-2.5 shadow-sm'
+        }
+      });
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to mark PO as fully delivered');
+      Swal.fire({
+        icon: 'error',
+        title: 'Action Failed',
+        text: err.response?.data?.error || 'Failed to mark PO as fully delivered',
+        confirmButtonColor: '#4f46e5',
+        customClass: {
+          popup: 'rounded-2xl shadow-xl',
+          confirmButton: 'rounded-xl text-xs font-bold px-5 py-2.5 shadow-sm'
+        }
+      });
+    } finally {
+      setIsSubmittingMarkDone(false);
     }
   };
 
@@ -576,7 +743,7 @@ export default function UpcomingDeliveriesPage() {
                 navigate={navigate} 
                 onQRView={setQRDelivery} 
                 canReceive={canReceive} 
-                onMarkFullyDelivered={handleMarkFullyDelivered}
+                onMarkFullyDelivered={(item) => setMarkingDelivery(item)}
               />
             ))}
           </div>
@@ -604,6 +771,16 @@ export default function UpcomingDeliveriesPage() {
 
       {/* QR Details Modal */}
       {qrDelivery && <QRDetailModal delivery={qrDelivery} onClose={() => setQRDelivery(null)} />}
+
+      {/* Modern In-App Confirmation Modal to Mark PO as Fully Delivered */}
+      {markingDelivery && (
+        <ConfirmFullyDeliveredModal
+          delivery={markingDelivery}
+          onClose={() => !isSubmittingMarkDone && setMarkingDelivery(null)}
+          onConfirm={executeMarkFullyDelivered}
+          isSubmitting={isSubmittingMarkDone}
+        />
+      )}
     </div>
   );
 }
