@@ -1,8 +1,12 @@
 const express = require('express');
 const { z } = require('zod');
+const multer = require('multer');
+const XLSX = require('xlsx');
 const prisma = require('../../database/prisma');
 const authenticateToken = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = express.Router();
 
@@ -204,7 +208,24 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
       select: { id: true, name: true, role: true }
     });
 
-    res.json({ categories, units, stages, nonInventoryItems, rawMaterials, users });
+    // Subcategories with their category and active specification template
+    const subcategories = await prisma.productSubcategory.findMany({
+      where: { status: 'ACTIVE' },
+      include: {
+        category: { select: { id: true, name: true, code: true } },
+        defaultUom: { select: { id: true, name: true, abbreviation: true } },
+        specTemplate: {
+          include: {
+            fields: {
+              orderBy: [{ section: 'asc' }, { displayOrder: 'asc' }]
+            }
+          }
+        }
+      },
+      orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }]
+    });
+
+    res.json({ categories, subcategories, units, stages, nonInventoryItems, rawMaterials, users });
   } catch (error) {
     next(error);
   }
@@ -1015,6 +1036,15 @@ router.get('/', authenticateToken, async (req, res, next) => {
       where: includeDeleted ? undefined : { deletedAt: null },
       include: {
         category: true,
+        subcategory: {
+          include: {
+            specTemplate: {
+              include: {
+                fields: { orderBy: [{ section: 'asc' }, { displayOrder: 'asc' }] }
+              }
+            }
+          }
+        },
         unit: true,
         bom: { include: { rawMaterial: true } },
         nonInventoryCosts: { include: { item: true } },
@@ -1062,6 +1092,15 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       where: { id: req.params.id, deletedAt: null },
       include: {
         category: true,
+        subcategory: {
+          include: {
+            specTemplate: {
+              include: {
+                fields: { orderBy: [{ section: 'asc' }, { displayOrder: 'asc' }] }
+              }
+            }
+          }
+        },
         unit: true,
         bom: { include: { rawMaterial: true } },
         nonInventoryCosts: { include: { item: true } },
@@ -1159,6 +1198,35 @@ const formatZodError = (err) => {
 const productValidationSchema = z.object({
   name: z.string().trim().min(1, 'Product name is required'),
   categoryId: z.string().trim().min(1, 'Category is required'),
+  subcategoryId: z.string().optional().nullable(),
+  sku: z.string().optional().nullable(),
+  barcode: z.string().optional().nullable(),
+  specifications: z.record(z.any()).optional().nullable().default({}),
+  customAttributes: z.array(z.object({
+    key: z.string(),
+    value: z.any()
+  })).optional().nullable().default([]),
+
+  // Universal Core Attributes
+  brand: z.string().optional().nullable(),
+  productName: z.string().optional().nullable(),
+  categoryPathText: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  dimensionLength: z.preprocess(v => v !== '' && v !== null && v !== undefined ? Number(v) : null, z.number().nullable().optional()),
+  dimensionWidth: z.preprocess(v => v !== '' && v !== null && v !== undefined ? Number(v) : null, z.number().nullable().optional()),
+  dimensionHeight: z.preprocess(v => v !== '' && v !== null && v !== undefined ? Number(v) : null, z.number().nullable().optional()),
+  dimensionUnit: z.string().optional().nullable().default('cm'),
+  weightValue: z.preprocess(v => v !== '' && v !== null && v !== undefined ? Number(v) : null, z.number().nullable().optional()),
+  weightUnit: z.string().optional().nullable().default('kg'),
+  material: z.string().optional().nullable(),
+  color: z.string().optional().nullable(),
+  size: z.string().optional().nullable(),
+  modelNumber: z.string().optional().nullable(),
+  upcEan: z.string().optional().nullable(),
+  countryOfOrigin: z.string().optional().nullable(),
+  warranty: z.string().optional().nullable(),
+  keyFeatures: z.string().optional().nullable(),
+
   unitId: z.string().trim().min(1, 'Unit of sale is required'),
   stockMethod: z.string().default('FIFO'),
   openingStock: z.preprocess(v => Math.max(0, Number(v) || 0), z.number().nonnegative().default(0)),
@@ -1195,6 +1263,248 @@ const productValidationSchema = z.object({
   })).optional().nullable().default([]),
   imageUrl: z.string().optional().nullable(),
   isSopLocked: z.boolean().optional()
+});
+
+// POST /api/products/generate-sku - Smart Auto-Generated SKU and Barcode
+router.post('/generate-sku', authenticateToken, async (req, res, next) => {
+  try {
+    const { categoryId, subcategoryId, name } = req.body;
+    let catPrefix = 'CAT';
+    let subPrefix = 'GEN';
+
+    if (categoryId) {
+      const cat = await prisma.productCategory.findUnique({ where: { id: categoryId } });
+      if (cat) catPrefix = cat.code || cat.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase();
+    }
+
+    if (subcategoryId) {
+      const sub = await prisma.productSubcategory.findUnique({ where: { id: subcategoryId } });
+      if (sub) subPrefix = sub.skuPrefix || sub.code || sub.name.replace(/[^A-Za-z0-9]/g, '').slice(0, 3).toUpperCase();
+    }
+
+    const words = (name || 'PRD').trim().split(/\s+/).filter(Boolean);
+    let initials = '';
+    if (words.length === 1) {
+      initials = words[0].slice(0, 4).toUpperCase();
+    } else {
+      initials = words.map(w => w[0]).join('').slice(0, 4).toUpperCase();
+    }
+    if (!initials) initials = 'ITEM';
+
+    const basePrefix = `${catPrefix}-${subPrefix}-${initials}`;
+
+    // Query highest existing sequence
+    const existing = await prisma.finishedProduct.findMany({
+      where: { sku: { startsWith: basePrefix } },
+      select: { sku: true },
+      orderBy: { sku: 'desc' },
+      take: 1
+    });
+
+    let nextSeq = 1;
+    if (existing.length > 0 && existing[0].sku) {
+      const segs = existing[0].sku.split('-');
+      const lastNum = parseInt(segs[segs.length - 1], 10);
+      if (!isNaN(lastNum)) nextSeq = lastNum + 1;
+    }
+
+    const sku = `${basePrefix}-${String(nextSeq).padStart(4, '0')}`;
+    const barcode = `890${String(Date.now()).slice(-9)}${Math.floor(Math.random() * 10)}`;
+
+    res.json({
+      sku,
+      barcode,
+      basePrefix,
+      sequence: nextSeq
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/products/bulk-import - Material Master Excel Bulk Upload with Dynamic Specification Validation
+router.post('/bulk-import', authenticateToken, roleMiddleware(['MAIN_MASTER']), upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({ error: 'Please upload an Excel (.xlsx, .xls) or CSV file' });
+    }
+
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[firstSheetName];
+    const rawRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+    if (rawRows.length === 0) {
+      return res.status(400).json({ error: 'The uploaded sheet contains no data rows.' });
+    }
+
+    // Pre-fetch all categories, subcategories with templates, and UOMs
+    const [categories, subcategories, uoms] = await Promise.all([
+      prisma.productCategory.findMany(),
+      prisma.productSubcategory.findMany({
+        include: { specTemplate: { include: { fields: true } } }
+      }),
+      prisma.uOM.findMany()
+    ]);
+
+    const results = {
+      totalRows: rawRows.length,
+      successCount: 0,
+      failedCount: 0,
+      errors: [],
+      created: []
+    };
+
+    for (let i = 0; i < rawRows.length; i++) {
+      const row = rawRows[i];
+      const rowNum = i + 2;
+      const rowErrors = [];
+
+      const rawName = String(row.Product_Name || row.name || row['Product Name'] || '').trim();
+      if (!rawName) {
+        rowErrors.push('Product_Name is required');
+      }
+
+      // Resolve Category
+      const rawCat = String(row.Category || row.category || '').trim();
+      let matchedCat = null;
+      if (rawCat) {
+        matchedCat = categories.find(c =>
+          c.id === rawCat ||
+          c.name.toLowerCase() === rawCat.toLowerCase() ||
+          (c.code && c.code.toLowerCase() === rawCat.toLowerCase())
+        );
+      }
+      if (!matchedCat && categories.length > 0) {
+        matchedCat = categories[0];
+      }
+
+      if (!matchedCat) {
+        rowErrors.push(`Category '${rawCat}' could not be resolved`);
+      }
+
+      // Resolve Subcategory
+      const rawSub = String(row.Subcategory || row.subcategory || '').trim();
+      let matchedSub = null;
+      if (rawSub) {
+        matchedSub = subcategories.find(s =>
+          (matchedCat ? s.categoryId === matchedCat.id : true) &&
+          (s.id === rawSub || s.name.toLowerCase() === rawSub.toLowerCase() || s.code.toLowerCase() === rawSub.toLowerCase())
+        );
+      }
+
+      // Resolve UOM
+      const rawUom = String(row.UOM || row.uom || row.Unit || 'pcs').trim().toLowerCase();
+      let matchedUom = uoms.find(u => u.name.toLowerCase() === rawUom || u.abbreviation.toLowerCase() === rawUom);
+      if (!matchedUom) {
+        matchedUom = uoms[0];
+      }
+
+      // Dynamic Specifications parsing and validation
+      const specifications = {};
+      if (matchedSub && matchedSub.specTemplate && matchedSub.specTemplate.fields) {
+        const fields = matchedSub.specTemplate.fields;
+        for (const f of fields) {
+          const matchingRowKey = Object.keys(row).find(k => {
+            const clean = k.toLowerCase().replace(/^spec:\s*/, '');
+            return clean.startsWith(f.fieldName.toLowerCase()) || clean.startsWith(f.fieldKey.toLowerCase());
+          });
+
+          const val = matchingRowKey !== undefined ? row[matchingRowKey] : undefined;
+
+          if (f.isMandatory && (val === undefined || val === null || String(val).trim() === '')) {
+            rowErrors.push(`Mandatory specification '${f.fieldName}' is missing`);
+          } else if (val !== undefined && val !== null && String(val).trim() !== '') {
+            if (f.fieldType === 'NUMBER') {
+              const numVal = Number(val);
+              if (isNaN(numVal)) {
+                rowErrors.push(`Specification '${f.fieldName}' must be a valid number`);
+              } else {
+                if (f.minValue !== null && numVal < Number(f.minValue)) {
+                  rowErrors.push(`Specification '${f.fieldName}' value ${numVal} is below minimum allowed ${f.minValue}`);
+                }
+                if (f.maxValue !== null && numVal > Number(f.maxValue)) {
+                  rowErrors.push(`Specification '${f.fieldName}' value ${numVal} exceeds maximum allowed ${f.maxValue}`);
+                }
+                specifications[f.fieldKey] = numVal;
+              }
+            } else if (f.fieldType === 'BOOLEAN') {
+              const strVal = String(val).toLowerCase().trim();
+              specifications[f.fieldKey] = strVal === 'true' || strVal === 'yes' || strVal === '1';
+            } else {
+              specifications[f.fieldKey] = String(val).trim();
+            }
+          }
+        }
+      }
+
+      if (rowErrors.length > 0) {
+        results.failedCount++;
+        results.errors.push({ row: rowNum, product: rawName || 'Unknown', errors: rowErrors });
+        continue;
+      }
+
+      try {
+        await prisma.$transaction(async (tx) => {
+          const code = await generateProductCode(tx);
+          const salePrice = Number(row.Sale_Price || row.salePrice || 0);
+          const openingStock = Number(row.Opening_Stock || row.openingStock || 0);
+          const alertLevel = Number(row.Alert_Level || row.alertLevel || 0);
+
+          const newProduct = await tx.finishedProduct.create({
+            data: {
+              code,
+              name: rawName.toUpperCase(),
+              categoryId: matchedCat.id,
+              subcategoryId: matchedSub?.id || null,
+              unitId: matchedUom.id,
+              stockMethod: 'FIFO',
+              salePrice,
+              openingStock,
+              currentStock: openingStock,
+              alertLevel,
+              totalCost: 0,
+              profitMargin: 0,
+              cgst: 9,
+              sgst: 9,
+              igst: 0,
+              createdBy: req.user.id,
+              sku: row.SKU ? String(row.SKU).trim().toUpperCase() : null,
+              brand: row.Brand ? String(row.Brand).trim().toUpperCase() : null,
+              productName: rawName.toUpperCase(),
+              categoryPathText: `${matchedCat.name} > ${matchedSub?.name || 'GENERAL'}`.toUpperCase(),
+              description: row.Description ? String(row.Description).trim() : null,
+              dimensionLength: row.Dimension_Length ? Number(row.Dimension_Length) : null,
+              dimensionWidth: row.Dimension_Width ? Number(row.Dimension_Width) : null,
+              dimensionHeight: row.Dimension_Height ? Number(row.Dimension_Height) : null,
+              dimensionUnit: row.Dimension_Unit ? String(row.Dimension_Unit).trim().toLowerCase() : 'cm',
+              weightValue: row.Weight ? Number(row.Weight) : null,
+              weightUnit: row.Weight_Unit ? String(row.Weight_Unit).trim().toLowerCase() : 'kg',
+              material: row.Material ? String(row.Material).trim().toUpperCase() : null,
+              color: row.Color ? String(row.Color).trim().toUpperCase() : null,
+              size: row.Size ? String(row.Size).trim().toUpperCase() : null,
+              modelNumber: row.Model_Number ? String(row.Model_Number).trim().toUpperCase() : null,
+              upcEan: row.UPC_EAN ? String(row.UPC_EAN).trim() : null,
+              countryOfOrigin: row.Country_of_Origin ? String(row.Country_of_Origin).trim().toUpperCase() : 'INDIA',
+              warranty: row.Warranty ? String(row.Warranty).trim() : null,
+              keyFeatures: row.Key_Features ? String(row.Key_Features).trim() : null,
+              specifications
+            }
+          });
+
+          results.created.push({ id: newProduct.id, code: newProduct.code, name: newProduct.name });
+          results.successCount++;
+        });
+      } catch (insertErr) {
+        results.failedCount++;
+        results.errors.push({ row: rowNum, product: rawName, errors: [insertErr.message] });
+      }
+    }
+
+    res.json(results);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // POST /api/products - Create Product
@@ -1241,7 +1551,32 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req,
           isSopLocked: data.isSopLocked !== undefined ? data.isSopLocked : (data.sopSteps && data.sopSteps.length > 0 ? true : false),
           sopHistory: [],
           imageUrl: data.imageUrl || null,
-          createdBy: req.user.id
+          createdBy: req.user.id,
+          // Classification & Dynamic Specs
+          subcategoryId: data.subcategoryId || null,
+          sku: data.sku ? String(data.sku).trim().toUpperCase() : null,
+          barcode: data.barcode ? String(data.barcode).trim().toUpperCase() : null,
+          specifications: data.specifications || {},
+          customAttributes: data.customAttributes || [],
+          // Universal Core Attributes
+          brand: data.brand ? String(data.brand).trim().toUpperCase() : null,
+          productName: (data.productName || data.name).trim().toUpperCase(),
+          categoryPathText: data.categoryPathText ? String(data.categoryPathText).trim().toUpperCase() : null,
+          description: data.description ? String(data.description).trim() : null,
+          dimensionLength: data.dimensionLength !== undefined && data.dimensionLength !== null ? Number(data.dimensionLength) : null,
+          dimensionWidth: data.dimensionWidth !== undefined && data.dimensionWidth !== null ? Number(data.dimensionWidth) : null,
+          dimensionHeight: data.dimensionHeight !== undefined && data.dimensionHeight !== null ? Number(data.dimensionHeight) : null,
+          dimensionUnit: data.dimensionUnit || 'cm',
+          weightValue: data.weightValue !== undefined && data.weightValue !== null ? Number(data.weightValue) : null,
+          weightUnit: data.weightUnit || 'kg',
+          material: data.material ? String(data.material).trim().toUpperCase() : null,
+          color: data.color ? String(data.color).trim().toUpperCase() : null,
+          size: data.size ? String(data.size).trim().toUpperCase() : null,
+          modelNumber: data.modelNumber ? String(data.modelNumber).trim().toUpperCase() : null,
+          upcEan: data.upcEan ? String(data.upcEan).trim() : null,
+          countryOfOrigin: data.countryOfOrigin ? String(data.countryOfOrigin).trim().toUpperCase() : null,
+          warranty: data.warranty ? String(data.warranty).trim() : null,
+          keyFeatures: data.keyFeatures ? String(data.keyFeatures).trim() : null
         }
       });
 
@@ -1399,7 +1734,32 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
           sopSteps: data.sopSteps || null,
           isSopLocked: data.isSopLocked !== undefined ? data.isSopLocked : (data.sopSteps && data.sopSteps.length > 0 ? true : false),
           sopHistory: updatedSopHistory,
-          imageUrl: data.imageUrl || null
+          imageUrl: data.imageUrl || null,
+          // Classification & Dynamic Specs
+          subcategoryId: data.subcategoryId !== undefined ? data.subcategoryId : existing.subcategoryId,
+          sku: data.sku !== undefined ? (data.sku ? String(data.sku).trim().toUpperCase() : null) : existing.sku,
+          barcode: data.barcode !== undefined ? (data.barcode ? String(data.barcode).trim().toUpperCase() : null) : existing.barcode,
+          specifications: data.specifications !== undefined ? data.specifications : existing.specifications,
+          customAttributes: data.customAttributes !== undefined ? data.customAttributes : existing.customAttributes,
+          // Universal Core Attributes
+          brand: data.brand !== undefined ? (data.brand ? String(data.brand).trim().toUpperCase() : null) : existing.brand,
+          productName: data.productName !== undefined ? (data.productName ? String(data.productName).trim().toUpperCase() : (data.name ? data.name.trim().toUpperCase() : '')) : (existing.productName || existing.name),
+          categoryPathText: data.categoryPathText !== undefined ? (data.categoryPathText ? String(data.categoryPathText).trim().toUpperCase() : null) : existing.categoryPathText,
+          description: data.description !== undefined ? (data.description ? String(data.description).trim() : null) : existing.description,
+          dimensionLength: data.dimensionLength !== undefined ? (data.dimensionLength !== '' && data.dimensionLength !== null ? Number(data.dimensionLength) : null) : existing.dimensionLength,
+          dimensionWidth: data.dimensionWidth !== undefined ? (data.dimensionWidth !== '' && data.dimensionWidth !== null ? Number(data.dimensionWidth) : null) : existing.dimensionWidth,
+          dimensionHeight: data.dimensionHeight !== undefined ? (data.dimensionHeight !== '' && data.dimensionHeight !== null ? Number(data.dimensionHeight) : null) : existing.dimensionHeight,
+          dimensionUnit: data.dimensionUnit !== undefined ? (data.dimensionUnit || 'cm') : existing.dimensionUnit,
+          weightValue: data.weightValue !== undefined ? (data.weightValue !== '' && data.weightValue !== null ? Number(data.weightValue) : null) : existing.weightValue,
+          weightUnit: data.weightUnit !== undefined ? (data.weightUnit || 'kg') : existing.weightUnit,
+          material: data.material !== undefined ? (data.material ? String(data.material).trim().toUpperCase() : null) : existing.material,
+          color: data.color !== undefined ? (data.color ? String(data.color).trim().toUpperCase() : null) : existing.color,
+          size: data.size !== undefined ? (data.size ? String(data.size).trim().toUpperCase() : null) : existing.size,
+          modelNumber: data.modelNumber !== undefined ? (data.modelNumber ? String(data.modelNumber).trim().toUpperCase() : null) : existing.modelNumber,
+          upcEan: data.upcEan !== undefined ? (data.upcEan ? String(data.upcEan).trim() : null) : existing.upcEan,
+          countryOfOrigin: data.countryOfOrigin !== undefined ? (data.countryOfOrigin ? String(data.countryOfOrigin).trim().toUpperCase() : null) : existing.countryOfOrigin,
+          warranty: data.warranty !== undefined ? (data.warranty ? String(data.warranty).trim() : null) : existing.warranty,
+          keyFeatures: data.keyFeatures !== undefined ? (data.keyFeatures ? String(data.keyFeatures).trim() : null) : existing.keyFeatures
         }
       });
 

@@ -17,10 +17,15 @@ import {
   AlertTriangle,
   ArrowUpDown,
   ArrowUp,
-  ArrowDown,
   RotateCcw,
   Wheat,
-  Calendar
+  Calendar,
+  Scale,
+  ArrowRightLeft,
+  Sparkles,
+  Calculator,
+  HelpCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -52,6 +57,32 @@ const UOM_OPTIONS = [
   'kWh', 'MJ',
   // Other
   'unit', 'lot', 'assortment'
+];
+
+const UOM_PRESETS = [
+  // Volume
+  { label: '1 Liter = 1000 ml', category: 'Volume', base: 'liter', alt: 'ml', baseQty: 1, altQty: 1000 },
+  { label: '1000 ml = 1 Liter', category: 'Volume', base: 'ml', alt: 'liter', baseQty: 1000, altQty: 1 },
+  { label: '1 Gallon = 3.785 L', category: 'Volume', base: 'gallon', alt: 'liter', baseQty: 1, altQty: 3.785 },
+  // Weight
+  { label: '1 kg = 1000 gm', category: 'Weight', base: 'kg', alt: 'gm', baseQty: 1, altQty: 1000 },
+  { label: '1000 gm = 1 kg', category: 'Weight', base: 'gm', alt: 'kg', baseQty: 1000, altQty: 1 },
+  { label: '1 gm = 1000 mg', category: 'Weight', base: 'gm', alt: 'mg', baseQty: 1, altQty: 1000 },
+  { label: '1 Ton = 1000 kg', category: 'Weight', base: 'ton', alt: 'kg', baseQty: 1, altQty: 1000 },
+  { label: '1 Quintal = 100 kg', category: 'Weight', base: 'quintal', alt: 'kg', baseQty: 1, altQty: 100 },
+  { label: '1 lb = 453.6 gm', category: 'Weight', base: 'lb', alt: 'gm', baseQty: 1, altQty: 453.6 },
+  // Length
+  { label: '1 Meter = 100 cm', category: 'Length', base: 'meter', alt: 'cm', baseQty: 1, altQty: 100 },
+  { label: '1 Meter = 1000 mm', category: 'Length', base: 'meter', alt: 'mm', baseQty: 1, altQty: 1000 },
+  { label: '1 Feet = 12 Inch', category: 'Length', base: 'feet', alt: 'inch', baseQty: 1, altQty: 12 },
+  // Count / Packing
+  { label: '1 Dozen = 12 pcs', category: 'Count', base: 'dozen', alt: 'pcs', baseQty: 1, altQty: 12 },
+  { label: '1 Box = 20 pcs', category: 'Packing', base: 'box', alt: 'pcs', baseQty: 1, altQty: 20 },
+  { label: '1 Carton = 10 Box', category: 'Packing', base: 'carton', alt: 'box', baseQty: 1, altQty: 10 },
+  // Custom
+  { label: '1 Bag = 25 kg', category: 'Custom', base: 'bag', alt: 'kg', baseQty: 1, altQty: 25 },
+  { label: '1 Roll = 100 Meter', category: 'Custom', base: 'roll', alt: 'meter', baseQty: 1, altQty: 100 },
+  { label: '1 Drum = 200 Liter', category: 'Custom', base: 'drum', alt: 'liter', baseQty: 1, altQty: 200 }
 ];
 
 // Searchable UOM Dropdown Component
@@ -102,11 +133,29 @@ function RawMaterialForm({ editId, onBack }) {
   const isEditMode = !!editId;
   const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm();
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm({
+    defaultValues: {
+      hasAlternateUom: false,
+      alternateUom: '',
+      baseUomQty: 1,
+      alternateUomQty: 1
+    }
+  });
   const [hasHsnDescription, setHasHsnDescription] = useState(false);
+  const [testBaseQty, setTestBaseQty] = useState(5);
+  const [testAltQty, setTestAltQty] = useState(500);
 
-  const selectedUom = watch('unitId');
+  const selectedUom = watch('unitId') || '';
   const selectedHsn = watch('hsnCode') || '';
+  const hasAlternateUom = watch('hasAlternateUom') || false;
+  const alternateUom = watch('alternateUom') || '';
+  const baseUomQty = parseFloat(watch('baseUomQty')) > 0 ? parseFloat(watch('baseUomQty')) : 1;
+  const alternateUomQty = parseFloat(watch('alternateUomQty')) > 0 ? parseFloat(watch('alternateUomQty')) : 1;
+  const ratePerUnit = parseFloat(watch('ratePerUnit')) || 0;
+
+  const conversionFactor = (baseUomQty > 0 && alternateUomQty > 0) ? (alternateUomQty / baseUomQty) : 1;
+  const reverseFactor = conversionFactor > 0 ? (1 / conversionFactor) : 1;
+  const altCatalogRate = conversionFactor > 0 ? (ratePerUnit / conversionFactor) : 0;
 
   // Fetch categories
   const { data: categories } = useQuery({
@@ -204,7 +253,11 @@ function RawMaterialForm({ editId, onBack }) {
       if (unitValue === 'ltr') unitValue = 'liter';
       const normalizedData = {
         ...existingData,
-        unitId: unitValue
+        unitId: unitValue,
+        hasAlternateUom: Boolean(existingData.hasAlternateUom),
+        alternateUom: existingData.alternateUom || existingData.consumptionUnit || '',
+        baseUomQty: existingData.baseUomQty != null ? Number(existingData.baseUomQty) : 1,
+        alternateUomQty: existingData.alternateUomQty != null ? Number(existingData.alternateUomQty) : 1
       };
       reset(normalizedData);
       setHasHsnDescription(!!existingData.hsnCode && !!existingData.description);
@@ -217,6 +270,20 @@ function RawMaterialForm({ editId, onBack }) {
       data.openingStock = parseFloat(data.openingStock) || 0;
       data.alertLevel = parseFloat(data.alertLevel) || 0;
       data.name = data.name.trim().toUpperCase();
+      data.hasAlternateUom = Boolean(data.hasAlternateUom);
+      if (data.hasAlternateUom) {
+        data.alternateUom = data.alternateUom ? data.alternateUom.trim().toLowerCase() : null;
+        data.baseUomQty = parseFloat(data.baseUomQty) > 0 ? parseFloat(data.baseUomQty) : 1;
+        data.alternateUomQty = parseFloat(data.alternateUomQty) > 0 ? parseFloat(data.alternateUomQty) : 1;
+        data.conversionFactor = data.alternateUomQty / data.baseUomQty;
+        data.consumptionUnit = data.alternateUom;
+      } else {
+        data.alternateUom = null;
+        data.baseUomQty = 1;
+        data.alternateUomQty = 1;
+        data.conversionFactor = 1;
+        data.consumptionUnit = null;
+      }
       if (isEditMode) return (await api.put(`/item-setup/raw-material/${editId}`, data)).data;
       return (await api.post('/item-setup/raw-material', data)).data;
     },
@@ -448,6 +515,210 @@ function RawMaterialForm({ editId, onBack }) {
           </CardContent>
         </Card>
 
+        {/* Alternate UOM & Conversion Engine Card */}
+        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs overflow-visible mt-2.5">
+          <CardHeader className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 flex flex-row items-center justify-between">
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+              <span className={`w-2 h-2 rounded-full transition-colors ${hasAlternateUom ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+              <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span>Alternate Unit of Measure (UOM) & Conversion Rate</span>
+            </div>
+
+            {/* Toggle Switch */}
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                {hasAlternateUom ? 'Enabled' : 'Disabled'}
+              </span>
+              <input
+                type="checkbox"
+                {...register('hasAlternateUom')}
+                className="sr-only peer"
+              />
+              <div className="w-8 h-4.5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600 relative"></div>
+            </label>
+          </CardHeader>
+
+          <CardContent className="p-3.5 space-y-3 text-xs">
+            {!hasAlternateUom ? (
+              <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+                <HelpCircle className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                <div className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Single UOM Active: </span>
+                  This raw material is currently measured and stocked solely in <strong>{selectedUom ? selectedUom.toUpperCase() : 'its Base Unit'}</strong>. Enable this option if you purchase in one unit (e.g. <em>Liter</em>) but consume in Production recipes (BOM) or sell directly in an alternate unit (e.g. <em>Milliliter</em>, <em>Gram</em>, or <em>Pieces</em>).
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3.5 animate__animated animate__fadeIn">
+                {/* 1. Quick Category Presets */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      Quick Conversion Presets
+                    </span>
+                    <span className="text-[10px] text-slate-400">Click to apply common ratio</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {UOM_PRESETS.map((preset, idx) => {
+                      const isMatch = selectedUom && (
+                        preset.base.toLowerCase() === selectedUom.toLowerCase() ||
+                        preset.alt.toLowerCase() === selectedUom.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setValue('alternateUom', preset.alt);
+                            setValue('baseUomQty', preset.baseQty);
+                            setValue('alternateUomQty', preset.altQty);
+                            if (preset.base.toLowerCase() !== (selectedUom || '').toLowerCase()) {
+                              setValue('unitId', preset.base);
+                            }
+                          }}
+                          className={`text-[10px] px-2 py-1 rounded-md font-semibold transition-all border cursor-pointer ${
+                            isMatch
+                              ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                              : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800'
+                          }`}
+                        >
+                          <span className="opacity-60 mr-1 text-[9px]">[{preset.category}]</span>
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Visual Equivalence Ratio Builder */}
+                <div className="p-3 bg-gradient-to-r from-indigo-50/70 via-purple-50/40 to-slate-50 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-slate-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                  <div className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200 flex items-center justify-between">
+                    <span>Equivalence Conversion Equation</span>
+                    <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
+                      Ratio: {baseUomQty} {selectedUom || 'Base'} = {alternateUomQty} {alternateUom || 'Alt'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Primary/Base Unit Qty */}
+                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
+                      <span className="text-[10px] text-slate-400 font-bold">QTY</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.000001"
+                        {...register('baseUomQty', { required: 'Base quantity required', min: 0.000001 })}
+                        className="w-16 text-center font-mono font-bold text-xs bg-transparent focus:outline-none text-slate-800 dark:text-white"
+                        placeholder="1"
+                      />
+                      <span className="font-extrabold text-[11px] uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                        {selectedUom || 'Base'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white font-extrabold text-xs shadow-2xs">
+                      =
+                    </div>
+
+                    {/* Alternate Unit Qty & Selector */}
+                    <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs flex-1 min-w-[240px]">
+                      <span className="text-[10px] text-slate-400 font-bold">EQUALS</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.000001"
+                        {...register('alternateUomQty', { required: 'Alternate quantity required', min: 0.000001 })}
+                        className="w-20 text-center font-mono font-bold text-xs bg-transparent focus:outline-none text-slate-800 dark:text-white"
+                        placeholder="1000"
+                      />
+                      <div className="flex-1 min-w-[120px]">
+                        <UomSelect
+                          value={alternateUom}
+                          onChange={(val) => setValue('alternateUom', val)}
+                          error={errors.alternateUom}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. Live Mathematical Badges & Rate Insight */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
+                    <div className="p-2 rounded-lg bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500">Multiplier (Bigger → Smaller):</span>
+                      <span className="font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        × {conversionFactor.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                      </span>
+                    </div>
+
+                    <div className="p-2 rounded-lg bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500">Divider (Smaller → Bigger):</span>
+                      <span className="font-mono font-bold text-purple-600 dark:text-purple-400">
+                        ÷ {conversionFactor.toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                      </span>
+                    </div>
+
+                    <div className="p-2 rounded-lg bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <span className="text-slate-500">Catalog Rate / {alternateUom || 'Alt'}:</span>
+                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        ₹{altCatalogRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Real-Time Conversion Sandbox Test */}
+                <div className="p-2.5 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                    <Calculator className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Real-Time Conversion Preview (Sandbox Test)</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                    {/* Test 1: Base to Alt */}
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400">Convert</span>
+                        <input
+                          type="number"
+                          value={testBaseQty}
+                          onChange={(e) => setTestBaseQty(parseFloat(e.target.value) || 0)}
+                          className="w-12 h-6 px-1 text-center font-mono font-bold border border-slate-200 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-950 text-xs"
+                        />
+                        <span className="font-bold text-[11px] uppercase text-slate-600 dark:text-slate-300">{selectedUom || 'Base'}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-mono font-extrabold text-xs">
+                        <span>➔</span>
+                        <span>{(testBaseQty * conversionFactor).toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                        <span className="uppercase text-[10px]">{alternateUom || 'Alt'}</span>
+                      </div>
+                    </div>
+
+                    {/* Test 2: Alt to Base */}
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400">Convert</span>
+                        <input
+                          type="number"
+                          value={testAltQty}
+                          onChange={(e) => setTestAltQty(parseFloat(e.target.value) || 0)}
+                          className="w-14 h-6 px-1 text-center font-mono font-bold border border-slate-200 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-950 text-xs"
+                        />
+                        <span className="font-bold text-[11px] uppercase text-slate-600 dark:text-slate-300">{alternateUom || 'Alt'}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-purple-600 dark:text-purple-400 font-mono font-extrabold text-xs">
+                        <span>➔</span>
+                        <span>{(testAltQty / conversionFactor).toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                        <span className="uppercase text-[10px]">{selectedUom || 'Base'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         <div className="mt-2.5 flex items-center space-x-2">
           <Button 
             type="submit" 
@@ -637,6 +908,7 @@ export default function RawMaterialListPage() {
         (item.code || '').toLowerCase().includes(term) ||
         (item.category?.name || '').toLowerCase().includes(term) ||
         (item.unitId || '').toLowerCase().includes(term) ||
+        (item.alternateUom || '').toLowerCase().includes(term) ||
         (item.hsnCode || '').toLowerCase().includes(term)
       );
     });
@@ -1013,8 +1285,17 @@ export default function RawMaterialListPage() {
                           </span>
                         </TableCell>
                         {/* 4. UOM */}
-                        <TableCell className="py-2 px-3 text-slate-600 dark:text-slate-400 font-semibold uppercase text-[11px]">
-                          {item.unitId}
+                        <TableCell className="py-2 px-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-slate-700 dark:text-slate-300 font-bold uppercase text-[11px]">
+                              {item.unitId}
+                            </span>
+                            {item.hasAlternateUom && item.alternateUom && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/50 w-fit">
+                                1 {item.unitId} = {Number(item.conversionFactor || (item.alternateUomQty / item.baseUomQty) || 1).toLocaleString()} {item.alternateUom}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         {/* 5. HSN */}
                         <TableCell className="py-2 px-3 font-mono text-[11px] text-slate-500 dark:text-slate-400">

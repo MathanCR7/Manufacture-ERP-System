@@ -32,6 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Pagination } from '@/components/ui/Pagination';
 import { Button } from '@/components/ui/button';
+import ProductSubcategoryManager from '../components/ProductSubcategoryManager';
 
 // Status Badge Component
 function StatusBadge({ status }) {
@@ -362,6 +363,7 @@ export default function ProductCategoryListPage() {
   const canEdit = ['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT'].includes(user?.role);
 
   const [view, setView] = useState('list'); // list | add | edit
+  const [activeCategoryTab, setActiveCategoryTab] = useState('categories'); // 'categories' | 'subcategories'
   const [editId, setEditId] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -624,6 +626,39 @@ export default function ProductCategoryListPage() {
         )}
       </div>
 
+      {/* Category / Subcategory Navigation Tabs */}
+      <div className="flex items-center gap-1.5 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <button
+          type="button"
+          onClick={() => setActiveCategoryTab('categories')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeCategoryTab === 'categories'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Tag className="w-3.5 h-3.5" />
+          Main Categories ({categories.length})
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveCategoryTab('subcategories')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+            activeCategoryTab === 'subcategories'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <Layers className="w-3.5 h-3.5" />
+          Subcategories &amp; Material Master Templates
+        </button>
+      </div>
+
+      {activeCategoryTab === 'subcategories' ? (
+        <ProductSubcategoryManager />
+      ) : (
+        <>
       {/* Selection Notification Banner */}
       {canEdit && selectedIds.length > 0 && (
         <div className="bg-indigo-50/90 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl px-3 py-1.5 flex items-center justify-between gap-3 shadow-3xs animate__animated animate__fadeIn">
@@ -958,6 +993,8 @@ export default function ProductCategoryListPage() {
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

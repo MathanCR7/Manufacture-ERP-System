@@ -17,7 +17,19 @@ class ItemSetupRepository {
   }
   async getRawMaterialById(id) { return prisma.rawMaterial.findUnique({ where: { id }, include: { category: true, uoms: true } }); }
   async updateRawMaterial(id, data) { 
-    const { category, uoms, createdAt, updatedAt, id: _, stockAdjustments, wasteItems, ...updateData } = data;
+    const { 
+      category, 
+      uoms, 
+      createdAt, 
+      updatedAt, 
+      id: _, 
+      stockAdjustments, 
+      wasteItems, 
+      productBOMs, 
+      productionBatchRMUsages, 
+      productionLossMaterials,
+      ...updateData 
+    } = data;
     return prisma.rawMaterial.update({ where: { id }, data: updateData }); 
   }
   async deleteRawMaterial(id) { return prisma.rawMaterial.delete({ where: { id } }); }
@@ -41,10 +53,24 @@ class ItemSetupRepository {
   async deleteNonInventoryItem(id) { return prisma.nonInventoryItem.delete({ where: { id } }); }
 
   // Product Category
-  async createProductCategory(data) { return prisma.productCategory.create({ data }); }
+  async createProductCategory(data) {
+    const formattedData = {
+      ...data,
+      name: data.name ? data.name.trim().toUpperCase() : data.name,
+      code: data.code ? data.code.trim().toUpperCase() : undefined
+    };
+    return prisma.productCategory.create({ data: formattedData });
+  }
   async getProductCategories() { return prisma.productCategory.findMany({ orderBy: { createdAt: 'desc' }, include: { products: true } }); }
   async getProductCategoryById(id) { return prisma.productCategory.findUnique({ where: { id }, include: { products: true } }); }
-  async updateProductCategory(id, data) { return prisma.productCategory.update({ where: { id }, data }); }
+  async updateProductCategory(id, data) {
+    const formattedData = {
+      ...data,
+      name: data.name ? data.name.trim().toUpperCase() : data.name,
+      code: data.code ? data.code.trim().toUpperCase() : undefined
+    };
+    return prisma.productCategory.update({ where: { id }, data: formattedData });
+  }
   async deleteProductCategory(id) { return prisma.productCategory.delete({ where: { id } }); }
 
   // Product

@@ -23,6 +23,17 @@ enum IdRegistryStatus {
   DELETED
 }
 
+enum SpecFieldType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+  DATE
+  RANGE
+}
+
+
 enum RawMaterialPOStatus {
   PENDING
   ORDERED
@@ -360,6 +371,7 @@ model UOM {
   rmWasteItems   RMWasteItem[]
   inventoryBatches InventoryBatch[]
   finishedProducts FinishedProduct[] @relation("FinishedProductUOM")
+  productSubcategories ProductSubcategory[] @relation("SubcategoryDefaultUom")
 }
 
 model AuditLog {
@@ -498,6 +510,11 @@ model RawMaterial {
   categoryId       String
   unitId           String
   consumptionUnit  String?
+  hasAlternateUom  Boolean  @default(false)
+  alternateUom     String?
+  baseUomQty       Decimal  @default(1.0)
+  alternateUomQty  Decimal  @default(1.0)
+  conversionFactor Decimal  @default(1.0)
   ratePerUnit      Decimal  @default(0)
   openingStock     Decimal  @default(0)
   currentStock     Decimal  @default(0) // <--- ADDED for inventory tracking
@@ -547,6 +564,7 @@ model NonInventoryItem {
 
 model ProductCategory {
   id          String   @id @default(uuid())
+  code        String?  // e.g. "KUL", "CAT-001"
   name        String
   description String?  @db.Text
   status      String   @default("ACTIVE") // ACTIVE / INACTIVE
@@ -555,6 +573,70 @@ model ProductCategory {
 
   products Product[]
   finishedProducts FinishedProduct[] @relation("FinishedProductCategory")
+  subcategories ProductSubcategory[]
+}
+
+model ProductSubcategory {
+  id              String   @id @default(uuid())
+  categoryId      String   @map("category_id")
+  name            String
+  code            String   // e.g. "KUL" for Kulfi, "TUB" for Tub
+  description     String?  @db.Text
+  status          String   @default("ACTIVE") // ACTIVE / INACTIVE
+  skuPrefix       String?  @map("sku_prefix") // Optional custom SKU prefix
+  hsnCodeDefault  String?  @map("hsn_code_default")
+  defaultUomId    String?  @map("default_uom_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  category        ProductCategory            @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  defaultUom      UOM?                       @relation("SubcategoryDefaultUom", fields: [defaultUomId], references: [id])
+  products        FinishedProduct[]
+  specTemplate    ProductSpecTemplate?
+
+  @@unique([categoryId, code])
+  @@index([categoryId])
+  @@map("product_subcategories")
+}
+
+model ProductSpecTemplate {
+  id            String                     @id @default(uuid())
+  subcategoryId String                     @unique @map("subcategory_id")
+  name          String
+  description   String?                    @db.Text
+  version       Int                        @default(1)
+  isActive      Boolean                    @default(true) @map("is_active")
+  createdAt     DateTime                   @default(now()) @map("created_at")
+  updatedAt     DateTime                   @updatedAt @map("updated_at")
+
+  subcategory   ProductSubcategory         @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  fields        ProductSpecTemplateField[]
+
+  @@map("product_spec_templates")
+}
+
+model ProductSpecTemplateField {
+  id            String              @id @default(uuid())
+  templateId    String              @map("template_id")
+  fieldName     String              @map("field_name")     // e.g. "Fat Content", "Storage Temp"
+  fieldKey      String              @map("field_key")      // e.g. "fat_content", "storage_temp"
+  fieldType     SpecFieldType       @default(TEXT) @map("field_type")
+  section       String              @default("General Specs") // e.g. "Physical", "Chemical", "Storage", "Packaging"
+  unitOfMeasure String?             @map("unit_of_measure") // e.g. "%", "°C", "mm", "g"
+  isMandatory   Boolean             @default(false) @map("is_mandatory")
+  defaultValue  String?             @map("default_value")
+  options       Json?               // Array of string options for SELECT / MULTI_SELECT
+  minValue      Decimal?            @map("min_value")
+  maxValue      Decimal?            @map("max_value")
+  placeholder   String?
+  helpText      String?             @map("help_text")
+  displayOrder  Int                 @default(0) @map("display_order")
+
+  template      ProductSpecTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([templateId])
+  @@map("product_spec_template_fields")
 }
 
 model Product {
@@ -903,9 +985,37 @@ model FinishedProduct {
   createdAt             DateTime                    @default(now()) @map("created_at")
   updatedAt             DateTime                    @updatedAt @map("updated_at")
 
+  // Dynamic Specification & Classification
+  subcategoryId         String?                     @map("subcategory_id")
+  sku                   String?                     @unique
+  barcode               String?                     @unique
+  specifications        Json?                       @default("{}")
+  customAttributes      Json?                       @default("[]")
+
+  // Universal Core Attributes
+  brand                 String?                     @map("brand")
+  productName           String?                     @map("product_name")
+  categoryPathText      String?                     @map("category_path_text")
+  description           String?                     @db.Text @map("description")
+  dimensionLength       Decimal?                    @map("dimension_length")
+  dimensionWidth        Decimal?                    @map("dimension_width")
+  dimensionHeight       Decimal?                    @map("dimension_height")
+  dimensionUnit         String?                     @default("cm") @map("dimension_unit")
+  weightValue           Decimal?                    @map("weight_value")
+  weightUnit            String?                     @default("kg") @map("weight_unit")
+  material              String?                     @map("material")
+  color                 String?                     @map("color")
+  size                  String?                     @map("size")
+  modelNumber           String?                     @map("model_number")
+  upcEan                String?                     @unique @map("upc_ean")
+  countryOfOrigin       String?                     @map("country_of_origin")
+  warranty              String?                     @map("warranty")
+  keyFeatures           String?                     @db.Text @map("key_features")
+
   // Relations
   creator             User                        @relation("FinishedProductCreator", fields: [createdBy], references: [id])
   category            ProductCategory             @relation("FinishedProductCategory", fields: [categoryId], references: [id])
+  subcategory         ProductSubcategory?         @relation(fields: [subcategoryId], references: [id])
   unit                UOM                         @relation("FinishedProductUOM", fields: [unitId], references: [id])
   bom                 ProductBOM[]
   nonInventoryCosts   ProductNonInventoryCost[]

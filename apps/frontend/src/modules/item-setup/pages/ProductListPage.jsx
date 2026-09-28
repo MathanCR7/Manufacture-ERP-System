@@ -8,7 +8,7 @@ import {
   PlusCircle, Sliders, ShieldAlert, TrendingUp, Grid, List as ListIcon,
   ChevronLeft, Award, HelpCircle, FileText, AlertTriangle,
   ArrowUpDown, ArrowUp, ArrowDown, RotateCcw, ChevronDown,
-  Snowflake, Flame, GripVertical, Scale
+  Snowflake, Flame, GripVertical, Scale, FileSpreadsheet
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -23,6 +23,8 @@ import { Label } from '@/components/ui/label';
 import SearchSelect from '@/components/ui/SearchSelect';
 import HsnSelect from '@/components/forms/HsnSelect';
 import { Pagination } from '@/components/ui/Pagination';
+import DynamicProductSpecPanel from '../components/DynamicProductSpecPanel';
+import MaterialMasterImportModal from '../components/MaterialMasterImportModal';
 
 // Standard Factory Workflow Stages for manufacturing
 const STANDARD_FACTORY_STAGES = [
@@ -502,12 +504,84 @@ function ProductForm({ editId, onBack }) {
   const [nameMatches, setNameMatches] = useState([]);
 
   const [categoryId, setCategoryId] = useState('');
+  const [subcategoryId, setSubcategoryId] = useState('');
+  const [sku, setSku] = useState('');
+  const [barcode, setBarcode] = useState('');
+  const [specifications, setSpecifications] = useState({});
+  const [customAttributes, setCustomAttributes] = useState([]);
+  const [activeSubTemplate, setActiveSubTemplate] = useState(null);
+  const [isGeneratingSku, setIsGeneratingSku] = useState(false);
+
+  // Universal Core Attributes
+  const [brand, setBrand] = useState('');
+  const [description, setDescription] = useState('');
+  const [dimensionLength, setDimensionLength] = useState('');
+  const [dimensionWidth, setDimensionWidth] = useState('');
+  const [dimensionHeight, setDimensionHeight] = useState('');
+  const [dimensionUnit, setDimensionUnit] = useState('cm');
+  const [weightValue, setWeightValue] = useState('');
+  const [weightUnit, setWeightUnit] = useState('kg');
+  const [material, setMaterial] = useState('');
+  const [color, setColor] = useState('');
+  const [size, setSize] = useState('');
+  const [modelNumber, setModelNumber] = useState('');
+  const [upcEan, setUpcEan] = useState('');
+  const [countryOfOrigin, setCountryOfOrigin] = useState('');
+  const [warranty, setWarranty] = useState('');
+  const [keyFeatures, setKeyFeatures] = useState('');
+
   const [unitId, setUnitId] = useState('');
   const [stockMethod, setStockMethod] = useState('FIFO');
   const [openingStock, setOpeningStock] = useState(0);
   const [alertLevel, setAlertLevel] = useState(0);
   const [hsnCode, setHsnCode] = useState('');
   const [salePrice, setSalePrice] = useState(0);
+
+  // Dynamic template watcher
+  useEffect(() => {
+    if (!subcategoryId) {
+      setActiveSubTemplate(null);
+      return;
+    }
+    const foundSub = (masters.subcategories || []).find(s => s.id === subcategoryId);
+    if (foundSub?.specTemplate) {
+      setActiveSubTemplate(foundSub.specTemplate);
+    } else {
+      api.get(`/product-spec-templates/by-subcategory/${subcategoryId}`)
+        .then(res => setActiveSubTemplate(res.data))
+        .catch(() => setActiveSubTemplate(null));
+    }
+  }, [subcategoryId, masters.subcategories]);
+
+  // Smart SKU Generator
+  const handleAutoGenerateSku = async () => {
+    if (!name.trim()) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Product Name Required',
+        text: 'Please enter a product name first before generating a smart SKU.'
+      });
+      return;
+    }
+    setIsGeneratingSku(true);
+    try {
+      const res = await api.post('/products/generate-sku', {
+        categoryId,
+        subcategoryId,
+        name: name.trim()
+      });
+      if (res.data?.sku) {
+        setSku(res.data.sku);
+        if (!barcode && res.data.barcode) {
+          setBarcode(res.data.barcode);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to generate SKU', err);
+    } finally {
+      setIsGeneratingSku(false);
+    }
+  };
 
   // SOP / Image fields
   const [expectedOutput, setExpectedOutput] = useState(100);
@@ -643,6 +717,27 @@ function ProductForm({ editId, onBack }) {
             (c.name && prod.category?.name && c.name.toLowerCase() === prod.category.name.toLowerCase())
           );
           setCategoryId(matchedCategory ? matchedCategory.id : catId);
+          setSubcategoryId(prod.subcategoryId || '');
+          setSku(prod.sku || '');
+          setBarcode(prod.barcode || '');
+          setSpecifications(prod.specifications || {});
+          setCustomAttributes(Array.isArray(prod.customAttributes) ? prod.customAttributes : []);
+          setBrand(prod.brand || '');
+          setDescription(prod.description || '');
+          setDimensionLength(prod.dimensionLength != null ? String(prod.dimensionLength) : '');
+          setDimensionWidth(prod.dimensionWidth != null ? String(prod.dimensionWidth) : '');
+          setDimensionHeight(prod.dimensionHeight != null ? String(prod.dimensionHeight) : '');
+          setDimensionUnit(prod.dimensionUnit || 'cm');
+          setWeightValue(prod.weightValue != null ? String(prod.weightValue) : '');
+          setWeightUnit(prod.weightUnit || 'kg');
+          setMaterial(prod.material || '');
+          setColor(prod.color || '');
+          setSize(prod.size || '');
+          setModelNumber(prod.modelNumber || '');
+          setUpcEan(prod.upcEan || '');
+          setCountryOfOrigin(prod.countryOfOrigin || '');
+          setWarranty(prod.warranty || '');
+          setKeyFeatures(prod.keyFeatures || '');
           const initialUnit = (prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '').toLowerCase();
           const matchedOption = UOM_OPTIONS.find(u => u.toLowerCase() === initialUnit) || prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '';
           setUnitId(matchedOption);
@@ -1113,6 +1208,29 @@ function ProductForm({ editId, onBack }) {
         });
         return;
       }
+
+      // Check mandatory fields defined in activeSubTemplate
+      if (activeSubTemplate?.fields && activeSubTemplate.fields.length > 0) {
+        const missing = [];
+        activeSubTemplate.fields.forEach(f => {
+          if (f.isMandatory) {
+            const val = specifications[f.fieldKey];
+            if (val === undefined || val === null || String(val).trim() === '') {
+              missing.push(f.fieldName);
+            }
+          }
+        });
+        if (missing.length > 0) {
+          Swal.fire({
+            title: 'Mandatory Specifications Missing',
+            html: `<div class="text-xs text-left"><p class="mb-2">The following mandatory specifications must be completed:</p><ul class="list-disc pl-4 text-rose-600 font-semibold space-y-1">${missing.map(m => `<li>${m}</li>`).join('')}</ul></div>`,
+            icon: 'warning',
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+      }
+
       setActiveTab('recipe');
     } else if (activeTab === 'recipe') {
       setActiveTab('bom');
@@ -1149,11 +1267,55 @@ function ProductForm({ editId, onBack }) {
       return;
     }
 
+    // Check mandatory fields defined in activeSubTemplate
+    if (activeSubTemplate?.fields && activeSubTemplate.fields.length > 0) {
+      const missing = [];
+      activeSubTemplate.fields.forEach(f => {
+        if (f.isMandatory) {
+          const val = specifications[f.fieldKey];
+          if (val === undefined || val === null || String(val).trim() === '') {
+            missing.push(f.fieldName);
+          }
+        }
+      });
+      if (missing.length > 0) {
+        Swal.fire({
+          title: 'Mandatory Specifications Missing',
+          html: `<div class="text-xs text-left"><p class="mb-2">The following mandatory specifications must be completed before saving:</p><ul class="list-disc pl-4 text-rose-600 font-semibold space-y-1">${missing.map(m => `<li>${m}</li>`).join('')}</ul></div>`,
+          icon: 'warning',
+          confirmButtonColor: '#4f46e5'
+        });
+        return;
+      }
+    }
+
     setSaving(true);
     setError(null);
     const payload = {
       name: name.trim().toUpperCase(),
+      productName: name.trim().toUpperCase(),
       categoryId,
+      subcategoryId: subcategoryId || null,
+      sku: sku ? sku.trim() : null,
+      barcode: barcode ? barcode.trim() : null,
+      specifications: specifications || {},
+      customAttributes: customAttributes || [],
+      brand: brand ? brand.trim() : null,
+      description: description ? description.trim() : null,
+      dimensionLength: dimensionLength !== '' ? Number(dimensionLength) : null,
+      dimensionWidth: dimensionWidth !== '' ? Number(dimensionWidth) : null,
+      dimensionHeight: dimensionHeight !== '' ? Number(dimensionHeight) : null,
+      dimensionUnit: dimensionUnit || 'cm',
+      weightValue: weightValue !== '' ? Number(weightValue) : null,
+      weightUnit: weightUnit || 'kg',
+      material: material ? material.trim() : null,
+      color: color ? color.trim() : null,
+      size: size ? size.trim() : null,
+      modelNumber: modelNumber ? modelNumber.trim() : null,
+      upcEan: upcEan ? upcEan.trim() : null,
+      countryOfOrigin: countryOfOrigin ? countryOfOrigin.trim() : null,
+      warranty: warranty ? warranty.trim() : null,
+      keyFeatures: keyFeatures ? keyFeatures.trim() : null,
       unitId,
       stockMethod: stockMethod || 'FIFO',
       openingStock: Math.max(0, Number(openingStock || 0)),
@@ -1464,14 +1626,81 @@ function ProductForm({ editId, onBack }) {
                     <select
                       required
                       value={categoryId}
-                      onChange={(e) => setCategoryId(e.target.value)}
+                      onChange={(e) => {
+                        setCategoryId(e.target.value);
+                        setSubcategoryId('');
+                      }}
                       className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 h-10 px-3 py-2 text-xs focus:outline-none"
                     >
-                      <option value="">Select Category...</option>
+                      <option value="">SELECT CATEGORY...</option>
                       {masters.categories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
+                        <option key={c.id} value={c.id}>{c.name?.toUpperCase()}</option>
                       ))}
                     </select>
+                  </div>
+
+                  {/* Subcategory Selector */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Subcategory</label>
+                      {activeSubTemplate && (
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 uppercase">
+                          <Sparkles className="w-2.5 h-2.5" /> Template Active
+                        </span>
+                      )}
+                    </div>
+                    <select
+                      value={subcategoryId}
+                      onChange={(e) => setSubcategoryId(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 h-10 px-3 py-2 text-xs focus:outline-none uppercase font-semibold"
+                    >
+                      <option value="">SELECT SUBCATEGORY (OPTIONAL)...</option>
+                      {(masters.subcategories || [])
+                        .filter(s => !categoryId || s.categoryId === categoryId)
+                        .map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.name?.toUpperCase()} ({s.code?.toUpperCase()}) {s.specTemplate ? '— ⚙️ SPEC TEMPLATE' : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  {/* Smart SKU & Barcode Inputs */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Smart SKU</label>
+                      <button
+                        type="button"
+                        onClick={handleAutoGenerateSku}
+                        disabled={isGeneratingSku}
+                        className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 cursor-pointer transition-colors uppercase"
+                      >
+                        <Sparkles className="w-2.5 h-2.5" />
+                        {isGeneratingSku ? 'Generating...' : '✨ Auto-Gen'}
+                      </button>
+                    </div>
+                    <Input
+                      placeholder="E.G. DAI-KUL-MAL-0001"
+                      value={sku}
+                      style={{ textTransform: 'uppercase' }}
+                      onChange={(e) => setSku(e.target.value.toUpperCase())}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-xs rounded-xl font-bold"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Barcode / UPC-EAN</label>
+                    <Input
+                      placeholder="E.G. 8901234567890"
+                      value={barcode || upcEan}
+                      style={{ textTransform: 'uppercase' }}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase();
+                        setBarcode(val);
+                        setUpcEan(val);
+                      }}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono text-xs rounded-xl"
+                    />
                   </div>
                   <div className="space-y-1">
                     <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Unit of Sale *</label>
@@ -1541,6 +1770,34 @@ function ProductForm({ editId, onBack }) {
                       </>
                     )}
                   </div>
+                </div>
+
+                {/* Material Master Dynamic Specifications & Universal Attributes Panel */}
+                <div className="border-t border-slate-100 dark:border-slate-800 pt-5">
+                  <DynamicProductSpecPanel
+                    template={activeSubTemplate}
+                    specifications={specifications}
+                    setSpecifications={setSpecifications}
+                    customAttributes={customAttributes}
+                    setCustomAttributes={setCustomAttributes}
+                    brand={brand} setBrand={setBrand}
+                    productName={name} setProductName={setName}
+                    description={description} setDescription={setDescription}
+                    dimensionLength={dimensionLength} setDimensionLength={setDimensionLength}
+                    dimensionWidth={dimensionWidth} setDimensionWidth={setDimensionWidth}
+                    dimensionHeight={dimensionHeight} setDimensionHeight={setDimensionHeight}
+                    dimensionUnit={dimensionUnit} setDimensionUnit={setDimensionUnit}
+                    weightValue={weightValue} setWeightValue={setWeightValue}
+                    weightUnit={weightUnit} setWeightUnit={setWeightUnit}
+                    material={material} setMaterial={setMaterial}
+                    color={color} setColor={setColor}
+                    size={size} setSize={setSize}
+                    modelNumber={modelNumber} setModelNumber={setModelNumber}
+                    upcEan={upcEan} setUpcEan={setUpcEan}
+                    countryOfOrigin={countryOfOrigin} setCountryOfOrigin={setCountryOfOrigin}
+                    warranty={warranty} setWarranty={setWarranty}
+                    keyFeatures={keyFeatures} setKeyFeatures={setKeyFeatures}
+                  />
                 </div>
 
                 {/* Step 1 Navigation Footer */}
@@ -2342,6 +2599,7 @@ export default function ProductListPage() {
   const [displayMode, setDisplayMode] = useState('grid'); // Default: 12 items in card grid as requested
   const [editId, setEditId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   // Default sort is code ascending (PRD-00001 first) as requested
   const [sortBy, setSortBy] = useState('code_asc');
   const itemsPerPage = 12;
@@ -2349,6 +2607,11 @@ export default function ProductListPage() {
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['products'],
     queryFn: async () => (await api.get('/products')).data
+  });
+
+  const { data: subcategories = [] } = useQuery({
+    queryKey: ['product-subcategories'],
+    queryFn: async () => (await api.get('/product-subcategories')).data
   });
 
   const deleteMutation = useMutation({
@@ -2627,14 +2890,25 @@ export default function ProductListPage() {
           </div>
 
           {canEdit && (
-            <Button 
-              onClick={() => { setEditId(null); setView('add'); }}
-              size="sm"
-              className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add Product
-            </Button>
+            <>
+              <Button 
+                onClick={() => setIsImportModalOpen(true)}
+                size="sm"
+                className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+                title="Bulk Material Master Import"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" />
+                <span>📥 Material Master Import</span>
+              </Button>
+              <Button 
+                onClick={() => { setEditId(null); setView('add'); }}
+                size="sm"
+                className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Product
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -2911,15 +3185,27 @@ export default function ProductListPage() {
                               />
                             </TableCell>
                           )}
-                          {/* 1. Code */}
+                          {/* 1. Code & SKU */}
                           <TableCell className="py-2 px-3 font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">
-                            {item.code}
+                            <div>{item.code}</div>
+                            {item.sku && (
+                              <div className="text-[9px] font-mono text-slate-500 dark:text-slate-400 font-normal">
+                                {item.sku}
+                              </div>
+                            )}
                           </TableCell>
-                          {/* 2. Category (After Code) */}
+                          {/* 2. Category & Subcategory */}
                           <TableCell className="py-2 px-3 whitespace-nowrap">
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
-                              {item.category?.name || 'Uncategorised'}
-                            </span>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700 uppercase">
+                                {item.category?.name?.toUpperCase() || 'UNCATEGORISED'}
+                              </span>
+                              {item.subcategory && (
+                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 uppercase">
+                                  ↳ {item.subcategory.name?.toUpperCase()}
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
                           {/* 3. Name (After Category) */}
                           <TableCell className="py-2 px-3">
@@ -3079,16 +3365,28 @@ export default function ProductListPage() {
                           )}
 
                           {/* Product Code Badge top-right */}
-                          <div className="absolute top-2 right-2 px-2 py-0.5 bg-slate-900/85 dark:bg-slate-950/90 backdrop-blur-xs rounded-md text-[10px] font-bold font-mono text-white tracking-wider shadow-3xs border border-white/10">
-                            {item.code}
+                          <div className="absolute top-2 right-2 flex flex-col items-end gap-1">
+                            <span className="px-2 py-0.5 bg-slate-900/85 dark:bg-slate-950/90 backdrop-blur-xs rounded-md text-[10px] font-bold font-mono text-white tracking-wider shadow-3xs border border-white/10">
+                              {item.code}
+                            </span>
+                            {item.sku && (
+                              <span className="px-1.5 py-0.5 bg-indigo-600/90 backdrop-blur-xs text-white rounded text-[8px] font-mono font-semibold shadow-3xs">
+                                {item.sku}
+                              </span>
+                            )}
                           </div>
 
                           {/* Bottom category tag overlay */}
-                          <div className="absolute bottom-2 left-2 max-w-[85%] truncate">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs rounded text-[9px] font-bold text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 shadow-3xs truncate">
+                          <div className="absolute bottom-2 left-2 max-w-[85%] truncate flex items-center gap-1">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs rounded text-[9px] font-extrabold text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60 shadow-3xs truncate uppercase">
                               <Tag className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
-                              <span className="truncate">{item.category?.name || 'Uncategorised'}</span>
+                              <span className="truncate">{item.category?.name?.toUpperCase() || 'UNCATEGORISED'}</span>
                             </span>
+                            {item.subcategory && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-indigo-500/90 backdrop-blur-xs text-white rounded text-[8px] font-extrabold shadow-3xs truncate uppercase">
+                                {item.subcategory.name?.toUpperCase()}
+                              </span>
+                            )}
                           </div>
 
                           {/* Stock status indicator bottom-right */}
@@ -3196,6 +3494,16 @@ export default function ProductListPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Material Master Bulk Import Modal */}
+      <MaterialMasterImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['products'] });
+        }}
+        subcategories={subcategories}
+      />
     </div>
   );
 }

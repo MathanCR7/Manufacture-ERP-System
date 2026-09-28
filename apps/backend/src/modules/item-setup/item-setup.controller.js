@@ -49,6 +49,36 @@ const createCrudController = (methodPrefix, pluralPrefix) => ({
   }
 });
 
+const sanitizeRawMaterialData = (raw) => {
+  const data = { ...raw };
+  if (data.ratePerUnit !== undefined) data.ratePerUnit = parseFloat(data.ratePerUnit) || 0;
+  if (data.openingStock !== undefined) data.openingStock = parseFloat(data.openingStock) || 0;
+  if (data.alertLevel !== undefined) data.alertLevel = parseFloat(data.alertLevel) || 0;
+  if (data.name && typeof data.name === 'string') data.name = data.name.trim().toUpperCase();
+  if (data.code && typeof data.code === 'string') data.code = data.code.trim().toUpperCase();
+
+  // Alternate UOM & Conversion logic
+  const hasAlt = Boolean(data.hasAlternateUom === true || data.hasAlternateUom === 'true');
+  data.hasAlternateUom = hasAlt;
+  if (hasAlt && data.alternateUom && typeof data.alternateUom === 'string' && data.alternateUom.trim()) {
+    data.alternateUom = data.alternateUom.trim().toLowerCase();
+    const baseQty = parseFloat(data.baseUomQty) > 0 ? parseFloat(data.baseUomQty) : 1;
+    const altQty = parseFloat(data.alternateUomQty) > 0 ? parseFloat(data.alternateUomQty) : 1;
+    data.baseUomQty = baseQty;
+    data.alternateUomQty = altQty;
+    data.conversionFactor = altQty / baseQty;
+    data.consumptionUnit = data.alternateUom;
+  } else {
+    data.hasAlternateUom = false;
+    data.alternateUom = null;
+    data.baseUomQty = 1;
+    data.alternateUomQty = 1;
+    data.conversionFactor = 1;
+    data.consumptionUnit = null;
+  }
+  return data;
+};
+
 class ItemSetupController {
   constructor() {
     this.RMCategory = {
@@ -105,6 +135,20 @@ class ItemSetupController {
     };
     this.RawMaterial = {
       ...createCrudController('RawMaterial', 'RawMaterials'),
+      create: async (req, res, next) => {
+        try {
+          const data = sanitizeRawMaterialData(req.body);
+          const result = await ItemSetupRepository.createRawMaterial(data);
+          res.status(201).json(result);
+        } catch (error) { next(error); }
+      },
+      update: async (req, res, next) => {
+        try {
+          const data = sanitizeRawMaterialData(req.body);
+          const result = await ItemSetupRepository.updateRawMaterial(req.params.id, data);
+          res.json(result);
+        } catch (error) { next(error); }
+      },
       delete: async (req, res, next) => {
         try {
           const id = req.params.id;
