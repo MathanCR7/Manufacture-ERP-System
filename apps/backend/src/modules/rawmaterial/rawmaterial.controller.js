@@ -1461,12 +1461,18 @@ exports.getStock = async (req, res, next) => {
 
       for (const po of pos) {
         if (Array.isArray(po.items)) {
-          const it = po.items.find(i =>
-            i.id === rm.id ||
-            i.rmId === rm.code ||
-            i.rmId === rm.id ||
-            (i.name && i.name.toLowerCase() === rm.name.toLowerCase())
-          );
+          const it = po.items.find(i => {
+            if (i.id === rm.id || i.rmId === rm.code || i.rmId === rm.id || i.id === rm.code) {
+              return true;
+            }
+            // Only legacy items without id and rmId: require both matching name AND matching category
+            if (!i.id && !i.rmId && i.name && i.name.trim().toLowerCase() === rm.name.trim().toLowerCase()) {
+              const itemCat = (i.category || i.categoryName || '').trim().toLowerCase();
+              const rmCat = (rm.category?.name || '').trim().toLowerCase();
+              return !itemCat || !rmCat || itemCat === rmCat;
+            }
+            return false;
+          });
           if (it) {
             matchedPo = po;
             matchedItem = it;
@@ -1474,8 +1480,7 @@ exports.getStock = async (req, res, next) => {
           }
         } else if (
           po.rmId === rm.code ||
-          po.rmId === rm.id ||
-          (po.name && po.name.toLowerCase() === rm.name.toLowerCase())
+          po.rmId === rm.id
         ) {
           matchedPo = po;
           break;
@@ -1593,14 +1598,13 @@ exports.getMaterialHistory = async (req, res, next) => {
       return res.status(404).json({ error: 'Raw material not found' });
     }
 
-    // 1. Fetch Purchase Orders (matching direct rmId, code, name or in items JSON)
+    // 1. Fetch Purchase Orders (matching direct rmId or code, or in items JSON)
     const directPOs = await prisma.rawMaterialPO.findMany({
       where: {
         status: { not: 'DELETED' },
         OR: [
           { rmId: rm.code },
-          { rmId: rm.id },
-          { name: { equals: rm.name, mode: 'insensitive' } }
+          { rmId: rm.id }
         ]
       },
       include: {
@@ -1661,11 +1665,17 @@ exports.getMaterialHistory = async (req, res, next) => {
 
     const matchedMultiItemPOs = multiItemPOs.filter(po => {
       if (Array.isArray(po.items)) {
-        return po.items.some(item =>
-          item.id === rm.id ||
-          item.rmId === rm.code ||
-          (item.name && item.name.toLowerCase() === rm.name.toLowerCase())
-        );
+        return po.items.some(item => {
+          if (item.id === rm.id || item.rmId === rm.code || item.id === rm.code) {
+            return true;
+          }
+          if (!item.id && !item.rmId && item.name && item.name.trim().toLowerCase() === rm.name.trim().toLowerCase()) {
+            const itemCat = (item.category || item.categoryName || '').trim().toLowerCase();
+            const rmCat = (rm.category?.name || '').trim().toLowerCase();
+            return !itemCat || !rmCat || itemCat === rmCat;
+          }
+          return false;
+        });
       }
       return false;
     });
@@ -1677,11 +1687,17 @@ exports.getMaterialHistory = async (req, res, next) => {
     const formattedPurchases = allMatchedPOs.map(po => {
       let specificItem = null;
       if (Array.isArray(po.items)) {
-        specificItem = po.items.find(item =>
-          item.id === rm.id ||
-          item.rmId === rm.code ||
-          (item.name && item.name.toLowerCase() === rm.name.toLowerCase())
-        );
+        specificItem = po.items.find(item => {
+          if (item.id === rm.id || item.rmId === rm.code || item.id === rm.code) {
+            return true;
+          }
+          if (!item.id && !item.rmId && item.name && item.name.trim().toLowerCase() === rm.name.trim().toLowerCase()) {
+            const itemCat = (item.category || item.categoryName || '').trim().toLowerCase();
+            const rmCat = (rm.category?.name || '').trim().toLowerCase();
+            return !itemCat || !rmCat || itemCat === rmCat;
+          }
+          return false;
+        });
       }
 
       const orderedQty = specificItem ? Number(specificItem.quantity || 0) : Number(po.quantity || 0);
@@ -1718,8 +1734,7 @@ exports.getMaterialHistory = async (req, res, next) => {
       where: {
         OR: [
           { rmId: rm.id },
-          { rmId: rm.code },
-          { rmName: { equals: rm.name, mode: 'insensitive' } }
+          { rmId: rm.code }
         ]
       },
       include: {
@@ -1805,7 +1820,10 @@ exports.getMaterialHistory = async (req, res, next) => {
         OR: [
           { rawMaterialId: rm.id },
           ...(rm.code ? [{ rawMaterialId: rm.code }] : []),
-          { rawMaterialName: { equals: rm.name, mode: 'insensitive' } }
+          {
+            rawMaterialName: { equals: rm.name, mode: 'insensitive' },
+            rmCategory: { equals: rm.category?.name, mode: 'insensitive' }
+          }
         ]
       },
       include: {
@@ -1841,8 +1859,7 @@ exports.getMaterialHistory = async (req, res, next) => {
       where: {
         OR: [
           { rmId: rm.id },
-          { rmId: rm.code },
-          { rmName: { equals: rm.name, mode: 'insensitive' } }
+          { rmId: rm.code }
         ]
       },
       include: {

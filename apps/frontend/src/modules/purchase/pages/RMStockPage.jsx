@@ -102,12 +102,19 @@ export default function RMStockPage() {
   useEffect(() => {
     if (shouldOpenHistory) {
       let targetId = materialIdParam || codeParam;
+      const categoryParam = searchParams.get('category') || location.state?.category || '';
       if (stock && stock.length > 0) {
-        const match = stock.find(item =>
-          (materialIdParam && item.id === materialIdParam) ||
-          (codeParam && item.code?.toLowerCase() === codeParam.toLowerCase()) ||
-          (nameParam && item.name?.toLowerCase() === nameParam.toLowerCase())
-        );
+        const match = stock.find(item => {
+          if (materialIdParam && item.id === materialIdParam) return true;
+          if (codeParam && item.code?.toLowerCase() === codeParam.toLowerCase()) return true;
+          if (nameParam && item.name?.toLowerCase() === nameParam.toLowerCase()) {
+            if (categoryParam) {
+              return item.category?.toLowerCase() === categoryParam.toLowerCase();
+            }
+            return true;
+          }
+          return false;
+        });
         if (match) {
           targetId = match.id;
         }

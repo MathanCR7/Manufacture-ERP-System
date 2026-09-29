@@ -11,20 +11,22 @@ async function getNextBatchForRM(rmId, rmName, tx = prisma) {
     .slice(0, 8);
 
   const invCount = await tx.inventoryBatch.count({
-    where: {
+    where: rmId ? {
       OR: [
         { rawMaterialId: rmId },
         { rawMaterialName: { equals: rmName, mode: 'insensitive' } }
       ]
-    }
+    } : { rawMaterialName: { equals: rmName, mode: 'insensitive' } }
   });
 
   const grnCount = await tx.gRNReceiveItem.count({
     where: {
-      OR: [
-        { rmId: rmId },
-        { rmName: { equals: rmName, mode: 'insensitive' } }
-      ],
+      ...(rmId ? {
+        OR: [
+          { rmId: rmId },
+          { rmName: { equals: rmName, mode: 'insensitive' } }
+        ]
+      } : { rmName: { equals: rmName, mode: 'insensitive' } }),
       batchNumber: { not: null }
     }
   });
@@ -143,6 +145,8 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
   for (const item of parsedItems) {
     const itemRmId = item.rmId || item.code || po.rmId;
     const itemRmName = item.name || item.materialName || po.name;
+    const itemRawMaterialId = item.id || null;
+    const itemCategory = item.category || item.categoryName || null;
     const isLabRequired = item.labTestRequired !== false;
 
     if (Array.isArray(item.batches) && item.batches.length > 0) {
@@ -150,6 +154,8 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
         const bQty = Number(b.quantity ?? b.batchQuantity ?? 0);
         if (bQty > 0 || item.batches.length === 1) {
           grnItemsData.push({
+            rawMaterialUuid: itemRawMaterialId,
+            itemCategory: itemCategory,
             rmId: itemRmId,
             rmName: itemRmName,
             expectedQty: bIdx === 0 ? Number(item.quantity || bQty) : 0,
@@ -169,6 +175,8 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
     } else {
       const qty = Number(item.quantity || po.quantity || 0);
       grnItemsData.push({
+        rawMaterialUuid: itemRawMaterialId,
+        itemCategory: itemCategory,
         rmId: itemRmId,
         rmName: itemRmName,
         expectedQty: qty,
@@ -208,7 +216,7 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
         invoiceDate: po.supplierInvoiceDate ? new Date(po.supplierInvoiceDate) : null,
         isShortDelivery: false,
         items: {
-          create: grnItemsData
+          create: grnItemsData.map(({ rawMaterialUuid, itemCategory, ...rest }) => rest)
         }
       },
       include: { items: true, po: { include: { supplier: true, uom: true } } }
@@ -227,7 +235,20 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
       const acceptedQty = item.actualReceivedQty;
       if (acceptedQty <= 0) continue;
 
-      let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+      let rm = item.rawMaterialUuid ? await tx.rawMaterial.findUnique({ where: { id: item.rawMaterialUuid } }) : null;
+      if (!rm && item.rmId) {
+        rm = await tx.rawMaterial.findFirst({
+          where: { OR: [{ code: item.rmId }, { id: item.rmId }] }
+        });
+      }
+      if (!rm && item.itemCategory) {
+        rm = await tx.rawMaterial.findFirst({
+          where: {
+            name: { equals: item.rmName, mode: 'insensitive' },
+            category: { name: { equals: item.itemCategory, mode: 'insensitive' } }
+          }
+        });
+      }
       if (!rm && item.rmName) {
         rm = await tx.rawMaterial.findFirst({ where: { name: { equals: item.rmName, mode: 'insensitive' } } });
       }

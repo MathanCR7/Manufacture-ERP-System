@@ -421,8 +421,20 @@ router.post('/receive',
             const acceptedQty = Math.max(0, Number(item.actualReceivedQty) - Number(item.rejectedQty || item.returnQty || 0));
             if (acceptedQty <= 0) continue;
 
-            // Strategy 1: Match RawMaterial
-            let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+            // Strategy 1: Match RawMaterial by code or id
+            let rm = await tx.rawMaterial.findFirst({
+              where: { OR: [{ code: item.rmId }, { id: item.rmId }] }
+            });
+            const poItem = Array.isArray(po.items) ? po.items.find(pi => pi.id === item.rmId || pi.rmId === item.rmId) : null;
+            if (!rm && (poItem?.category || item.category)) {
+              const cat = poItem?.category || item.category;
+              rm = await tx.rawMaterial.findFirst({
+                where: {
+                  name: { equals: item.rmName || po.name, mode: 'insensitive' },
+                  category: { name: { equals: cat, mode: 'insensitive' } }
+                }
+              });
+            }
             if (!rm && item.rmName) {
               rm = await tx.rawMaterial.findFirst({ where: { name: { equals: item.rmName, mode: 'insensitive' } } });
             }
@@ -890,18 +902,30 @@ router.post('/lab-test',
                 continue;
               }
 
-              // --- Robust lookup: try 3 strategies so stock update never silently fails ---
-              // Strategy 1: RawMaterial.code exactly matches PO registry rmId (e.g. "RM-00001")
-              let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+              // Strategy 1: Match by code or id
+              let rm = await tx.rawMaterial.findFirst({
+                where: { OR: [{ code: item.rmId }, { id: item.rmId }] }
+              });
 
-              // Strategy 2: Match by PO material name (most reliable — name entered at PO creation)
+              // Strategy 2: Match by PO item category & name
+              const poItem = Array.isArray(grn.po?.items) ? grn.po.items.find(pi => pi.id === item.rmId || pi.rmId === item.rmId) : null;
+              if (!rm && (poItem?.category || item.category)) {
+                const cat = poItem?.category || item.category;
+                rm = await tx.rawMaterial.findFirst({
+                  where: {
+                    name: { equals: item.rmName || grn.po?.name, mode: 'insensitive' },
+                    category: { name: { equals: cat, mode: 'insensitive' } }
+                  }
+                });
+              }
+
+              // Strategy 3: Match by PO material name or GRN item rmName as a fallback
               if (!rm && grn.po?.name) {
                 rm = await tx.rawMaterial.findFirst({
                   where: { name: { equals: grn.po.name, mode: 'insensitive' } }
                 });
               }
 
-              // Strategy 3: Match by GRN item rmName as a last resort
               if (!rm && item.rmName) {
                 rm = await tx.rawMaterial.findFirst({
                   where: { name: { equals: item.rmName, mode: 'insensitive' } }
@@ -947,7 +971,19 @@ router.post('/lab-test',
               const isPassed = trResult ? (trResult.needTesting === false || trResult.passed === true) : true;
               if (!isPassed) continue;
 
-              let rm = await tx.rawMaterial.findFirst({ where: { code: item.rmId } });
+              let rm = await tx.rawMaterial.findFirst({
+                where: { OR: [{ code: item.rmId }, { id: item.rmId }] }
+              });
+              const poItem = Array.isArray(grn.po?.items) ? grn.po.items.find(pi => pi.id === item.rmId || pi.rmId === item.rmId) : null;
+              if (!rm && (poItem?.category || item.category)) {
+                const cat = poItem?.category || item.category;
+                rm = await tx.rawMaterial.findFirst({
+                  where: {
+                    name: { equals: item.rmName || grn.po?.name, mode: 'insensitive' },
+                    category: { name: { equals: cat, mode: 'insensitive' } }
+                  }
+                });
+              }
               if (!rm && item.rmName) {
                 rm = await tx.rawMaterial.findFirst({ where: { name: { equals: item.rmName, mode: 'insensitive' } } });
               }
