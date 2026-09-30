@@ -271,7 +271,12 @@ router.get('/lab-tests/summary', async (req, res, next) => {
 
     const grnPending = await prisma.gRNReceive.count({
       where: {
-        status: 'PENDING_LAB'
+        status: 'PENDING_LAB',
+        po: {
+          status: {
+            notIn: ['PENDING', 'DELETED']
+          }
+        }
       }
     });
 
@@ -384,6 +389,13 @@ router.get('/grn', async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 8;
 
     const grns = await prisma.gRNReceive.findMany({
+      where: {
+        po: {
+          status: {
+            notIn: ['PENDING', 'DELETED']
+          }
+        }
+      },
       include: {
         po: {
           include: {

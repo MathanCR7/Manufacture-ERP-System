@@ -3,7 +3,7 @@ const prisma = require('../../database/prisma');
 const { generateRmId } = require('../../utils/rmIdGenerator');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 const workflowNotifications = require('../notifications/workflow.notifications');
-const { receivePOAndProcess } = require('../grn/grn.helper');
+const { receivePOAndProcess, cleanupPOReceiptsAndBatches } = require('../grn/grn.helper');
 const { savePaymentImageToDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
 
 const isUuid = (value) => {
@@ -396,6 +396,20 @@ exports.getPOById = async (req, res, next) => {
       return res.status(404).json({ error: 'Purchase Order not found' });
     }
 
+    // Auto-heal if PO is in ORDERED or PENDING status but still has residual GRNs or Batches
+    if ((po.status === 'ORDERED' || po.status === 'PENDING' || po.status === 'DRAFT') && 
+        (po.grnReceives?.length > 0 || po.inventoryBatches?.length > 0 || po.deliveredStatus === 'FULLY_DELIVERED' || Number(po.totalReceivedQty || 0) > 0)) {
+      try {
+        await cleanupPOReceiptsAndBatches({ poId: po.id, tx: prisma });
+        po.grnReceives = [];
+        po.inventoryBatches = [];
+        po.deliveredStatus = 'PENDING';
+        po.totalReceivedQty = 0;
+      } catch (err) {
+        console.error(`[GET PO BY ID] Cleanup error for ${po.referenceNo}:`, err);
+      }
+    }
+
     const formattedPo = {
       ...po,
       paymentHistory: (Array.isArray(po.paymentHistory) && po.paymentHistory.length > 0)
@@ -558,6 +572,8 @@ exports.createPO = async (req, res, next) => {
           expDate: parseDateSafe(parsedData.expDate) || (resolvedExpiryDate || null),
           supplierId: parsedData.supplierId,
           status: initialPoStatus,
+          deliveredStatus: initialPoStatus === 'RECEIVED' ? 'FULLY_DELIVERED' : 'PENDING',
+          totalReceivedQty: initialPoStatus === 'RECEIVED' ? parsedData.quantity : 0,
           createdBy: req.user.id,
           subtotal: parsedData.subtotal || 0,
           orderTax: parsedData.orderTax || 0,
@@ -660,9 +676,17 @@ exports.createPO = async (req, res, next) => {
         });
       }
 
-      // If status is RECEIVED, execute direct receipt, batch creation, and lab/inventory routing
+      // If status is RECEIVED, execute direct receipt, batch creation, and inventory update
       if (targetStatus === 'RECEIVED') {
-        await receivePOAndProcess({ po, reqUserId: req.user.id, tx });
+        const fullPo = await tx.rawMaterialPO.findUnique({
+          where: { id: po.id },
+          include: { supplier: true, uom: true }
+        });
+        await receivePOAndProcess({ po: fullPo, reqUserId: req.user.id, tx });
+        return await tx.rawMaterialPO.findUnique({
+          where: { id: po.id },
+          include: { supplier: true, uom: true }
+        });
       }
 
       return po;
@@ -688,7 +712,7 @@ exports.createPO = async (req, res, next) => {
       console.error('Failed to trigger PO_CREATED notification:', notifErr);
     }
 
-    res.locals.recordId = createdPO.id;
+    if (res.locals) res.locals.recordId = createdPO.id;
     res.status(201).json(createdPO);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -705,6 +729,7 @@ exports.createPO = async (req, res, next) => {
 };
 
 const updatePOSchema = z.object({
+  status: z.enum(['PENDING', 'ORDERED', 'RECEIVED', 'DRAFT']).optional(),
   rmId: z.string().trim().optional(),
   name: z.string().min(2).optional(),
   quantity: z.coerce.number().positive().optional(),
@@ -770,13 +795,12 @@ exports.updatePO = async (req, res, next) => {
       return res.status(404).json({ error: 'Purchase Order not found' });
     }
 
-    if (existing.status !== 'PENDING' && existing.status !== 'DRAFT') {
-      return res.status(409).json({ error: 'Only PENDING purchase orders can be edited.' });
-    }
-
     if (req.user.role === 'PURCHASE_ACCOUNTANT' && existing.createdBy !== req.user.id) {
       return res.status(403).json({ error: 'You can only edit your own purchase orders.' });
     }
+
+    // Clean up any residual GRNs, batches, or lab tests if PO was previously received or has ghost records
+    await cleanupPOReceiptsAndBatches({ poId: id, tx: prisma });
 
     const parsedData = updatePOSchema.parse(req.body);
 
@@ -789,6 +813,24 @@ exports.updatePO = async (req, res, next) => {
     }
 
     const updateData = {};
+
+    if (parsedData.status !== undefined) {
+      let resolvedStatus = parsedData.status;
+      if (resolvedStatus === 'DRAFT') resolvedStatus = 'PENDING';
+      updateData.status = resolvedStatus;
+      if (resolvedStatus === 'ORDERED' || resolvedStatus === 'PENDING') {
+        updateData.deliveredStatus = 'PENDING';
+        updateData.totalReceivedQty = 0;
+      } else if (resolvedStatus === 'RECEIVED') {
+        updateData.deliveredStatus = 'FULLY_DELIVERED';
+        updateData.totalReceivedQty = parsedData.quantity !== undefined ? parsedData.quantity : existing.quantity;
+      }
+    } else if (existing.status === 'RECEIVED') {
+      // Revert into ORDERED when updated from a received state
+      updateData.status = 'ORDERED';
+      updateData.deliveredStatus = 'PENDING';
+      updateData.totalReceivedQty = 0;
+    }
     if (parsedData.rmId !== undefined) {
       updateData.rmId = parsedData.rmId;
       await prisma.idRegistry.upsert({
@@ -1048,7 +1090,26 @@ exports.updatePO = async (req, res, next) => {
       console.error('Failed to trigger PO_UPDATED notification:', notifErr.message);
     }
 
-    res.json(updatedPO);
+    if (updatedPO.status === 'RECEIVED') {
+      const fullPo = await prisma.rawMaterialPO.findUnique({
+        where: { id },
+        include: { supplier: true, uom: true }
+      });
+      await receivePOAndProcess({ po: fullPo, reqUserId: req.user.id });
+    }
+
+    const finalPO = await prisma.rawMaterialPO.findUnique({
+      where: { id },
+      include: {
+        uom: true,
+        supplier: true,
+        user: { select: { name: true, email: true, role: true } },
+        inventoryBatches: { include: { uom: true } },
+        grnReceives: { include: { items: true, inventoryBatches: true } }
+      }
+    });
+
+    res.json(finalPO || updatedPO);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });
@@ -1080,6 +1141,8 @@ exports.deletePO = async (req, res, next) => {
     }
 
     await prisma.$transaction(async (tx) => {
+      await cleanupPOReceiptsAndBatches({ poId: req.params.id, tx });
+
       await tx.rawMaterialPO.update({
         where: { id: req.params.id },
         data: {

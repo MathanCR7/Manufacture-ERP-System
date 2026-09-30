@@ -8,7 +8,8 @@ import {
   QrCode, Package, FlaskConical, CheckCircle2, XCircle, AlertTriangle,
   Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck, PackageCheck,
   Copy, Check, ExternalLink, Boxes, RefreshCw, Scale,
-  CreditCard, Wallet, Image as ImageIcon, ZoomIn, UploadCloud, Eye, X, Loader2, AlertCircle
+  CreditCard, Wallet, Image as ImageIcon, ZoomIn, UploadCloud, Eye, X, Loader2, AlertCircle,
+  RotateCcw, Undo2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { 
@@ -320,6 +321,10 @@ export default function PODetailPage() {
       queryClient.invalidateQueries({ queryKey: ['grn-for-po-detail', id] });
       queryClient.invalidateQueries({ queryKey: ['inventory-batches-po', id] });
       queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+      queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+      queryClient.invalidateQueries({ queryKey: ['po-detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['po-edit', id] });
     }
   });
 
@@ -614,29 +619,122 @@ export default function PODetailPage() {
           )}
 
           {isOrdered && (
-            <AlertDialog>
-              <AlertDialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium h-10 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors">
-                <PackageCheck className="w-4 h-4 mr-1.5" /> Receive & Update Inventory
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Receive Goods & Update Inventory?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will mark the purchase order as received.
-                    {isLabExempt ? ' Because this material is lab exempt, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed to the lab quality inspection queue.'}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => statusMutation.mutate('RECEIVED')}
-                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            <>
+              <AlertDialog>
+                <AlertDialogTrigger className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium h-10 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors">
+                  <PackageCheck className="w-4 h-4 mr-1.5" /> Receive & Update Inventory
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Receive Goods & Update Inventory?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will mark the purchase order as received.
+                      {isLabExempt ? ' Because this material is lab exempt, inventory stock will be immediately updated with an assigned batch number.' : ' It will be routed to the lab quality inspection queue.'}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => statusMutation.mutate('RECEIVED')}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                      {statusMutation.isPending ? 'Processing...' : 'Confirm Receipt'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="text-amber-600 border-amber-200 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 gap-1.5"
+                    disabled={statusMutation.isPending}
                   >
-                    {statusMutation.isPending ? 'Processing...' : 'Confirm Receipt'}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                    <RotateCcw className="w-4 h-4" /> Revert to Draft
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Revert Order to Draft?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will move the purchase order back to Draft (Pending) status so you can edit order details, items, or quantities.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => statusMutation.mutate('PENDING')}
+                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {statusMutation.isPending ? 'Reverting...' : 'Confirm Revert to Draft'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
+
+          {(po.status === 'RECEIVED' || po.status === 'APPROVED') && (
+            <>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="text-amber-600 border-amber-200 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 gap-1.5 font-medium"
+                    disabled={statusMutation.isPending}
+                  >
+                    <Undo2 className="w-4 h-4" /> Undo Receive
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Undo Receipt & Revert to Ordered?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will remove all GRNs and generated batches for this PO, reverse any stock added to inventory, and reset the PO status to <strong>ORDERED</strong> so it can be received again.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => statusMutation.mutate('ORDERED')}
+                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {statusMutation.isPending ? 'Reverting...' : 'Confirm Undo Receive'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 gap-1.5 font-medium"
+                    disabled={statusMutation.isPending}
+                  >
+                    <RotateCcw className="w-4 h-4" /> Revert to Draft
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Revert Purchase Order to Draft?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete all GRNs, revert any stock added to inventory, remove all batches, and place the PO back in <strong>DRAFT (PENDING)</strong> status so you can freely edit it.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => statusMutation.mutate('PENDING')}
+                      className="bg-rose-600 hover:bg-rose-700 text-white"
+                    >
+                      {statusMutation.isPending ? 'Reverting...' : 'Confirm Revert to Draft'}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
           )}
 
           {isPending && (

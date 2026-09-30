@@ -6,7 +6,7 @@ const roleMiddleware = require('../../middlewares/role.middleware');
 const workflowNotifications = require('../notifications/workflow.notifications');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 
-const { getNextBatchForRM, receivePOAndProcess, resolveBatchUomId } = require('./grn.helper');
+const { getNextBatchForRM, receivePOAndProcess, resolveBatchUomId, cleanupPOReceiptsAndBatches } = require('./grn.helper');
 
 const router = express.Router();
 
@@ -31,12 +31,32 @@ router.patch('/po/:id/status',
 
       let finalStatus = status;
 
-      // If status is transitioning to RECEIVED, run the receipt & lab/inventory process
+      // 1. If transitioning to RECEIVED, run the receipt & lab/inventory process
       if (status === 'RECEIVED') {
         const procResult = await prisma.$transaction(async (tx) => {
           return await receivePOAndProcess({ po: existing, reqUserId: req.user.id, tx });
         }, { maxWait: 15000, timeout: 30000 });
         finalStatus = procResult.finalPoStatus || 'RECEIVED';
+      } else if (status === 'PENDING') {
+        // 2. Reverting to DRAFT (PENDING): completely clean up all receipts, batches, lab tests, and revert RM inventory stock
+        await prisma.$transaction(async (tx) => {
+          await cleanupPOReceiptsAndBatches({ poId: id, tx });
+          await tx.rawMaterialPO.update({
+            where: { id },
+            data: { status: 'PENDING', deliveredStatus: 'PENDING', totalReceivedQty: 0 }
+          });
+        }, { maxWait: 15000, timeout: 30000 });
+        finalStatus = 'PENDING';
+      } else if (status === 'ORDERED') {
+        // 3. Reverting to ORDERED (e.g. Undo Receive): clean up any receipts/batches/lab tests and revert stock, then set status to ORDERED
+        await prisma.$transaction(async (tx) => {
+          await cleanupPOReceiptsAndBatches({ poId: id, tx });
+          await tx.rawMaterialPO.update({
+            where: { id },
+            data: { status: 'ORDERED', deliveredStatus: 'PENDING', totalReceivedQty: 0 }
+          });
+        }, { maxWait: 15000, timeout: 30000 });
+        finalStatus = 'ORDERED';
       } else {
         await prisma.rawMaterialPO.update({
           where: { id },
@@ -127,20 +147,38 @@ router.get('/upcoming',
 
       const result = pos
         .map(po => {
-          const grns = grnMap[po.id] || [];
+          let grns = grnMap[po.id] || [];
+
+          // CRITICAL CONSISTENCY FOR ORDERED POs:
+          // A PO in ORDERED status is awaiting delivery from scratch.
+          // It cannot have residual GRNs, batches, or deliveredStatus === 'FULLY_DELIVERED' from a prior received state.
+          if (po.status === 'ORDERED') {
+            if (grns.length > 0 || po.deliveredStatus === 'FULLY_DELIVERED' || Number(po.totalReceivedQty || 0) > 0) {
+              cleanupPOReceiptsAndBatches({ poId: po.id, tx: prisma }).catch(err => {
+                console.error(`[UPCOMING DELIVERIES] Cleanup error for ORDERED PO ${po.referenceNo}:`, err);
+              });
+              grns = [];
+            }
+          }
+
           const latestGrn = grns[0] || null;
 
           const totalOrderedQty = po.items && Array.isArray(po.items) && po.items.length > 0
             ? po.items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0)
             : (Number(po.quantity) || 0);
 
-          const totalReceivedQty = grns.reduce((sum, g) => sum + g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0), 0);
+          const totalReceivedQty = po.status === 'ORDERED'
+            ? 0
+            : grns.reduce((sum, g) => sum + g.items.reduce((s, it) => s + (Number(it.actualReceivedQty) || 0), 0), 0);
           const pendingQty = Math.max(0, totalOrderedQty - totalReceivedQty);
           
           // Strict user-controlled fulfillment:
-          // A PO is ONLY fully delivered if explicitly marked via deliveredStatus === 'FULLY_DELIVERED'
-          const isFullyDelivered = po.deliveredStatus === 'FULLY_DELIVERED';
-          const isPartiallyReceived = !isFullyDelivered && (po.status === 'PARTIALLY_RECEIVED' || totalReceivedQty > 0);
+          // A PO is ONLY fully delivered if it is NOT in ORDERED status and marked via deliveredStatus === 'FULLY_DELIVERED' or status === 'RECEIVED' / 'APPROVED'
+          const isFullyDelivered = po.status !== 'ORDERED' && (po.deliveredStatus === 'FULLY_DELIVERED' || po.status === 'RECEIVED' || po.status === 'APPROVED');
+          const isPartiallyReceived = !isFullyDelivered && (po.status === 'PARTIALLY_RECEIVED' || (totalReceivedQty > 0 && totalReceivedQty < totalOrderedQty));
+          const effectiveDeliveredStatus = po.status === 'ORDERED'
+            ? (totalReceivedQty > 0 ? 'PARTIALLY_DELIVERED' : 'PENDING')
+            : (po.deliveredStatus || (isFullyDelivered ? 'FULLY_DELIVERED' : (isPartiallyReceived ? 'PARTIALLY_DELIVERED' : 'PENDING')));
 
           // Enrich item list with per-item received and pending quantities across prior shipments
           const enrichedItems = Array.isArray(po.items) && po.items.length > 0
@@ -182,7 +220,7 @@ router.get('/upcoming',
             totalOrderedQty,
             totalReceivedQty,
             pendingQty,
-            deliveredStatus: po.deliveredStatus || (isPartiallyReceived ? 'PARTIALLY_DELIVERED' : (isFullyDelivered ? 'FULLY_DELIVERED' : 'PENDING')),
+            deliveredStatus: effectiveDeliveredStatus,
             isPartiallyReceived,
             isFullyDelivered,
             amount: po.amount,
@@ -726,6 +764,13 @@ router.get('/receive',
   async (req, res, next) => {
     try {
       const grns = await prisma.gRNReceive.findMany({
+        where: {
+          po: {
+            status: {
+              notIn: ['PENDING', 'DELETED']
+            }
+          }
+        },
         orderBy: { createdAt: 'desc' },
         include: {
           items: true,
@@ -1106,8 +1151,33 @@ router.get('/lab-tests',
   roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER']),
   async (req, res, next) => {
     try {
+      // 1. Self-healing cleanup: if any GRN exists whose PO is currently PENDING (e.g. from manual DB query or draft revert), clean it up immediately
+      const draftPosWithGrns = await prisma.rawMaterialPO.findMany({
+        where: { status: 'PENDING' },
+        select: { id: true, grnReceives: { select: { id: true } } }
+      });
+      for (const p of draftPosWithGrns) {
+        if (p.grnReceives && p.grnReceives.length > 0) {
+          try {
+            await prisma.$transaction(async (tx) => {
+              await cleanupPOReceiptsAndBatches({ poId: p.id, tx });
+            });
+          } catch (err) {
+            console.error(`[GRN AUTO-CLEANUP] Failed to cleanup ghost GRNs for PO ${p.id}:`, err);
+          }
+        }
+      }
+
+      // 2. Query pending lab tests strictly excluding PENDING and DELETED POs
       const grns = await prisma.gRNReceive.findMany({
-        where: { status: 'PENDING_LAB' },
+        where: {
+          status: 'PENDING_LAB',
+          po: {
+            status: {
+              notIn: ['PENDING', 'DELETED']
+            }
+          }
+        },
         orderBy: { createdAt: 'desc' },
         include: {
           items: true,
@@ -1130,6 +1200,15 @@ router.get('/lab-results',
     try {
       const { testingRequiredOnly } = req.query;
       const labTests = await prisma.gRNLabTest.findMany({
+        where: {
+          grn: {
+            po: {
+              status: {
+                notIn: ['PENDING', 'DELETED']
+              }
+            }
+          }
+        },
         orderBy: { createdAt: 'desc' },
         include: {
           testResults: true,

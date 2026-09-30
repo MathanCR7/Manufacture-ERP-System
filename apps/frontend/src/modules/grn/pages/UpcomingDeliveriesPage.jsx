@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
 import { useNavigate } from 'react-router-dom';
@@ -8,7 +8,7 @@ import {
   Truck, Package, Search, Eye, ClipboardCheck, AlertCircle, Clock,
   CheckCircle2, RefreshCw, QrCode, FlaskConical, XCircle, Printer,
   ChevronRight, Calendar, X, Loader2, PackageCheck,
-  Layers, ArrowRight, FileText
+  Layers, ArrowRight, FileText, RotateCcw
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { Button } from '@/components/ui/button';
@@ -530,7 +530,7 @@ function POGRNsListModal({ delivery, onClose, onQRView }) {
   );
 }
 
-function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered, onOpenGRNModal }) {
+function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered, onOpenGRNModal, onUndoReceive }) {
   const isPartiallyReceived = d.isPartiallyReceived || d.status === 'PARTIALLY_RECEIVED' || (d.totalReceivedQty > 0 && d.pendingQty > 0);
   const isFullyDelivered = d.isFullyDelivered || d.deliveredStatus === 'FULLY_DELIVERED';
 
@@ -705,7 +705,7 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered,
 
           {/* If PO can receive deliveries */}
           {canReceive && !isFullyDelivered && (
-            <div className="flex items-center gap-1.5 ml-auto">
+            <div className="flex items-center gap-1.5 ml-auto flex-wrap">
               {d.totalReceivedQty > 0 && (
                 <Button
                   size="sm"
@@ -719,10 +719,11 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered,
                 </Button>
               )}
 
+              {/* Receive delivery button */}
               <Button
                 size="sm"
                 onClick={() => navigate(`/grn/receive/${d.id}`)}
-                className="h-8 px-3 text-[11px] font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg active:scale-95 shadow-sm shadow-indigo-500/10 transition-all"
+                className="h-8 px-3 text-[11px] font-bold gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg active:scale-95 shadow-sm shadow-indigo-500/10 transition-all cursor-pointer"
               >
                 <ClipboardCheck className="w-3.5 h-3.5" /> 
                 <span>{d.totalReceivedQty > 0 ? "Receive Next" : "Receive"}</span>
@@ -730,11 +731,26 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered,
             </div>
           )}
 
-          {/* Completed badge if fully delivered */}
+          {/* Completed badge and Undo action if fully delivered */}
           {isFullyDelivered && (
-            <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Fulfilled
-            </span>
+            <div className="flex items-center gap-1.5 ml-auto flex-wrap">
+              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Fulfilled
+              </span>
+
+              {canReceive && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onUndoReceive?.(d, 'ORDERED')}
+                  title="Undo Receipt: removes GRNs and batches, reverses inventory stock, and moves PO back to Upcoming Deliveries starting from 0 received stock"
+                  className="h-8 px-2 text-[11px] font-semibold text-amber-600 hover:text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40 rounded-lg cursor-pointer flex items-center gap-1"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Undo Receive</span>
+                </Button>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -762,6 +778,7 @@ const STATS_COLORS = {
 
 export default function UpcomingDeliveriesPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const user = useAuthStore(s => s.user);
   const canReceive = ['MAIN_MASTER', 'MATERIALS_RECEIVER'].includes(user?.role);
   const [search, setSearch] = useState('');
@@ -793,6 +810,10 @@ export default function UpcomingDeliveriesPage() {
       const refNo = markingDelivery?.referenceNo;
       setMarkingDelivery(null);
       await refetch();
+      queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
+      queryClient.invalidateQueries({ queryKey: ['po-detail', poId] });
       Swal.fire({
         icon: 'success',
         title: 'Delivery Completed!',
@@ -821,6 +842,75 @@ export default function UpcomingDeliveriesPage() {
     }
   };
 
+
+  const handleUndoReceive = async (delivery, targetStatus = 'ORDERED') => {
+    const isToDraft = targetStatus === 'PENDING';
+    const result = await Swal.fire({
+      title: isToDraft ? 'Revert PO to Draft?' : 'Undo Receive & Revert to Ordered?',
+      html: `
+        <div class="text-left text-xs space-y-2">
+          <p>${isToDraft 
+            ? `Revert <strong>${delivery.referenceNo}</strong> back to Draft (Pending)?`
+            : `Undo receipt for <strong>${delivery.referenceNo}</strong> and restart delivery from 0 stock?`}</p>
+          <div class="p-2.5 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 rounded-xl border border-amber-200 dark:border-amber-800">
+            ⚠ All generated GRNs and batches for this PO will be <strong>removed</strong>, and any stock added to Raw Material inventory will be <strong>reversed</strong>.
+          </div>
+          <p class="text-slate-500">${isToDraft 
+            ? 'The PO will be removed from Upcoming Deliveries and can be edited as draft.' 
+            : 'The PO will move back to Upcoming Deliveries with 0 stock received so you can receive again.'}</p>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: isToDraft ? 'Yes, Revert to Draft' : 'Yes, Undo Receive',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#d97706',
+      cancelButtonColor: '#64748b',
+      customClass: {
+        popup: 'rounded-2xl shadow-xl',
+        confirmButton: 'rounded-xl text-xs font-bold px-4 py-2',
+        cancelButton: 'rounded-xl text-xs font-medium px-4 py-2'
+      }
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      await api.patch(`/grn/po/${delivery.id}/status`, { status: targetStatus });
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+      queryClient.invalidateQueries({ queryKey: ['pos'] });
+      queryClient.invalidateQueries({ queryKey: ['po-detail', delivery.id] });
+      queryClient.invalidateQueries({ queryKey: ['po-edit', delivery.id] });
+      Swal.fire({
+        icon: 'success',
+        title: isToDraft ? 'Reverted to Draft' : 'Receipt Undone!',
+        text: isToDraft 
+          ? `PO ${delivery.referenceNo} reverted to Draft and removed from deliveries.`
+          : `PO ${delivery.referenceNo} returned to Upcoming Deliveries with 0 stock received.`,
+        confirmButtonColor: '#059669',
+        timer: 2500,
+        timerProgressBar: true,
+        customClass: {
+          popup: 'rounded-2xl shadow-xl',
+          confirmButton: 'rounded-xl text-xs font-bold px-4 py-2'
+        }
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Action Failed',
+        text: err.response?.data?.error || 'Failed to revert purchase order',
+        confirmButtonColor: '#4f46e5',
+        customClass: {
+          popup: 'rounded-2xl shadow-xl',
+          confirmButton: 'rounded-xl text-xs font-bold px-4 py-2'
+        }
+      });
+    }
+  };
+
   const handleSearchChange = (val) => {
     setSearch(val);
     setCurrentPage(1);
@@ -846,14 +936,18 @@ export default function UpcomingDeliveriesPage() {
   ];
 
   // Split into upcoming (pending delivery) and delivered (fully fulfilled)
-  // A PO strictly stays in upcoming until the user explicitly checks final delivery or marks it fully delivered
+  // Any PO with status 'ORDERED' strictly stays in upcoming until received
   const upcoming = deliveries.filter(d => 
-    d.deliveredStatus !== 'FULLY_DELIVERED' && 
-    !d.isFullyDelivered
+    d.status === 'ORDERED' || (
+      d.deliveredStatus !== 'FULLY_DELIVERED' && 
+      !d.isFullyDelivered
+    )
   );
   const delivered = deliveries.filter(d => 
-    d.deliveredStatus === 'FULLY_DELIVERED' || 
-    d.isFullyDelivered
+    d.status !== 'ORDERED' && (
+      d.deliveredStatus === 'FULLY_DELIVERED' || 
+      d.isFullyDelivered
+    )
   );
 
   const activeList = activeTab === 'upcoming' ? upcoming : delivered;
@@ -1021,6 +1115,7 @@ export default function UpcomingDeliveriesPage() {
                 canReceive={canReceive} 
                 onMarkFullyDelivered={(item) => setMarkingDelivery(item)}
                 onOpenGRNModal={(item) => setSelectedPOGRNs(item)}
+                onUndoReceive={handleUndoReceive}
               />
             ))}
           </div>

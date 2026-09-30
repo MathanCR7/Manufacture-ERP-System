@@ -791,6 +791,8 @@ export default function CreatePOPage({ onBack }) {
       queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
       queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
       queryClient.invalidateQueries({ queryKey: ['rm-stock'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+      queryClient.invalidateQueries({ queryKey: ['grn-list'] });
 
       let successMsg = `Order Reference: ${data.referenceNo || data.id}`;
       if (formData.purchaseStatus === 'Draft') {
@@ -798,12 +800,7 @@ export default function CreatePOPage({ onBack }) {
       } else if (formData.purchaseStatus === 'Ordered') {
         successMsg += ' has been placed as Ordered and is now visible in Upcoming Deliveries.';
       } else if (formData.purchaseStatus === 'Received') {
-        const hasLabItem = items.some(i => Boolean(i.labTestRequired));
-        if (hasLabItem) {
-          successMsg += ' has been marked as Received and routed directly to the Lab Testing queue without going to upcoming deliveries.';
-        } else {
-          successMsg += ' has been marked as Received and stock with batch numbers has been directly updated in inventory.';
-        }
+        successMsg += ' has been marked as Received: GRN and batches generated, stock updated directly in inventory, and order placed in Delivered tab.';
       }
 
       Swal.fire({

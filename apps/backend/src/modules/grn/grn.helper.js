@@ -114,14 +114,13 @@ async function resolveBatchUomId(item, rm, po, tx = prisma, cachedUoms = null) {
  * - If all items are lab-exempt, marks GRN as LAB_APPROVED, inventoryStatus UPLOADED, and PO as APPROVED.
  */
 async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
-  // Check if GRN already exists for this PO
+  // If an existing GRN or batches exist, clean them up first so direct receive executes fresh and cleanly
   const existingGrn = await tx.gRNReceive.findFirst({
     where: { poId: po.id },
     include: { items: true, inventoryBatches: true }
   });
-  
-  if (existingGrn && existingGrn.inventoryBatches && existingGrn.inventoryBatches.length > 0) {
-    return { grn: existingGrn, alreadyExists: true };
+  if (existingGrn) {
+    await cleanupPOReceiptsAndBatches({ poId: po.id, tx });
   }
 
   // Parse items from PO
@@ -133,13 +132,9 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
       rmId: po.rmId,
       name: po.name,
       quantity: Number(po.quantity),
-      labTestRequired: true
+      labTestRequired: false
     }];
   }
-
-  const isAllExempt = parsedItems.length > 0 && parsedItems.every(i => i.labTestRequired === false);
-  const grnStatus = isAllExempt ? 'LAB_APPROVED' : 'PENDING_LAB';
-  const inventoryStatus = isAllExempt ? 'UPLOADED' : 'NOT_UPLOADED';
 
   const grnItemsData = [];
   for (const item of parsedItems) {
@@ -147,7 +142,6 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
     const itemRmName = item.name || item.materialName || po.name;
     const itemRawMaterialId = item.id || null;
     const itemCategory = item.category || item.categoryName || null;
-    const isLabRequired = item.labTestRequired !== false;
 
     if (Array.isArray(item.batches) && item.batches.length > 0) {
       item.batches.forEach((b, bIdx) => {
@@ -168,7 +162,7 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
             inspectionStatus: 'ACCEPTED',
             coaRequired: false,
             rejectedQty: 0,
-            labTestRequired: isLabRequired,
+            labTestRequired: false,
           });
         }
       });
@@ -189,131 +183,363 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
         inspectionStatus: 'ACCEPTED',
         coaRequired: false,
         rejectedQty: 0,
-        labTestRequired: isLabRequired,
+        labTestRequired: false,
       });
     }
   }
 
-  let grn = existingGrn;
-  if (!grn) {
-    const referenceNo = await generateReferenceNo(tx, 'GRNReceive', 'GRN');
-    grn = await tx.gRNReceive.create({
-      data: {
-        referenceNo,
-        poId: po.id,
-        receivedDate: new Date(),
-        amountPaid: po.grandTotal ? Number(po.grandTotal) : Number(po.amount || 0),
-        refundAmount: 0,
-        discrepancyNotes: null,
-        receivedBy: reqUserId,
-        status: grnStatus,
-        inventoryStatus: inventoryStatus,
-        isExempt: isAllExempt,
-        vehicleNumber: po.vehicleNumber || null,
-        transporterName: po.transporterName || null,
-        transportMode: po.transportMode || 'ROAD',
-        invoiceNumber: po.supplierInvoiceNo || null,
-        invoiceDate: po.supplierInvoiceDate ? new Date(po.supplierInvoiceDate) : null,
-        isShortDelivery: false,
-        items: {
-          create: grnItemsData.map(({ rawMaterialUuid, itemCategory, ...rest }) => rest)
-        }
-      },
-      include: { items: true, po: { include: { supplier: true, uom: true } } }
-    });
-  } else if (isAllExempt) {
-    grn = await tx.gRNReceive.update({
-      where: { id: grn.id },
-      data: { status: 'LAB_APPROVED', inventoryStatus: 'UPLOADED', isExempt: true },
-      include: { items: true, po: { include: { supplier: true, uom: true } } }
-    });
-  }
+  const referenceNo = await generateReferenceNo(tx, 'GRNReceive', 'GRN');
+  const grn = await tx.gRNReceive.create({
+    data: {
+      referenceNo,
+      poId: po.id,
+      receivedDate: new Date(),
+      amountPaid: po.grandTotal ? Number(po.grandTotal) : Number(po.amount || 0),
+      refundAmount: 0,
+      discrepancyNotes: null,
+      receivedBy: reqUserId,
+      status: 'LAB_APPROVED',
+      inventoryStatus: 'UPLOADED',
+      isExempt: true,
+      vehicleNumber: po.vehicleNumber || null,
+      transporterName: po.transporterName || null,
+      transportMode: po.transportMode || 'ROAD',
+      invoiceNumber: po.supplierInvoiceNo || null,
+      invoiceDate: po.supplierInvoiceDate ? new Date(po.supplierInvoiceDate) : null,
+      isShortDelivery: false,
+      isFinalDelivery: true,
+      items: {
+        create: grnItemsData.map(({ rawMaterialUuid, itemCategory, ...rest }) => rest)
+      }
+    },
+    include: { items: true, po: { include: { supplier: true, uom: true } } }
+  });
 
-  // Direct inventory update for exempt items
+  // Direct inventory update for all received items
+  let totalReceivedSum = 0;
   for (const item of grnItemsData) {
-    if (item.labTestRequired === false) {
-      const acceptedQty = item.actualReceivedQty;
-      if (acceptedQty <= 0) continue;
+    const acceptedQty = Number(item.actualReceivedQty || item.expectedQty || 0);
+    if (acceptedQty <= 0) continue;
+    totalReceivedSum += acceptedQty;
 
-      let rm = item.rawMaterialUuid ? await tx.rawMaterial.findUnique({ where: { id: item.rawMaterialUuid } }) : null;
-      if (!rm && item.rmId) {
+    let rm = (item.rawMaterialUuid && isUuid(item.rawMaterialUuid)) 
+      ? await tx.rawMaterial.findUnique({ where: { id: item.rawMaterialUuid } }) 
+      : null;
+
+    if (!rm && item.rmId) {
+      if (isUuid(item.rmId)) {
+        rm = await tx.rawMaterial.findUnique({ where: { id: item.rmId } });
+      }
+      if (!rm) {
         rm = await tx.rawMaterial.findFirst({
           where: { OR: [{ code: item.rmId }, { id: item.rmId }] }
         });
       }
-      if (!rm && item.itemCategory) {
+    }
+    if (!rm && po.rmId) {
+      if (isUuid(po.rmId)) {
+        rm = await tx.rawMaterial.findUnique({ where: { id: po.rmId } });
+      }
+      if (!rm) {
         rm = await tx.rawMaterial.findFirst({
-          where: {
-            name: { equals: item.rmName, mode: 'insensitive' },
-            category: { name: { equals: item.itemCategory, mode: 'insensitive' } }
-          }
+          where: { OR: [{ code: po.rmId }, { id: po.rmId }] }
         });
       }
-      if (!rm && item.rmName) {
-        rm = await tx.rawMaterial.findFirst({ where: { name: { equals: item.rmName, mode: 'insensitive' } } });
+    }
+    if (!rm && item.itemCategory) {
+      rm = await tx.rawMaterial.findFirst({
+        where: {
+          name: { equals: item.rmName, mode: 'insensitive' },
+          category: { name: { equals: item.itemCategory, mode: 'insensitive' } }
+        }
+      });
+    }
+    if (!rm && item.rmName) {
+      rm = await tx.rawMaterial.findFirst({ where: { name: { equals: item.rmName, mode: 'insensitive' } } });
+    }
+    if (!rm && po.name) {
+      rm = await tx.rawMaterial.findFirst({ where: { name: { equals: po.name, mode: 'insensitive' } } });
+    }
+
+    if (rm) {
+      // Increment stock
+      await tx.rawMaterial.update({
+        where: { id: rm.id },
+        data: { currentStock: { increment: acceptedQty } }
+      });
+
+      // Generate sequential batch number
+      let batchNum = item.batchNumber;
+      if (!batchNum) {
+        const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
+        batchNum = auto.batchNumber;
       }
-      if (!rm && po.name) {
-        rm = await tx.rawMaterial.findFirst({ where: { name: { equals: po.name, mode: 'insensitive' } } });
+      const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
+      if (clash) {
+        batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
       }
 
+      const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
+      const batchUomId = await resolveBatchUomId(item, rm, po, tx);
+
+      await tx.inventoryBatch.create({
+        data: {
+          batchNumber: batchNum,
+          poId: po.id,
+          grnId: grn.id,
+          rawMaterialId: rm.id,
+          rawMaterialName: item.rmName || rm.name,
+          rmCategory: category?.name || null,
+          supplierId: po.supplierId || null,
+          receivedQty: acceptedQty,
+          sampleQty: 0,
+          netQty: acceptedQty,
+          uomId: batchUomId,
+          storageLocation: null,
+          mfgDate: item.mfgDate ? new Date(item.mfgDate) : new Date(),
+          expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+          status: 'AVAILABLE',
+          addedBy: reqUserId,
+        }
+      });
+      console.log(`[DIRECT PO RECEIPT] InventoryBatch ${batchNum} created for ${item.rmName} (+${acceptedQty}) with UOM ${batchUomId}`);
+    }
+  }
+
+  // Update PO status to RECEIVED, deliveredStatus to FULLY_DELIVERED, and totalReceivedQty
+  await tx.rawMaterialPO.update({
+    where: { id: po.id },
+    data: {
+      status: 'RECEIVED',
+      deliveredStatus: 'FULLY_DELIVERED',
+      totalReceivedQty: totalReceivedSum,
+    }
+  });
+
+  return { grn, isAllExempt: true, finalPoStatus: 'RECEIVED' };
+}
+
+/**
+ * Fully reverts and removes all GRN receipts, inventory batches, lab tests, and stock increments for a PO.
+ * Used when a PO is reverted to PENDING (Draft), ORDERED (Undo Receive), deleted, or cleaned up.
+ *
+ * @param {Object} params
+ * @param {string} params.poId - The UUID of the RawMaterialPO
+ * @param {Object} [params.tx=prisma] - Prisma transaction client or default prisma
+ * @returns {Promise<Object>} Summary of deleted records and reverted stock
+ */
+async function cleanupPOReceiptsAndBatches({ poId, tx = prisma }) {
+  if (!poId) return { success: false, reason: 'No poId provided' };
+
+  // 0. Fetch the PO record for fallback fields (rmId, name)
+  const po = await tx.rawMaterialPO.findUnique({ where: { id: poId } }).catch(() => null);
+
+  // 1. Fetch all GRN receipts associated with this PO
+  const grns = await tx.gRNReceive.findMany({
+    where: { poId },
+    include: {
+      items: true,
+      labTest: {
+        include: {
+          testResults: true,
+          labUsages: true,
+        }
+      },
+      inventoryBatches: true,
+    }
+  });
+
+  const grnIds = grns.map(g => g.id);
+
+  // 2. Fetch all inventory batches associated with this PO or its GRNs
+  const batches = await tx.inventoryBatch.findMany({
+    where: {
+      OR: [
+        { poId: poId },
+        ...(grnIds.length > 0 ? [{ grnId: { in: grnIds } }] : [])
+      ]
+    }
+  });
+
+  // 3. Revert inventory stock on RawMaterial for all batches
+  const stockReversals = [];
+  for (const batch of batches) {
+    const qtyToDeduct = Number(batch.netQty ?? batch.receivedQty ?? 0);
+    if (qtyToDeduct > 0) {
+      let rm = null;
+      if (batch.rawMaterialId) {
+        rm = await tx.rawMaterial.findUnique({ where: { id: batch.rawMaterialId } });
+      }
+      if (!rm && batch.rawMaterialName) {
+        rm = await tx.rawMaterial.findFirst({
+          where: { name: { equals: batch.rawMaterialName, mode: 'insensitive' } }
+        });
+      }
+      if (!rm && po?.rmId) {
+        rm = await tx.rawMaterial.findFirst({
+          where: { OR: [{ id: po.rmId }, { code: po.rmId }] }
+        });
+      }
+      if (!rm && po?.name) {
+        rm = await tx.rawMaterial.findFirst({
+          where: { name: { equals: po.name, mode: 'insensitive' } }
+        });
+      }
       if (rm) {
-        // Increment stock
+        const currentStockNum = Number(rm.currentStock || 0);
+        const newStock = Math.max(0, currentStockNum - qtyToDeduct);
         await tx.rawMaterial.update({
           where: { id: rm.id },
-          data: { currentStock: { increment: acceptedQty } }
+          data: { currentStock: newStock }
         });
-
-        // Generate sequential batch number
-        let batchNum = item.batchNumber;
-        if (!batchNum) {
-          const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
-          batchNum = auto.batchNumber;
-        }
-        const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
-        if (clash) {
-          batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
-        }
-
-        const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
-        const batchUomId = await resolveBatchUomId(item, rm, po, tx);
-
-        await tx.inventoryBatch.create({
-          data: {
-            batchNumber: batchNum,
-            poId: po.id,
-            grnId: grn.id,
-            rawMaterialId: rm.id,
-            rawMaterialName: item.rmName || rm.name,
-            rmCategory: category?.name || null,
-            supplierId: po.supplierId || null,
-            receivedQty: item.actualReceivedQty,
-            sampleQty: 0,
-            netQty: acceptedQty,
-            uomId: batchUomId,
-            storageLocation: null,
-            mfgDate: item.mfgDate ? new Date(item.mfgDate) : new Date(),
-            expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
-            status: 'AVAILABLE',
-            addedBy: reqUserId,
-          }
+        stockReversals.push({
+          rawMaterialId: rm.id,
+          rawMaterialName: rm.name,
+          deductedQty: qtyToDeduct,
+          oldStock: currentStockNum,
+          newStock
         });
-        console.log(`[PO RECEIVED DIRECT] InventoryBatch ${batchNum} created for ${item.rmName} (+${acceptedQty}) with UOM ${batchUomId}`);
+        console.log(`[CLEANUP PO ${poId}] Reverted stock for RM ${rm.name} (-${qtyToDeduct}) -> ${newStock}`);
       }
     }
   }
 
-  // Update PO status to APPROVED if all exempt, otherwise keep RECEIVED
-  const finalPoStatus = isAllExempt ? 'APPROVED' : 'RECEIVED';
-  await tx.rawMaterialPO.update({
-    where: { id: po.id },
-    data: { status: finalPoStatus }
+  // 3b. Fallback: If no batches existed but GRN items had received qty and uploaded inventory status, revert that stock
+  if (batches.length === 0 && grns.length > 0) {
+    for (const g of grns) {
+      if (g.inventoryStatus === 'UPLOADED' && Array.isArray(g.items)) {
+        for (const it of g.items) {
+          const qty = Number(it.actualReceivedQty || 0);
+          if (qty > 0) {
+            let rm = null;
+            if (it.rmId) {
+              rm = await tx.rawMaterial.findFirst({
+                where: { OR: [{ id: it.rmId }, { code: it.rmId }] }
+              });
+            }
+            if (!rm && it.rmName) {
+              rm = await tx.rawMaterial.findFirst({
+                where: { name: { equals: it.rmName, mode: 'insensitive' } }
+              });
+            }
+            if (!rm && po?.rmId) {
+              rm = await tx.rawMaterial.findFirst({
+                where: { OR: [{ id: po.rmId }, { code: po.rmId }] }
+              });
+            }
+            if (rm) {
+              const currentStockNum = Number(rm.currentStock || 0);
+              const newStock = Math.max(0, currentStockNum - qty);
+              await tx.rawMaterial.update({
+                where: { id: rm.id },
+                data: { currentStock: newStock }
+              });
+              stockReversals.push({
+                rawMaterialId: rm.id,
+                rawMaterialName: rm.name,
+                deductedQty: qty,
+                oldStock: currentStockNum,
+                newStock
+              });
+              console.log(`[CLEANUP PO ${poId}] Fallback item reverted stock for RM ${rm.name} (-${qty}) -> ${newStock}`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Delete inventory batches
+  const deletedBatches = await tx.inventoryBatch.deleteMany({
+    where: {
+      OR: [
+        { poId: poId },
+        ...(grnIds.length > 0 ? [{ grnId: { in: grnIds } }] : [])
+      ]
+    }
   });
 
-  return { grn, isAllExempt, finalPoStatus };
+  // 5. Gather all lab test IDs
+  const dbLabTests = grnIds.length > 0 ? await tx.gRNLabTest.findMany({
+    where: { grnId: { in: grnIds } },
+    select: { id: true }
+  }) : [];
+  const labTestIds = Array.from(new Set([
+    ...grns.map(g => g.labTest?.id).filter(Boolean),
+    ...dbLabTests.map(l => l.id)
+  ]));
+
+  // 6. Delete lab inventory usages
+  if (labTestIds.length > 0) {
+    await tx.labInventoryUsage.deleteMany({
+      where: { labTestId: { in: labTestIds } }
+    });
+  }
+
+  // 7. Delete GRN lab test results
+  if (labTestIds.length > 0) {
+    await tx.gRNLabTestResult.deleteMany({
+      where: { labTestId: { in: labTestIds } }
+    });
+  }
+
+  // 8. Delete GRN lab tests
+  if (grnIds.length > 0) {
+    await tx.gRNLabTest.deleteMany({
+      where: { grnId: { in: grnIds } }
+    });
+  }
+
+  // 9. Delete purchase returns linked to this PO or its GRNs
+  await tx.purchaseReturn.deleteMany({
+    where: {
+      OR: [
+        { poId: poId },
+        ...(grnIds.length > 0 ? [{ grnId: { in: grnIds } }] : [])
+      ]
+    }
+  });
+
+  // 10. Delete GRN receive items
+  if (grnIds.length > 0) {
+    await tx.gRNReceiveItem.deleteMany({
+      where: { grnId: { in: grnIds } }
+    });
+  }
+
+  // 11. Delete GRN receives
+  const deletedGrns = await tx.gRNReceive.deleteMany({
+    where: {
+      OR: [
+        { poId: poId },
+        ...(grnIds.length > 0 ? [{ id: { in: grnIds } }] : [])
+      ]
+    }
+  });
+
+  // 12. Reset PO fulfillment and receipt status fields
+  await tx.rawMaterialPO.update({
+    where: { id: poId },
+    data: {
+      totalReceivedQty: 0,
+      deliveredStatus: 'PENDING',
+      lockedAt: null,
+    }
+  });
+
+  console.log(`[CLEANUP PO ${poId}] Success: deleted ${deletedGrns.count} GRNs, ${deletedBatches.count} Batches, and reset PO receipt state.`);
+
+  return {
+    success: true,
+    deletedGrnsCount: deletedGrns.count,
+    deletedBatchesCount: deletedBatches.count,
+    stockReversals,
+  };
 }
 
 module.exports = {
   getNextBatchForRM,
   receivePOAndProcess,
   resolveBatchUomId,
+  cleanupPOReceiptsAndBatches,
 };

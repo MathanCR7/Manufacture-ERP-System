@@ -81,7 +81,17 @@ class DashboardController {
       }));
 
       const pendingRMLabTests = await prisma.gRNReceive.findMany({
-        where: { status: 'PENDING_LAB' }, include: { po: { include: { supplier: true } } }, take: 5, orderBy: { createdAt: 'desc' }
+        where: {
+          status: 'PENDING_LAB',
+          po: {
+            status: {
+              notIn: ['PENDING', 'DELETED']
+            }
+          }
+        },
+        include: { po: { include: { supplier: true } } },
+        take: 5,
+        orderBy: { createdAt: 'desc' }
       });
       const labAssistantTasks = pendingRMLabTests.map(grn => ({
         id: grn.id.substring(0, 8).toUpperCase(), grnId: grn.id,
@@ -537,7 +547,14 @@ class DashboardController {
 
       // GRN receives last 30 days (stock in)
       const recentGRNs = await prisma.gRNReceive.findMany({
-        where: { receivedDate: { gte: last30Days } },
+        where: {
+          receivedDate: { gte: last30Days },
+          po: {
+            status: {
+              notIn: ['PENDING', 'DELETED']
+            }
+          }
+        },
         include: { po: { include: { idRegistry: true } }, items: true }
       });
       const stockInLast30 = recentGRNs.reduce((sum, g) => {

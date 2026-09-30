@@ -40,7 +40,14 @@ export default function PendingLabTestsPage() {
     setCurrentPage(1);
   }, [search]);
 
-  const filtered = pending.filter(grn => {
+  // Strictly filter out any GRNs whose linked PO is in Draft (PENDING), DRAFT, or DELETED status
+  const validPending = pending.filter(grn => {
+    const poStatus = grn.po?.status?.toUpperCase();
+    if (!poStatus || poStatus === 'PENDING' || poStatus === 'DRAFT' || poStatus === 'DELETED') return false;
+    return true;
+  });
+
+  const filtered = validPending.filter(grn => {
     const term = search.toLowerCase();
     const matchSearch =
       grn.referenceNo?.toLowerCase().includes(term) ||
@@ -72,7 +79,7 @@ export default function PendingLabTestsPage() {
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Pending RM Lab Tests</h1>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {pending.length} GRN(s) awaiting lab testing & approval
+              {validPending.length} GRN(s) awaiting lab testing & approval
             </p>
           </div>
         </div>
@@ -84,9 +91,9 @@ export default function PendingLabTestsPage() {
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
-          { icon: Clock, label: 'Total Pending', value: pending.length, color: 'violet', bgClass: 'bg-violet-50/80 dark:bg-violet-950/20', textClass: 'text-violet-600 dark:text-violet-400' },
-          { icon: AlertTriangle, label: 'Urgent (>24h)', value: pending.filter(isUrgent).length, color: 'red', bgClass: 'bg-rose-50/80 dark:bg-rose-955/20', textClass: 'text-rose-600 dark:text-rose-455' },
-          { icon: Package, label: 'Materials Count', value: pending.reduce((s, g) => s + (g.items?.length || 0), 0), color: 'blue', bgClass: 'bg-blue-50/80 dark:bg-blue-955/20', textClass: 'text-blue-600 dark:text-blue-455' },
+          { icon: Clock, label: 'Total Pending', value: validPending.length, color: 'violet', bgClass: 'bg-violet-50/80 dark:bg-violet-950/20', textClass: 'text-violet-600 dark:text-violet-400' },
+          { icon: AlertTriangle, label: 'Urgent (>24h)', value: validPending.filter(isUrgent).length, color: 'red', bgClass: 'bg-rose-50/80 dark:bg-rose-955/20', textClass: 'text-rose-600 dark:text-rose-455' },
+          { icon: Package, label: 'Materials Count', value: validPending.reduce((s, g) => s + (g.items?.length || 0), 0), color: 'blue', bgClass: 'bg-blue-50/80 dark:bg-blue-955/20', textClass: 'text-blue-600 dark:text-blue-455' },
         ].map(({ icon: Icon, label, value, bgClass, textClass }) => (
           <div key={label} className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800/60 rounded-xl p-3.5 flex items-center gap-3.5 shadow-sm hover:shadow transition-all duration-205">
             <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${bgClass} ${textClass} shrink-0 shadow-inner`}>

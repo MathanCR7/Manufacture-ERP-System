@@ -77,6 +77,7 @@ function StatusAdvanceButton({ po }) {
       queryClient.invalidateQueries({ queryKey: ['pos'] });
       queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
       queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
     } catch (err) {
       console.error('Failed to advance PO status:', err);
     } finally {
@@ -1004,7 +1005,7 @@ export default function POListPage() {
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </Button>
-                            {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT') && (
+                            {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT' || po.status?.toUpperCase() === 'ORDERED') && (
                               <Button
                                 variant="ghost" 
                                 size="icon"
@@ -1024,7 +1025,7 @@ export default function POListPage() {
                                     className="h-7 w-7 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
                                     title="Delete"
                                   >
-                                    <Trash2 className="w-3 h-3" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </Button>
                                 </AlertDialogTrigger>
                                 <AlertDialogContent className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl">
@@ -1041,6 +1042,75 @@ export default function POListPage() {
                                       className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs"
                                     >
                                       Delete
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            )}
+
+                            {canAddPurchase && (po.status === 'ORDERED' || po.status === 'RECEIVED' || po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED') && (
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="ghost" 
+                                    size="icon"
+                                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors cursor-pointer"
+                                    title={po.status === 'ORDERED' ? "Revert Order to Draft" : "Undo Receive / Revert PO"}
+                                  >
+                                    <RotateCcw className="w-3.5 h-3.5" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl max-w-md">
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle className="text-slate-900 dark:text-white">
+                                      {po.status === 'ORDERED' ? 'Revert Order to Draft?' : 'Undo Receipt / Revert PO?'}
+                                    </AlertDialogTitle>
+                                    <AlertDialogDescription className="text-slate-500 dark:text-slate-400 text-xs">
+                                      {po.status === 'ORDERED' ? (
+                                        <span>Revert PO <strong>{po.referenceNo}</strong> back to Draft (Pending) status so you can freely edit the purchase order.</span>
+                                      ) : (
+                                        <span className="space-y-2 block text-left">
+                                          <span>Choose how you want to revert PO <strong>{po.referenceNo}</strong>:</span>
+                                          <span className="p-2.5 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 rounded-xl text-[11px] border border-amber-200 dark:border-amber-800 block">
+                                            ⚠ Reverting will remove all GRNs and inventory batches, and reverse any stock added to Raw Material inventory.
+                                          </span>
+                                        </span>
+                                      )}
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                                    <AlertDialogCancel className="rounded-xl border-slate-200 dark:border-slate-800 text-xs">Cancel</AlertDialogCancel>
+
+                                    {(po.status === 'RECEIVED' || po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED') && (
+                                      <AlertDialogAction
+                                        onClick={async () => {
+                                          await api.patch(`/grn/po/${po.id}/status`, { status: 'ORDERED' });
+                                          queryClient.invalidateQueries({ queryKey: ['pos'] });
+                                          queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+                                          queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
+                                          queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+                                          queryClient.invalidateQueries({ queryKey: ['po-detail', po.id] });
+                                          queryClient.invalidateQueries({ queryKey: ['po-edit', po.id] });
+                                        }}
+                                        className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
+                                      >
+                                        Undo Receive (To Ordered)
+                                      </AlertDialogAction>
+                                    )}
+
+                                    <AlertDialogAction
+                                      onClick={async () => {
+                                        await api.patch(`/grn/po/${po.id}/status`, { status: 'PENDING' });
+                                        queryClient.invalidateQueries({ queryKey: ['pos'] });
+                                        queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+                                        queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
+                                        queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+                                        queryClient.invalidateQueries({ queryKey: ['po-detail', po.id] });
+                                        queryClient.invalidateQueries({ queryKey: ['po-edit', po.id] });
+                                      }}
+                                      className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold"
+                                    >
+                                      Revert to Draft
                                     </AlertDialogAction>
                                   </AlertDialogFooter>
                                 </AlertDialogContent>
