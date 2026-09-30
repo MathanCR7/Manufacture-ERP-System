@@ -40,6 +40,10 @@ const AddCustomerPage = lazy(() => import('@/modules/parties/pages/AddCustomerPa
 const SupplierListPage = lazy(() => import('@/modules/parties/pages/SupplierListPage'));
 const AddSupplierPage = lazy(() => import('@/modules/parties/pages/AddSupplierPage'));
 
+// Company Requirement Form & Directory Module
+const CompanyReqListPage = lazy(() => import('@/modules/company-req/pages/CompanyReqListPage'));
+const CompanyReqFormPage = lazy(() => import('@/modules/company-req/pages/CompanyReqFormPage'));
+
 // Item Setup Module
 const RMCategoryListPage = lazy(() => import('@/modules/item-setup/pages/RMCategoryListPage'));
 const RawMaterialListPage = lazy(() => import('@/modules/item-setup/pages/RawMaterialListPage'));
@@ -321,6 +325,11 @@ const AppRouter = () => {
               <Route path="/parties/suppliers/add" element={<SupplierListPage />} />
               <Route path="/parties/suppliers/edit/:id" element={<SupplierListPage />} />
             </Route>
+
+            {/* Company Requirement Form & Directory Module */}
+            <Route path="/company-directory" element={<CompanyReqListPage />} />
+            <Route path="/company-directory/req-form" element={<CompanyReqFormPage />} />
+            <Route path="/company-directory/edit/:id" element={<CompanyReqFormPage />} />
 
             {/* Item Setup Module */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT']} />}>

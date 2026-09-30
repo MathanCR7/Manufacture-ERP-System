@@ -7,7 +7,8 @@ import {
   User, LogOut, ChevronDown, ChevronRight, ChevronLeft, Plus, Minus,
   Menu, X, Users, Archive, Search, QrCode, ScanLine, XCircle, FileText, Bell, Info, CheckCircle2,
   AlertTriangle, TrendingUp, Layers, Camera, Upload, Image, VideoOff, HardDrive,
-  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity, Mail, Calendar
+  BarChart2, ShoppingBag, Package, Wallet, UserCheck, Wrench, Activity, Mail, Calendar,
+  Building2
 } from 'lucide-react';
 import NotificationBell from './NotificationBell';
 import useLanguageStore from '@/app/store/languageStore';
@@ -800,11 +801,23 @@ const MENU_GROUPS = [
   },
 
   {
+    id: 'companyDirectory',
+    title: 'Company Directory',
+    icon: Building2,
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'],
+    items: [
+      { name: '📋 Display List', path: '/company-directory', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
+      { name: '📝 Req Form', path: '/company-directory/req-form', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'MATERIALS_RECEIVER', 'PRODUCTION_STAFF', 'SALES_TEAM', 'LAB_ASSISTANT'] },
+    ]
+  },
+  {
     id: 'parties',
     title: 'Parties',
     icon: Users,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
     items: [
+      { name: '📋 Display List', path: '/company-directory', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
+      { name: '📝 Req Form', path: '/company-directory/req-form', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
       { name: '👥 Customer List', path: '/parties/customers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
       { name: '🤝 Supplier List', path: '/parties/suppliers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
       { name: '👥 User Management', path: '/admin/users', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
@@ -859,6 +872,7 @@ const MENU_GROUPS = [
 const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'dashboards' },
   { type: 'link', id: 'calendar' },
+  { type: 'group', id: 'companyDirectory' },
   { type: 'group', id: 'assetManagement' },
   { type: 'group', id: 'purchases' },
   { type: 'group', id: 'lab' },

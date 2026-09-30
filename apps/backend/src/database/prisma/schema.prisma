@@ -2026,3 +2026,24 @@ model OperationsCalendarEvent {
 
   @@map("OperationsCalendarEvent")
 }
+
+model CompanyReqForm {
+  id                  String    @id @default(uuid())
+  industryType        String    @db.VarChar(150)
+  companyName         String    @db.VarChar(255)
+  address             String    @db.Text
+  website             String?   @db.VarChar(255)
+  type                String    @db.VarChar(50) // Manufacture / Trader / Retailer / Supplier / Others
+  contactPerson       String    @db.VarChar(255)
+  contactNo           String    @db.VarChar(50)
+  additionalContacts  Json?     @default("[]")
+  remarks             String?   @db.Text
+  attachments         Json?     @default("[]")
+  status              String    @default("ACTIVE") @db.VarChar(50)
+  createdBy           String?   @map("createdBy") @db.VarChar(100)
+  creatorName         String?   @map("creatorName") @db.VarChar(255)
+  createdAt           DateTime  @default(now()) @map("createdAt")
+  updatedAt           DateTime  @updatedAt @map("updatedAt")
+
+  @@map("CompanyReqForm")
+}
