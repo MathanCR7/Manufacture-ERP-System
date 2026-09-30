@@ -366,16 +366,28 @@ export default function CompanyReqListPage() {
   }, [responseData]);
 
   // Fetch distinct industries for filter dropdown
-  const { data: dbIndustries = [] } = useQuery({
-    queryKey: ['company-req-industries'],
+  const { data: rawIndustries = [] } = useQuery({
+    queryKey: ['company-req-industries-list'],
     queryFn: async () => {
       const res = await api.get('/company-req/industries');
-      if (Array.isArray(res.data?.industries)) return res.data.industries;
-      if (Array.isArray(res.data?.data)) return res.data.data.map(i => i.name || i);
-      if (Array.isArray(res.data)) return res.data.map(i => i.name || i);
-      return [];
+      return res.data;
     }
   });
+
+  const dbIndustries = useMemo(() => {
+    let items = [];
+    if (Array.isArray(rawIndustries?.industries)) {
+      items = rawIndustries.industries;
+    } else if (Array.isArray(rawIndustries?.data)) {
+      items = rawIndustries.data;
+    } else if (Array.isArray(rawIndustries)) {
+      items = rawIndustries;
+    }
+
+    return items
+      .map(item => (typeof item === 'object' && item !== null ? item.name : item))
+      .filter(item => typeof item === 'string' && item.trim().length > 0);
+  }, [rawIndustries]);
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -623,9 +635,12 @@ export default function CompanyReqListPage() {
                   className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600 max-w-[150px] truncate"
                 >
                   <option value="ALL">Industry: All</option>
-                  {dbIndustries.map((ind, i) => (
-                    <option key={i} value={ind}>{ind}</option>
-                  ))}
+                  {dbIndustries.map((ind, i) => {
+                    const name = typeof ind === 'object' && ind !== null ? (ind.name || '') : String(ind);
+                    return (
+                      <option key={i} value={name}>{name}</option>
+                    );
+                  })}
                 </select>
                 <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-400 pointer-events-none" />
               </div>

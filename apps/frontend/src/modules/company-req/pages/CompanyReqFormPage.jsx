@@ -66,18 +66,6 @@ export default function CompanyReqFormPage() {
     enabled: isEditMode
   });
 
-  // Query distinct industry suggestions from database
-  const { data: dbIndustries = [] } = useQuery({
-    queryKey: ['company-req-industries'],
-    queryFn: async () => {
-      const res = await api.get('/company-req/industries');
-      return res.data?.data || [];
-    }
-  });
-
-  // Merge common industries with DB industries
-  const industrySuggestions = Array.from(new Set([...COMMON_INDUSTRIES, ...dbIndustries]));
-
   useEffect(() => {
     if (existingData) {
       setFormData({
