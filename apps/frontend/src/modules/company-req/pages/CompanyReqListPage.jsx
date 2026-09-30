@@ -370,7 +370,10 @@ export default function CompanyReqListPage() {
     queryKey: ['company-req-industries'],
     queryFn: async () => {
       const res = await api.get('/company-req/industries');
-      return res.data?.data || [];
+      if (Array.isArray(res.data?.industries)) return res.data.industries;
+      if (Array.isArray(res.data?.data)) return res.data.data.map(i => i.name || i);
+      if (Array.isArray(res.data)) return res.data.map(i => i.name || i);
+      return [];
     }
   });
 

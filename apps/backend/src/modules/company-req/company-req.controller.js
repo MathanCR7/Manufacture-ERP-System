@@ -52,6 +52,39 @@ function saveAttachmentToDisk(fileObj, index = 0) {
   };
 }
 
+/**
+ * Auto-ensure industry type is registered in IndustryTypeMaster without duplication
+ */
+async function ensureIndustryTypeMaster(industryName, user) {
+  if (!industryName || typeof industryName !== 'string' || !industryName.trim()) return null;
+  const trimmed = industryName.trim();
+  try {
+    const existing = await prisma.industryTypeMaster.findFirst({
+      where: { name: { equals: trimmed, mode: 'insensitive' } }
+    });
+    if (existing) {
+      if (!existing.isActive) {
+        return await prisma.industryTypeMaster.update({
+          where: { id: existing.id },
+          data: { isActive: true }
+        });
+      }
+      return existing;
+    }
+    return await prisma.industryTypeMaster.create({
+      data: {
+        name: trimmed,
+        isActive: true,
+        createdBy: user?.id || null,
+        creatorName: user?.name || user?.username || 'Auto-registered'
+      }
+    });
+  } catch (err) {
+    console.error('[CompanyReq] ensureIndustryTypeMaster error:', err.message);
+    return null;
+  }
+}
+
 // Zod Schema for validation
 const companyReqSchema = z.object({
   industryType: z.string().trim().min(1, 'Industry Type is required'),
@@ -185,23 +218,185 @@ exports.getCompanyReqList = async (req, res, next) => {
 };
 
 /**
+ * Helper to ensure an Industry Type exists in IndustryTypeMaster so duplicates are never created
+ */
+async function ensureIndustryTypeMaster(name, user) {
+  if (!name || typeof name !== 'string') return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  try {
+    const existing = await prisma.industryTypeMaster.findFirst({
+      where: { name: { equals: trimmed, mode: 'insensitive' } }
+    });
+    if (!existing) {
+      await prisma.industryTypeMaster.create({
+        data: {
+          name: trimmed,
+          createdBy: user?.id || null,
+          creatorName: user?.name || user?.username || 'Admin'
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('[IndustryMaster] Ensure master record notice:', err.message);
+  }
+}
+
+/**
  * GET /api/company-req/industries
- * Fetch distinct list of industry types
+ * Fetch unique list of industry types from Master table with search & deduplication
  */
 exports.getDistinctIndustries = async (req, res, next) => {
   try {
-    const list = await prisma.companyReqForm.findMany({
+    const { search = '' } = req.query;
+
+    // 1. Fetch from IndustryTypeMaster
+    let masterList = await prisma.industryTypeMaster.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' }
+    });
+
+    // If master is completely empty, populate common default industries
+    if (masterList.length === 0) {
+      const defaultIndustries = [
+        'Milk Supplier',
+        'Poly Bag Supply',
+        'Tissue Supply',
+        'Packing',
+        'Chemicals & Additives',
+        'Food & Beverages',
+        'Hardware & Spares',
+        'Printing & Labels',
+        'Logistics & Transport',
+        'Raw Material Supplier'
+      ];
+
+      for (const defName of defaultIndustries) {
+        try {
+          await prisma.industryTypeMaster.create({
+            data: { name: defName, creatorName: 'System' }
+          });
+        } catch (_) {}
+      }
+
+      masterList = await prisma.industryTypeMaster.findMany({
+        where: { isActive: true },
+        orderBy: { name: 'asc' }
+      });
+    }
+
+    // 2. Fetch distinct from CompanyReqForm to ensure 100% synchronization
+    const reqFormList = await prisma.companyReqForm.findMany({
       select: { industryType: true },
       distinct: ['industryType']
     });
 
-    const industries = list
-      .map(i => i.industryType)
-      .filter(Boolean)
-      .sort((a, b) => a.localeCompare(b));
+    // Merge & deduplicate strictly case-insensitively
+    const seen = new Set();
+    const result = [];
 
-    res.json(industries);
+    for (const m of masterList) {
+      const key = m.name.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push({
+          id: m.id,
+          name: m.name,
+          description: m.description || null
+        });
+      }
+    }
+
+    for (const r of reqFormList) {
+      if (!r.industryType) continue;
+      const key = r.industryType.toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        try {
+          const newMaster = await prisma.industryTypeMaster.create({
+            data: { name: r.industryType.trim(), creatorName: 'Auto-sync' }
+          });
+          result.push({ id: newMaster.id, name: newMaster.name, description: null });
+        } catch (_) {
+          result.push({ id: `item-${result.length}`, name: r.industryType.trim(), description: null });
+        }
+      }
+    }
+
+    // Filter by search query if provided
+    let filtered = result;
+    if (search && search.trim()) {
+      const s = search.toLowerCase().trim();
+      filtered = result.filter(item => item.name.toLowerCase().includes(s));
+    }
+
+    // Sort alphabetically A-Z
+    filtered.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+
+    res.json({
+      status: 'success',
+      data: filtered,
+      industries: filtered.map(i => i.name)
+    });
   } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * POST /api/company-req/industries
+ * Create a new Industry Type Master record (strictly prevented duplicates)
+ */
+exports.createIndustryType = async (req, res, next) => {
+  try {
+    const { name, description } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Industry Type name is required' });
+    }
+
+    const trimmed = name.trim();
+
+    // Check if an industry with the same name already exists (case-insensitive)
+    const existing = await prisma.industryTypeMaster.findFirst({
+      where: { name: { equals: trimmed, mode: 'insensitive' } }
+    });
+
+    if (existing) {
+      return res.status(200).json({
+        status: 'success',
+        message: 'Industry Type already exists in master',
+        data: existing,
+        isExisting: true
+      });
+    }
+
+    const created = await prisma.industryTypeMaster.create({
+      data: {
+        name: trimmed,
+        description: description?.trim() || null,
+        createdBy: req.user?.id || null,
+        creatorName: req.user?.name || req.user?.username || 'Admin'
+      }
+    });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Industry Type added to master successfully',
+      data: created,
+      isExisting: false
+    });
+  } catch (err) {
+    if (err.code === 'P2002') {
+      const existing = await prisma.industryTypeMaster.findFirst({
+        where: { name: { equals: req.body?.name?.trim(), mode: 'insensitive' } }
+      });
+      return res.status(200).json({
+        status: 'success',
+        message: 'Industry Type already exists',
+        data: existing,
+        isExisting: true
+      });
+    }
     next(err);
   }
 };
@@ -257,6 +452,9 @@ exports.createCompanyReq = async (req, res, next) => {
         creatorName: req.user?.name || req.user?.email || null,
       }
     });
+
+    // Auto-ensure industry type is registered in IndustryTypeMaster without duplication
+    await ensureIndustryTypeMaster(parsed.industryType, req.user);
 
     // Audit Log
     try {
@@ -321,6 +519,9 @@ exports.updateCompanyReq = async (req, res, next) => {
         attachments: processedAttachments,
       }
     });
+
+    // Auto-ensure industry type is registered in IndustryTypeMaster without duplication
+    await ensureIndustryTypeMaster(parsed.industryType, req.user);
 
     // Audit Log
     try {

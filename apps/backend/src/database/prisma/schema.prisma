@@ -2047,3 +2047,17 @@ model CompanyReqForm {
 
   @@map("CompanyReqForm")
 }
+
+model IndustryTypeMaster {
+  id          String    @id @default(uuid())
+  name        String    @unique @db.VarChar(150)
+  description String?   @db.Text
+  isActive    Boolean   @default(true)
+  createdBy   String?   @map("createdBy") @db.VarChar(100)
+  creatorName String?   @map("creatorName") @db.VarChar(255)
+  createdAt   DateTime  @default(now()) @map("createdAt")
+  updatedAt   DateTime  @updatedAt @map("updatedAt")
+
+  @@index([name])
+  @@map("IndustryTypeMaster")
+}

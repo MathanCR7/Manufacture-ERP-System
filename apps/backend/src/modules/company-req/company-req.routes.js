@@ -2,8 +2,9 @@ const express = require('express');
 const router = express.Router();
 const controller = require('./company-req.controller');
 
-// Industry suggestions
+// Industry Master endpoints
 router.get('/industries', controller.getDistinctIndustries);
+router.post('/industries', controller.createIndustryType);
 
 // List all company requirement records (search, sort, filter, pagination)
 router.get('/', controller.getCompanyReqList);
