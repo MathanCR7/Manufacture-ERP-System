@@ -2287,22 +2287,116 @@ exports.getMaterialHistory = async (req, res, next) => {
       });
     });
 
-    // Sort timeline descending
-    timelineEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    // Fetch Items of Same Category
+    const categoryItems = await prisma.rawMaterial.findMany({
+      where: {
+        categoryId: rm.categoryId,
+        id: { not: rm.id }
+      },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        unitId: true,
+        currentStock: true,
+        ratePerUnit: true,
+        alertLevel: true
+      },
+      take: 25,
+      orderBy: { code: 'asc' }
+    });
+
+    // Calculate Weighted Average Cost & Costing Metrics
+    let totalPurchasedValuedQty = 0;
+    let totalPurchasedValuedCost = 0;
+    formattedPurchases.forEach(p => {
+      const q = Number(p.orderedQty || 0);
+      const r = Number(p.unitPriceWithGst || p.unitPrice || 0);
+      if (q > 0 && r > 0) {
+        totalPurchasedValuedQty += q;
+        totalPurchasedValuedCost += (q * r);
+      }
+    });
+
+    const avgCostPrice = totalPurchasedValuedQty > 0
+      ? Math.round((totalPurchasedValuedCost / totalPurchasedValuedQty) * 100) / 100
+      : Number(rm.ratePerUnit || 0);
+
+    const latestPurchaseRate = latestPurchase
+      ? Number(latestPurchase.unitPriceWithGst || latestPurchase.unitPrice || 0)
+      : Number(rm.ratePerUnit || 0);
+
+    const valuationRate = latestPurchaseRate > 0 ? latestPurchaseRate : avgCostPrice;
+    const closingStockValue = Math.round((currentStock * (valuationRate || 0)) * 100) / 100;
+
+    const lastPurchaseInfo = formattedPurchases[0] ? {
+      date: formattedPurchases[0].orderDate,
+      partyName: formattedPurchases[0].supplierName,
+      quantity: formattedPurchases[0].orderedQty,
+      uom: formattedPurchases[0].uom || rm.unitId,
+      rate: formattedPurchases[0].unitPriceWithGst || formattedPurchases[0].unitPrice,
+      baseRate: formattedPurchases[0].unitPrice,
+      gstPercentage: formattedPurchases[0].gstPercentage,
+      amount: formattedPurchases[0].itemTotal,
+      referenceNo: formattedPurchases[0].referenceNo
+    } : (formattedGRN[0] ? {
+      date: formattedGRN[0].receivedDate,
+      partyName: formattedGRN[0].supplierName,
+      quantity: formattedGRN[0].actualReceivedQty,
+      uom: rm.unitId,
+      rate: ratePerUnit,
+      baseRate: ratePerUnit,
+      gstPercentage: 0,
+      amount: formattedGRN[0].actualReceivedQty * ratePerUnit,
+      referenceNo: formattedGRN[0].referenceNo
+    } : null);
+
+    const lastIssueInfo = formattedUsages[0] ? {
+      date: formattedUsages[0].date,
+      partyName: `${formattedUsages[0].batchNumber} • ${formattedUsages[0].productName}`,
+      quantity: formattedUsages[0].actualUsedQty,
+      uom: rm.unitId,
+      rate: formattedUsages[0].unitCost,
+      amount: formattedUsages[0].totalCost,
+      type: 'PRODUCTION_ISSUE'
+    } : (formattedWaste[0] ? {
+      date: formattedWaste[0].date,
+      partyName: `Wastage (${formattedWaste[0].referenceNo})`,
+      quantity: formattedWaste[0].quantity,
+      uom: rm.unitId,
+      rate: formattedWaste[0].lossAmount && formattedWaste[0].quantity ? formattedWaste[0].lossAmount / formattedWaste[0].quantity : 0,
+      amount: formattedWaste[0].lossAmount,
+      type: 'WASTE'
+    } : null);
 
     res.json({
       material: {
         id: rm.id,
         name: rm.name,
+        printName: rm.printName || rm.name,
         code: rm.code,
         category: rm.category?.name || 'General',
+        categoryId: rm.categoryId,
+        categoryCode: rm.category?.code || null,
         unit: rm.unitId,
+        unitId: rm.unitId,
+        consumptionUnit: rm.consumptionUnit || null,
+        hasAlternateUom: Boolean(rm.hasAlternateUom),
+        alternateUom: rm.alternateUom || null,
+        baseUomQty: Number(rm.baseUomQty || 1),
+        alternateUomQty: Number(rm.alternateUomQty || 1),
+        conversionFactor: Number(rm.conversionFactor || 1),
         currentStock,
         ratePerUnit,
-        stockValue: currentStock * ratePerUnit,
+        masterRate: Number(rm.ratePerUnit || 0),
+        stockValue: closingStockValue,
         alertLevel,
         stockHealth,
-        description: rm.description
+        openingStock: Number(rm.openingStock || 0),
+        hsnCode: rm.hsnCode || 'N/A',
+        description: rm.description || '',
+        createdAt: rm.createdAt,
+        updatedAt: rm.updatedAt,
       },
       summary: {
         hasHistory,
@@ -2319,6 +2413,26 @@ exports.getMaterialHistory = async (req, res, next) => {
         totalWastedQty,
         totalWastedLoss
       },
+      costingSummary: {
+        avgCostPrice,
+        latestPurchaseRate,
+        standardCost: Number(rm.ratePerUnit || 0),
+        closingBalance: currentStock,
+        closingValue: closingStockValue,
+        costingMethod: 'Avg. Cost',
+        marketValuationMethod: 'Avg. Price',
+        lastPurchase: lastPurchaseInfo,
+        lastIssue: lastIssueInfo
+      },
+      categoryItems: categoryItems.map(item => ({
+        id: item.id,
+        code: item.code,
+        name: item.name,
+        quantity: Number(item.currentStock || 0),
+        uom: item.unitId,
+        cost: Number(item.ratePerUnit || 0),
+        totalValue: Math.round((Number(item.currentStock || 0) * Number(item.ratePerUnit || 0)) * 100) / 100
+      })),
       timeline: timelineEvents,
       purchases: formattedPurchases,
       grnReceipts: formattedGRN,
