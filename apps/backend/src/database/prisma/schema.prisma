@@ -531,6 +531,8 @@ model RawMaterial {
   productBOMs ProductBOM[]
   productionBatchRMUsages ProductionBatchRMUsage[]
   productionLossMaterials ProductionLossMaterial[]
+  baseTemplateItems ProductBaseTemplateItem[]
+  learnedRecipeItems ProductLearnedRecipeItem[]
 }
 
 model RMStockAdjustment {
@@ -594,6 +596,7 @@ model ProductSubcategory {
   defaultUom      UOM?                       @relation("SubcategoryDefaultUom", fields: [defaultUomId], references: [id])
   products        FinishedProduct[]
   specTemplate    ProductSpecTemplate?
+  baseTemplates   ProductBaseTemplate[]
 
   @@unique([categoryId, code])
   @@index([categoryId])
@@ -1028,6 +1031,7 @@ model FinishedProduct {
   wastages            ProductWastage[] @relation("ProductWastages")
   campaigns           SalesCampaign[]
   returnItems         SalesReturnItem[]
+  learnedRecipe       ProductLearnedRecipe?
 
   @@map("products")
 }
@@ -1143,10 +1147,92 @@ model ProductionBatchRMUsage {
   totalCost           Decimal            @map("total_cost")
   status              String             @default("Sufficient") // Sufficient / Insufficient
 
+  // Production preparation and execution tracking
+  selectedUom          String?            @map("selected_uom")
+  inputQty             Decimal?           @map("input_qty")
+  conversionFactorUsed Decimal?           @default(1.0) @map("conversion_factor_used")
+  allocatedBatchId     String?            @map("allocated_batch_id")
+  internalBatchNo      String?            @map("internal_batch_no")
+  supplierBatchNo      String?            @map("supplier_batch_no")
+  mfgDate              DateTime?          @map("mfg_date")
+  expiryDate           DateTime?          @map("expiry_date")
+
   batch               ProductionBatchNew @relation(fields: [batchId], references: [id], onDelete: Cascade)
   rawMaterial         RawMaterial        @relation(fields: [rmId], references: [id])
 
   @@map("production_batch_rm_usage")
+}
+
+// ─────────────────────── Production Base Templates & Learned Recipes ───────────────────────
+
+model ProductBaseTemplate {
+  id              String   @id @default(uuid())
+  name            String   // e.g. "Ice Cream Base", "Kulfi Base", "FD Base"
+  subcategoryId   String   @map("subcategory_id")
+  series          String?  // e.g. "BG", "K"
+  itemCodePrefix  String?  @map("item_code_prefix") // e.g. "BG101", "K101"
+  groupName       String?  @map("group_name") // e.g. "Gallon", "Kulfi Stick"
+  wastagePercent  Decimal  @default(6.0) @map("wastage_percent")
+  overheadPercent Decimal  @default(10.0) @map("overhead_percent")
+  sopSteps        Json?    @map("sop_steps")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  subcategory     ProductSubcategory         @relation(fields: [subcategoryId], references: [id], onDelete: Cascade)
+  items           ProductBaseTemplateItem[]
+
+  @@map("product_base_templates")
+}
+
+model ProductBaseTemplateItem {
+  id             String   @id @default(uuid())
+  templateId     String   @map("template_id")
+  seqNo          Int      @default(1) @map("seq_no")
+  rmId           String   @map("rm_id")
+  categoryType   String?  @map("category_type") // Key Raw Material, Energy, Resource, Packing
+  defaultQty     Decimal  @map("default_qty")
+  uom            String
+  estimatedRate  Decimal  @default(0) @map("estimated_rate")
+  isOverhead     Boolean  @default(false) @map("is_overhead")
+
+  template       ProductBaseTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  rawMaterial    RawMaterial         @relation(fields: [rmId], references: [id])
+
+  @@map("product_base_template_items")
+}
+
+model ProductLearnedRecipe {
+  id                  String   @id @default(uuid())
+  productId           String   @unique @map("product_id")
+  sourceBatchId       String?  @map("source_batch_id")
+  baseBatchQty        Decimal  @default(1.0) @map("base_batch_qty")
+  wastagePercent      Decimal  @default(6.0) @map("wastage_percent")
+  overheadPercent     Decimal  @default(10.0) @map("overhead_percent")
+  sopSteps            Json?    @map("sop_steps")
+  lastUsedAt          DateTime @default(now()) @map("last_used_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  product             FinishedProduct            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  items               ProductLearnedRecipeItem[]
+
+  @@map("product_learned_recipes")
+}
+
+model ProductLearnedRecipeItem {
+  id                 String   @id @default(uuid())
+  learnedRecipeId    String   @map("learned_recipe_id")
+  seqNo              Int      @default(1) @map("seq_no")
+  rmId               String   @map("rm_id")
+  consumptionPerUnit Decimal  @map("consumption_per_unit")
+  selectedUom        String   @map("selected_uom")
+  unitCost           Decimal  @default(0) @map("unit_cost")
+  categoryType       String?  @map("category_type")
+
+  learnedRecipe      ProductLearnedRecipe @relation(fields: [learnedRecipeId], references: [id], onDelete: Cascade)
+  rawMaterial        RawMaterial          @relation(fields: [rmId], references: [id])
+
+  @@map("product_learned_recipe_items")
 }
 
 model ProductionLoss {

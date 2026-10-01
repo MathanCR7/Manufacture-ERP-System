@@ -61,10 +61,8 @@ const renderStageIcon = (iconName, className = "w-4 h-4") => {
 };
 
 const FORM_STEPS = [
-  { id: 'basic', num: 1, step: 'Step 1', name: 'Product Spec', desc: 'Specs & Unit of Sale' },
-  { id: 'recipe', num: 2, step: 'Step 2', name: 'SOP Guide', desc: 'Standard Operating Guide' },
-  { id: 'bom', num: 3, step: 'Step 3', name: 'Ingredients BOM', desc: 'Formulation & Material Costs' },
-  { id: 'operations', num: 4, step: 'Step 4', name: 'Workflow Stages', desc: 'Processing Timeline & Finish' }
+  { id: 'basic', num: 1, step: 'Step 1', name: 'Product Spec', desc: 'Specs, Dimensions & Unit of Sale' },
+  { id: 'operations', num: 2, step: 'Step 2', name: 'Workflow Stages', desc: 'Processing Timeline & Routing' }
 ];
 
 const UOM_OPTIONS = [
@@ -1231,18 +1229,12 @@ function ProductForm({ editId, onBack }) {
         }
       }
 
-      setActiveTab('recipe');
-    } else if (activeTab === 'recipe') {
-      setActiveTab('bom');
-    } else if (activeTab === 'bom') {
       setActiveTab('operations');
     }
   };
 
   const handlePrev = () => {
-    if (activeTab === 'operations') setActiveTab('bom');
-    else if (activeTab === 'bom') setActiveTab('recipe');
-    else if (activeTab === 'recipe') setActiveTab('basic');
+    if (activeTab === 'operations') setActiveTab('basic');
   };
 
   // Calculations
@@ -1481,7 +1473,7 @@ function ProductForm({ editId, onBack }) {
               onClick={handleNext}
               className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-5 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
             >
-              <span>Next: {activeTab === 'basic' ? 'SOP Guide' : activeTab === 'recipe' ? 'Ingredients BOM' : 'Workflow Stages'}</span>
+              <span>Next: Workflow Stages</span>
               <ChevronRight className="w-4 h-4" />
             </Button>
           )}
@@ -1804,439 +1796,8 @@ function ProductForm({ editId, onBack }) {
                 <div className="flex justify-between items-center pt-6 mt-6 border-t border-slate-100 dark:border-slate-800">
                   <div className="text-xs text-slate-400 dark:text-slate-500 font-medium flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                    <span>Step 1 of 4: Core Specifications</span>
+                    <span>Step 1 of 2: Core Specifications & Sizing</span>
                   </div>
-                  <Button
-                    type="button"
-                    onClick={handleNext}
-                    className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-6 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
-                  >
-                    <span>Next: SOP Guide</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* TAB 2: Recipe SOP & Output */}
-          {activeTab === 'recipe' && (
-            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md">
-              <CardHeader className="pb-3 border-b border-slate-105 dark:border-slate-805 flex flex-row items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center">
-                  <Clock className="w-4 h-4 mr-1.5 text-indigo-500" /> Standard Operating Procedure (SOP)
-                </h3>
-                {isSopLocked ? (
-                  <span className="px-2.5 py-0.5 bg-amber-50 dark:bg-amber-955/20 text-amber-700 dark:text-amber-400 text-2xs font-bold rounded-full border border-amber-205 dark:border-amber-900/50 flex items-center gap-1">
-                    <Info className="w-3 h-3" /> Locked
-                    <button
-                      type="button"
-                      onClick={() => setIsSopLocked(false)}
-                      className="ml-1 text-3xs font-extrabold text-indigo-650 dark:text-indigo-400 hover:underline"
-                    >
-                      Unlock
-                    </button>
-                  </span>
-                ) : (
-                  <span className="px-2.5 py-0.5 bg-emerald-50 dark:bg-emerald-955/20 text-emerald-700 dark:text-emerald-450 text-2xs font-bold rounded-full border border-emerald-200 dark:border-emerald-900/50">
-                    Editable
-                  </span>
-                )}
-              </CardHeader>
-              <CardContent className="p-6 space-y-6">
-                {/* SOP Steps Editor */}
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Workflow Steps (Numbered recipe guide)</label>
-                    {!isSopLocked && (
-                      <Button
-                        type="button"
-                        onClick={() => setSopSteps([...sopSteps, { stepNumber: sopSteps.length + 1, instruction: '', tempTime: '', safetyNote: '' }])}
-                        className="bg-indigo-600 hover:bg-indigo-750 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-1.5 px-4 transition-all"
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-1" /> Add Step
-                      </Button>
-                    )}
-                  </div>
-
-                  <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
-                    {sopSteps.map((step, idx) => (
-                      <div key={idx} className="p-4 bg-slate-50/50 dark:bg-slate-950 border border-slate-105 dark:border-slate-850 rounded-2xl space-y-2.5 relative group">
-                        <div className="flex items-center justify-between text-2xs font-extrabold text-indigo-600 dark:text-indigo-400">
-                          <span>Step #{idx + 1}</span>
-                          {!isSopLocked && (
-                            <button
-                              type="button"
-                              onClick={() => setSopSteps(sopSteps.filter((_, s) => s !== idx))}
-                              className="text-rose-500 opacity-0 group-hover:opacity-100 hover:scale-110 transition-all"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                        <Input
-                          placeholder="Action instruction step details..."
-                          disabled={isSopLocked}
-                          value={step.instruction}
-                          onChange={(e) => {
-                            const updated = [...sopSteps];
-                            updated[idx].instruction = e.target.value;
-                            setSopSteps(updated);
-                          }}
-                          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
-                        />
-                        <div className="grid grid-cols-2 gap-3 text-2xs">
-                          <Input
-                            placeholder="Temp / Time (e.g. Cook at 90°C for 15 mins)"
-                            disabled={isSopLocked}
-                            value={step.tempTime || ''}
-                            onChange={(e) => {
-                              const updated = [...sopSteps];
-                              updated[idx].tempTime = e.target.value;
-                              setSopSteps(updated);
-                            }}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
-                          />
-                          <Input
-                            placeholder="Safety hazard notes / Protective gear info"
-                            disabled={isSopLocked}
-                            value={step.safetyNote || ''}
-                            onChange={(e) => {
-                              const updated = [...sopSteps];
-                              updated[idx].safetyNote = e.target.value;
-                              setSopSteps(updated);
-                            }}
-                            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl"
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Recipe History archives */}
-                {sopHistory.length > 0 && (
-                  <div className="border-t border-slate-205 dark:border-slate-800 pt-4 space-y-2 text-xs">
-                    <label className="font-bold text-slate-405 uppercase block">Archived SOP Versions</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {sopHistory.map((hist, hidx) => (
-                        <div key={hidx} className="p-3 bg-slate-50 dark:bg-slate-950 border dark:border-slate-850 rounded-xl text-slate-500">
-                          <div className="flex justify-between font-semibold">
-                            <span>Rev #{sopHistory.length - hidx}</span>
-                            <span>{new Date(hist.date).toLocaleDateString('en-GB')}</span>
-                          </div>
-                          <p className="mt-1 text-[11px]">Editor: {hist.editorName}</p>
-                          <p className="text-[11px]">Yield: {hist.expectedOutput} pcs</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Step 2 Navigation Footer */}
-                <div className="flex justify-between items-center pt-6 mt-6 border-t border-slate-100 dark:border-slate-800">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handlePrev}
-                    className="rounded-xl text-xs py-2.5 px-5 flex items-center gap-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    <span>Previous: Product Spec</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleNext}
-                    className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2.5 px-6 shadow-md hover:shadow-lg transition-all flex items-center gap-2 cursor-pointer"
-                  >
-                    <span>Next: Ingredients BOM</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          {/* TAB 3: Bill of Materials & Items Formulation */}
-          {activeTab === 'bom' && (
-            <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-md overflow-hidden">
-              
-              {/* Top Section: Searchable Catalog Selector with Debounce & Category Badges */}
-              <div className="p-4 sm:p-5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
-                  <div className="flex items-center gap-2">
-                    <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-                      <Package className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <Label className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                        3. SELECT RAW MATERIAL OR NON-INVENTORY ITEM TO ADD <span className="text-rose-500">*</span>
-                      </Label>
-                      <span className="text-[11px] text-slate-400">
-                        Browse Raw Materials & Non-Inventory Items with Category & UOM
-                      </span>
-                    </div>
-                  </div>
-
-                  <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 self-start sm:self-auto border border-slate-200 dark:border-slate-700">
-                    {allSelectableItems.length} catalog items loaded
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-                  <div className="flex-1">
-                    <RawMaterialSelect
-                      ref={rmSelectRef}
-                      rawMaterials={allSelectableItems}
-                      value={selectedItem}
-                      onChange={(item) => {
-                        setSelectedItem(item);
-                        setItemError(false);
-                      }}
-                      error={itemError}
-                      lowStockIds={lowStockIds}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={handleAddItem}
-                    className="bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-bold rounded-xl text-xs py-2 px-5 transition-all shadow-xs shrink-0 flex items-center justify-center gap-1.5 h-10 cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add to BoM</span>
-                  </Button>
-                </div>
-              </div>
-
-              <CardContent className="p-0 space-y-6">
-                
-                {/* 1. Raw Materials Ingredients Table */}
-                <div>
-                  <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50/70 dark:bg-slate-950/50 border-b border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                        🌾 Raw Materials Formulation ({bom.length})
-                      </span>
-                    </div>
-                    <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">
-                      Subtotal: ₹{totalRmCost.toFixed(2)}
-                    </span>
-                  </div>
-
-                  <div className="overflow-x-auto text-xs">
-                    <table className="w-full text-left">
-                      <thead className="bg-slate-50 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase font-semibold text-[11px]">
-                        <tr>
-                          <th className="p-3 w-12 text-center">SN</th>
-                          <th className="p-3">Raw Material</th>
-                          <th className="p-3 text-right">Unit Price (Base UOM)</th>
-                          <th className="p-3 text-right w-44 font-bold">Qty Per Piece *</th>
-                          <th className="p-3 text-right">Contribution Ratio</th>
-                          <th className="p-3 text-right">Line Total</th>
-                          <th className="p-3 text-center w-16">Remove</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {bom.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="p-6 text-center text-slate-400 dark:text-slate-500 italic">
-                              No raw materials assigned to BOM yet. Select an item above and click "Add to BoM".
-                            </td>
-                          </tr>
-                        ) : (
-                          bom.map((item, idx) => {
-                            const pct = totalRmCost > 0 ? (item.totalCost / totalRmCost) * 100 : 0;
-                            return (
-                              <tr key={item.rmId} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
-                                <td className="p-3 text-center text-slate-400">{idx + 1}</td>
-                                <td className="p-3 font-semibold text-slate-800 dark:text-white">
-                                  <div className="flex items-center gap-2">
-                                    <span>{item.name}</span>
-                                    <span className="font-mono text-[10px] text-slate-400">({item.code})</span>
-                                    {item.categoryName && (
-                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/50">
-                                        {item.categoryName}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold mt-0.5">
-                                    Available Stock: {Number(item.currentStock || 0).toFixed(2)} {item.uomLabel}
-                                  </div>
-                                </td>
-                                <td className="p-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                                  ₹{item.unitPrice.toFixed(2)} / {item.uomLabel}
-                                </td>
-                                <td className="p-3">
-                                  <div className="flex items-center gap-1.5 justify-end">
-                                    <Input
-                                      type="number"
-                                      step="0.0001"
-                                      min="0"
-                                      className="h-8 w-24 text-right font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl focus:ring-indigo-500"
-                                      value={item.consumption}
-                                      onChange={(e) => handleRmQtyChange(idx, e.target.value)}
-                                    />
-                                    <span className="text-2xs font-bold text-slate-500 dark:text-slate-400 min-w-[32px] text-left">{item.uomLabel}</span>
-                                  </div>
-                                </td>
-                                <td className="p-3 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <div className="w-16 bg-slate-200 dark:bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                                      <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${pct}%` }}></div>
-                                    </div>
-                                    <span className="font-mono text-[10px] text-slate-400">{pct.toFixed(0)}%</span>
-                                  </div>
-                                </td>
-                                <td className="p-3 text-right font-bold font-mono text-slate-800 dark:text-white">
-                                  ₹{item.totalCost.toFixed(2)}
-                                </td>
-                                <td className="p-3 text-center">
-                                  <button 
-                                    type="button" 
-                                    onClick={() => handleRemoveRm(idx)} 
-                                    className="text-rose-500 hover:text-rose-600 p-1.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* 2. Non-Inventory & Utility Overheads Table */}
-                <div>
-                  <div className="flex items-center justify-between px-4 py-2.5 bg-purple-50/40 dark:bg-purple-950/20 border-b border-t border-purple-100 dark:border-purple-900/40">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
-                        <Layers className="w-3.5 h-3.5" />
-                        🚫 Non-Inventory & Utility Overheads ({nonInventoryCosts.length})
-                      </span>
-                    </div>
-                    <span className="font-mono text-xs font-bold text-purple-700 dark:text-purple-300">
-                      Subtotal: ₹{totalNonInventoryCost.toFixed(2)}
-                    </span>
-                  </div>
-
-                  {nonInventoryCosts.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-400 dark:text-slate-500 bg-slate-50/30 dark:bg-slate-950/20 italic">
-                      No non-inventory utility items added. You can select Non-Inventory items (packaging, utilities, consumables) above to include them in the total product cost.
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto text-xs">
-                      <table className="w-full text-left">
-                        <thead className="bg-slate-50 dark:bg-slate-950/80 text-slate-500 dark:text-slate-400 uppercase font-semibold text-[11px]">
-                          <tr>
-                            <th className="p-3 w-12 text-center">SN</th>
-                            <th className="p-3">Non-Inventory Item</th>
-                            <th className="p-3">Category</th>
-                            <th className="p-3 text-right w-44 font-bold">Allocated Cost per Unit *</th>
-                            <th className="p-3 text-right">Line Total</th>
-                            <th className="p-3 text-center w-16">Remove</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {nonInventoryCosts.map((item, idx) => (
-                            <tr key={item.itemId || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10 transition-colors">
-                              <td className="p-3 text-center text-slate-400">{idx + 1}</td>
-                              <td className="p-3 font-semibold text-slate-800 dark:text-white">
-                                <div className="flex items-center gap-2">
-                                  <span>{item.name}</span>
-                                  {item.code && <span className="font-mono text-[10px] text-slate-400">({item.code})</span>}
-                                  <span className="text-[9px] uppercase px-1.5 py-0.2 rounded-full bg-purple-100 dark:bg-purple-950/80 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 font-bold">
-                                    Non-Inventory
-                                  </span>
-                                </div>
-                              </td>
-                              <td className="p-3">
-                                <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">
-                                  {item.categoryName || 'Non-Inventory'}
-                                </span>
-                              </td>
-                              <td className="p-3">
-                                <div className="flex items-center gap-1.5 justify-end">
-                                  <span className="text-xs font-mono text-slate-400">₹</span>
-                                  <Input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    className="h-8 w-28 text-right font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white rounded-xl focus:ring-indigo-500"
-                                    value={item.cost}
-                                    onChange={(e) => handleNonInventoryChange(idx, e.target.value)}
-                                  />
-                                </div>
-                              </td>
-                              <td className="p-3 text-right font-bold font-mono text-purple-700 dark:text-purple-300">
-                                ₹{Number(item.cost || 0).toFixed(2)}
-                              </td>
-                              <td className="p-3 text-center">
-                                <button 
-                                  type="button" 
-                                  onClick={() => handleRemoveNonInventory(idx)} 
-                                  className="text-rose-500 hover:text-rose-600 p-1.5 hover:bg-rose-50 dark:hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                {/* Summary Row */}
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-4 text-xs">
-                  <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-                        Raw Materials:
-                      </span>
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                        ₹{totalRmCost.toFixed(2)}
-                      </span>
-                    </div>
-                    {totalNonInventoryCost > 0 && (
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-500 dark:text-slate-400 uppercase text-[10px]">
-                          Non-Inventory:
-                        </span>
-                        <span className="font-mono font-bold text-purple-600 dark:text-purple-400">
-                          ₹{totalNonInventoryCost.toFixed(2)}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 border-l border-slate-200 dark:border-slate-700 pl-4">
-                      <span className="font-bold text-slate-700 dark:text-slate-300 uppercase text-[10px]">
-                        Total Base Product Cost:
-                      </span>
-                      <span className="font-mono font-extrabold text-sm text-indigo-600 dark:text-indigo-400">
-                        ₹{totalCost.toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="text-2xs text-slate-400 font-medium flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                    <span>Step 3 of 4: Ingredients Formulation</span>
-                  </div>
-                </div>
-
-                {/* Step 3 Navigation Footer */}
-                <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handlePrev}
-                    className="rounded-xl text-xs py-2.5 px-5 flex items-center gap-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    <span>Previous: SOP Guide</span>
-                  </Button>
                   <Button
                     type="button"
                     onClick={handleNext}
@@ -2250,7 +1811,7 @@ function ProductForm({ editId, onBack }) {
             </Card>
           )}
 
-          {/* TAB 4: Operations & Workflow Timeline (Final Step with Submission) */}
+          {/* TAB 2: Operations & Workflow Timeline (Final Step with Submission) */}
           {activeTab === 'operations' && (
             <div className="space-y-3.5 animate__animated animate__fadeIn">
               {/* 14 Standard Factory Stages Palette (Click chip to toggle Add / Remove) */}
@@ -2490,12 +2051,12 @@ function ProductForm({ editId, onBack }) {
                     className="rounded-xl text-xs py-2 px-4 flex items-center gap-2 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     <ChevronLeft className="w-4 h-4" />
-                    <span>Previous: Ingredients BOM</span>
+                    <span>Previous: Product Spec</span>
                   </Button>
 
                   <div className="flex items-center gap-3">
                     <span className="text-2xs text-slate-400 dark:text-slate-500 font-medium">
-                      Step 4 of 4: Pipeline Ready ({stages.length} stages)
+                      Step 2 of 2: Pipeline Ready ({stages.length} stages)
                     </span>
                     <Button
                       type="button"
@@ -2577,7 +2138,7 @@ function ProductForm({ editId, onBack }) {
                 onClick={handleNext}
                 className="w-full bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 text-white font-extrabold py-2.5 rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span>Next: {activeTab === 'basic' ? 'SOP Guide' : activeTab === 'recipe' ? 'Ingredients BOM' : 'Workflow Stages'}</span>
+                <span>Next: Workflow Stages</span>
                 <ChevronRight className="w-4 h-4" />
               </Button>
             )}

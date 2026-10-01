@@ -4,7 +4,9 @@ import { Search, ChevronDown, Check, X, Factory, Layers, Package, AlertCircle } 
 export default function ProductSelectCombobox({
   products = [],
   value,
+  selectedProductId,
   onChange,
+  onSelect,
   placeholder = "Select product to schedule...",
   error,
   disabled = false,
@@ -12,6 +14,7 @@ export default function ProductSelectCombobox({
   className = "",
   autoFocus = false
 }) {
+  const effectiveValue = value !== undefined ? value : (selectedProductId || '');
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
@@ -21,8 +24,8 @@ export default function ProductSelectCombobox({
   const listRef = useRef(null);
 
   const selectedProduct = useMemo(() => {
-    return products.find(p => p.id === value) || null;
-  }, [products, value]);
+    return products.find(p => p.id === effectiveValue) || null;
+  }, [products, effectiveValue]);
 
   const filteredProducts = useMemo(() => {
     if (!searchTerm.trim()) return products;
@@ -100,7 +103,8 @@ export default function ProductSelectCombobox({
   }, [highlightedIndex, isOpen]);
 
   const handleSelect = (product) => {
-    onChange?.(product.id, product);
+    onChange?.(product?.id || '', product);
+    onSelect?.(product);
     setIsOpen(false);
     setSearchTerm('');
   };
@@ -108,6 +112,7 @@ export default function ProductSelectCombobox({
   const handleClear = (e) => {
     e.stopPropagation();
     onChange?.('', null);
+    onSelect?.(null);
     setSearchTerm('');
   };
 
@@ -238,7 +243,7 @@ export default function ProductSelectCombobox({
           >
             {filteredProducts.length > 0 ? (
               filteredProducts.map((p, index) => {
-                const isSelected = p.id === value;
+                const isSelected = p.id === effectiveValue;
                 const isHighlighted = index === highlightedIndex;
 
                 return (
@@ -247,6 +252,10 @@ export default function ProductSelectCombobox({
                     data-combobox-item
                     role="option"
                     aria-selected={isSelected}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleSelect(p);
+                    }}
                     onClick={() => handleSelect(p)}
                     onMouseEnter={() => setHighlightedIndex(index)}
                     className={`px-2.5 py-2 rounded-xl flex items-center justify-between gap-3 cursor-pointer transition-all duration-100 text-xs ${

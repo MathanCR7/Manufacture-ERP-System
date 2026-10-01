@@ -18,10 +18,10 @@ export default function BatchCompletionModal({
     if (batch) {
       setActualOutput(Number(batch.quantity || 0));
       const usages = (batch.rmUsages || []).map(u => {
-        const uomLabel = u.rawMaterial?.unit?.abbreviation || 'units';
-        const isKg = /kg|kilogram/i.test(uomLabel);
-        const isL = /l|liter|litre/i.test(uomLabel);
-        const subUomLabel = isKg ? 'g' : (isL ? 'ml' : null);
+        const uomLabel = u.selectedUom || u.rawMaterial?.consumptionUnit || u.rawMaterial?.unit?.abbreviation || 'units';
+        const hasAlt = Boolean(u.rawMaterial?.hasAlternateUom);
+        const altUom = u.rawMaterial?.alternateUom;
+        const convFactor = Number(u.conversionFactorUsed || u.rawMaterial?.conversionFactor || 1.0);
 
         return {
           rmId: u.rmId,
@@ -29,9 +29,11 @@ export default function BatchCompletionModal({
           code: u.rawMaterial?.code,
           requiredQty: Number(u.requiredQty || 0),
           unit: uomLabel,
-          subUomLabel,
+          hasAlt,
+          altUom,
+          convFactor,
           selectedUnit: 'base',
-          inputValue: Number(u.requiredQty || 0)
+          inputValue: Number(u.actualUsedQty || u.requiredQty || 0)
         };
       });
       setActualRmUsages(usages);
@@ -52,18 +54,18 @@ export default function BatchCompletionModal({
     const current = updated[index];
     if (current.selectedUnit === unitChoice) return;
 
-    // Convert value between base (kg/L) and sub (g/ml)
+    const factor = current.convFactor > 0 ? current.convFactor : 1000;
     let newInputValue = Number(current.inputValue || 0);
     if (unitChoice === 'sub' && current.selectedUnit === 'base') {
-      newInputValue = newInputValue * 1000;
+      newInputValue = newInputValue * factor;
     } else if (unitChoice === 'base' && current.selectedUnit === 'sub') {
-      newInputValue = newInputValue / 1000;
+      newInputValue = factor > 0 ? newInputValue / factor : newInputValue;
     }
 
     updated[index] = {
       ...current,
       selectedUnit: unitChoice,
-      inputValue: newInputValue
+      inputValue: Number(newInputValue.toFixed(3))
     };
     setActualRmUsages(updated);
   };
@@ -73,10 +75,11 @@ export default function BatchCompletionModal({
     const payload = {
       actualOutput: Number(actualOutput),
       rmUsages: actualRmUsages.map(u => {
-        const actualVal = u.selectedUnit === 'sub' ? Number(u.inputValue) / 1000 : Number(u.inputValue);
+        const factor = u.convFactor > 0 ? u.convFactor : 1000;
+        const actualVal = u.selectedUnit === 'sub' ? Number(u.inputValue) / factor : Number(u.inputValue);
         return {
           rmId: u.rmId,
-          actualUsedQty: actualVal
+          actualUsedQty: Number(actualVal.toFixed(3))
         };
       }),
       note: completionNote
@@ -179,7 +182,7 @@ export default function BatchCompletionModal({
                       className="w-20 px-2 py-1 font-mono font-bold text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right text-slate-800 dark:text-white"
                     />
 
-                    {rm.subUomLabel ? (
+                    {rm.hasAlt && rm.altUom ? (
                       <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[9px] font-bold">
                         <button
                           type="button"
@@ -193,7 +196,7 @@ export default function BatchCompletionModal({
                           onClick={() => handleUnitToggle(idx, 'sub')}
                           className={`px-1.5 py-0.5 rounded ${rm.selectedUnit === 'sub' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-extrabold' : 'text-slate-500'}`}
                         >
-                          {rm.subUomLabel}
+                          {rm.altUom}
                         </button>
                       </div>
                     ) : (

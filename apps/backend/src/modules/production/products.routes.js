@@ -149,11 +149,14 @@ const resolveStageId = async (tx, value) => {
   return newStage.id;
 };
 
-// GET /api/products/masters - Fetch all metadata for master dropdowns
-router.get('/masters', authenticateToken, async (req, res, next) => {
+// Handler for master dropdowns and form metadata
+const getProductMastersHandler = async (req, res, next) => {
   try {
     const categories = await prisma.productCategory.findMany({
       where: { status: 'ACTIVE' },
+      include: {
+        _count: { select: { finishedProducts: true, subcategories: true } }
+      },
       orderBy: { name: 'asc' }
     });
 
@@ -196,9 +199,9 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
       orderBy: { name: 'asc' }
     });
 
-    // Approved raw materials from POs where status = approved (or all raw materials for selection)
+    // Approved raw materials for formulation
     const rawMaterials = await prisma.rawMaterial.findMany({
-      include: { category: true },
+      include: { category: true, uoms: true },
       orderBy: { name: 'asc' }
     });
 
@@ -208,12 +211,16 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
       select: { id: true, name: true, role: true }
     });
 
-    // Subcategories with their category and active specification template
+    // Subcategories with their category and base templates
     const subcategories = await prisma.productSubcategory.findMany({
       where: { status: 'ACTIVE' },
       include: {
+        _count: { select: { products: true } },
         category: { select: { id: true, name: true, code: true } },
         defaultUom: { select: { id: true, name: true, abbreviation: true } },
+        baseTemplates: {
+          select: { id: true, name: true, wastagePercent: true, overheadPercent: true }
+        },
         specTemplate: {
           include: {
             fields: {
@@ -229,7 +236,13 @@ router.get('/masters', authenticateToken, async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+};
+
+// GET /api/products/masters - Fetch all metadata for master dropdowns
+router.get('/masters', authenticateToken, getProductMastersHandler);
+
+// GET /api/products/form-metadata - Alias for master dropdowns
+router.get('/form-metadata', authenticateToken, getProductMastersHandler);
 
 // GET /api/products/stock - Current stock per finished product
 router.get('/stock', authenticateToken, async (req, res, next) => {

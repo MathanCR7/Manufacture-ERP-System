@@ -319,15 +319,13 @@ export default function DatePicker({
 
         {/* Popover Calendar Trigger Button */}
         <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              disabled={isDisabled}
-              className="p-1.5 mr-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0"
-              title="Open calendar picker"
-            >
-              <CalendarIcon className="h-4 w-4" />
-            </button>
+          <PopoverTrigger
+            type="button"
+            disabled={isDisabled}
+            className="p-1.5 mr-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer shrink-0 flex items-center justify-center border-0 bg-transparent"
+            title="Open calendar picker"
+          >
+            <CalendarIcon className="h-4 w-4" />
           </PopoverTrigger>
           <PopoverContent 
             className="w-auto p-0 rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.25)] border border-slate-200/60 dark:border-slate-700/60 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl overflow-hidden z-50" 
