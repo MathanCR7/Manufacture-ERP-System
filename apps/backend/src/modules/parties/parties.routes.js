@@ -13,12 +13,14 @@ const allowedRoles = ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES
 
 router.post('/customers', roleMiddleware(allowedRoles), PartiesController.createCustomer);
 router.get('/customers', roleMiddleware(allowedRoles), PartiesController.getCustomers);
+router.get('/customers/lookup', roleMiddleware(allowedRoles), PartiesController.lookupCustomers);
 router.get('/customers/:id', roleMiddleware(allowedRoles), PartiesController.getCustomerById);
 router.put('/customers/:id', roleMiddleware(allowedRoles), PartiesController.updateCustomer);
 router.delete('/customers/:id', roleMiddleware(['MAIN_MASTER']), PartiesController.deleteCustomer); // Only Master can delete
 
 router.post('/suppliers', roleMiddleware(allowedRoles), PartiesController.createSupplier);
 router.get('/suppliers', roleMiddleware(allowedRoles), PartiesController.getSuppliers);
+router.get('/suppliers/lookup', roleMiddleware(allowedRoles), PartiesController.lookupSuppliers);
 router.get('/suppliers/:id', roleMiddleware(allowedRoles), PartiesController.getSupplierById);
 router.put('/suppliers/:id', roleMiddleware(allowedRoles), PartiesController.updateSupplier);
 router.delete('/suppliers/:id', roleMiddleware(['MAIN_MASTER']), PartiesController.deleteSupplier); // Only Master can delete

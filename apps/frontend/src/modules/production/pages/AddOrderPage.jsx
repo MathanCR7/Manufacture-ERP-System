@@ -17,6 +17,7 @@ import { jsPDF } from 'jspdf';
 import { Pagination } from '@/components/ui/Pagination';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
+import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 
 const DEFAULT_GTC = `1. Acceptance of Order: The vendor must confirm acceptance of the Purchase Order (PO) in writing via email or signed acknowledgment within 03 working days from the date of issue. If no written confirmation is received within this window, the Buyer reserves the right to cancel the order without any financial liability.
 2. Price and Taxes: Prices stated in this PO are firm, fixed, and non-escalating. Prices are inclusive of all packing, forwarding, freight, transit insurance, and handling charges up to the delivery site. All taxes, specifically GST, must be clearly itemized on the invoice in strict accordance with CGST, SGST, and IGST rules. Any future tax benefits or Input Tax Credit (ITC) changes must be passed on to the Buyer.
@@ -59,6 +60,18 @@ const QuantitySelector = ({ value, onChange }) => {
       </button>
     </div>
   );
+};
+
+// Date-Time formatting helper
+const formatLiveDateTime = (d) => {
+  if (!d) return '';
+  const date = new Date(d);
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, '0');
+  const mins = String(date.getMinutes()).padStart(2, '0');
+  return `${day}-${month}-${year} ${hours}:${mins}`;
 };
 
 export default function AddOrderPage() {
@@ -116,7 +129,13 @@ export default function AddOrderPage() {
   const [taxRegNo, setTaxRegNo] = useState('');
   const [taxType, setTaxType] = useState('Exclusive');
   const [ourGstin, setOurGstin] = useState(storeCompany?.companyGstin || '');
-  const [interstateGstRate, setInterstateGstRate] = useState(18);
+  const [selectedGstRate, setSelectedGstRate] = useState(5); // Default 5% as requested
+  const gstRateOptions = [0, 5, 12, 18, 28];
+
+  const handleGlobalGstRateChange = (rate) => {
+    setSelectedGstRate(rate);
+    setItems(prev => prev.map(item => ({ ...item, gstRate: rate })));
+  };
 
   // Short Details Executive Summary Modal
   const [showShortSummaryModal, setShowShortSummaryModal] = useState(false);
@@ -157,18 +176,8 @@ export default function AddOrderPage() {
   const [estimates, setEstimates] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // New Customer Modal
+  // Quick Add Customer Modal
   const [showAddCustomer, setShowAddCustomer] = useState(false);
-  const [newCustForm, setNewCustForm] = useState({
-    name: '',
-    phone: '',
-    email: '',
-    customerType: 'RETAIL',
-    creditLimit: '5000',
-    address: '',
-    gstin: '',
-    note: ''
-  });
 
   // Invoice Receipt Modal Overlay
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
@@ -201,7 +210,7 @@ export default function AddOrderPage() {
       try {
         const [custRes, prodRes, taxSettingsRes] = await Promise.all([
           api.get('/parties/customers'),
-          api.get('/products'),
+          api.get('/products/search', { params: { limit: 100 } }),
           api.get('/setup/tax').catch(err => {
             console.warn('Unable to load tax settings endpoints', err);
             return { data: null };
@@ -256,6 +265,7 @@ export default function AddOrderPage() {
             quantity: Number(it.quantity),
             unitPrice: Math.round(Number(it.unitPrice)),
             discount: Math.round(Number(it.discount)),
+            gstRate: Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : selectedGstRate),
             deliveryDate: new Date(it.deliveryDate).toISOString().split('T')[0]
           })));
         } else {
@@ -317,7 +327,12 @@ export default function AddOrderPage() {
         quantity: 1,
         unitPrice: Math.round(Number(product.salePrice || 0)),
         discount: 0,
-        deliveryDate: deliveryDate || new Date().toISOString().split('T')[0]
+        gstRate: Number(product.gstRate !== undefined && product.gstRate !== null ? product.gstRate : selectedGstRate),
+        deliveryDate: deliveryDate || new Date().toISOString().split('T')[0],
+        batchNo: product.nextExpiringBatch?.batchNo || '',
+        batchId: product.nextExpiringBatch?.batchId || null,
+        expiryDate: product.nextExpiringBatch?.expiryDate || null,
+        remainingQty: product.nextExpiringBatch?.remainingQty || null
       }]);
     }
   };
@@ -350,6 +365,8 @@ export default function AddOrderPage() {
       updated[index].quantity = newQty;
     } else if (field === 'unitPrice' || field === 'discount') {
       updated[index][field] = Math.round(Number(val) || 0);
+    } else if (field === 'gstRate') {
+      updated[index][field] = Number(val);
     } else {
       updated[index][field] = val;
     }
@@ -410,8 +427,8 @@ export default function AddOrderPage() {
     if (isSameState) {
       return {
         isInterState: false,
-        cgst: 9,
-        sgst: 9,
+        cgst: selectedGstRate / 2,
+        sgst: selectedGstRate / 2,
         igst: 0
       };
     } else {
@@ -419,7 +436,7 @@ export default function AddOrderPage() {
         isInterState: true,
         cgst: 0,
         sgst: 0,
-        igst: Number(interstateGstRate)
+        igst: Number(selectedGstRate)
       };
     }
   };
@@ -441,7 +458,7 @@ export default function AddOrderPage() {
 
   const taxableBase = Math.max(0, taxableValue - discountAmount);
 
-  const gstRateOnCharges = rates.isInterState ? (interstateGstRate / 100) : 0.18;
+  const gstRateOnCharges = (selectedGstRate / 100);
 
   const freightVal = Math.round(Number(freight) || 0);
   const freightGstVal = freightGst ? freightVal * gstRateOnCharges : 0;
@@ -458,13 +475,30 @@ export default function AddOrderPage() {
   const otherVal = Math.round(Number(otherCharges) || 0);
   const otherGstVal = otherGst ? otherVal * gstRateOnCharges : 0;
 
-  const itemsCgstVal = rates.isInterState ? 0 : taxableBase * (rates.cgst / 100);
-  const itemsSgstVal = rates.isInterState ? 0 : taxableBase * (rates.sgst / 100);
-  const itemsIgstVal = rates.isInterState ? taxableBase * (rates.igst / 100) : 0;
+  const goodsRatio = taxableValue > 0 ? taxableBase / taxableValue : 1;
+  let itemsCgstVal = 0;
+  let itemsSgstVal = 0;
+  let itemsIgstVal = 0;
 
-  const cgstVal = itemsCgstVal + (rates.isInterState ? 0 : (freightGstVal + loadingGstVal + packingGstVal + insuranceGstVal + otherGstVal) / 2);
-  const sgstVal = itemsSgstVal + (rates.isInterState ? 0 : (freightGstVal + loadingGstVal + packingGstVal + insuranceGstVal + otherGstVal) / 2);
-  const igstVal = itemsIgstVal + (rates.isInterState ? (freightGstVal + loadingGstVal + packingGstVal + insuranceGstVal + otherGstVal) : 0);
+  items.forEach(it => {
+    if (!it.productId) return;
+    const qty = Number(it.quantity) || 0;
+    const rate = Math.round(Number(it.unitPrice) || 0);
+    const disc = Math.round(Number(it.discount) || 0);
+    const lineTaxable = Math.max(0, (rate - disc) * qty) * goodsRatio;
+    const lineRate = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : selectedGstRate);
+    if (rates.isInterState) {
+      itemsIgstVal += lineTaxable * (lineRate / 100);
+    } else {
+      itemsCgstVal += lineTaxable * ((lineRate / 2) / 100);
+      itemsSgstVal += lineTaxable * ((lineRate / 2) / 100);
+    }
+  });
+
+  const chargesGstTotal = freightGstVal + loadingGstVal + packingGstVal + insuranceGstVal + otherGstVal;
+  const cgstVal = collectTax ? (itemsCgstVal + (rates.isInterState ? 0 : chargesGstTotal / 2)) : 0;
+  const sgstVal = collectTax ? (itemsSgstVal + (rates.isInterState ? 0 : chargesGstTotal / 2)) : 0;
+  const igstVal = collectTax ? (itemsIgstVal + (rates.isInterState ? chargesGstTotal : 0)) : 0;
 
   const subtotalBeforeTax = taxableBase + freightVal + loadingVal + packingVal + insuranceVal + otherVal;
   const totalTax = cgstVal + sgstVal + igstVal;
@@ -474,34 +508,6 @@ export default function AddOrderPage() {
   const roundOff = roundedGrandTotal - grandTotalFinal;
 
   const totalItemQtyCount = items.reduce((acc, it) => acc + Number(it.quantity || 0), 0);
-
-  const handleAddCustomerSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await api.post('/parties/customers', {
-        name: newCustForm.name,
-        phone: newCustForm.phone,
-        email: newCustForm.email || undefined,
-        customerType: newCustForm.customerType,
-        creditLimit: parseFloat(newCustForm.creditLimit) || 5000,
-        address: newCustForm.address || undefined,
-        gstin: newCustForm.gstin || undefined,
-        note: newCustForm.note || undefined
-      });
-
-      Swal.fire('Customer Registered', `${newCustForm.name} registered!`, 'success');
-      setShowAddCustomer(false);
-      
-      const custRes = await api.get('/parties/customers');
-      setCustomers(custRes.data || []);
-      setCustomerId(res.data.id);
-      if (res.data.gstin) {
-        setTaxRegNo(res.data.gstin);
-      }
-    } catch (err) {
-      Swal.fire('Failed', err.response?.data?.message || 'Could not register customer', 'error');
-    }
-  };
 
   const getProductEmoji = (name) => {
     const lower = name.toLowerCase();
@@ -706,22 +712,22 @@ export default function AddOrderPage() {
         sY += 4.5;
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(100, 116, 139);
-        doc.text('CGST:', summaryX + 4, sY);
+        doc.text(`CGST (${(selectedGstRate / 2)}%):`, summaryX + 4, sY);
         doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Math.round(cgstVal)}`, summaryX + 77, sY, { align: 'right' });
+        doc.text(`Rs.${cgstVal.toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
 
         sY += 4.5;
         doc.setTextColor(100, 116, 139);
-        doc.text('SGST:', summaryX + 4, sY);
+        doc.text(`SGST (${(selectedGstRate / 2)}%):`, summaryX + 4, sY);
         doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Math.round(sgstVal)}`, summaryX + 77, sY, { align: 'right' });
+        doc.text(`Rs.${sgstVal.toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
       } else {
         sY += 4.5;
         doc.setFont('helvetica', 'normal');
         doc.setTextColor(100, 116, 139);
-        doc.text('IGST:', summaryX + 4, sY);
+        doc.text(`IGST (${selectedGstRate}%):`, summaryX + 4, sY);
         doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Math.round(igstVal)}`, summaryX + 77, sY, { align: 'right' });
+        doc.text(`Rs.${igstVal.toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
       }
     }
 
@@ -1008,31 +1014,31 @@ export default function AddOrderPage() {
 
     if (freightVal > 0) {
       curY += 3.2;
-      doc.text('Freight Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Freight Charges (GST ${selectedGstRate}%):`, 48, curY, { align: 'right' });
       doc.text(`Rs.${freightVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
 
     if (loadingVal > 0) {
       curY += 3.2;
-      doc.text('Loading & Unloading (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Loading & Unloading (GST ${selectedGstRate}%):`, 48, curY, { align: 'right' });
       doc.text(`Rs.${loadingVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
 
     if (packingVal > 0) {
       curY += 3.2;
-      doc.text('Packing Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Packing Charges (GST ${selectedGstRate}%):`, 48, curY, { align: 'right' });
       doc.text(`Rs.${packingVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
 
     if (insuranceVal > 0) {
       curY += 3.2;
-      doc.text('Insurance (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Insurance (GST ${selectedGstRate}%):`, 48, curY, { align: 'right' });
       doc.text(`Rs.${insuranceVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
 
     if (otherVal > 0) {
       curY += 3.2;
-      doc.text('Other Charges (GST 18%):', 48, curY, { align: 'right' });
+      doc.text(`Other Charges (GST ${selectedGstRate}%):`, 48, curY, { align: 'right' });
       doc.text(`Rs.${otherVal.toFixed(2)}`, 75, curY, { align: 'right' });
     }
 
@@ -1040,15 +1046,15 @@ export default function AddOrderPage() {
       const isTamilNadu = taxRegNo.trim().replace(/^GSTIN-/, '').substring(0, 2) === '33' || !taxRegNo;
       if (isTamilNadu) {
         curY += 3.2;
-        doc.text('CGST @ 9%:', 48, curY, { align: 'right' });
+        doc.text(`CGST @ ${(selectedGstRate / 2)}%:`, 48, curY, { align: 'right' });
         doc.text(`Rs.${cgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
 
         curY += 3.2;
-        doc.text('SGST @ 9%:', 48, curY, { align: 'right' });
+        doc.text(`SGST @ ${(selectedGstRate / 2)}%:`, 48, curY, { align: 'right' });
         doc.text(`Rs.${sgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
       } else {
         curY += 3.2;
-        doc.text('IGST @ 18%:', 48, curY, { align: 'right' });
+        doc.text(`IGST @ ${selectedGstRate}%:`, 48, curY, { align: 'right' });
         doc.text(`Rs.${igstVal.toFixed(2)}`, 75, curY, { align: 'right' });
       }
     }
@@ -1142,6 +1148,7 @@ export default function AddOrderPage() {
           quantity: Number(it.quantity),
           unitPrice: Math.round(Number(it.unitPrice)),
           discount: Math.round(Number(it.discount)),
+          gstRate: Number(it.gstRate !== undefined ? it.gstRate : selectedGstRate),
           deliveryDate: it.deliveryDate
         }))
       };
@@ -1386,6 +1393,24 @@ export default function AddOrderPage() {
                           <div>
                             <span className="text-[8px] font-mono font-bold text-slate-400 dark:text-slate-500 block">{p.code}</span>
                             <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 line-clamp-1">{p.name}</h4>
+                            {p.nextExpiringBatch?.batchNo ? (
+                              <div className="mt-1 space-y-0.5">
+                                <span className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 px-1 py-0.2 rounded text-[8px] font-mono font-bold">
+                                  ⚡ FEFO: {p.nextExpiringBatch.batchNo}
+                                </span>
+                                {p.nextExpiringBatch.expiryDate && (
+                                  <span className="block text-[8px] font-mono text-slate-400">
+                                    Exp: {new Date(p.nextExpiringBatch.expiryDate).toLocaleDateString('en-GB')}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-500 px-1 py-0.2 rounded text-[8px] font-mono">
+                                  📦 Direct Stock
+                                </span>
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 dark:border-slate-900">
                             <span className="font-mono font-black text-xs text-indigo-600 dark:text-indigo-400">₹{Math.round(Number(p.salePrice || 0))}</span>
@@ -1475,13 +1500,16 @@ export default function AddOrderPage() {
                   <SearchSelect
                     value={customerId}
                     onChange={setCustomerId}
-                    options={customers.map(c => ({
-                      value: c.id,
-                      label: c.name,
-                      subLabel: c.phone || null
-                    }))}
+                    options={customers.map(c => {
+                      const isB2B = c.customerType === 'B2B' || c.customerType === 'DISTRIBUTOR' || c.customerType === 'WHOLESALE';
+                      return {
+                        value: c.id,
+                        label: `${c.name} [${isB2B ? 'B2B' : 'Retail'}]`,
+                        subLabel: `${c.phone || ''} ${c.gstin ? '• GSTIN: ' + c.gstin : ''}`.trim() || null
+                      };
+                    })}
                     placeholder="Select Customer..."
-                    searchPlaceholder="Search by name/phone..."
+                    searchPlaceholder="Search by name / phone / GSTIN / B2B..."
                     required
                     triggerClassName="h-9 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
                   />
@@ -1545,6 +1573,14 @@ export default function AddOrderPage() {
                         {isClockRunning ? 'LIVE' : 'FREEZE'}
                       </button>
                     </div>
+                    {/* Digital Clock Display */}
+                    <div className="text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-950 px-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-2xs">
+                      <span className="flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                        {formatLiveDateTime(orderDate)}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">LIVE</span>
+                    </div>
                     <DatePicker
                       required
                       showTime
@@ -1554,9 +1590,9 @@ export default function AddOrderPage() {
                         setOrderDate(date || new Date());
                       }}
                       modalTitle="Select Order Timestamp"
-                      placeholder="Select date"
+                      placeholder="03-10-2026"
                       className="space-y-0"
-                      triggerClassName="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white w-full"
+                      triggerClassName="h-8.5 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white w-full"
                     />
                   </div>
 
@@ -1631,9 +1667,20 @@ export default function AddOrderPage() {
                               <span className="flex items-center justify-center w-5 h-5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 font-black text-[10px]">
                                 {idx + 1}
                               </span>
-                              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 line-clamp-1">
-                                {prod?.name || 'Loading...'} <span className="text-[9px] text-slate-400 font-mono">({prod?.code})</span>
-                              </h4>
+                              <div>
+                                <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 line-clamp-1">
+                                  {prod?.name || 'Loading...'} <span className="text-[9px] text-slate-400 font-mono">({prod?.code})</span>
+                                </h4>
+                                {item.batchNo ? (
+                                  <div className="text-[9px] font-mono font-bold text-amber-700 dark:text-amber-300 mt-0.5">
+                                    ⚡ Batch: {item.batchNo} {item.expiryDate ? `• Exp: ${new Date(item.expiryDate).toLocaleDateString('en-GB')}` : ''}
+                                  </div>
+                                ) : (
+                                  <div className="text-[9px] font-mono text-slate-400 mt-0.5">
+                                    📦 Direct Finished Stock
+                                  </div>
+                                )}
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -1677,9 +1724,19 @@ export default function AddOrderPage() {
                           </div>
 
                           <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-900 text-[10px] font-mono">
-                            <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-slate-400">GST:</span>
+                              <select
+                                value={item.gstRate !== undefined ? item.gstRate : selectedGstRate}
+                                onChange={(e) => handleItemChange(idx, 'gstRate', Number(e.target.value))}
+                                className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded px-1.5 py-0.5 text-[10px] font-mono font-bold text-slate-800 dark:text-slate-200 focus:outline-none cursor-pointer"
+                              >
+                                {gstRateOptions.map(r => (
+                                  <option key={r} value={r}>{r}%</option>
+                                ))}
+                              </select>
                               {sufficiency && (
-                                <span className={`px-1.5 py-0.5 text-[8px] font-black rounded uppercase ${
+                                <span className={`px-1.5 py-0.5 text-[8px] font-black rounded uppercase ml-1 ${
                                   sufficiency.status === 'Sufficient'
                                     ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
                                     : 'bg-rose-50 dark:bg-rose-950 text-rose-600 dark:text-rose-400'
@@ -1689,7 +1746,7 @@ export default function AddOrderPage() {
                               )}
                             </div>
                             <div className="flex gap-3">
-                              <span className="text-slate-500">Subtotal: <strong className="text-slate-800 dark:text-white">₹{lineSubtotal}</strong></span>
+                              <span className="text-slate-500">Subtotal: <strong className="text-slate-800 dark:text-white">₹{Number(lineSubtotal).toFixed(2)}</strong></span>
                               <span className={`font-bold ${lineProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500'}`}>
                                 Profit: ₹{lineProfit.toFixed(0)}
                               </span>
@@ -1721,6 +1778,29 @@ export default function AddOrderPage() {
               </CardHeader>
               <CardContent className="p-3.5 space-y-3 text-xs">
                 
+                {/* GST Rate Slabs Selector: 0%, 5%, 12%, 18%, 28% */}
+                {collectTax && (
+                  <div className="flex items-center justify-between gap-2 pt-0.5 pb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">GST Rate:</span>
+                    <div className="flex items-center gap-1 overflow-x-auto bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                      {gstRateOptions.map((rate) => (
+                        <button
+                          key={rate}
+                          type="button"
+                          onClick={() => handleGlobalGstRateChange(rate)}
+                          className={`px-2.5 py-0.5 rounded-lg text-xs font-mono font-bold transition-all cursor-pointer ${
+                            selectedGstRate === rate
+                              ? 'bg-indigo-600 text-white shadow-xs scale-105'
+                              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {rate}%
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Discount input row */}
                 <div className="flex gap-2 items-center">
                   <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">Discount:</span>
@@ -1786,23 +1866,23 @@ export default function AddOrderPage() {
                 <div className="bg-slate-50 dark:bg-slate-950 p-3 rounded-xl border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs font-semibold">
                   <div className="flex justify-between text-slate-500">
                     <span>Taxable Subtotal:</span>
-                    <span className="font-mono text-slate-800 dark:text-slate-200">₹{taxableValue}</span>
+                    <span className="font-mono text-slate-800 dark:text-slate-200">₹{taxableValue.toFixed(2)}</span>
                   </div>
                   {discountAmount > 0 && (
                     <div className="flex justify-between text-rose-500">
                       <span>Discount Amount:</span>
-                      <span className="font-mono">-₹{discountAmount}</span>
+                      <span className="font-mono">-₹{discountAmount.toFixed(2)}</span>
                     </div>
                   )}
                   {collectTax && (
                     <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
-                      <span>GST Tax ({rates.isInterState ? `IGST ${interstateGstRate}%` : 'CGST+SGST 18%'}):</span>
-                      <span className="font-mono">₹{Math.round(totalTax)}</span>
+                      <span>GST Tax ({rates.isInterState ? `IGST ${selectedGstRate}%` : `CGST+SGST ${selectedGstRate}%`}):</span>
+                      <span className="font-mono">₹{totalTax.toFixed(2)}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-sm font-black text-indigo-600 dark:text-indigo-400 border-t border-slate-200 dark:border-slate-800 pt-1.5">
                     <span>Grand Total:</span>
-                    <span className="font-mono text-base text-indigo-600 dark:text-indigo-400">₹{roundedGrandTotal}</span>
+                    <span className="font-mono text-base text-indigo-600 dark:text-indigo-400">₹{roundedGrandTotal.toLocaleString('en-IN')}</span>
                   </div>
                 </div>
 
@@ -1828,88 +1908,17 @@ export default function AddOrderPage() {
         </div>
       </form>
 
-      {/* Inline Customer Registration Modal */}
+      {/* Quick Add Customer Modal */}
       {showAddCustomer && (
-        <div className="fixed inset-0 bg-slate-950/60 dark:bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 w-full max-w-md rounded-3xl shadow-2xl p-5 relative border border-slate-200 dark:border-slate-800">
-            <button
-              onClick={() => setShowAddCustomer(false)}
-              className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer p-1 rounded-lg"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="font-extrabold text-sm text-slate-900 dark:text-white uppercase tracking-wider mb-4">Quick Add Customer</h3>
-            <form onSubmit={handleAddCustomerSubmit} className="space-y-3 text-xs">
-              <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Customer Name *</label>
-                <Input
-                  required
-                  placeholder="Enter customer name"
-                  value={newCustForm.name}
-                  onChange={(e) => setNewCustForm({...newCustForm, name: e.target.value})}
-                  className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Phone *</label>
-                  <Input
-                    required
-                    placeholder="Enter phone"
-                    value={newCustForm.phone}
-                    onChange={(e) => setNewCustForm({...newCustForm, phone: e.target.value})}
-                    className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Customer GSTIN</label>
-                  <Input
-                    placeholder="e.g. 33AABCL0702C1ZG"
-                    value={newCustForm.gstin}
-                    onChange={(e) => setNewCustForm({...newCustForm, gstin: e.target.value.toUpperCase()})}
-                    className="h-9 text-xs font-mono bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Email Address</label>
-                  <Input
-                    placeholder="Enter email"
-                    type="email"
-                    value={newCustForm.email}
-                    onChange={(e) => setNewCustForm({...newCustForm, email: e.target.value})}
-                    className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Customer Type</label>
-                  <select
-                    value={newCustForm.customerType}
-                    onChange={(e) => setNewCustForm({...newCustForm, customerType: e.target.value})}
-                    className="w-full h-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 text-xs focus:outline-none text-slate-900 dark:text-white"
-                  >
-                    <option value="RETAIL">Retail</option>
-                    <option value="DISTRIBUTOR">Distributor</option>
-                    <option value="WHOLESALER">Wholesaler</option>
-                  </select>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase">Billing / Delivery Address</label>
-                <Input
-                  placeholder="Billing address"
-                  value={newCustForm.address}
-                  onChange={(e) => setNewCustForm({...newCustForm, address: e.target.value})}
-                  className="h-9 text-xs bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
-                />
-              </div>
-              <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold h-10 rounded-xl cursor-pointer">
-                Save & Select Customer
-              </Button>
-            </form>
-          </div>
-        </div>
+        <QuickAddCustomerModal
+          onClose={() => setShowAddCustomer(false)}
+          onAdded={(newCust) => {
+            setCustomers(prev => [...prev, newCust]);
+            setCustomerId(newCust.id);
+            if (newCust.gstin) setTaxRegNo(newCust.gstin);
+            if (newCust.address) setDeliveryAddress(newCust.address);
+          }}
+        />
       )}
 
       {/* Short Details Executive Summary Modal (Single Compact Page View) */}
@@ -1987,23 +1996,23 @@ export default function AddOrderPage() {
               <div className="bg-slate-50 dark:bg-slate-950 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-1.5 font-mono">
                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
                   <span>Subtotal Value:</span>
-                  <span>₹{taxableValue}</span>
+                  <span>₹{taxableValue.toFixed(2)}</span>
                 </div>
                 {discountAmount > 0 && (
                   <div className="flex justify-between text-rose-600 dark:text-rose-400">
                     <span>Discount:</span>
-                    <span>-₹{discountAmount}</span>
+                    <span>-₹{discountAmount.toFixed(2)}</span>
                   </div>
                 )}
                 {collectTax && (
                   <div className="flex justify-between text-indigo-600 dark:text-indigo-400">
-                    <span>GST Taxes:</span>
-                    <span>₹{Math.round(totalTax)}</span>
+                    <span>GST Taxes ({rates.isInterState ? `IGST ${selectedGstRate}%` : `CGST+SGST ${selectedGstRate}%`}):</span>
+                    <span>₹{totalTax.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-black text-slate-900 dark:text-white border-t border-slate-200 dark:border-slate-800 pt-2 font-sans">
                   <span>Grand Total:</span>
-                  <span className="font-mono text-base text-indigo-600 dark:text-indigo-400">₹{roundedGrandTotal}</span>
+                  <span className="font-mono text-base text-indigo-600 dark:text-indigo-400">₹{roundedGrandTotal.toLocaleString('en-IN')}</span>
                 </div>
               </div>
             </div>

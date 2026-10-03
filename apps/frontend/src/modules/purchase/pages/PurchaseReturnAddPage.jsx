@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import useAuthStore from '@/app/store/authStore';
+import PartyLookupSelect from '@/modules/sales/components/PartyLookupSelect';
 
 const RETURN_REASONS = [
   { value: 'LAB_REJECTED', label: 'Lab Test Rejected' },
@@ -269,24 +270,13 @@ const PurchaseReturnAddPage = ({ onBack, prefillData }) => {
             <Building2 className="w-4 h-4 text-orange-500" /> Supplier
           </h2>
           <div>
-            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Supplier</Label>
-            <select
+            <Label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">Supplier Multi-Field Search (Name, Phone, Email, GSTIN)</Label>
+            <PartyLookupSelect
+              partyType="supplier"
               value={form.supplierId}
-              onChange={e => setForm(p => ({ ...p, supplierId: e.target.value, poId: '', grnId: '' }))}
-              className="w-full border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500"
-            >
-              <option value="">All Suppliers / Select Supplier...</option>
-              {suppliers.map(s => (
-                <option key={s.id} value={s.id}>{s.name}{s.phone ? ` · ${s.phone}` : ''}</option>
-              ))}
-            </select>
-            {selectedSupplier && (
-              <div className="mt-2 p-3 bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/30 rounded-lg text-sm">
-                <p className="font-semibold text-orange-800 dark:text-orange-300">{selectedSupplier.name}</p>
-                {selectedSupplier.email && <p className="text-orange-600 dark:text-orange-400 text-xs">{selectedSupplier.email}</p>}
-                {selectedSupplier.phone && <p className="text-orange-600 dark:text-orange-400 text-xs">{selectedSupplier.phone}</p>}
-              </div>
-            )}
+              onChange={(sup) => setForm(p => ({ ...p, supplierId: sup?.id || '', poId: '', grnId: '' }))}
+              placeholder="Search supplier by name, phone, email, or GSTIN..."
+            />
           </div>
         </div>
 

@@ -4,7 +4,10 @@ const prisma = require('../../database/prisma');
 const authenticateToken = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
 const notificationService = require('../notifications/notifications.service');
-const { sendSalesInvoiceDual } = require('../../utils/communication');
+const { sendSalesInvoiceDual, resendDocument } = require('../../utils/communication');
+const documentSeriesService = require('../../services/documentSeries.service');
+const batchAllocationService = require('../../services/batchAllocation.service');
+const gstEngine = require('../../utils/gstEngine');
 
 const router = express.Router();
 
@@ -204,6 +207,67 @@ router.get('/', authenticateToken, async (req, res, next) => {
       orderBy: { createdAt: 'desc' }
     });
     res.json(orders);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/orders/:id/details - Rich snapshot details for PDF & dual billing
+router.get('/:id/details', authenticateToken, async (req, res, next) => {
+  try {
+    const order = await prisma.customerOrder.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: {
+              include: {
+                unit: true,
+                category: true
+              }
+            },
+            batchAllocations: true
+          }
+        },
+        deliveries: true,
+        creator: {
+          select: { id: true, name: true, email: true, role: true }
+        }
+      }
+    });
+
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Include company profile for invoice header and bank account
+    const company = await prisma.companyDetails.findFirst();
+
+    // If order was converted from a parent order, fetch brief source info
+    let sourceOrder = null;
+    if (order.sourceOrderId) {
+      sourceOrder = await prisma.customerOrder.findUnique({
+        where: { id: order.sourceOrderId },
+        select: { id: true, referenceNo: true, docNo: true, type: true, createdAt: true }
+      });
+    }
+
+    res.json({
+      ...order,
+      sourceOrder,
+      company: company || {
+        companyName: 'Manufacturing ERP',
+        companyAddress: 'Industrial Area, Salem, Tamil Nadu',
+        companyGstin: '33AAAAA0000A1Z5',
+        companyMobile: '9876543210',
+        stateCode: '33',
+        bankName: 'State Bank of India',
+        bankAccountNumber: '123456789012',
+        bankIfscCode: 'SBIN0001234',
+        bankBranch: 'Main Branch'
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -485,6 +549,580 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
   } catch (error) {
     if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
     res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Shared Billing Engine for POS, Invoices, Quotations, and Sales Orders
+ */
+async function processBillingOrder({ req, type, data, defaultStatus }) {
+  return await prisma.$transaction(async (tx) => {
+    // 1. Generate Document Series & Legacy Reference
+    const seriesResult = await documentSeriesService.getNextNumber(type, tx);
+    const referenceNo = seriesResult.docNo;
+    const docNo = seriesResult.docNo;
+    const documentSeries = seriesResult.prefix;
+
+    // 2. Resolve Customer (or Walk-In for Retail POS)
+    let customer = null;
+    if (data.customerId) {
+      customer = await tx.customer.findUnique({ where: { id: data.customerId } });
+    }
+    if (!customer) {
+      customer = await tx.customer.findFirst({
+        where: { customerType: 'RETAIL', status: 'ACTIVE' }
+      });
+      if (!customer) {
+        customer = await tx.customer.findFirst();
+      }
+    }
+    if (!customer) {
+      throw new Error('No customer configured. Please add at least one customer.');
+    }
+
+    // 3. Resolve Company & State Codes for GST
+    const company = await tx.companyDetails.findFirst();
+    const sellerStateCode = company?.stateCode || (company?.gstin ? company.gstin.substring(0, 2) : '33');
+    let buyerStateCode = data.buyerStateCode;
+    if (!buyerStateCode && customer?.gstin) {
+      buyerStateCode = customer.gstin.trim().replace(/^GSTIN-/, '').substring(0, 2);
+    }
+    if (!buyerStateCode) {
+      buyerStateCode = sellerStateCode; // Default walk-in to intra-state
+    }
+    const isInterState = String(sellerStateCode) !== String(buyerStateCode);
+
+    // 4. Validate Credit Limit for B2B Invoices
+    if (type === 'Invoice' && customer.customerType === 'DISTRIBUTOR') {
+      const activeInvoices = await tx.customerOrder.findMany({
+        where: { customerId: customer.id, type: 'Invoice', deletedAt: null, paymentStatus: { not: 'PAID' } }
+      });
+      const outstanding = activeInvoices.reduce((sum, o) => sum + Number(o.grandTotal || o.totalSubtotal), 0);
+      const newEstimatedTotal = data.grandTotal || data.items.reduce((s, it) => s + (Number(it.unitPrice) * Number(it.quantity)), 0);
+      if (Number(customer.creditLimit) > 0 && (outstanding + newEstimatedTotal) > Number(customer.creditLimit)) {
+        if (!data.overrideCreditLimit) {
+          throw new Error(`Credit limit of ₹${Number(customer.creditLimit).toLocaleString('en-IN')} exceeded! Current unpaid outstanding: ₹${outstanding.toLocaleString('en-IN')}.`);
+        }
+      }
+    }
+
+    // 5. Pre-fetch Product Details & Calculate Subtotals
+    let totalCost = 0;
+    let totalProfit = 0;
+    const itemsPrepared = [];
+
+    for (const item of data.items) {
+      const prod = await tx.finishedProduct.findUnique({
+        where: { id: item.productId },
+        include: { unit: true }
+      });
+      if (!prod) throw new Error(`Product not found: ${item.productId}`);
+
+      const qty = Number(item.quantity);
+      const unitPrice = Number(item.unitPrice !== undefined ? item.unitPrice : prod.salePrice);
+      const discPercent = Number(item.discountPercent || 0);
+      const discAmt = Number(item.discount || (unitPrice * (discPercent / 100)));
+      const subtotal = Math.max(0, (unitPrice - discAmt) * qty);
+      const cost = Number(prod.totalCost || 0) * qty;
+      const profit = subtotal - cost;
+
+      totalCost += cost;
+      totalProfit += profit;
+
+      // Handle batch assignments (manual or FEFO)
+      let allocations = [];
+      let batchId = item.batchId || null;
+      let batchNo = item.batchNo || null;
+      let mfgDate = item.mfgDate ? new Date(item.mfgDate) : null;
+      let expiryDate = item.expiryDate ? new Date(item.expiryDate) : null;
+
+      if (type === 'Invoice' || type === 'POS') {
+        if (item.allocations && item.allocations.length > 0) {
+          allocations = item.allocations;
+          batchId = allocations[0].batchId;
+          batchNo = allocations[0].batchNo;
+          expiryDate = allocations[0].expiryDate ? new Date(allocations[0].expiryDate) : null;
+        } else if (item.batchId) {
+          allocations = [{
+            batchId: item.batchId,
+            batchNo: item.batchNo || 'BATCH',
+            quantity: qty,
+            expiryDate: item.expiryDate
+          }];
+        } else {
+          // FEFO auto-allocation
+          const fefoResult = await batchAllocationService.allocateFEFO(item.productId, qty, tx);
+          allocations = fefoResult.allocations;
+          if (allocations.length > 0) {
+            batchId = allocations[0].batchId;
+            batchNo = allocations[0].batchNo;
+            mfgDate = allocations[0].mfgDate ? new Date(allocations[0].mfgDate) : null;
+            expiryDate = allocations[0].expiryDate ? new Date(allocations[0].expiryDate) : null;
+          }
+        }
+      }
+
+      itemsPrepared.push({
+        productId: item.productId,
+        productName: prod.name,
+        hsnCode: item.hsnCode || prod.hsnCode || '21050000',
+        gstRate: item.gstRate !== undefined ? Number(item.gstRate) : (prod.gstRate !== undefined ? Number(prod.gstRate) : 18),
+        uomName: item.uomName || prod.unit?.abbreviation || prod.unit?.name || 'pcs',
+        quantity: qty,
+        unitPrice,
+        discount: discAmt,
+        discountPercent: discPercent,
+        subtotal,
+        cost,
+        profit,
+        deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : new Date(),
+        batchId,
+        batchNo,
+        mfgDate,
+        expiryDate,
+        allocations
+      });
+    }
+
+    // 6. Precise GST Engine calculation
+    const gstResult = gstEngine.calculateGST({
+      items: itemsPrepared.map(it => ({
+        productId: it.productId,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        discount: it.discount,
+        discountPercent: it.discountPercent,
+        gstRate: it.gstRate
+      })),
+      additionalCharges: {
+        freight: Number(data.freight || 0),
+        loading: Number(data.loadingCharges || 0),
+        packing: Number(data.packingCharges || 0),
+        insurance: Number(data.insurance || 0),
+        other: Number(data.otherCharges || 0),
+      },
+      chargeTaxRates: {
+        freightGst: Boolean(data.freightGst),
+        loadingGst: Boolean(data.loadingGst),
+        packingGst: Boolean(data.packingGst),
+        insuranceGst: Boolean(data.insuranceGst),
+        otherGst: Boolean(data.otherGst),
+      },
+      invoiceDiscount: Number(data.discountValue || data.invoiceDiscount || 0),
+      tdsDeduction: Number(data.tdsDeduction || 0),
+      sellerStateCode,
+      buyerStateCode,
+      isInterState
+    });
+
+    // 7. Payment status calculation
+    const amountPaid = Number(data.amountPaid || (type === 'POS' ? gstResult.grandTotal : 0));
+    let paymentStatus = 'PENDING';
+    if (amountPaid >= gstResult.grandTotal && gstResult.grandTotal > 0) {
+      paymentStatus = 'PAID';
+    } else if (amountPaid > 0) {
+      paymentStatus = 'PARTIAL';
+    }
+
+    const orderStatus = data.status || defaultStatus || (type === 'Invoice' || type === 'POS' ? 'Delivered' : (type === 'Sales Order' ? 'Confirmed' : 'Quotation'));
+
+    // 8. Create CustomerOrder record
+    const createdOrder = await tx.customerOrder.create({
+      data: {
+        referenceNo,
+        docNo,
+        documentSeries,
+        sourceOrderId: data.sourceOrderId || null,
+        customerId: customer.id,
+        type,
+        status: orderStatus,
+        deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : new Date(),
+        createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
+        deliveryAddress: data.deliveryAddress || (type === 'POS' ? 'Over the Counter POS' : customer.address || 'Standard Delivery'),
+        quotationNote: data.quotationNote || null,
+        internalNote: data.internalNote || data.note || null,
+        paymentTerms: data.paymentTerms || (type === 'POS' ? (data.paymentMode || 'Cash') : 'Net 30'),
+        paymentStatus,
+        amountPaid,
+        dueDate: data.dueDate ? new Date(data.dueDate) : null,
+        collectTax: true,
+        taxRegNo: customer.gstin || null,
+        taxType: isInterState ? 'Inter-State' : 'Intra-State',
+        sellerStateCode,
+        buyerStateCode,
+        placeOfSupply: data.placeOfSupply || buyerStateCode,
+        totalSubtotal: gstResult.taxableSubtotal || gstResult.netTaxableSubtotal || 0,
+        totalCost,
+        totalProfit,
+        discountValue: Number(data.discountValue || data.invoiceDiscount || 0),
+        invoiceDiscount: Number(data.discountValue || data.invoiceDiscount || 0),
+        tdsDeduction: Number(data.tdsDeduction || 0),
+        freight: gstResult.charges?.freight || 0,
+        freightGst: Boolean(data.freightGst),
+        loadingCharges: gstResult.charges?.loadingCharges || gstResult.charges?.loading || 0,
+        loadingGst: Boolean(data.loadingGst),
+        packingCharges: gstResult.charges?.packingCharges || gstResult.charges?.packing || 0,
+        packingGst: Boolean(data.packingGst),
+        insurance: gstResult.charges?.insurance || 0,
+        insuranceGst: Boolean(data.insuranceGst),
+        otherCharges: gstResult.charges?.otherCharges || gstResult.charges?.other || 0,
+        otherGst: Boolean(data.otherGst),
+        cgst: gstResult.cgst ?? gstResult.taxBreakdown?.cgst ?? 0,
+        sgst: gstResult.sgst ?? gstResult.taxBreakdown?.sgst ?? 0,
+        igst: gstResult.igst ?? gstResult.taxBreakdown?.igst ?? 0,
+        roundOff: gstResult.roundOff || 0,
+        grandTotal: gstResult.grandTotal || 0,
+        counterId: data.counterId || 'COUNTER-1',
+        cashierName: data.cashierName || req.user.name || 'Sales Staff',
+        customerName: data.customerName || (type === 'POS' ? (data.customerName || 'Walk-in Customer') : customer?.name || null),
+        customerPhone: data.customerPhone || customer?.phone || null,
+        transporterName: data.transporterName || data.transportMode || null,
+        vehicleNo: data.vehicleNo || data.vehicleNumber || null,
+        lrNo: data.lrNo || data.lrNumber || null,
+        ewayBillNo: data.ewayBillNo || data.eWayBillNumber || null,
+        ewayBillDate: data.ewayBillDate ? new Date(data.ewayBillDate) : null,
+        createdBy: req.user.id
+      }
+    });
+
+    // 9. Create Order Items with Snapshots
+    for (const item of itemsPrepared) {
+      const createdItem = await tx.customerOrderItem.create({
+        data: {
+          orderId: createdOrder.id,
+          productId: item.productId,
+          batchId: item.batchId,
+          batchNo: item.batchNo,
+          mfgDate: item.mfgDate,
+          expiryDate: item.expiryDate,
+          hsnCode: item.hsnCode,
+          gstRate: item.gstRate,
+          uomName: item.uomName,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discount: item.discount,
+          discountPercent: item.discountPercent,
+          subtotal: item.subtotal,
+          cost: item.cost,
+          profit: item.profit,
+          deliveryDate: item.deliveryDate
+        }
+      });
+
+      item.orderItemId = createdItem.id;
+    }
+
+    // 10. Commit Stock Decrements if Invoice or POS
+    if (type === 'Invoice' || type === 'POS') {
+      await batchAllocationService.commitDecrements(itemsPrepared, createdOrder, req.user.id, tx);
+    }
+
+    // 11. Delivery log
+    await tx.customerOrderDelivery.create({
+      data: {
+        orderId: createdOrder.id,
+        deliveryDate: createdOrder.deliveryDate,
+        quantity: itemsPrepared.reduce((s, it) => s + it.quantity, 0),
+        status: orderStatus === 'Delivered' ? 'Delivered' : 'Pending',
+        note: `${type} generated #${docNo}. Payment: ${paymentStatus}`
+      }
+    });
+
+    // 12. Audit Log
+    await tx.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: `CREATE_${type.toUpperCase().replace(/\s+/g, '_')}`,
+        tableName: 'customer_orders',
+        recordId: createdOrder.id,
+        oldValue: null,
+        newValue: {
+          docNo,
+          type,
+          customerName: customer.name,
+          grandTotal: createdOrder.grandTotal,
+          paymentStatus: createdOrder.paymentStatus
+        },
+        ip: req.ip || '127.0.0.1'
+      }
+    });
+
+    return createdOrder;
+  });
+}
+
+// POST /api/orders/pos - Fast counter retail billing
+router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const order = await processBillingOrder({
+      req,
+      type: 'POS',
+      data: req.body,
+      defaultStatus: 'Delivered'
+    });
+    res.status(201).json(order);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/invoice - B2B Distributor / Professional Sales Billing
+router.post('/invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']), async (req, res, next) => {
+  try {
+    const order = await processBillingOrder({
+      req,
+      type: 'Invoice',
+      data: req.body,
+      defaultStatus: 'Delivered'
+    });
+
+    // Background dual invoice communication
+    prisma.customerOrder.findUnique({
+      where: { id: order.id },
+      include: { customer: true, items: { include: { product: true } } }
+    }).then(orderWithDetails => {
+      if (orderWithDetails) sendSalesInvoiceDual(orderWithDetails);
+    }).catch(err => console.error('Failed to trigger sales invoice dual send:', err));
+
+    res.status(201).json(order);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/quotation - Quotation generation
+router.post('/quotation', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const order = await processBillingOrder({
+      req,
+      type: 'Quotation',
+      data: req.body,
+      defaultStatus: 'Quotation'
+    });
+    res.status(201).json(order);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/sales-order - Sales Order creation
+router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const order = await processBillingOrder({
+      req,
+      type: 'Sales Order',
+      data: req.body,
+      defaultStatus: 'Confirmed'
+    });
+    res.status(201).json(order);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/:id/convert-to-invoice - Quotation/Sales Order to Invoice conversion (supports partial quantities)
+router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const sourceOrderId = req.params.id;
+    const sourceOrder = await prisma.customerOrder.findUnique({
+      where: { id: sourceOrderId },
+      include: { customer: true, items: { include: { product: true } } }
+    });
+
+    if (!sourceOrder) {
+      return res.status(404).json({ error: 'Source order not found' });
+    }
+
+    if (sourceOrder.type === 'Invoice') {
+      return res.status(400).json({ error: 'Order is already an Invoice' });
+    }
+
+    const itemsToBill = req.body.items && req.body.items.length > 0 
+      ? req.body.items 
+      : sourceOrder.items.map(it => ({
+          productId: it.productId,
+          quantity: it.quantity,
+          unitPrice: it.unitPrice,
+          discount: it.discount,
+          discountPercent: it.discountPercent,
+          gstRate: it.gstRate,
+          hsnCode: it.hsnCode,
+          uomName: it.uomName
+        }));
+
+    const invoicePayload = {
+      customerId: sourceOrder.customerId,
+      sourceOrderId: sourceOrder.id,
+      deliveryAddress: req.body.deliveryAddress || sourceOrder.deliveryAddress,
+      paymentTerms: req.body.paymentTerms || sourceOrder.paymentTerms || 'Net 30',
+      paymentMode: req.body.paymentMode,
+      amountPaid: req.body.amountPaid || 0,
+      freight: req.body.freight !== undefined ? req.body.freight : sourceOrder.freight,
+      freightGst: req.body.freightGst !== undefined ? req.body.freightGst : sourceOrder.freightGst,
+      loadingCharges: req.body.loadingCharges !== undefined ? req.body.loadingCharges : sourceOrder.loadingCharges,
+      loadingGst: req.body.loadingGst !== undefined ? req.body.loadingGst : sourceOrder.loadingGst,
+      packingCharges: req.body.packingCharges !== undefined ? req.body.packingCharges : sourceOrder.packingCharges,
+      packingGst: req.body.packingGst !== undefined ? req.body.packingGst : sourceOrder.packingGst,
+      insurance: req.body.insurance !== undefined ? req.body.insurance : sourceOrder.insurance,
+      insuranceGst: req.body.insuranceGst !== undefined ? req.body.insuranceGst : sourceOrder.insuranceGst,
+      otherCharges: req.body.otherCharges !== undefined ? req.body.otherCharges : sourceOrder.otherCharges,
+      otherGst: req.body.otherGst !== undefined ? req.body.otherGst : sourceOrder.otherGst,
+      discountValue: req.body.discountValue !== undefined ? req.body.discountValue : sourceOrder.discountValue,
+      tdsDeduction: req.body.tdsDeduction !== undefined ? req.body.tdsDeduction : sourceOrder.tdsDeduction,
+      items: itemsToBill
+    };
+
+    const newInvoice = await processBillingOrder({
+      req,
+      type: 'Invoice',
+      data: invoicePayload,
+      defaultStatus: 'Delivered'
+    });
+
+    // Update parent order status to Delivered
+    await prisma.customerOrder.update({
+      where: { id: sourceOrderId },
+      data: { status: 'Delivered' }
+    });
+
+    res.status(201).json(newInvoice);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/:id/resend - Resend invoice via Email & WhatsApp
+router.post('/:id/resend', authenticateToken, async (req, res, next) => {
+  try {
+    const result = await resendDocument('SALES_INVOICE', req.params.id);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/:id/convert-to-order - Convert Quotation to Confirmed Sales Order
+router.post('/:id/convert-to-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const order = await prisma.customerOrder.findUnique({ where: { id: req.params.id } });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    
+    const updated = await prisma.customerOrder.update({
+      where: { id: req.params.id },
+      data: {
+        type: 'Sales Order',
+        status: 'Confirmed'
+      },
+      include: { customer: true, items: { include: { product: true } } }
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/:id/start-production - Move order to 'In Production'
+router.post('/:id/start-production', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const order = await prisma.customerOrder.findUnique({ where: { id: req.params.id } });
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    
+    const updated = await prisma.customerOrder.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'In Production'
+      },
+      include: { customer: true, items: { include: { product: true } } }
+    });
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/:id/payments - Record payment against order
+router.post('/:id/payments', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']), async (req, res, next) => {
+  try {
+    const { amount, paymentMode, reference } = req.body;
+    const addAmt = Number(amount);
+    if (isNaN(addAmt) || addAmt <= 0) {
+      return res.status(400).json({ error: 'Payment amount must be greater than 0' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const order = await tx.customerOrder.findUnique({ where: { id: req.params.id } });
+      if (!order) throw new Error('Order not found');
+
+      const currentPaid = Number(order.amountPaid || 0);
+      const newPaid = currentPaid + addAmt;
+      const grandTotal = Number(order.grandTotal || 0);
+
+      let paymentStatus = 'PENDING';
+      if (newPaid >= grandTotal) {
+        paymentStatus = 'PAID';
+      } else if (newPaid > 0) {
+        paymentStatus = 'PARTIAL';
+      }
+
+      const noteSuffix = ` [Payment received: ₹${addAmt} via ${paymentMode || 'Cash'}${reference ? ` Ref: ${reference}` : ''}]`;
+      const updatedOrder = await tx.customerOrder.update({
+        where: { id: req.params.id },
+        data: {
+          amountPaid: newPaid,
+          paymentStatus,
+          internalNote: (order.internalNote || '') + noteSuffix
+        }
+      });
+
+      return updatedOrder;
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/:id/cancel - Cancel order and restore stock
+router.post('/:id/cancel', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const updated = await prisma.$transaction(async (tx) => {
+      const order = await tx.customerOrder.findUnique({
+        where: { id: req.params.id },
+        include: { items: true }
+      });
+      if (!order) throw new Error('Order not found');
+      if (order.status === 'Cancelled') throw new Error('Order is already cancelled');
+
+      // If stock was allocated, restore it
+      if (order.type === 'Invoice' || order.type === 'POS' || ALLOCATED_STATUSES.includes(order.status)) {
+        await batchAllocationService.restoreStock(order.id, req.user.id, tx);
+      }
+
+      const cancelled = await tx.customerOrder.update({
+        where: { id: req.params.id },
+        data: { status: 'Cancelled' }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'CANCEL_ORDER',
+          tableName: 'customer_orders',
+          recordId: order.id,
+          oldValue: { status: order.status },
+          newValue: { status: 'Cancelled' },
+          ip: req.ip || '127.0.0.1'
+        }
+      });
+
+      return cancelled;
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 });
 

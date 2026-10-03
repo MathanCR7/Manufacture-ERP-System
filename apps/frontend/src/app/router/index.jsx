@@ -93,6 +93,8 @@ const ProductionsPage = lazy(() => import('@/modules/production/pages/Production
 const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProductionPage'));
 
 // Sales Module Pages
+const SalesBillingPage = lazy(() => import('@/modules/sales/pages/SalesBillingPage'));
+const POSPage = lazy(() => import('@/modules/sales/pages/POSPage'));
 const SalesListPage = lazy(() => import('@/modules/sales/pages/SalesListPage'));
 const SalesReturnsPage = lazy(() => import('@/modules/sales/pages/SalesReturnsPage'));
 const SalesDashboard = lazy(() => import('@/modules/sales/pages/SalesDashboard'));
@@ -410,10 +412,12 @@ const AppRouter = () => {
               <Route path="/lab-inventory/use" element={<LabInventoryUsagePage />} />
             </Route>
 
-            {/* Sales Module */}
+            {/* Unified Sales & Order Management */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM']} />}> 
-              <Route path="/sales/pos" element={<AddOrderPage />} />
-              <Route path="/sales/add" element={<AddOrderPage />} />
+              <Route path="/sales/billing" element={<SalesBillingPage />} />
+              <Route path="/sales/pos" element={<POSPage />} />
+              <Route path="/sales/add" element={<SalesBillingPage />} />
+              <Route path="/sales/orders" element={<SalesListPage />} />
               <Route path="/sales/list" element={<SalesListPage />} />
               <Route path="/sales/return" element={<SalesReturnsPage />} />
               <Route path="/sales/dashboard" element={<SalesDashboard />} />
@@ -439,7 +443,7 @@ const AppRouter = () => {
 
             {/* Customer Orders */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
-              <Route path="/orders/add" element={<OrderListPage />} />
+              <Route path="/orders/add" element={<SalesBillingPage />} />
               <Route path="/orders/list" element={<OrderListPage />} />
               <Route path="/orders/edit/:id" element={<OrderListPage />} />
               <Route path="/orders/status" element={<OrderStatusPage />} />

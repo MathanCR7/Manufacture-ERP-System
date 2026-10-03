@@ -244,6 +244,328 @@ router.get('/masters', authenticateToken, getProductMastersHandler);
 // GET /api/products/form-metadata - Alias for master dropdowns
 router.get('/form-metadata', authenticateToken, getProductMastersHandler);
 
+// GET /api/products/search - Fast lookup for billing & POS
+router.get('/search', authenticateToken, async (req, res, next) => {
+  try {
+    const q = (req.query.q || '').trim();
+    const limit = Math.min(parseInt(req.query.limit || '300', 10), 1000);
+
+    const whereClause = {
+      deletedAt: null,
+      ...(q ? {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { code: { contains: q, mode: 'insensitive' } },
+          { category: { name: { contains: q, mode: 'insensitive' } } }
+        ]
+      } : {})
+    };
+
+    const products = await prisma.finishedProduct.findMany({
+      where: whereClause,
+      take: limit,
+      include: {
+        category: { select: { id: true, name: true } },
+        unit: { select: { id: true, name: true, abbreviation: true } },
+        stockLevels: { select: { minLevel: true, maxLevel: true, reorderPoint: true } }
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const productIds = products.map(p => p.id);
+    const batches = await prisma.productionBatchNew.findMany({
+      where: {
+        productId: { in: productIds },
+        status: { in: ['Completed', 'qc_passed'] },
+        remainingQty: { gt: 0 },
+        deletedAt: null
+      },
+      orderBy: { expiryDate: 'asc' },
+      select: {
+        id: true,
+        productId: true,
+        batchNo: true,
+        referenceNo: true,
+        remainingQty: true,
+        expiryDate: true
+      }
+    });
+
+    const batchMap = {};
+    batches.forEach(b => {
+      if (!batchMap[b.productId]) batchMap[b.productId] = [];
+      batchMap[b.productId].push(b);
+    });
+
+    const results = products.map(p => {
+      const pBatches = batchMap[p.id] || [];
+      const totalBatchStock = pBatches.reduce((s, b) => s + Number(b.remainingQty || 0), 0);
+      const nextBatch = pBatches[0] || null;
+
+      return {
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        category: p.category?.name || 'General',
+        unit: p.unit?.abbreviation || p.unit?.name || 'pcs',
+        salePrice: Number(p.salePrice || 0),
+        currentStock: Number(p.currentStock || totalBatchStock || 0),
+        batchStock: totalBatchStock,
+        activeBatchesCount: pBatches.length,
+        nextExpiringBatch: nextBatch ? {
+          batchId: nextBatch.id,
+          batchNo: nextBatch.batchNo || nextBatch.referenceNo,
+          expiryDate: nextBatch.expiryDate,
+          remainingQty: Number(nextBatch.remainingQty)
+        } : null,
+        hsnCode: p.specifications?.hsnCode || p.hsnCode || '21050000',
+        gstRate: p.specifications?.gstPercent !== undefined
+          ? Number(p.specifications.gstPercent)
+          : (Number(p.igst || 0) || (Number(p.cgst || 0) + Number(p.sgst || 0)) || 5),
+        cgst: Number(p.cgst || 2.5),
+        sgst: Number(p.sgst || 2.5),
+        igst: Number(p.igst || 5.0),
+        size: p.size || '',
+        description: p.description || '',
+        specifications: p.specifications || {},
+        alertLevel: Number(p.alertLevel || 0)
+      };
+    });
+
+    res.json(results);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/products/bulk-template - Download Product Master import template
+router.get('/bulk-template', authenticateToken, async (req, res, next) => {
+  try {
+    const templateData = [
+      {
+        'Product Code': 'FP-000101',
+        'Product Name': 'Mango Kulfi 100ml',
+        'Category': 'Kulfi',
+        'UOM': 'pcs',
+        'Sale Price (INR)': 45.00,
+        'Min Stock Alert': 50,
+        'HSN Code': '21050000',
+        'GST Rate (%)': 18,
+        'Opening Stock': 100,
+        'Description': 'Premium creamy mango kulfi'
+      },
+      {
+        'Product Code': 'FP-000102',
+        'Product Name': 'Malai Kulfi Stick',
+        'Category': 'Kulfi',
+        'UOM': 'pcs',
+        'Sale Price (INR)': 35.00,
+        'Min Stock Alert': 100,
+        'HSN Code': '21050000',
+        'GST Rate (%)': 18,
+        'Opening Stock': 200,
+        'Description': 'Rich traditional cardamom malai kulfi'
+      }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Products Template');
+
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="product_master_template.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /api/products/bulk-import - Bulk validate or upsert products from Excel / CSV
+router.post('/bulk-import', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), upload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Please upload an Excel or CSV file.' });
+    }
+
+    const dryRun = req.body.dryRun === 'true' || req.body.dryRun === true;
+
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const firstSheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[firstSheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet);
+
+    if (!rows || rows.length === 0) {
+      return res.status(400).json({ error: 'The uploaded sheet is empty.' });
+    }
+
+    const validRows = [];
+    const errors = [];
+
+    const categories = await prisma.productCategory.findMany({ where: { status: 'ACTIVE' } });
+    const uoms = await prisma.uOM.findMany({ where: { isActive: true } });
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 2;
+      const rowErrors = [];
+
+      const name = (row['Product Name'] || row['name'] || '').toString().trim();
+      const code = (row['Product Code'] || row['code'] || '').toString().trim();
+      const categoryName = (row['Category'] || row['category'] || '').toString().trim();
+      const uomName = (row['UOM'] || row['uom'] || row['Unit'] || 'pcs').toString().trim();
+      const salePrice = Number(row['Sale Price (INR)'] || row['Sale Price'] || row['salePrice'] || 0);
+      const minStock = Number(row['Min Stock Alert'] || row['minLevel'] || row['Min Stock'] || 0);
+      const hsnCode = (row['HSN Code'] || row['hsnCode'] || '21050000').toString().trim();
+      const gstRate = Number(row['GST Rate (%)'] || row['gstRate'] || row['GST Rate'] || 18);
+      const openingStock = Number(row['Opening Stock'] || row['openingStock'] || 0);
+      const description = (row['Description'] || row['description'] || '').toString().trim();
+
+      if (!name) rowErrors.push('Product Name is required');
+      if (salePrice < 0 || isNaN(salePrice)) rowErrors.push('Sale Price must be a non-negative number');
+      if (gstRate < 0 || gstRate > 28 || isNaN(gstRate)) rowErrors.push('GST Rate must be between 0% and 28%');
+
+      let categoryId = null;
+      if (categoryName) {
+        const foundCat = categories.find(c => c.name.toLowerCase() === categoryName.toLowerCase());
+        if (foundCat) categoryId = foundCat.id;
+      }
+      if (!categoryId && categories.length > 0) {
+        categoryId = categories[0].id;
+      }
+
+      let uomId = null;
+      if (uomName) {
+        const foundUom = uoms.find(u => u.name.toLowerCase() === uomName.toLowerCase() || u.abbreviation.toLowerCase() === uomName.toLowerCase());
+        if (foundUom) uomId = foundUom.id;
+      }
+      if (!uomId && uoms.length > 0) {
+        uomId = uoms[0].id;
+      }
+
+      if (rowErrors.length > 0) {
+        errors.push({
+          row: rowNum,
+          productName: name || 'Unnamed',
+          code: code || 'Auto',
+          reasons: rowErrors
+        });
+      } else {
+        validRows.push({
+          row: rowNum,
+          name,
+          code: code || null,
+          categoryId,
+          unitId: uomId,
+          salePrice,
+          minStock,
+          hsnCode,
+          gstRate,
+          openingStock,
+          description,
+          uomName,
+          categoryName
+        });
+      }
+    }
+
+    if (dryRun) {
+      return res.json({
+        dryRun: true,
+        totalRows: rows.length,
+        validCount: validRows.length,
+        errorCount: errors.length,
+        validPreview: validRows.slice(0, 10),
+        errors
+      });
+    }
+
+    const importedProducts = await prisma.$transaction(async (tx) => {
+      const createdList = [];
+
+      for (const item of validRows) {
+        let finalCode = item.code;
+        if (!finalCode) {
+          finalCode = await generateProductCode(tx);
+        }
+
+        const existing = await tx.finishedProduct.findFirst({
+          where: {
+            OR: [
+              { code: finalCode },
+              { name: { equals: item.name, mode: 'insensitive' } }
+            ],
+            deletedAt: null
+          }
+        });
+
+        let savedProduct;
+        if (existing) {
+          savedProduct = await tx.finishedProduct.update({
+            where: { id: existing.id },
+            data: {
+              salePrice: item.salePrice,
+              hsnCode: item.hsnCode,
+              gstRate: item.gstRate,
+              alertLevel: item.minStock,
+              unitId: item.unitId || existing.unitId,
+              categoryId: item.categoryId || existing.categoryId,
+            }
+          });
+        } else {
+          savedProduct = await tx.finishedProduct.create({
+            data: {
+              code: finalCode,
+              name: item.name,
+              categoryId: item.categoryId,
+              unitId: item.unitId,
+              salePrice: item.salePrice,
+              currentStock: item.openingStock,
+              openingStock: item.openingStock,
+              alertLevel: item.minStock,
+              hsnCode: item.hsnCode,
+              gstRate: item.gstRate,
+              totalCost: item.salePrice * 0.7,
+              createdBy: req.user.id
+            }
+          });
+
+          await tx.productStockLevel.upsert({
+            where: { productId: savedProduct.id },
+            update: { minLevel: item.minStock, reorderPoint: item.minStock },
+            create: { productId: savedProduct.id, minLevel: item.minStock, reorderPoint: item.minStock, maxLevel: item.minStock * 5 }
+          });
+        }
+
+        createdList.push(savedProduct);
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'BULK_IMPORT_PRODUCTS',
+          tableName: 'products',
+          recordId: 'BULK',
+          oldValue: null,
+          newValue: { importedCount: createdList.length },
+          ip: req.ip || '127.0.0.1'
+        }
+      });
+
+      return createdList;
+    });
+
+    res.json({
+      success: true,
+      importedCount: importedProducts.length,
+      skippedErrorsCount: errors.length,
+      errors
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/products/stock - Current stock per finished product
 router.get('/stock', authenticateToken, async (req, res, next) => {
   try {
@@ -618,6 +940,36 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
       stockHealth = 'LOW';
     }
 
+    // 9. Fetch items of same category for Stock Query grid
+    let categoryProducts = [];
+    if (product.categoryId) {
+      const sameCategoryItems = await prisma.finishedProduct.findMany({
+        where: {
+          categoryId: product.categoryId,
+          id: { not: product.id },
+          deletedAt: null
+        },
+        take: 12,
+        include: {
+          unit: true
+        },
+        orderBy: { name: 'asc' }
+      });
+      categoryProducts = sameCategoryItems.map(p => ({
+        id: p.id,
+        code: p.code,
+        name: p.name,
+        currentStock: Number(p.openingStock || 0),
+        salePrice: Number(p.salePrice || 0),
+        unit: p.unit?.abbreviation || 'pcs'
+      }));
+    }
+
+    // Costing calculations
+    const totalBomCost = formattedBOM.reduce((sum, b) => sum + (b.totalCost || 0), 0);
+    const avgCostPrice = totalBomCost > 0 ? totalBomCost : Number(product.salePrice || 0) * 0.7;
+    const closingValue = currentBalance * avgCostPrice;
+
     res.json({
       product: {
         id: product.id,
@@ -647,6 +999,15 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
         pendingBatchesCount: formattedBatches.filter(b => b.status !== 'COMPLETED').length,
         totalOrdersCount: formattedOrders.length
       },
+      costingSummary: {
+        avgCostPrice,
+        standardCost: totalBomCost || Number(product.salePrice || 0) * 0.7,
+        closingValue,
+        salePrice: Number(product.salePrice || 0),
+        lastProduction: formattedBatches[0] || null,
+        lastSale: formattedOrders[0] || null
+      },
+      categoryProducts,
       ledger: ledgerMovements,
       batches: formattedBatches,
       orders: formattedOrders,
@@ -1143,6 +1504,17 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     product.currentStock = Number(product.openingStock || 0) + net;
 
     res.json(product);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/products/:id/available-batches - Batches for FEFO & manual picking
+router.get('/:id/available-batches', authenticateToken, async (req, res, next) => {
+  try {
+    const batchAllocationService = require('../../services/batchAllocation.service');
+    const batches = await batchAllocationService.getAvailableBatches(req.params.id);
+    res.json(batches);
   } catch (error) {
     next(error);
   }

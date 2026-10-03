@@ -40,17 +40,23 @@ export default function OrderListPage() {
   const [view, setView] = useState({ type: 'list', prefill: null });
 
   useEffect(() => {
-    if (canEdit && (location.pathname === '/orders/add' || location.pathname.startsWith('/orders/edit/') || location.state)) {
+    if (location.pathname === '/orders/add') {
+      navigate('/sales/billing?mode=sales-order', { replace: true, state: location.state });
+      return;
+    }
+    if (canEdit && (location.pathname.startsWith('/orders/edit/') || location.state)) {
       setView({ type: 'create', prefill: location.state });
     } else {
       setView({ type: 'list', prefill: null });
     }
-  }, [location, canEdit]);
+  }, [location, canEdit, navigate]);
 
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [typeFilter, setTypeFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState('date_desc');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -68,17 +74,23 @@ export default function OrderListPage() {
   const compAddr = storeCompany?.companyAddress || 'Factory / Registered Office Address';
   const compGstin = storeCompany?.companyGstin || '';
 
-  const fetchOrders = async () => {
-    setLoading(true);
+  const fetchOrders = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await api.get('/orders');
-      const sorted = (res.data || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      setOrders(sorted);
+      setOrders(res.data || []);
     } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    finally { if (!silent) setLoading(false); }
   };
 
-  useEffect(() => { fetchOrders(); }, []);
+  // Automatic live sync every 10 seconds without manual sync button
+  useEffect(() => { 
+    fetchOrders(); 
+    const interval = setInterval(() => {
+      fetchOrders(true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Sync parameter search ID
   useEffect(() => {
@@ -868,20 +880,54 @@ export default function OrderListPage() {
     }
   };
 
-  // Reset page when search term or filter changes
+  // Reset page when search term, type filter, or status filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, statusFilter]);
+  }, [searchTerm, statusFilter, typeFilter, sortBy]);
 
-  const filtered = orders.filter(o => {
-    const matchSearch = o.referenceNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        o.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase());
+  const sortedAndFiltered = orders.filter(o => {
+    const term = searchTerm.toLowerCase().trim();
+    const matchSearch = !term || (
+      (o.referenceNo || '').toLowerCase().includes(term) ||
+      (o.customer?.name || o.customerName || '').toLowerCase().includes(term) ||
+      (o.customer?.phone || o.customerPhone || '').toLowerCase().includes(term) ||
+      (o.deliveryAddress || '').toLowerCase().includes(term)
+    );
     const matchStatus = statusFilter === 'All' || o.status === statusFilter;
-    return matchSearch && matchStatus;
+    const matchType = typeFilter === 'ALL' || o.type === typeFilter;
+    return matchSearch && matchStatus && matchType;
+  }).sort((a, b) => {
+    if (sortBy === 'date_desc') return new Date(b.createdAt) - new Date(a.createdAt);
+    if (sortBy === 'date_asc') return new Date(a.createdAt) - new Date(b.createdAt);
+    if (sortBy === 'ref_asc') return (a.referenceNo || '').localeCompare(b.referenceNo || '', undefined, { numeric: true });
+    if (sortBy === 'ref_desc') return (b.referenceNo || '').localeCompare(a.referenceNo || '', undefined, { numeric: true });
+    if (sortBy === 'customer_asc') return (a.customerName || a.customer?.name || '').localeCompare(b.customerName || b.customer?.name || '');
+    if (sortBy === 'customer_desc') return (b.customerName || b.customer?.name || '').localeCompare(a.customerName || a.customer?.name || '');
+    if (sortBy === 'amount_desc') return Number(b.grandTotal || b.totalSubtotal || 0) - Number(a.grandTotal || a.totalSubtotal || 0);
+    if (sortBy === 'amount_asc') return Number(a.grandTotal || a.totalSubtotal || 0) - Number(b.grandTotal || b.totalSubtotal || 0);
+    if (sortBy === 'status_asc') return (a.status || '').localeCompare(b.status || '');
+    return 0;
   });
 
-  const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const totalPages = Math.ceil(sortedAndFiltered.length / PAGE_SIZE) || 1;
+  const paginated = sortedAndFiltered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+
+  const handleToggleSort = (field) => {
+    setSortBy(prev => {
+      if (field === 'date') return prev === 'date_desc' ? 'date_asc' : 'date_desc';
+      if (field === 'ref') return prev === 'ref_asc' ? 'ref_desc' : 'ref_asc';
+      if (field === 'customer') return prev === 'customer_asc' ? 'customer_desc' : 'customer_asc';
+      if (field === 'amount') return prev === 'amount_desc' ? 'amount_asc' : 'amount_desc';
+      if (field === 'status') return prev === 'status_asc' ? 'date_desc' : 'status_asc';
+      return 'date_desc';
+    });
+  };
+
+  const getSortIcon = (field) => {
+    if (sortBy === `${field}_asc`) return <ArrowUp className="w-3.5 h-3.5 text-indigo-600 inline ml-1" />;
+    if (sortBy === `${field}_desc`) return <ArrowDown className="w-3.5 h-3.5 text-indigo-600 inline ml-1" />;
+    return <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-60 inline ml-1" />;
+  };
 
   if (view.type === 'create') {
     return <AddOrderPage />;
@@ -955,14 +1001,28 @@ export default function OrderListPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-xl text-xs border border-slate-200 dark:border-slate-800 print:bg-slate-50">
             <div className="space-y-1">
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Billed To Customer</span>
-              <p className="font-extrabold text-slate-800 dark:text-white text-xs">{selectedOrder.customer?.name}</p>
-              {selectedOrder.customer?.phone && <p className="text-slate-500 dark:text-slate-400 font-mono">Phone: {selectedOrder.customer.phone}</p>}
-              <p className="text-slate-550 dark:text-slate-400 leading-relaxed">Address: {selectedOrder.deliveryAddress || selectedOrder.customer?.address || 'N/A'}</p>
+              <p className="font-extrabold text-slate-800 dark:text-white text-xs">
+                {selectedOrder.customerName || selectedOrder.customer?.name || (selectedOrder.type === 'POS' ? 'Walk-in Cash Customer' : 'Unregistered Client')}
+              </p>
+              {(selectedOrder.customerPhone || selectedOrder.customer?.phone) && (
+                <p className="text-slate-500 dark:text-slate-400 font-mono">
+                  Phone: {selectedOrder.customerPhone || selectedOrder.customer?.phone}
+                </p>
+              )}
+              <p className="text-slate-550 dark:text-slate-400 leading-relaxed">
+                Address: {selectedOrder.deliveryAddress || selectedOrder.customer?.address || 'N/A'}
+              </p>
             </div>
             <div className="text-left sm:text-right space-y-1 text-xs">
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Order Parameters</span>
               <p className="text-slate-700 dark:text-slate-350">Order Type: <strong className="text-slate-900 dark:text-white">{selectedOrder.type}</strong></p>
-              <p className="text-slate-700 dark:text-slate-350">Payment Status: <strong className="text-indigo-605 dark:text-indigo-400">{selectedOrder.paymentTerms || 'Not Paid'}</strong></p>
+              {selectedOrder.counterId && (
+                <p className="text-slate-700 dark:text-slate-350">
+                  POS Counter: <strong className="text-emerald-600 font-mono">{selectedOrder.counterId}</strong>
+                  {selectedOrder.cashierName && <span> • Cashier: {selectedOrder.cashierName}</span>}
+                </p>
+              )}
+              <p className="text-slate-700 dark:text-slate-350">Payment Status: <strong className="text-indigo-605 dark:text-indigo-400">{selectedOrder.paymentStatus || selectedOrder.paymentTerms || 'PAID'}</strong></p>
               <p className="text-slate-700 dark:text-slate-355">Delivery Date: <strong className="text-slate-900 dark:text-white">{new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB')}</strong></p>
               <p className="text-slate-700 dark:text-slate-355">Status: <strong className="text-emerald-600 uppercase">{selectedOrder.status}</strong></p>
             </div>
@@ -974,7 +1034,7 @@ export default function OrderListPage() {
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950 text-slate-650 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-200 dark:border-slate-800">
                   <th className="px-4 py-2.5 text-center w-12 font-bold">SN</th>
-                  <th className="px-4 py-2.5">Item Details</th>
+                  <th className="px-4 py-2.5">Item Details & Batch</th>
                   <th className="px-4 py-2.5 text-right w-16">Qty</th>
                   <th className="px-4 py-2.5 text-right w-24">Rate</th>
                   <th className="px-4 py-2.5 text-right w-20">Discount</th>
@@ -988,7 +1048,13 @@ export default function OrderListPage() {
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10">
                       <td className="px-4 py-2.5 text-center text-slate-400 font-bold">{idx + 1}</td>
                       <td className="px-4 py-2.5 font-bold text-slate-805 dark:text-slate-200">
-                        {item.product?.name} <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">({item.product?.code})</span>
+                        {item.productName || item.product?.name} <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">({item.product?.code || item.hsnCode || '21050000'})</span>
+                        {(item.batchNo || item.expiryDate) && (
+                          <div className="text-[10px] flex items-center gap-2 mt-0.5 font-normal">
+                            {item.batchNo && <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 px-1.5 py-0.2 rounded font-mono font-bold">Batch: {item.batchNo}</span>}
+                            {item.expiryDate && <span className="text-slate-400 font-mono">Exp: {new Date(item.expiryDate).toLocaleDateString('en-GB')}</span>}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-right font-mono">{item.quantity}</td>
                       <td className="px-4 py-2.5 text-right font-mono">₹{Number(item.unitPrice).toFixed(2)}</td>
@@ -1114,10 +1180,17 @@ export default function OrderListPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-            <ShoppingCart className="w-5.5 h-5.5 text-indigo-650" />
-            Customer Order Registry
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+              <ShoppingCart className="w-5.5 h-5.5 text-indigo-650" />
+              Customer Order Registry
+            </h1>
+            {/* Auto-Sync Live Badge */}
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold font-mono">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span>LIVE AUTO-SYNC</span>
+            </div>
+          </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Browse quotations, check fulfillment timelines, and modify active sales orders.
           </p>
@@ -1125,22 +1198,28 @@ export default function OrderListPage() {
         {canEdit && (
           <div className="flex gap-2">
             <Button
-              onClick={() => navigate('/orders/add')}
-              className="bg-indigo-600 hover:bg-indigo-750 text-white font-bold text-xs px-4 py-2 rounded-xl shadow-md h-9"
+              onClick={() => navigate('/sales/billing?mode=sales-order')}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-sm h-9 flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <Plus className="w-4 h-4 mr-1" /> Add New Order (POS Mode)
+              <Plus className="w-4 h-4" /> New B2B Order / Invoice
+            </Button>
+            <Button
+              onClick={() => navigate('/sales/pos')}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-sm h-9 flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <ShoppingCart className="w-4 h-4" /> Open POS Counter
             </Button>
           </div>
         )}
       </div>
 
-      {/* Toolbar filters */}
+      {/* Toolbar filters matching /rm/stock */}
       <div className="bg-slate-50/50 dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-3 justify-between items-center text-xs">
         <div className="flex items-center gap-2 w-full md:w-auto flex-1">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-405" />
             <Input
-              placeholder="Search by reference no or customer name..."
+              placeholder="Search reference no, customer, phone, address..."
               className="pl-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-850 dark:text-white rounded-xl focus:ring-indigo-500 text-xs h-9"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
@@ -1148,7 +1227,21 @@ export default function OrderListPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 w-full md:w-auto justify-end">
+        <div className="flex items-center gap-2 flex-wrap w-full md:w-auto justify-end">
+          {/* Document Type Filter */}
+          <select
+            value={typeFilter}
+            onChange={e => setTypeFilter(e.target.value)}
+            className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
+          >
+            <option value="ALL">All Document Types</option>
+            <option value="Sales Order">Sales Orders</option>
+            <option value="Invoice">Tax Invoices</option>
+            <option value="Quotation">Quotations</option>
+            <option value="POS">Retail POS</option>
+          </select>
+
+          {/* Status Filter */}
           <div className="flex items-center gap-1.5">
             <Filter className="w-4 h-4 text-slate-400" />
             <select
@@ -1163,15 +1256,23 @@ export default function OrderListPage() {
             </select>
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchOrders}
-            className="flex items-center gap-1.5 border-slate-200 dark:border-slate-700 rounded-xl h-9 text-xs font-bold bg-white dark:bg-slate-950 cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          {/* Sort By Dropdown */}
+          <div className="flex items-center gap-1.5">
+            <ArrowUpDown className="w-4 h-4 text-slate-400" />
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-2.5 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold"
+            >
+              <option value="date_desc">Date (Newest First)</option>
+              <option value="date_asc">Date (Oldest First)</option>
+              <option value="ref_asc">Ref No (Ascending)</option>
+              <option value="ref_desc">Ref No (Descending)</option>
+              <option value="customer_asc">Customer (A → Z)</option>
+              <option value="amount_desc">Amount (Highest)</option>
+              <option value="amount_asc">Amount (Lowest)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -1181,12 +1282,32 @@ export default function OrderListPage() {
           <table className="w-full text-left">
             <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-450 uppercase font-bold tracking-widest border-b dark:border-slate-800">
               <tr>
-                <th className="px-4 py-2.5">Reference No</th>
-                <th className="px-4 py-2.5">Customer Name</th>
+                <th className="px-4 py-2.5 cursor-pointer group" onClick={() => handleToggleSort('ref')}>
+                  <div className="flex items-center">
+                    <span>Reference No</span>
+                    {getSortIcon('ref')}
+                  </div>
+                </th>
+                <th className="px-4 py-2.5 cursor-pointer group" onClick={() => handleToggleSort('customer')}>
+                  <div className="flex items-center">
+                    <span>Customer Name</span>
+                    {getSortIcon('customer')}
+                  </div>
+                </th>
                 <th className="px-4 py-2.5 text-center">Type</th>
                 <th className="px-4 py-2.5 text-right">Items Count</th>
-                <th className="px-4 py-2.5 text-right">Total Amount</th>
-                <th className="px-4 py-2.5 text-center">Delivery Date</th>
+                <th className="px-4 py-2.5 text-right cursor-pointer group" onClick={() => handleToggleSort('amount')}>
+                  <div className="flex items-center justify-end">
+                    <span>Total Amount</span>
+                    {getSortIcon('amount')}
+                  </div>
+                </th>
+                <th className="px-4 py-2.5 text-center cursor-pointer group" onClick={() => handleToggleSort('date')}>
+                  <div className="flex items-center justify-center">
+                    <span>Delivery Date</span>
+                    {getSortIcon('date')}
+                  </div>
+                </th>
                 <th className="px-4 py-2.5 text-center">Order Status</th>
                 <th className="px-4 py-2.5 text-center">Actions</th>
               </tr>
@@ -1207,7 +1328,14 @@ export default function OrderListPage() {
                   return (
                     <tr key={order.id} className="dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none">
                       <td className="px-4 py-2.5 font-mono font-bold text-indigo-650 dark:text-indigo-400">{order.referenceNo}</td>
-                      <td className="px-4 py-2.5 font-bold text-slate-805 dark:text-slate-200">{order.customer?.name}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200">
+                        <div>{order.customerName || order.customer?.name || (order.type === 'POS' ? 'Walk-in Cash Customer' : 'Unregistered Client')}</div>
+                        {order.counterId && (
+                          <div className="text-[10px] text-slate-400 font-mono font-normal">
+                            {order.counterId} {order.cashierName ? `• ${order.cashierName}` : ''}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-center text-slate-500 font-semibold">{order.type}</td>
                       <td className="px-4 py-2.5 text-right font-mono font-bold">{itemsCount}</td>
                       <td className="px-4 py-2.5 text-right font-mono font-black text-slate-855 dark:text-white">

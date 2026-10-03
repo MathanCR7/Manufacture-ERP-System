@@ -43,6 +43,16 @@ class PartiesController {
     }
   }
 
+  async lookupCustomers(req, res, next) {
+    try {
+      const q = req.query.q || '';
+      const customers = await PartiesRepository.lookupCustomers(q);
+      res.json(customers);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getCustomerById(req, res, next) {
     try {
       const customer = await PartiesRepository.getCustomerById(req.params.id);
@@ -164,6 +174,16 @@ class PartiesController {
   async getSuppliers(req, res, next) {
     try {
       const suppliers = await PartiesRepository.getAllSuppliers();
+      res.json(suppliers);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async lookupSuppliers(req, res, next) {
+    try {
+      const q = req.query.q || '';
+      const suppliers = await PartiesRepository.lookupSuppliers(q);
       res.json(suppliers);
     } catch (error) {
       next(error);

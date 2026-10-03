@@ -16,8 +16,9 @@ export default function AddCustomerPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const [countryCode, setCountryCode] = React.useState('+91');
   const { register, handleSubmit, reset, control, formState: { errors } } = useForm({
-    defaultValues: { balanceType: 'DEBIT', customerType: 'RETAIL' }
+    defaultValues: { balanceType: 'DEBIT', customerType: 'B2B' }
   });
 
   const { data: existingCustomer, isLoading: isFetching } = useQuery({
@@ -98,7 +99,12 @@ export default function AddCustomerPage() {
   });
 
   const onSubmit = (data) => {
-    mutation.mutate(data);
+    const rawPhone = (data.phone || '').trim();
+    const fullPhone = rawPhone.startsWith('+') ? rawPhone : `${countryCode} ${rawPhone}`;
+    mutation.mutate({
+      ...data,
+      phone: fullPhone
+    });
   };
 
   if (isEditMode && isFetching) {
@@ -127,12 +133,28 @@ export default function AddCustomerPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">Phone <span className="text-red-500">*</span></label>
-              <input 
-                {...register('phone', { required: true })} 
-                className="w-full px-3 py-2 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs" 
-                placeholder="Phone" 
-              />
+              <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase">Mobile / WhatsApp <span className="text-red-500">*</span></label>
+              <div className="flex gap-1.5">
+                <select
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                  className="w-24 px-2 py-2 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-mono text-xs font-bold shrink-0"
+                >
+                  <option value="+91">+91 (IN)</option>
+                  <option value="+1">+1 (US)</option>
+                  <option value="+44">+44 (UK)</option>
+                  <option value="+971">+971 (AE)</option>
+                  <option value="+65">+65 (SG)</option>
+                  <option value="+60">+60 (MY)</option>
+                  <option value="+61">+61 (AU)</option>
+                </select>
+                <input 
+                  {...register('phone', { required: true })} 
+                  type="tel"
+                  className="flex-1 px-3 py-2 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-mono font-semibold text-xs" 
+                  placeholder="e.g. 9876543210" 
+                />
+              </div>
               {errors.phone && <span className="text-3xs text-red-500 font-bold">Phone is required</span>}
             </div>
 
@@ -193,8 +215,9 @@ export default function AddCustomerPage() {
                 {...register('customerType')}
                 className="w-full px-3 py-2 border border-slate-200 rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 h-9 font-semibold text-xs"
               >
-                <option value="RETAIL">Retail</option>
-                <option value="WHOLESALE">Wholesale</option>
+                <option value="B2B">B2B (Business / Distributor / Wholesale)</option>
+                <option value="RETAIL">Customer / Retail (Individual / Walk-In)</option>
+                <option value="WHOLESALE">Wholesale Client</option>
                 <option value="DISTRIBUTOR">Distributor</option>
               </select>
             </div>

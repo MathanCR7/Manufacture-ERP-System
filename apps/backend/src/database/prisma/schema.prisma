@@ -446,6 +446,11 @@ model Supplier {
   user User? @relation(fields: [addedBy], references: [id])
   purchaseOrders RawMaterialPO[] // <--- ADDED
   rmQuotationSuppliers RMQuotationSupplier[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([gstin])
+  @@index([name])
 }
 
 model Customer {
@@ -473,6 +478,11 @@ model Customer {
 
   user User? @relation(fields: [addedBy], references: [id])
   ordersNew CustomerOrder[] @relation("CustomerOrders")
+
+  @@index([phone])
+  @@index([email])
+  @@index([gstin])
+  @@index([name])
 }
 
 model Expense {
@@ -1132,6 +1142,7 @@ model ProductionBatchNew {
   qcTests             LabProductionTestNew[]
   stockMovements      ProductStockMovement[]
   losses              ProductionLoss[]
+  batchAllocations    BatchAllocation[]
 
   @@map("production_batches")
 }
@@ -1359,6 +1370,31 @@ model CustomerOrder {
   createdAt      DateTime                 @default(now()) @map("created_at")
   updatedAt      DateTime                 @updatedAt @map("updated_at")
 
+  // Dual-Billing Engine Additions
+  docNo           String?                  @map("doc_no")
+  documentSeries  String?                  @map("document_series")
+  sourceOrderId   String?                  @map("source_order_id")
+  sourceOrder     CustomerOrder?           @relation("OrderConversions", fields: [sourceOrderId], references: [id])
+  childOrders     CustomerOrder[]          @relation("OrderConversions")
+  sellerStateCode String?                  @default("33") @map("seller_state_code")
+  buyerStateCode  String?                  @map("buyer_state_code")
+  placeOfSupply   String?                  @map("place_of_supply")
+  paymentStatus   String                   @default("UNPAID") @map("payment_status")
+  amountPaid      Decimal                  @default(0) @map("amount_paid")
+  dueDate         DateTime?                @map("due_date")
+  invoiceDiscount Decimal                  @default(0) @map("invoice_discount")
+  counterId       String?                  @map("counter_id")
+  cashierName     String?                  @map("cashier_name")
+  customerName    String?                  @map("customer_name")
+  customerPhone   String?                  @map("customer_phone")
+  
+  // Transport & E-Way Bill fields
+  transporterName String?                  @map("transporter_name")
+  vehicleNo       String?                  @map("vehicle_no")
+  lrNo            String?                  @map("lr_no")
+  ewayBillNo      String?                  @map("eway_bill_no")
+  ewayBillDate    DateTime?                @map("eway_bill_date")
+
   customer       Customer                 @relation("CustomerOrders", fields: [customerId], references: [id])
   creator        User                     @relation("CustomerOrderCreator", fields: [createdBy], references: [id])
   items          CustomerOrderItem[]
@@ -1382,8 +1418,20 @@ model CustomerOrderItem {
   profit       Decimal
   deliveryDate DateTime        @map("delivery_date")
 
-  order        CustomerOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product      FinishedProduct @relation(fields: [productId], references: [id])
+  // Dual-Billing Batch & Snapshot Attributes
+  batchId         String?         @map("batch_id")
+  batchNo         String?         @map("batch_no")
+  mfgDate         DateTime?       @map("mfg_date")
+  expiryDate      DateTime?       @map("expiry_date")
+  hsnCode         String?         @map("hsn_code")
+  gstRate         Decimal         @default(18.0) @map("gst_rate")
+  uomName         String?         @map("uom_name")
+  discountPercent Decimal         @default(0) @map("discount_percent")
+  productName     String?         @map("product_name")
+
+  order           CustomerOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         FinishedProduct @relation(fields: [productId], references: [id])
+  batchAllocations BatchAllocation[]
 
   @@map("customer_order_items")
 }
@@ -1873,16 +1921,53 @@ model CommunicationLog {
 }
 
 model CompanyDetails {
-  id             String   @id @default(uuid())
-  companyName    String   @map("company_name")
-  companyAddress String   @db.Text @map("company_address")
-  companyGstin   String   @map("company_gstin")
-  companyPan     String   @map("company_pan")
-  companyMobile  String   @map("company_mobile")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(uuid())
+  companyName        String   @map("company_name")
+  companyAddress     String   @db.Text @map("company_address")
+  companyGstin       String   @map("company_gstin")
+  companyPan         String   @map("company_pan")
+  companyMobile      String   @map("company_mobile")
+  email              String?
+  bankName           String?  @map("bank_name")
+  bankAccountNo      String?  @map("bank_account_no")
+  bankIfsc           String?  @map("bank_ifsc")
+  bankBranch         String?  @map("bank_branch")
+  logoUrl            String?  @db.Text @map("logo_url")
+  signatureUrl       String?  @db.Text @map("signature_url")
+  termsAndConditions String?  @db.Text @map("terms_and_conditions")
+  stateCode          String?  @default("33") @map("state_code")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("company_details")
+}
+
+model BatchAllocation {
+  id          String             @id @default(uuid())
+  orderItemId String             @map("order_item_id")
+  batchId     String             @map("batch_id")
+  batchNo     String             @map("batch_no")
+  quantity    Decimal
+  expiryDate  DateTime?          @map("expiry_date")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  orderItem   CustomerOrderItem  @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  batch       ProductionBatchNew @relation(fields: [batchId], references: [id])
+
+  @@map("batch_allocations")
+}
+
+model DocumentSeries {
+  id            String   @id @default(uuid())
+  type          String   // QUOTATION, SALES_ORDER, INVOICE, POS, DEBIT_NOTE, DELIVERY_CHALLAN
+  prefix        String   // QT, SO, INV, POS, DN, DC
+  financialYear String   @map("financial_year") // e.g. "26-27"
+  currentNo     Int      @default(0) @map("current_no")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([type, financialYear])
+  @@map("document_series")
 }
 
 model SalesCampaign {

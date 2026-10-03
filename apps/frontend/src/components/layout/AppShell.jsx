@@ -732,13 +732,42 @@ const MENU_GROUPS = [
     ]
   },
   {
-    id: 'orders',
-    title: 'Orders',
-    icon: ShoppingCart,
+    id: 'salesAndOrders',
+    title: 'Sales & Order Management',
+    icon: ShoppingBag,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
     items: [
-      { name: '📋 Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
-      { name: '🚦 Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] }
+      {
+        id: 'billingSubmenu',
+        name: '⚡ Billing & POS',
+        isNested: true,
+        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
+        children: [
+          { name: '💼 B2B Sales Billing', path: '/sales/billing', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+          { name: '⚡ Retail POS Counter', path: '/sales/pos', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
+        ]
+      },
+      {
+        id: 'ordersSubmenu',
+        name: '🛒 Orders & Tracking',
+        isNested: true,
+        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
+        children: [
+          { name: '📋 Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
+          { name: '🚦 Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] }
+        ]
+      },
+      {
+        id: 'salesSubmenu',
+        name: '💰 Sales & Invoices',
+        isNested: true,
+        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
+        children: [
+          { name: '📋 Sales Records', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+          { name: '↩️ Returns & Replacements', path: '/sales/return', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+          { name: '📊 Manager Analytics', path: '/sales/dashboard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
+        ]
+      }
     ]
   },
   {
@@ -788,17 +817,7 @@ const MENU_GROUPS = [
       { name: '🏦 Accounts', path: '/finance/accounts', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
     ]
   },
-  {
-    id: 'sales',
-    title: 'Sales',
-    icon: DollarSign,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
-    items: [
-      { name: '📋 Sales & Invoices', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: '↩️ Returns & Replacements', path: '/sales/return', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-      { name: '📊 Manager Analytics', path: '/sales/dashboard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-    ]
-  },
+
 
   {
     id: 'companyDirectory',
@@ -816,8 +835,6 @@ const MENU_GROUPS = [
     icon: Users,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'],
     items: [
-      { name: '📋 Display List', path: '/company-directory', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
-      { name: '📝 Req Form', path: '/company-directory/req-form', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
       { name: '👥 Customer List', path: '/parties/customers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
       { name: '🤝 Supplier List', path: '/parties/suppliers', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT'] },
       { name: '👥 User Management', path: '/admin/users', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
@@ -877,12 +894,11 @@ const SIDEBAR_LAYOUT = [
   { type: 'group', id: 'purchases' },
   { type: 'group', id: 'lab' },
   { type: 'group', id: 'rmStock' },
-  { type: 'group', id: 'orders' },
+  { type: 'group', id: 'salesAndOrders' },
   { type: 'group', id: 'forecasting' },
   { type: 'group', id: 'production' },
   { type: 'group', id: 'products' },
   { type: 'group', id: 'finance' },
-  { type: 'group', id: 'sales' },
   { type: 'group', id: 'reports' },
 
   { type: 'group', id: 'parties' },
@@ -1441,9 +1457,13 @@ const AppShell = () => {
 
     const searchLower = sidebarSearch.toLowerCase();
     const groupMatches = group.title.toLowerCase().includes(searchLower);
-    const matchedItems = visibleItems.filter(item => 
-      item.name.toLowerCase().includes(searchLower)
-    );
+    const matchedItems = visibleItems.filter(item => {
+      if (item.isNested) {
+        return item.name.toLowerCase().includes(searchLower) ||
+          item.children?.some(child => child.name.toLowerCase().includes(searchLower));
+      }
+      return item.name.toLowerCase().includes(searchLower);
+    });
 
     if (groupMatches) {
       return { ...group, filteredItems: visibleItems, forceExpand: true };
@@ -1686,7 +1706,11 @@ const AppShell = () => {
             const isExpanded = expandedGroups[group.id] || group.forceExpand;
             const GroupIcon = group.icon;
             const visibleItems = group.filteredItems;
-            const hasActiveChild = visibleItems.some(item => isItemActive(item.path));
+            const hasActiveChild = visibleItems.some(item => 
+              item.isNested 
+                ? item.children?.some(child => isItemActive(child.path))
+                : isItemActive(item.path)
+            );
 
             return (
               <div key={group.id} className={`mb-2 relative w-full flex flex-col transition-all duration-300 group/menu ${isSidebarCollapsed ? 'items-center px-2' : 'px-4'}`}>
@@ -1795,7 +1819,7 @@ const AppShell = () => {
                             {/* Submenu links (Opens when user clicks or if active route) */}
                             <div className={`overflow-hidden transition-all duration-300 ease-in-out ml-3 pl-3 border-l-2 border-indigo-200 dark:border-indigo-800/80 space-y-1 ${
                               (isRmExpanded || isChildActive) 
-                                ? 'max-h-40 opacity-100 mt-1 py-1' 
+                                ? 'max-h-60 opacity-100 mt-1 py-1' 
                                 : 'max-h-0 opacity-0 mt-0 pointer-events-none'
                             }`}>
                               {item.children.map(child => {
