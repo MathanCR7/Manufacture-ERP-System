@@ -3,7 +3,7 @@ import { api } from '@/lib/axios';
 import {
   ShoppingCart, Search, RefreshCw, Plus, Edit, Trash2, Eye,
   Download, Printer, X, ChevronLeft, Package,
-  TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown, Info, Sparkles, AlertCircle, Loader2, AlertTriangle
+  TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown, ArrowUp, ArrowDown, Info, Sparkles, AlertCircle, Loader2, AlertTriangle
 } from 'lucide-react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import useAuthStore from '@/app/store/authStore';

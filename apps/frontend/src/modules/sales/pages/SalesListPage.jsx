@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '@/lib/axios';
 import { 
   FileText, Search, RefreshCw, AlertTriangle, ShieldAlert, Award, 
   Clock, ArrowRight, X, ChevronLeft, Eye, Printer, Sparkles, Loader2, 
   Download, ShoppingBag, CheckCircle2, User, CreditCard, Banknote, Layers, Plus,
-  MessageSquare, Mail, Play, Building2, Send, Share2
+  MessageSquare, Mail, Play, Building2, Send, Share2,
+  ArrowUp, ArrowDown, ArrowUpDown, Filter
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
