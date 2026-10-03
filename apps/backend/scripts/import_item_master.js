@@ -1,22 +1,37 @@
 const xlsx = require('xlsx');
 const { PrismaClient } = require('@prisma/client');
 const path = require('path');
+const fs = require('fs');
 
 const prisma = new PrismaClient();
-const EXCEL_PATH = 'C:/Users/matha/Downloads/Vitta Item Master Upload 230926.xlsx';
+
+function loadProductRows() {
+  const localXlsx = path.join(__dirname, 'Vitta_Item_Master_Upload.xlsx');
+  const localJson = path.join(__dirname, 'vitta_item_master_data.json');
+  const winPath = 'C:/Users/matha/Downloads/Vitta Item Master Upload 230926.xlsx';
+
+  if (fs.existsSync(localXlsx)) {
+    const wb = xlsx.readFile(localXlsx);
+    return { rows: xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]), source: localXlsx };
+  }
+  if (fs.existsSync(localJson)) {
+    return { rows: JSON.parse(fs.readFileSync(localJson, 'utf8')), source: localJson };
+  }
+  if (fs.existsSync(winPath)) {
+    const wb = xlsx.readFile(winPath);
+    return { rows: xlsx.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]), source: winPath };
+  }
+  throw new Error('Could not find item master source data file (looked for local .xlsx, local .json, and Windows download path).');
+}
 
 async function importItemMaster(dryRun = false) {
+  const { rows, source } = loadProductRows();
   console.log(`\n======================================================`);
   console.log(`VITTA ITEM MASTER IMPORT UTILITY`);
   console.log(`Mode: ${dryRun ? 'DRY-RUN (Simulating)' : 'LIVE EXECUTION'}`);
-  console.log(`Source File: ${EXCEL_PATH}`);
+  console.log(`Source File: ${source}`);
   console.log(`======================================================\n`);
-
-  // 1. Read Excel File
-  const wb = xlsx.readFile(EXCEL_PATH);
-  const sheet = wb.Sheets[wb.SheetNames[0]];
-  const rows = xlsx.utils.sheet_to_json(sheet);
-  console.log(`✓ Read ${rows.length} product rows from Excel spreadsheet.`);
+  console.log(`✓ Loaded ${rows.length} product rows from source.`);
 
   // 2. Fetch Admin User
   const adminUser = await prisma.user.findFirst();
