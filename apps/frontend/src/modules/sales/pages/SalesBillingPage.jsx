@@ -332,11 +332,18 @@ export default function SalesBillingPage() {
   // -------------------------------------------------------------
   // INTELLIGENT TAX CALCULATION WITH GSTIN AUTO + MANUAL OVERRIDE
   // -------------------------------------------------------------
-  const buyerStateCode = placeOfSupply || (taxRegNo.trim().length >= 2 ? taxRegNo.trim().substring(0, 2) : sellerStateCode);
+  const customerGstin = (taxRegNo || selectedCustomer?.gstin || '').trim();
+  const customerStateCode = getStateCodeFromGstin(customerGstin);
+  const hasCustomerGstin = Boolean(customerStateCode);
+
+  const buyerStateCode = placeOfSupply || customerStateCode || sellerStateCode;
   const buyerStateObj = indianStates.find(s => s.code === String(buyerStateCode)) || { code: buyerStateCode, name: 'State ' + buyerStateCode };
 
   let isInterState = false;
-  if (taxMode === 'INTRA') {
+  if (hasCustomerGstin) {
+    // Strictly auto-applied & locked when GSTIN is available
+    isInterState = String(sellerStateCode) !== String(customerStateCode);
+  } else if (taxMode === 'INTRA') {
     isInterState = false;
   } else if (taxMode === 'INTER') {
     isInterState = true;
@@ -892,47 +899,44 @@ export default function SalesBillingPage() {
                   )}
                 </div>
 
-                {/* 3-Way Pill Switcher */}
-                <div className="grid grid-cols-3 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setTaxMode('AUTO')}
-                    className={`py-1 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center ${
-                      taxMode === 'AUTO'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span>⚡ Auto</span>
-                    <span className="text-[8px] font-normal opacity-80">From GSTIN</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTaxMode('INTRA')}
-                    className={`py-1 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center ${
-                      taxMode === 'INTRA'
-                        ? 'bg-emerald-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span>🏛️ CGST+SGST</span>
-                    <span className="text-[8px] font-normal opacity-80">Intra-State</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setTaxMode('INTER')}
-                    className={`py-1 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex flex-col items-center justify-center ${
-                      taxMode === 'INTER'
-                        ? 'bg-purple-600 text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
-                    }`}
-                  >
-                    <span>🌐 IGST</span>
-                    <span className="text-[8px] font-normal opacity-80">Inter-State</span>
-                  </button>
-                </div>
+                {hasCustomerGstin ? (
+                  <div className="p-2.5 bg-slate-100 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-amber-500 font-bold text-xs">🔒</span>
+                      <span className={`text-xs font-black ${isInterState ? 'text-purple-600 dark:text-purple-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                        {isInterState ? '🌐 INTER-STATE (IGST)' : '🏛️ INTRA-STATE (CGST + SGST)'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium">Auto-Applied via GSTIN (Locked)</span>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setTaxMode('INTRA')}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                        !isInterState
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <span>🏛️ Intra-State</span>
+                      <span className="text-[9px] opacity-80">(CGST+SGST)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTaxMode('INTER')}
+                      className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                        isInterState
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <span>🌐 Inter-State</span>
+                      <span className="text-[9px] opacity-80">(IGST)</span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Customer GSTIN & Place of Supply State Inputs */}
                 <div className="grid grid-cols-2 gap-3 pt-1">

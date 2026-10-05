@@ -102,8 +102,38 @@ const getProductUnitOfSale = (p) => p?.unitOfSale || p?.unit || p?.specification
 const getProductSalePrice = (p) => Number(p?.salePrice !== undefined ? p.salePrice : (p?.price || 0));
 const getProductLiveStock = (p) => Number(p?.stock !== undefined ? p.stock : (p?.currentStock !== undefined ? p.currentStock : (p?.batchStock || 0)));
 
+// Indian State name helper (from 2-digit GST code)
+const getIndianStateName = (code) => {
+  if (!code) return 'Tamil Nadu';
+  const cleanCode = String(code).padStart(2, '0');
+  const match = getIndianStates().find(s => s.code === cleanCode);
+  return match ? match.name : `State (${cleanCode})`;
+};
+
+// Helper to synchronize line item tax codes when supply type changes (Intra-State vs Inter-State)
+const updateLinesTaxCodesForSupplyType = (currentLines, toInterState) => {
+  return currentLines.map(l => {
+    let newCode = l.taxCode;
+    const rate = Number(l.gstRate) || 5;
+    if (toInterState) {
+      if (rate === 18) newCode = 'IGST18';
+      else if (rate === 12) newCode = 'IGST12';
+      else if (rate === 28) newCode = 'IGST28';
+      else if (rate === 0) newCode = 'EXEMPT';
+      else newCode = 'IGST5';
+    } else {
+      if (rate === 18) newCode = 'SCG18';
+      else if (rate === 12) newCode = 'SCG12';
+      else if (rate === 28) newCode = 'SCG28';
+      else if (rate === 0) newCode = 'EXEMPT';
+      else newCode = 'SCG5';
+    }
+    return { ...l, taxCode: newCode };
+  });
+};
+
 // Create empty document line
-const createEmptyLine = (index = 1) => ({
+const createEmptyLine = (index = 1, isInter = false) => ({
   id: `line_${Date.now()}_${Math.random()}`,
   rowNo: index,
   productId: '',
@@ -116,7 +146,7 @@ const createEmptyLine = (index = 1) => ({
   quantity: 1,
   unitPrice: 0,
   discountPercent: 0,
-  taxCode: 'SCG5',
+  taxCode: isInter ? 'IGST5' : 'SCG5',
   gstRate: 5,
   distrRule: 'Main FG Warehouse',
   stock: 0,
@@ -201,9 +231,10 @@ export default function SalesOrderPage() {
   const [paymentMethod, setPaymentMethod] = useState('Bank Transfer / NEFT');
   const [advancePaid, setAdvancePaid] = useState(0);
 
-  // Tax Tab Fields
+  // Tax Tab Fields & Tax Supply Type
   const [taxRegNo, setTaxRegNo] = useState('');
   const [placeOfSupply, setPlaceOfSupply] = useState('33'); // Default Tamil Nadu (33)
+  const [manualSupplyType, setManualSupplyType] = useState(null); // null | 'INTRA_STATE' | 'INTER_STATE'
 
   // Attachments State & Uploads
   const [attachments, setAttachments] = useState([]);
@@ -416,6 +447,70 @@ export default function SalesOrderPage() {
     setGridSubcategorySearchQuery('');
   };
 
+  // Determine Supplier State Code from Company GSTIN (first 2 digits)
+  const supplierGstin = storeCompany?.companyGstin || storeCompany?.gstin || storeCompany?.taxRegNo || '33XXXXXXXXXXXXXX';
+  const supplierStateCode = getStateCodeFromGstin(supplierGstin) || storeCompany?.stateCode || '33';
+  const sellerStateCode = supplierStateCode;
+
+  // Determine Customer State Code from Customer GSTIN (first 2 digits)
+  const customerGstin = (taxRegNo || selectedCustomer?.gstin || '').trim();
+  const customerStateCode = getStateCodeFromGstin(customerGstin);
+  const hasCustomerGstin = Boolean(customerStateCode);
+
+  // If GST is available: CANNOT CHANGE, auto-applied based on supplierStateCode !== customerStateCode
+  // If GST is NOT available: can change manually using manualSupplyType (defaults to INTRA_STATE)
+  const isInterState = hasCustomerGstin
+    ? String(supplierStateCode) !== String(customerStateCode)
+    : (manualSupplyType ? manualSupplyType === 'INTER_STATE' : String(sellerStateCode) !== String(placeOfSupply));
+
+  // Toggle or select Tax Supply Type manually (ONLY available if Customer GSTIN is NOT present)
+  const handleTaxSupplyTypeChange = (newType) => {
+    if (hasCustomerGstin) {
+      // Locked: Cannot change if customer GSTIN is available
+      return;
+    }
+    setManualSupplyType(newType);
+    const toInter = newType === 'INTER_STATE';
+    if (toInter) {
+      if (String(placeOfSupply) === String(sellerStateCode)) {
+        setPlaceOfSupply(sellerStateCode === '33' ? '29' : '33');
+      }
+    } else {
+      setPlaceOfSupply(sellerStateCode);
+    }
+    setLines(prev => updateLinesTaxCodesForSupplyType(prev, toInter));
+  };
+
+  // Handle GSTIN Input change with automatic state code extraction & tax rule update
+  const handleGstinInputChange = (newGstin) => {
+    const upper = newGstin.toUpperCase().trim();
+    setTaxRegNo(upper);
+    const custState = getStateCodeFromGstin(upper);
+    if (custState) {
+      setPlaceOfSupply(custState);
+      const autoInter = String(sellerStateCode) !== String(custState);
+      setManualSupplyType(null); // Strictly locked to GST rule
+      setLines(prev => updateLinesTaxCodesForSupplyType(prev, autoInter));
+      setStatusMessage({
+        type: 'info',
+        text: `✔ GSTIN entered: ${upper} (${getIndianStateName(custState)}) ➔ 🔒 ${autoInter ? 'Inter-State IGST' : 'Intra-State CGST+SGST'} Auto-Applied & Locked`
+      });
+    } else {
+      setManualSupplyType('INTRA_STATE');
+      setPlaceOfSupply(sellerStateCode);
+      setLines(prev => updateLinesTaxCodesForSupplyType(prev, false));
+    }
+  };
+
+  // Handle Place of Supply select dropdown change (Available when no GSTIN or manual)
+  const handlePlaceOfSupplyChange = (newPlace) => {
+    if (hasCustomerGstin) return; // Locked by GSTIN
+    setPlaceOfSupply(newPlace);
+    const autoInter = String(sellerStateCode) !== String(newPlace);
+    setManualSupplyType(autoInter ? 'INTER_STATE' : 'INTRA_STATE');
+    setLines(prev => updateLinesTaxCodesForSupplyType(prev, autoInter));
+  };
+
   // Handle Customer Selection
   const handleCustomerChange = (cid) => {
     setCustomerId(cid);
@@ -425,29 +520,40 @@ export default function SalesOrderPage() {
       setContactPerson(cust.contactPerson || cust.phone || '');
       setShipToAddress(cust.shippingAddress || cust.address || '');
       setBillToAddress(cust.billingAddress || cust.address || '');
-      setTaxRegNo(cust.gstin || '');
+      const cGstin = cust.gstin || cust.taxRegNo || '';
+      setTaxRegNo(cGstin);
       if (cust.paymentTerms) setPaymentTerms(cust.paymentTerms);
 
-      if (cust.gstin) {
-        const extractedState = getStateCodeFromGstin(cust.gstin);
-        if (extractedState) setPlaceOfSupply(extractedState);
+      const custState = getStateCodeFromGstin(cGstin);
+      if (custState) {
+        setPlaceOfSupply(custState);
+        const autoInter = String(sellerStateCode) !== String(custState);
+        setManualSupplyType(null); // Locked to GSTIN rule
+        setLines(prev => updateLinesTaxCodesForSupplyType(prev, autoInter));
+        setStatusMessage({
+          type: 'info',
+          text: `✔ Customer selected: ${cust.name} (GSTIN: ${cGstin} • ${getIndianStateName(custState)} (${custState}) ➔ 🔒 ${autoInter ? 'Inter-State IGST' : 'Intra-State CGST+SGST'} Auto-Applied & Locked)`
+        });
+      } else {
+        setManualSupplyType('INTRA_STATE');
+        setPlaceOfSupply(sellerStateCode);
+        setLines(prev => updateLinesTaxCodesForSupplyType(prev, false));
+        setStatusMessage({
+          type: 'info',
+          text: `✔ Customer selected: ${cust.name} (Unregistered / No GSTIN • Can manually toggle CGST+SGST / IGST)`
+        });
       }
-      setStatusMessage({
-        type: 'info',
-        text: `✔ Customer selected: ${cust.name} (${cust.gstin ? `GSTIN: ${cust.gstin}` : 'Unregistered'})`
-      });
     } else {
       setSelectedCustomer(null);
       setContactPerson('');
       setShipToAddress('');
       setBillToAddress('');
       setTaxRegNo('');
+      setManualSupplyType(null);
+      setPlaceOfSupply(sellerStateCode);
+      setLines(prev => updateLinesTaxCodesForSupplyType(prev, false));
     }
   };
-
-  // Determine Inter-State vs Intra-State
-  const sellerStateCode = storeCompany?.stateCode || (storeCompany?.companyGstin ? storeCompany.companyGstin.substring(0, 2) : '33');
-  const isInterState = String(sellerStateCode) !== String(placeOfSupply);
 
   // Line Calculations & Real-Time Stock Feasibility Checking
   const computedLines = useMemo(() => {
@@ -511,7 +617,9 @@ export default function SalesOrderPage() {
     const pAmt = Number(packingCharges) || 0;
     const oAmt = Number(otherCharges) || 0;
 
-    const targetBuyerState = placeOfSupply || (selectedCustomer?.gstin ? getStateCodeFromGstin(selectedCustomer.gstin) : null) || sellerStateCode;
+    const targetBuyerState = isInterState
+      ? (placeOfSupply && String(placeOfSupply) !== String(sellerStateCode) ? placeOfSupply : (sellerStateCode === '33' ? '29' : '33'))
+      : String(sellerStateCode);
 
     const gstCalcResult = calculateGST({
       sellerStateCode: String(sellerStateCode || '33'),
@@ -578,6 +686,7 @@ export default function SalesOrderPage() {
     packingCharges, packingGst,
     otherCharges, otherGst,
     sellerStateCode, placeOfSupply, selectedCustomer, taxRegNo,
+    isInterState,
     isRoundingEnabled,
     advancePaid
   ]);
@@ -595,7 +704,12 @@ export default function SalesOrderPage() {
     if (!product) return;
     const price = getProductSalePrice(product);
     const gstPct = (Number(product.cgst || 0) + Number(product.sgst || 0)) || Number(product.igst || 0) || 5;
-    const taxCd = gstPct === 18 ? 'SCG18' : (gstPct === 12 ? 'SCG12' : (gstPct === 28 ? 'SCG28' : 'SCG5'));
+    let taxCd;
+    if (isInterState) {
+      taxCd = gstPct === 18 ? 'IGST18' : (gstPct === 12 ? 'IGST12' : (gstPct === 28 ? 'IGST28' : (gstPct === 0 ? 'EXEMPT' : 'IGST5')));
+    } else {
+      taxCd = gstPct === 18 ? 'SCG18' : (gstPct === 12 ? 'SCG12' : (gstPct === 28 ? 'SCG28' : (gstPct === 0 ? 'EXEMPT' : 'SCG5')));
+    }
     const liveStock = getProductLiveStock(product);
 
     setLines(prev => prev.map(l => {
@@ -1104,9 +1218,10 @@ export default function SalesOrderPage() {
       paymentMethod: paymentMethod,
       paymentMode: paymentMethod,
       amountPaid: Number(advancePaid) || 0,
-      placeOfSupply: placeOfSupply,
+      placeOfSupply: isInterState ? (placeOfSupply || '29') : sellerStateCode,
       sellerStateCode: sellerStateCode,
-      buyerStateCode: placeOfSupply,
+      buyerStateCode: isInterState ? (placeOfSupply || '29') : sellerStateCode,
+      taxType: isInterState ? 'INTER_STATE' : 'INTRA_STATE',
       totalSubtotal: financials.taxableSubtotal,
       discountPercent: Number(discountPercent) || 0,
       discountValue: financials.docDiscAmt,
@@ -1188,8 +1303,9 @@ export default function SalesOrderPage() {
         gstin: taxRegNo,
         phone: contactPerson
       },
-      buyerStateCode: placeOfSupply,
+      buyerStateCode: isInterState ? (placeOfSupply || '29') : sellerStateCode,
       sellerStateCode: sellerStateCode,
+      taxType: isInterState ? 'INTER_STATE' : 'INTRA_STATE',
       paymentTerms: paymentTerms,
       transporterName: transporterName,
       vehicleNo: vehicleNo,
@@ -1298,7 +1414,7 @@ export default function SalesOrderPage() {
           <span className="text-amber-400 text-base">📋</span>
           <span>Sales Order</span>
           <span className="text-xs font-normal text-slate-300 opacity-80 pl-2.5 border-l border-slate-600">
-            Enterprise Document Studio • Full View • Intra-State (33)
+            Enterprise Document Studio • Full View
           </span>
         </div>
 
@@ -1490,6 +1606,112 @@ export default function SalesOrderPage() {
                 size="sm"
                 className="h-[24px] text-[11.5px]"
               />
+            </div>
+          </div>
+
+          {/* Customer GST Number & Tax Supply Type Determination */}
+          <div className="flex items-center">
+            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+              Customer GSTIN
+            </label>
+            <div className="flex-1 max-w-[460px] flex items-center gap-1.5 flex-wrap">
+              {taxRegNo ? (
+                <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded font-mono font-bold text-[11.5px] text-blue-700 dark:text-blue-300">
+                  <span>{taxRegNo}</span>
+                  {customerStateCode && (
+                    <span className="font-sans font-medium text-[10.5px] text-slate-500 dark:text-slate-400">
+                      • {getIndianStateName(customerStateCode)} ({customerStateCode})
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                    Not Available (Unregistered)
+                  </span>
+                  <input
+                    type="text"
+                    value={taxRegNo}
+                    onChange={(e) => handleGstinInputChange(e.target.value)}
+                    placeholder="Enter GSTIN..."
+                    className="w-36 h-[22px] px-1.5 font-mono text-[10.5px] uppercase border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                    title="Enter 15-digit GSTIN to auto-calculate tax state"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Tax Supply Type Rule (Auto-Applied & Locked if GST Available, Editable if Not Available) */}
+          <div className="flex items-center">
+            <label className="w-32 text-[var(--sap-text-muted)] font-semibold text-[11.5px] shrink-0">
+              Tax Rule & Type
+            </label>
+            <div className="flex-1 max-w-[460px] flex items-center gap-2 flex-wrap">
+              {hasCustomerGstin ? (
+                /* GST Available: CANNOT BE CHANGED, AUTO APPLIED & LOCKED */
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded border shadow-xs ${
+                    isInterState
+                      ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-300 dark:border-blue-800 text-blue-800 dark:text-blue-300'
+                      : 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  }`}>
+                    <span className="text-amber-500 font-black text-xs">🔒</span>
+                    <span className="font-extrabold text-[11.5px]">
+                      {isInterState ? '🌐 INTER-STATE (IGST)' : '🏛️ INTRA-STATE (CGST + SGST)'}
+                    </span>
+                    <span className="text-[10px] font-semibold opacity-90 pl-1.5 border-l border-current">
+                      Auto-Applied (Cannot be changed)
+                    </span>
+                  </div>
+                  <span className="text-[10.5px] text-slate-500 dark:text-slate-400 font-medium">
+                    (Supplier {supplierStateCode} {isInterState ? '≠' : '='} Customer {customerStateCode})
+                  </span>
+                </div>
+              ) : (
+                /* GST NOT Available: USER CAN MANUALLY CHANGE BETWEEN CGST+SGST AND IGST */
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center bg-slate-200 dark:bg-slate-800 p-0.5 rounded border border-slate-300 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => handleTaxSupplyTypeChange('INTRA_STATE')}
+                      className={`px-2.5 py-0.5 text-[11px] font-bold rounded transition-all flex items-center gap-1 cursor-pointer ${
+                        !isInterState
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="Intra-State: CGST + SGST"
+                    >
+                      <span>🏛️ Intra-State</span>
+                      <span className="text-[9.5px] opacity-90 font-normal">(CGST + SGST)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTaxSupplyTypeChange('INTER_STATE')}
+                      className={`px-2.5 py-0.5 text-[11px] font-bold rounded transition-all flex items-center gap-1 cursor-pointer ${
+                        isInterState
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                      title="Inter-State: IGST"
+                    >
+                      <span>🌐 Inter-State</span>
+                      <span className="text-[9.5px] opacity-90 font-normal">(IGST)</span>
+                    </button>
+                  </div>
+
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                    isInterState
+                      ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-800'
+                      : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800'
+                  }`}>
+                    {isInterState ? 'IGST Selected' : 'CGST + SGST Selected'}
+                  </span>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                    (Manual Selection Active)
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1996,20 +2218,32 @@ export default function SalesOrderPage() {
                           onChange={(e) => {
                             const val = e.target.value;
                             let rate = 5;
-                            if (val === 'SCG18') rate = 18;
-                            if (val === 'SCG12') rate = 12;
-                            if (val === 'SCG28') rate = 28;
-                            if (val === 'EXEMPT') rate = 0;
+                            if (val.includes('18')) rate = 18;
+                            else if (val.includes('12')) rate = 12;
+                            else if (val.includes('28')) rate = 28;
+                            else if (val === 'EXEMPT') rate = 0;
                             handleLineChange(line.id, 'taxCode', val);
                             handleLineChange(line.id, 'gstRate', rate);
                           }}
                           className="w-full h-full px-1.5 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)] cursor-pointer"
                         >
-                          <option value="SCG5">SCG5 (5%)</option>
-                          <option value="SCG12">SCG12 (12%)</option>
-                          <option value="SCG18">SCG18 (18%)</option>
-                          <option value="SCG28">SCG28 (28%)</option>
-                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          {!isInterState ? (
+                            <>
+                              <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                              <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                              <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                              <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                              <option value="EXEMPT">EXEMPT (0%)</option>
+                            </>
+                          ) : (
+                            <>
+                              <option value="IGST5">IGST5 (5% - Integrated GST)</option>
+                              <option value="IGST12">IGST12 (12% - Integrated GST)</option>
+                              <option value="IGST18">IGST18 (18% - Integrated GST)</option>
+                              <option value="IGST28">IGST28 (28% - Integrated GST)</option>
+                              <option value="EXEMPT">EXEMPT (0%)</option>
+                            </>
+                          )}
                         </select>
                       </td>
 
@@ -2468,7 +2702,7 @@ export default function SalesOrderPage() {
                   <input
                     type="text"
                     value={taxRegNo}
-                    onChange={(e) => setTaxRegNo(e.target.value.toUpperCase())}
+                    onChange={(e) => handleGstinInputChange(e.target.value)}
                     placeholder="33AAAAA0000A1Z5"
                     className="flex-1 h-[24px] px-2 font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] uppercase outline-none"
                   />
@@ -2477,8 +2711,11 @@ export default function SalesOrderPage() {
                   <label className="w-36 text-[var(--sap-text-muted)] font-medium">Place of Supply</label>
                   <select
                     value={placeOfSupply}
-                    onChange={(e) => setPlaceOfSupply(e.target.value)}
-                    className="flex-1 h-[24px] px-2 text-[11.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                    disabled={hasCustomerGstin}
+                    onChange={(e) => handlePlaceOfSupplyChange(e.target.value)}
+                    className={`flex-1 h-[24px] px-2 text-[11.5px] font-semibold border border-[var(--sap-border-inner)] ${
+                      hasCustomerGstin ? 'bg-[var(--sap-input-readonly)] opacity-85 cursor-not-allowed' : 'bg-[var(--sap-input-bg)]'
+                    } text-[var(--sap-text)] outline-none`}
                   >
                     {getIndianStates().map(st => (
                       <option key={st.code} value={st.code}>
@@ -2487,12 +2724,48 @@ export default function SalesOrderPage() {
                     ))}
                   </select>
                 </div>
+                <div className="flex items-center gap-2">
+                  <label className="w-36 text-[var(--sap-text-muted)] font-medium">Tax Supply Type</label>
+                  {hasCustomerGstin ? (
+                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-300 dark:border-slate-700 text-[11px] font-bold">
+                      <span className="text-amber-500">🔒</span>
+                      <span className={isInterState ? 'text-blue-700 dark:text-blue-300' : 'text-emerald-700 dark:text-emerald-300'}>
+                        {isInterState ? 'Inter-State (IGST)' : 'Intra-State (CGST + SGST)'}
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-normal pl-1">
+                        (Locked by GSTIN)
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center bg-slate-200 dark:bg-slate-800 p-0.5 rounded border border-slate-300 dark:border-slate-700">
+                      <button
+                        type="button"
+                        onClick={() => handleTaxSupplyTypeChange('INTRA_STATE')}
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all cursor-pointer ${
+                          !isInterState ? 'bg-emerald-600 text-white' : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        🏛️ Intra-State (CGST + SGST)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleTaxSupplyTypeChange('INTER_STATE')}
+                        className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all cursor-pointer ${
+                          isInterState ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        🌐 Inter-State (IGST)
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xs text-[11px] text-blue-900 dark:text-blue-300">
                   <div className="font-bold flex items-center gap-1.5">
                     <span>{isInterState ? '🌐 Inter-State Supply (IGST Applied)' : '🏛️ Intra-State Supply (CGST + SGST Applied)'}</span>
+                    {hasCustomerGstin && <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold">• 🔒 Auto-Applied</span>}
                   </div>
                   <div className="text-[10.5px] opacity-85 mt-0.5">
-                    Seller: Tamil Nadu (33) ➔ Buyer Place of Supply: State ({placeOfSupply})
+                    Seller: {getIndianStateName(supplierStateCode)} ({supplierStateCode}) ➔ Buyer Place of Supply: {getIndianStateName(placeOfSupply)} ({placeOfSupply})
                   </div>
                 </div>
               </div>
@@ -2945,14 +3218,71 @@ export default function SalesOrderPage() {
             />
           </div>
 
-          {/* GST Taxes (CGST+SGST / IGST) */}
+          {/* GST Tax Treatment & Supply Type Badge */}
+          <div className="flex items-center justify-between w-full max-w-[420px] px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-300 dark:border-slate-700 text-[11px]">
+            <span className="text-[var(--sap-text-muted)] font-bold">GST Supply Type:</span>
+            <span className={`font-black flex items-center gap-1 ${
+              isInterState ? 'text-blue-700 dark:text-blue-400' : 'text-emerald-700 dark:text-emerald-400'
+            }`}>
+              <span>{isInterState ? '🌐 INTER-STATE (IGST)' : '🏛️ INTRA-STATE (CGST + SGST)'}</span>
+              <span className="text-[10px] font-normal text-slate-500">
+                ({hasCustomerGstin ? '🔒 Auto-Applied' : '✍ Manual'})
+              </span>
+            </span>
+          </div>
+
+          {/* Detailed Tax Lines: CGST + SGST or IGST */}
+          {!isInterState ? (
+            <>
+              {/* CGST */}
+              <div className="flex items-center justify-end w-full max-w-[420px]">
+                <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                  Central GST (CGST)
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={`₹${(financials.cgst || 0).toFixed(2)} INR`}
+                  className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                />
+              </div>
+
+              {/* SGST */}
+              <div className="flex items-center justify-end w-full max-w-[420px]">
+                <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                  State GST (SGST)
+                </label>
+                <input
+                  type="text"
+                  readOnly
+                  value={`₹${(financials.sgst || 0).toFixed(2)} INR`}
+                  className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                />
+              </div>
+            </>
+          ) : (
+            /* IGST */
+            <div className="flex items-center justify-end w-full max-w-[420px]">
+              <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                Integrated GST (IGST)
+              </label>
+              <input
+                type="text"
+                readOnly
+                value={`₹${(financials.igst || 0).toFixed(2)} INR`}
+                className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
+              />
+            </div>
+          )}
+
+          {/* Total GST Taxes */}
           <div className="flex items-center justify-end w-full max-w-[420px]">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">GST Taxes (CGST+SGST / IGST)</label>
+            <label className="text-[var(--sap-text-muted)] font-bold pr-3 text-right">Total GST Tax</label>
             <input
               type="text"
               readOnly
               value={`₹${(financials.totalTax || 0).toFixed(2)} INR`}
-              className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-amber-600 dark:text-amber-400 outline-none"
+              className="w-48 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-amber-600 dark:text-amber-400 outline-none"
             />
           </div>
 
@@ -3098,7 +3428,7 @@ export default function SalesOrderPage() {
         <div className="flex items-center gap-4 text-[10.5px] opacity-80 shrink-0 font-mono">
           <span>{formatDateDMY(new Date())}</span>
           <span>{currentUser?.name || 'Staff'}</span>
-          <span>Tamil Nadu (33)</span>
+          <span>{getIndianStateName(supplierStateCode)} ({supplierStateCode}) • {isInterState ? 'Inter-State (IGST)' : 'Intra-State (CGST+SGST)'}</span>
         </div>
       </div>
 
