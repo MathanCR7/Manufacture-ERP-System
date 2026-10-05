@@ -41,6 +41,11 @@ router.use('/attendance', require('../modules/attendance/attendance.routes'));
 router.use('/search', require('../modules/search/search.routes'));
 router.use('/qr-lifecycle', require('../modules/qr-lifecycle/qr-lifecycle.routes'));
 
+// Public Order Invoice PDF Routes (Directly accessible via WhatsApp links without login)
+const ordersRoutes = require('../modules/production/orders.routes');
+router.get('/public/orders/:id/pdf', ordersRoutes.getOrderPdfHandler);
+router.get('/public/orders/pdf', ordersRoutes.getOrderPdfHandler);
+
 // Production & Orders Modules
 router.use('/products', authMiddleware, require('../modules/production/products.routes'));
 router.use('/production', authMiddleware, require('../modules/production/production.routes'));

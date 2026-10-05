@@ -441,10 +441,14 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
       invoiceNo: z.string().min(1, 'Invoice / Order reference is required'),
       reason: z.string().min(1, 'Return reason is required'),
       refundMethod: z.string().min(1, 'Refund method is required'),
+      refundAmount: z.coerce.number().optional(),
+      notes: z.string().optional().nullable(),
       items: z.array(z.object({
         productId: z.string().min(1, 'Product ID is required'),
         quantity: z.coerce.number().positive('Quantity must be greater than zero'),
-        condition: z.string().min(1).default('Resaleable')
+        condition: z.string().min(1).default('Resaleable'),
+        unitPrice: z.coerce.number().optional(),
+        refundAmount: z.coerce.number().optional()
       })).min(1, 'At least one return item must be provided')
     });
 
@@ -478,6 +482,8 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
           invoiceId: invoice.id,
           reason: data.reason,
           refundMethod: normalizedRefundMethod,
+          refundAmount: data.refundAmount !== undefined ? data.refundAmount : 0,
+          notes: data.notes || null,
           status: 'Completed'
         }
       });
@@ -490,7 +496,9 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
             returnId: salesReturn.id,
             productId: item.productId,
             quantity: item.quantity,
-            condition: item.condition
+            condition: item.condition,
+            unitPrice: item.unitPrice !== undefined ? item.unitPrice : 0,
+            refundAmount: item.refundAmount !== undefined ? item.refundAmount : 0
           }
         });
 
@@ -747,17 +755,245 @@ router.get('/reports/dashboard', authenticateToken, async (req, res, next) => {
   }
 });
 
-// GET /api/sales/returns - list returns
+// Helper to enrich a sales return record with items, calculations, and customer info
+const enrichSalesReturn = (ret) => {
+  let computedTotalRefund = 0;
+  const enrichedItems = (ret.items || []).map(item => {
+    const orderItem = ret.order?.items?.find(oi => oi.productId === item.productId);
+    const unitPrice = item.unitPrice && Number(item.unitPrice) > 0 
+      ? Number(item.unitPrice) 
+      : (orderItem ? Number(orderItem.unitPrice || 0) : Number(item.product?.salePrice || 0));
+    const gstRate = orderItem ? Number(orderItem.gstRate || 0) : Number(item.product?.cgst || 0) + Number(item.product?.sgst || 0);
+    const qty = Number(item.quantity || 0);
+    const lineSubtotal = unitPrice * qty;
+    const lineTax = lineSubtotal * (gstRate / 100);
+    const calculatedLineTotal = lineSubtotal + lineTax;
+    const lineTotal = item.refundAmount && Number(item.refundAmount) > 0 
+      ? Number(item.refundAmount) 
+      : Math.round(calculatedLineTotal * 100) / 100;
+    computedTotalRefund += lineTotal;
+
+    return {
+      id: item.id,
+      productId: item.productId,
+      quantity: qty,
+      condition: item.condition,
+      unitPrice,
+      gstRate,
+      lineSubtotal: Math.round(lineSubtotal * 100) / 100,
+      lineTax: Math.round(lineTax * 100) / 100,
+      lineTotal,
+      productName: item.product?.name || orderItem?.productName || 'Finished Product',
+      productCode: item.product?.code || item.product?.sku || 'N/A',
+      uom: orderItem?.uomName || item.product?.unit?.name || 'pcs',
+      invoicedQty: orderItem ? Number(orderItem.quantity || 0) : qty
+    };
+  });
+
+  const finalRefundAmount = ret.refundAmount !== null && ret.refundAmount !== undefined && Number(ret.refundAmount) > 0
+    ? Number(ret.refundAmount)
+    : Math.round(computedTotalRefund * 100) / 100;
+
+  return {
+    id: ret.id,
+    returnNo: ret.returnNo,
+    invoiceId: ret.invoiceId,
+    reason: ret.reason,
+    refundMethod: ret.refundMethod,
+    refundAmount: finalRefundAmount,
+    notes: ret.notes || null,
+    status: ret.status || 'Completed',
+    createdAt: ret.createdAt,
+    items: enrichedItems,
+    customerName: ret.order?.customerName || ret.order?.customer?.name || 'Walk-in Customer',
+    customerPhone: ret.order?.customerPhone || ret.order?.customer?.phone || 'N/A',
+    customerEmail: ret.order?.customer?.email || 'N/A',
+    customerAddress: ret.order?.deliveryAddress || ret.order?.customer?.address || 'N/A',
+    customerGstin: ret.order?.taxRegNo || ret.order?.customer?.taxRegNo || 'URP',
+    invoiceDocNo: ret.order?.docNo || ret.order?.referenceNo || ret.invoiceId,
+    invoiceTotal: Number(ret.order?.grandTotal || ret.order?.totalSubtotal || 0),
+    invoiceDate: ret.order?.createdAt,
+    invoicePaymentStatus: ret.order?.paymentStatus || 'PAID',
+    order: ret.order
+  };
+};
+
+// GET /api/sales/returns - list returns with full details and refund calculation
 router.get('/returns', authenticateToken, async (req, res, next) => {
   try {
     const returnsList = await prisma.salesReturn.findMany({
       include: {
-        order: { include: { customer: true } },
-        items: { include: { product: true } }
+        order: {
+          include: {
+            customer: true,
+            items: { include: { product: true } }
+          }
+        },
+        items: {
+          include: {
+            product: { include: { unit: true } }
+          }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json(returnsList);
+
+    const enriched = returnsList.map(enrichSalesReturn);
+    res.json(enriched);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/sales/returns/:id - get single return details
+router.get('/returns/:id', authenticateToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const ret = await prisma.salesReturn.findFirst({
+      where: {
+        OR: [{ id }, { returnNo: id }]
+      },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            items: { include: { product: true } }
+          }
+        },
+        items: {
+          include: {
+            product: { include: { unit: true } }
+          }
+        }
+      }
+    });
+
+    if (!ret) return res.status(404).json({ error: 'Sales return not found' });
+    res.json(enrichSalesReturn(ret));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/sales/returns/:id - edit return details
+router.patch('/returns/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason, refundMethod, status, notes, refundAmount } = req.body;
+
+    const existing = await prisma.salesReturn.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+
+    if (!existing) return res.status(404).json({ error: 'Sales return not found' });
+
+    const updateData = {};
+    if (reason !== undefined) {
+      updateData.reason = notes ? `${reason} (Note: ${notes})` : reason;
+    }
+    if (refundMethod !== undefined) updateData.refundMethod = refundMethod;
+    if (status !== undefined) updateData.status = status;
+    if (notes !== undefined) updateData.notes = notes;
+    if (refundAmount !== undefined) updateData.refundAmount = Number(refundAmount);
+
+    const updated = await prisma.salesReturn.update({
+      where: { id },
+      data: updateData,
+      include: {
+        order: {
+          include: {
+            customer: true,
+            items: { include: { product: true } }
+          }
+        },
+        items: {
+          include: {
+            product: { include: { unit: true } }
+          }
+        }
+      }
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: req.user.id,
+        action: 'UPDATE_SALES_RETURN',
+        tableName: 'sales_returns',
+        recordId: id,
+        oldValue: { reason: existing.reason, refundMethod: existing.refundMethod, status: existing.status, refundAmount: existing.refundAmount },
+        newValue: updateData,
+        ip: req.ip || '127.0.0.1'
+      }
+    });
+
+    res.json(enrichSalesReturn(updated));
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/sales/returns/:id - delete return, reverse stock adjustments & audit
+router.delete('/returns/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const existing = await prisma.salesReturn.findUnique({
+      where: { id },
+      include: { items: true, order: true }
+    });
+
+    if (!existing) return res.status(404).json({ error: 'Sales return not found' });
+
+    await prisma.$transaction(async (tx) => {
+      // Revert stock adjustments for resaleable items
+      for (const item of existing.items) {
+        if (item.condition === 'Resaleable') {
+          // Decrement stock that was added back during return
+          await tx.finishedProduct.update({
+            where: { id: item.productId },
+            data: { currentStock: { decrement: item.quantity } }
+          });
+
+          await tx.productStockMovement.create({
+            data: {
+              productId: item.productId,
+              orderId: existing.invoiceId,
+              type: 'adjustment',
+              quantity: item.quantity,
+              direction: -1,
+              note: `Reversal of deleted Sales Return ${existing.returnNo}`,
+              createdBy: req.user.id
+            }
+          });
+        }
+      }
+
+      // Delete items
+      await tx.salesReturnItem.deleteMany({
+        where: { returnId: id }
+      });
+
+      // Delete return record
+      await tx.salesReturn.delete({
+        where: { id }
+      });
+
+      // Write audit log
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'DELETE_SALES_RETURN',
+          tableName: 'sales_returns',
+          recordId: id,
+          oldValue: { returnNo: existing.returnNo, reason: existing.reason },
+          newValue: { deleted: true },
+          ip: req.ip || '127.0.0.1'
+        }
+      });
+    });
+
+    res.json({ success: true, message: `Sales Return ${existing.returnNo} deleted successfully.` });
   } catch (error) {
     next(error);
   }

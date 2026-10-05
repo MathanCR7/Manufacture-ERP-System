@@ -15,7 +15,7 @@ import {
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
-import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin } from '@/utils/gstEngine';
+import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin, round2 } from '@/utils/gstEngine';
 import { generateA4TaxInvoice } from '@/utils/salesPdfGenerator';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
@@ -185,7 +185,7 @@ export default function SalesOrderPage() {
   const [loadingCharges, setLoadingCharges] = useState(0);
   const [loadingGst, setLoadingGst] = useState(true);
   const [packingCharges, setPackingCharges] = useState(0);
-  const [packingGst, setLoadingPackingGst] = useState(true);
+  const [packingGst, setPackingGst] = useState(true);
   const [otherCharges, setOtherCharges] = useState(0);
   const [otherGst, setOtherGst] = useState(true);
 
@@ -498,78 +498,76 @@ export default function SalesOrderPage() {
     };
   }, [activeLines]);
 
-  // Financial Summary Computations (PO-style round off)
+  // Financial Summary Computations (Integrated with precise GST Engine)
   const financials = useMemo(() => {
     const totalBeforeDiscount = computedLines.reduce((sum, l) => sum + (l.lineGross || 0), 0);
     const lineDiscountTotal = computedLines.reduce((sum, l) => sum + (l.lineDiscount || 0), 0);
-    const netLinesTotal = totalBeforeDiscount - lineDiscountTotal;
+    const netLinesTotal = Math.max(0, totalBeforeDiscount - lineDiscountTotal);
 
     const docDiscAmt = Number(discountPercent) > 0 ? (netLinesTotal * (Number(discountPercent) / 100)) : 0;
-    const taxableGoods = Math.max(0, netLinesTotal - docDiscAmt);
 
     const fAmt = Number(freight) || 0;
     const lAmt = Number(loadingCharges) || 0;
     const pAmt = Number(packingCharges) || 0;
     const oAmt = Number(otherCharges) || 0;
 
-    const chargesWithGst = (freightGst ? fAmt : 0) +
-                           (loadingGst ? lAmt : 0) +
-                           (packingGst ? pAmt : 0) +
-                           (otherGst ? oAmt : 0);
+    const targetBuyerState = placeOfSupply || (selectedCustomer?.gstin ? getStateCodeFromGstin(selectedCustomer.gstin) : null) || sellerStateCode;
 
-    const nonGstCharges = (!freightGst ? fAmt : 0) +
-                          (!loadingGst ? lAmt : 0) +
-                          (!packingGst ? pAmt : 0) +
-                          (!otherGst ? oAmt : 0);
+    const gstCalcResult = calculateGST({
+      sellerStateCode: String(sellerStateCode || '33'),
+      buyerStateCode: String(targetBuyerState || '33'),
+      customerGstin: selectedCustomer?.gstin || taxRegNo,
+      items: activeLines.map(l => ({
+        productId: l.productId,
+        productName: l.itemDescription,
+        quantity: Number(l.quantity) || 0,
+        unitPrice: Number(l.unitPrice) || 0,
+        discount: Number(l.lineDiscount) || 0,
+        discountPercent: Number(l.discountPercent) || 0,
+        gstRate: Number(l.gstRate !== undefined ? l.gstRate : 5),
+        hsnCode: l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
+        uomName: l.unitOfSale
+      })),
+      charges: {
+        freight: fAmt,
+        freightGst: Boolean(freightGst),
+        loadingCharges: lAmt,
+        loadingGst: Boolean(loadingGst),
+        packingCharges: pAmt,
+        packingGst: Boolean(packingGst),
+        insurance: 0,
+        insuranceGst: false,
+        otherCharges: oAmt,
+        otherGst: Boolean(otherGst)
+      },
+      invoiceDiscount: docDiscAmt,
+      tdsDeduction: 0,
+      placeOfSupply: String(targetBuyerState || '33')
+    });
 
-    const taxableSubtotal = taxableGoods + chargesWithGst;
-
-    let effectiveTaxRate = 5;
-    if (activeLines.length > 0) {
-      const sumRates = activeLines.reduce((sum, l) => sum + (Number(l.gstRate) || 5), 0);
-      effectiveTaxRate = sumRates / activeLines.length;
-    }
-
-    let cgst = 0;
-    let sgst = 0;
-    let igst = 0;
-
-    if (!isInterState) {
-      cgst = Number((taxableSubtotal * (effectiveTaxRate / 2 / 100)).toFixed(2));
-      sgst = Number((taxableSubtotal * (effectiveTaxRate / 2 / 100)).toFixed(2));
-    } else {
-      igst = Number((taxableSubtotal * (effectiveTaxRate / 100)).toFixed(2));
-    }
-
-    const totalTax = cgst + sgst + igst;
-    const rawTotal = taxableSubtotal + totalTax + nonGstCharges;
-
-    let grandTotal = rawTotal;
-    let roundOff = 0;
-
-    if (isRoundingEnabled) {
-      grandTotal = Math.round(rawTotal);
-      roundOff = Number((grandTotal - rawTotal).toFixed(2));
-    }
-
+    const grandTotal = isRoundingEnabled ? gstCalcResult.grandTotal : gstCalcResult.netAmount;
+    const roundOff = isRoundingEnabled ? gstCalcResult.roundOff : 0;
     const balanceDue = Math.max(0, grandTotal - (Number(advancePaid) || 0));
 
     return {
-      totalBeforeDiscount,
-      lineDiscountTotal,
-      docDiscAmt,
-      taxableSubtotal,
-      effectiveTaxRate,
-      cgst,
-      sgst,
-      igst,
-      totalTax,
-      nonGstCharges,
-      rawTotal,
-      roundOff,
-      grandTotal,
-      balanceDue,
-      amountInWords: numberToWordsINR(grandTotal)
+      totalBeforeDiscount: round2(totalBeforeDiscount),
+      lineDiscountTotal: round2(lineDiscountTotal),
+      docDiscAmt: round2(docDiscAmt),
+      taxableSubtotal: gstCalcResult.taxableSubtotal,
+      netTaxableSubtotal: gstCalcResult.netTaxableSubtotal,
+      totalChargesAmount: gstCalcResult.totalChargesAmount,
+      totalTaxableCharges: gstCalcResult.totalTaxableCharges,
+      effectiveTaxRate: gstCalcResult.items?.[0]?.gstRate || 5,
+      cgst: gstCalcResult.cgst,
+      sgst: gstCalcResult.sgst,
+      igst: gstCalcResult.igst,
+      totalTax: gstCalcResult.totalTax,
+      rawTotal: gstCalcResult.netAmount,
+      roundOff: roundOff,
+      grandTotal: grandTotal,
+      balanceDue: round2(balanceDue),
+      amountInWords: gstCalcResult.amountInWords || numberToWordsINR(grandTotal),
+      gstCalcResult
     };
   }, [
     computedLines,
@@ -579,7 +577,7 @@ export default function SalesOrderPage() {
     loadingCharges, loadingGst,
     packingCharges, packingGst,
     otherCharges, otherGst,
-    isInterState,
+    sellerStateCode, placeOfSupply, selectedCustomer, taxRegNo,
     isRoundingEnabled,
     advancePaid
   ]);
@@ -784,7 +782,7 @@ export default function SalesOrderPage() {
       setCustomerId(ord.customerId || '');
       setSelectedCustomer(ord.customer || null);
       setCustomerRefNo(ord.customerRefNo || ord.referenceNo || '');
-      setContactPerson(ord.customer?.contactPerson || '');
+      setContactPerson(ord.customer?.contactPerson || ord.customerPhone || '');
       setShipToAddress(ord.deliveryAddress || '');
       setBillToAddress(ord.billToAddress || ord.customer?.billingAddress || '');
       setShippingMethod(ord.shippingMethod || 'Road Transport');
@@ -796,10 +794,50 @@ export default function SalesOrderPage() {
       setPaymentMethod(ord.paymentMode || 'Bank Transfer / NEFT');
       setAdvancePaid(Number(ord.amountPaid || 0));
       setTaxRegNo(ord.taxRegNo || ord.customer?.gstin || '');
-      setPlaceOfSupply(ord.placeOfSupply || '33');
+      setPlaceOfSupply(ord.placeOfSupply || ord.buyerStateCode || '33');
       setSalesEmployee(ord.salesEmployee || '-No Sales Employee-');
-      setOwner(ord.creator?.name || 'Mathan');
-      setRemarks(ord.quotationNote || ord.internalNote || '');
+      setOwner(ord.creator?.name || 'Administrator');
+
+      // Populate Freight & Additional Logistics Charges and their GST flags
+      setFreight(Number(ord.freight || 0));
+      setFreightGst(ord.freightGst !== undefined ? Boolean(ord.freightGst) : true);
+      setLoadingCharges(Number(ord.loadingCharges || 0));
+      setLoadingGst(ord.loadingGst !== undefined ? Boolean(ord.loadingGst) : true);
+      setPackingCharges(Number(ord.packingCharges || 0));
+      setPackingGst(ord.packingGst !== undefined ? Boolean(ord.packingGst) : true);
+      setOtherCharges(Number(ord.otherCharges || 0));
+      setOtherGst(ord.otherGst !== undefined ? Boolean(ord.otherGst) : true);
+      setIsRoundingEnabled(true);
+
+      // Clean remarks & parse attachments from internalNote
+      if (ord.internalNote && ord.internalNote.includes('[[ATTACHMENT:')) {
+        const match = ord.internalNote.match(/\[\[ATTACHMENT:(.*?)\]\]/);
+        if (match && match[1]) {
+          try {
+            const parsed = JSON.parse(match[1]);
+            if (Array.isArray(parsed) && parsed.length > 0) setAttachments(parsed);
+          } catch (e) {
+            console.error('Error parsing attachments:', e);
+          }
+        }
+      } else if (ord.attachmentUrl) {
+        const urls = ord.attachmentUrl.split(',').map(u => u.trim()).filter(Boolean);
+        setAttachments(urls.map((u, i) => ({
+          id: `att_${Date.now()}_${i}`,
+          url: u,
+          filename: u.split('/').pop() || `attachment_${i + 1}.jpg`,
+          fileSize: 'Uploaded',
+          uploadedAt: new Date().toLocaleTimeString(),
+          orderId: ord.docNo || ord.referenceNo
+        })));
+      }
+
+      const cleanNote = (ord.internalNote || ord.quotationNote || '')
+        .replace(/\[\[ATTACHMENT:.*?\]\]/gs, '')
+        .replace(/\[Fulfillment Mode:.*?\]/g, '')
+        .trim();
+      setRemarks(cleanNote);
+
       if (ord.createdAt) {
         setPostingDate(ord.createdAt.split('T')[0]);
         setDocumentDate(ord.createdAt.split('T')[0]);
@@ -807,27 +845,57 @@ export default function SalesOrderPage() {
       if (ord.deliveryDate) {
         setDeliveryDate(ord.deliveryDate.split('T')[0]);
       }
-      if (Array.isArray(ord.items) && ord.items.length > 0) {
-        setLines(ord.items.map((it, idx) => ({
-          id: `line_${it.id || idx}`,
-          rowNo: idx + 1,
-          productId: it.productId,
-          systemCode: it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`,
-          itemDescription: it.productName || it.product?.name || '',
-          category: it.product?.category?.name || 'Ice Cream',
-          baseCategory: it.product?.category?.name || 'General',
-          subcategory: it.product?.subcategory?.name || '-',
-          unitOfSale: it.uomName || it.product?.unit?.name || 'pcs',
-          quantity: Number(it.quantity || 1),
-          unitPrice: Number(it.unitPrice || 0),
-          discountPercent: Number(it.discountPercent || (it.discount ? (it.discount / it.unitPrice) * 100 : 0)),
-          taxCode: it.gstRate === 18 ? 'SCG18' : (it.gstRate === 12 ? 'SCG12' : (it.gstRate === 28 ? 'SCG28' : 'SCG5')),
-          gstRate: Number(it.gstRate || 5),
-          distrRule: 'Main FG Warehouse',
-          stock: it.product?.currentStock || 0,
-          rawProduct: it.product
-        })));
+
+      // Calculate Header Discount % if stored as discountValue or discountPercent
+      const grossItemsSubtotal = (ord.items || []).reduce((sum, it) => {
+        const q = Number(it.quantity || 0);
+        const p = Number(it.unitPrice || 0);
+        const d = Number(it.discount || 0);
+        return sum + Math.max(0, (q * p) - d);
+      }, 0);
+      const discVal = Number(ord.discountValue || ord.invoiceDiscount || 0);
+      if (ord.discountPercent !== undefined && ord.discountPercent !== null && Number(ord.discountPercent) > 0) {
+        setDiscountPercent(Number(ord.discountPercent));
+      } else if (discVal > 0 && grossItemsSubtotal > 0) {
+        setDiscountPercent(Number(((discVal / grossItemsSubtotal) * 100).toFixed(2)));
+      } else {
+        setDiscountPercent(0);
       }
+
+      if (Array.isArray(ord.items) && ord.items.length > 0) {
+        setLines(ord.items.map((it, idx) => {
+          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (it.product?.gstRate || 5));
+          const taxCd = itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : 'SCG5'));
+          const liveStock = it.product ? getProductLiveStock(it.product) : 0;
+          const uPrice = Number(it.unitPrice || 0);
+          const lineDisc = Number(it.discount || 0);
+          const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
+          return {
+            id: `line_${it.id || idx}`,
+            rowNo: idx + 1,
+            productId: it.productId,
+            systemCode: it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`,
+            itemDescription: it.productName || it.product?.productName || it.product?.name || '',
+            category: it.product?.category?.name || it.product?.category || 'Ice Cream',
+            baseCategory: it.product?.baseCategory || it.product?.category?.name || 'General',
+            subcategory: it.product?.subcategory?.name || it.product?.subcategory || '-',
+            unitOfSale: it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs',
+            quantity: Number(it.quantity || 1),
+            unitPrice: uPrice,
+            discountPercent: discPct,
+            taxCode: taxCd,
+            gstRate: itemGst,
+            distrRule: 'Main FG Warehouse',
+            stock: liveStock,
+            rawProduct: it.product
+          };
+        }));
+      }
+
+      setStatusMessage({
+        type: 'ready',
+        text: `✔ Loaded Order #${ord.docNo || ord.referenceNo} for editing. Tax and logistics amounts calculated.`
+      });
     }).catch(err => console.error('Failed to load edit order', err));
   }, [editOrderId]);
 
@@ -1039,8 +1107,10 @@ export default function SalesOrderPage() {
       placeOfSupply: placeOfSupply,
       sellerStateCode: sellerStateCode,
       buyerStateCode: placeOfSupply,
+      totalSubtotal: financials.taxableSubtotal,
       discountPercent: Number(discountPercent) || 0,
       discountValue: financials.docDiscAmt,
+      invoiceDiscount: financials.docDiscAmt,
       freight: Number(freight) || 0,
       freightGst: Boolean(freightGst),
       loadingCharges: Number(loadingCharges) || 0,
@@ -1049,11 +1119,16 @@ export default function SalesOrderPage() {
       packingGst: Boolean(packingGst),
       otherCharges: Number(otherCharges) || 0,
       otherGst: Boolean(otherGst),
+      collectTax: true,
+      cgst: financials.cgst,
+      sgst: financials.sgst,
+      igst: financials.igst,
       roundOff: financials.roundOff,
       grandTotal: financials.grandTotal,
       items: activeLines.map(l => ({
         productId: l.productId,
         productName: l.itemDescription,
+        hsnCode: l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
         discountPercent: Number(l.discountPercent) || 0,
@@ -1145,7 +1220,16 @@ export default function SalesOrderPage() {
     };
 
     try {
-      generateA4TaxInvoice(orderData, storeCompany);
+      const blob = generateA4TaxInvoice(orderData, storeCompany);
+      const url = URL.createObjectURL(blob);
+      const docName = (orderData.docNo || 'Order').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Tax_Invoice_${docName}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (e) {
       console.error('Error generating PDF:', e);
       Swal.fire({
@@ -2468,7 +2552,7 @@ export default function SalesOrderPage() {
                         <input
                           type="checkbox"
                           checked={packingGst}
-                          onChange={(e) => setLoadingPackingGst(e.target.checked)}
+                          onChange={(e) => setPackingGst(e.target.checked)}
                           className="accent-amber-500"
                         />
                         <span>GST</span>
@@ -2509,23 +2593,29 @@ export default function SalesOrderPage() {
 
             {/* Tax Ledger Summary Display */}
             <div className="p-3 bg-[var(--sap-header-bg)] border border-[var(--sap-border-inner)] rounded-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
                 <div>
-                  <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">Taxable Subtotal</div>
+                  <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">Taxable Goods</div>
                   <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
                     ₹{financials.taxableSubtotal.toFixed(2)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">Logistics Charges</div>
+                  <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
+                    ₹{(financials.totalChargesAmount || 0).toFixed(2)}
                   </div>
                 </div>
                 {!isInterState ? (
                   <>
                     <div>
-                      <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">CGST (@2.5%)</div>
+                      <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">CGST Tax</div>
                       <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
                         ₹{financials.cgst.toFixed(2)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">SGST (@2.5%)</div>
+                      <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">SGST Tax</div>
                       <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
                         ₹{financials.sgst.toFixed(2)}
                       </div>
@@ -2533,7 +2623,7 @@ export default function SalesOrderPage() {
                   </>
                 ) : (
                   <div>
-                    <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">IGST (@5%)</div>
+                    <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">IGST Tax</div>
                     <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
                       ₹{financials.igst.toFixed(2)}
                     </div>
@@ -2794,14 +2884,14 @@ export default function SalesOrderPage() {
             <input
               type="text"
               readOnly
-              value={`${financials.totalBeforeDiscount.toLocaleString('en-IN', { minimumFractionDigits: 2 })} INR`}
+              value={`₹${financials.totalBeforeDiscount.toFixed(2)} INR`}
               className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
-          {/* Discount */}
+          {/* Discount Amount */}
           <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Discount</label>
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Discount Amount</label>
             <div className="flex items-center gap-0.5">
               <input
                 type="number"
@@ -2811,39 +2901,62 @@ export default function SalesOrderPage() {
                 value={discountPercent}
                 onChange={(e) => setDiscountPercent(parseFloat(e.target.value) || 0)}
                 className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                title="Discount Percentage (%)"
               />
               <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">%</span>
             </div>
             <input
               type="text"
               readOnly
-              value={`${financials.docDiscAmt.toLocaleString('en-IN', { minimumFractionDigits: 2 })} INR`}
-              className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              value={`-₹${financials.docDiscAmt.toFixed(2)} INR`}
+              className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-rose-600 dark:text-rose-400 outline-none"
             />
           </div>
 
-          {/* Freight */}
+          {/* Freight & Logistics Charges */}
           <div className="flex items-center justify-end w-full max-w-[420px]">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Freight</label>
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Freight & Logistics Charges</label>
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
                 className="text-amber-600 font-extrabold hover:scale-125 cursor-pointer text-sm"
-                title="Configure Extra Charges in Tax Tab"
+                title="Configure Freight, Loading, Packing in Tax Tab"
               >
                 ➔
               </button>
               <input
                 type="text"
                 readOnly
-                value={`${(Number(freight) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })} INR`}
+                value={`₹${(financials.totalChargesAmount || 0).toFixed(2)} INR`}
                 className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
-          {/* Rounding Checkbox & Amount (PO Order Round-off Style) */}
+          {/* Taxable Subtotal */}
+          <div className="flex items-center justify-end w-full max-w-[420px]">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Taxable Subtotal</label>
+            <input
+              type="text"
+              readOnly
+              value={`₹${(financials.taxableSubtotal || 0).toFixed(2)} INR`}
+              className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+            />
+          </div>
+
+          {/* GST Taxes (CGST+SGST / IGST) */}
+          <div className="flex items-center justify-end w-full max-w-[420px]">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">GST Taxes (CGST+SGST / IGST)</label>
+            <input
+              type="text"
+              readOnly
+              value={`₹${(financials.totalTax || 0).toFixed(2)} INR`}
+              className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-amber-600 dark:text-amber-400 outline-none"
+            />
+          </div>
+
+          {/* Round-Off Adjustment (PO Order Round-off Style) */}
           <div className="flex items-center justify-end w-full max-w-[420px] gap-2">
             <label className="flex items-center gap-1.5 text-[var(--sap-text-muted)] font-bold cursor-pointer select-none">
               <input
@@ -2852,38 +2965,33 @@ export default function SalesOrderPage() {
                 onChange={(e) => setIsRoundingEnabled(e.target.checked)}
                 className="w-4 h-4 accent-amber-500"
               />
-              <span>Rounding</span>
+              <span>Round-Off Adjustment</span>
             </label>
             <input
               type="text"
               readOnly
-              value={`${financials.roundOff.toFixed(2)} INR`}
+              value={`₹${financials.roundOff.toFixed(2)} INR`}
               className="w-48 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
-          {/* Tax */}
-          <div className="flex items-center justify-end w-full max-w-[420px]">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Tax</label>
-            <input
-              type="text"
-              readOnly
-              value={`${financials.totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2 })} INR`}
-              className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
-            />
-          </div>
-
-          {/* Total Payment Due (Grand Total) */}
+          {/* Net Grand Total */}
           <div className="flex items-center justify-end w-full max-w-[420px] pt-1">
             <label className="text-[var(--sap-text)] font-extrabold pr-3 text-right text-xs">
-              Total Payment Due
+              Net Grand Total
             </label>
             <input
               type="text"
               readOnly
-              value={`${financials.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })} INR`}
+              value={`₹${financials.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR`}
               className="w-48 h-[26px] px-2 text-right font-mono font-black text-sm border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-emerald-700 dark:text-emerald-400 outline-none"
             />
+          </div>
+
+          {/* Advance Paid & Balance Due */}
+          <div className="flex items-center justify-between w-full max-w-[420px] text-xs pt-1 px-1 text-slate-600 dark:text-slate-400">
+            <span>Advance Paid: <strong className="font-mono text-slate-800 dark:text-white">₹{(Number(advancePaid) || 0).toFixed(2)}</strong></span>
+            <span>Balance Due: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">₹{(financials.balanceDue || 0).toFixed(2)}</strong></span>
           </div>
 
           {/* Amount in Words */}
@@ -2893,7 +3001,7 @@ export default function SalesOrderPage() {
         </div>
       </div>
 
-      {/* FULL SCREEN BOTTOM ACTIONS BAR (Golden Yellow Add Button, Cancel, PDF Print, Copy From/To) */}
+      {/* FULL SCREEN BOTTOM ACTIONS BAR (Golden Yellow Add/Update Button, Cancel, PDF Print, Copy From/To) */}
       <div className="w-full px-4 py-2.5 bg-[var(--sap-bg-window)] border-t border-[var(--sap-border-inner)] flex flex-wrap items-center justify-between gap-3 shadow-md">
         
         {/* Left Actions */}
@@ -2907,8 +3015,10 @@ export default function SalesOrderPage() {
             {createOrderMutation.isPending ? (
               <>
                 <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>Adding Order...</span>
+                <span>{editOrderId ? 'Updating Order...' : 'Adding Order...'}</span>
               </>
+            ) : editOrderId ? (
+              <span>Update Order</span>
             ) : orderMode === 'STANDARD' ? (
               <span>Add Standard Order</span>
             ) : orderMode === 'NEED_PLANNING' ? (

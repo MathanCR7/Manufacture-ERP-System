@@ -744,12 +744,12 @@ const MENU_GROUPS = [
         roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
         children: [
           { name: '🛒 Walk-in POS', path: '/sales/billing', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-          { name: '📑 Sales Order', path: '/sales/order', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
+          { name: '📄 Sales Order', path: '/sales/order', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
         ]
       },
       {
         id: 'ordersSubmenu',
-        name: '🛒 Orders & Tracking',
+        name: '🛒 Orders',
         isNested: true,
         roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
         children: [
@@ -759,13 +759,21 @@ const MENU_GROUPS = [
       },
       {
         id: 'salesSubmenu',
-        name: '💰 Sales & Invoices',
+        name: '💰 Sales & Billing',
         isNested: true,
         roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
         children: [
-          { name: '📋 Sales Records', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-          { name: '↩️ Returns & Replacements', path: '/sales/return', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
-          { name: '📊 Manager Analytics', path: '/sales/dashboard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
+          { name: '🧾 Sales Records', path: '/sales/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] },
+          { name: '↩️ Returns & Replacements', path: '/sales/return', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
+        ]
+      },
+      {
+        id: 'analyticsSubmenu',
+        name: '📊 Reports & Analytics',
+        isNested: true,
+        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'],
+        children: [
+          { name: '📈 Manager Analytics', path: '/sales/dashboard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'] }
         ]
       }
     ]

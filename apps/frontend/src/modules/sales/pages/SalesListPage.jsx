@@ -7,7 +7,7 @@ import {
   MessageSquare, Mail, Play, Building2, Send, Share2,
   ArrowUp, ArrowDown, ArrowUpDown, Filter, Save, Camera, ImageIcon, Paperclip,
   Package, Truck, Check, ExternalLink, Maximize2, Trash2, Calendar, Phone,
-  FileCheck, ShieldCheck, MapPin
+  FileCheck, ShieldCheck, MapPin, Edit3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -58,6 +58,9 @@ export default function SalesListPage() {
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
+  // Editing State for Detailed Inspector View
+  const [isEditing, setIsEditing] = useState(false);
+
   // Editable Form fields for the Detailed View
   const [editForm, setEditForm] = useState({
     shipToAddress: '',
@@ -79,6 +82,30 @@ export default function SalesListPage() {
     salesEmployee: '-No Sales Employee-',
     owner: 'Mathan'
   });
+
+  const resetEditForm = (order) => {
+    if (!order) return;
+    setEditForm({
+      shipToAddress: order.deliveryAddress || '',
+      billToAddress: order.billToAddress || order.customer?.billingAddress || order.deliveryAddress || '',
+      shippingMethod: order.shippingMethod || 'Road Transport',
+      transporterName: order.transporterName || '',
+      vehicleNo: order.vehicleNo || '',
+      lrNo: order.lrNo || '',
+      ewayBillNo: order.ewayBillNo || '',
+      ewayBillDate: order.ewayBillDate ? order.ewayBillDate.split('T')[0] : '',
+      paymentTerms: order.paymentTerms || (order.type === 'POS' ? 'Immediate Cash' : 'Not Paid'),
+      paymentStatus: order.paymentStatus || (order.type === 'POS' ? 'PAID' : 'PENDING'),
+      paymentMethod: order.paymentMode || (order.type === 'POS' ? 'Cash' : 'Bank Transfer / NEFT'),
+      amountPaid: Number(order.amountPaid || (order.type === 'POS' ? order.grandTotal : 0)),
+      placeOfSupply: order.placeOfSupply || '33',
+      taxRegNo: order.taxRegNo || order.customer?.gstin || '',
+      internalNote: order.internalNote || '',
+      remarks: order.quotationNote || '',
+      salesEmployee: order.salesEmployee || '-No Sales Employee-',
+      owner: order.creator?.name || order.cashierName || 'Mathan'
+    });
+  };
 
   // Pagination State - defaults to 'ALL' to display fully without overflow
   const [currentPage, setCurrentPage] = useState(1);
@@ -141,26 +168,8 @@ export default function SalesListPage() {
   // Sync edit form and attachments whenever selectedOrder changes
   useEffect(() => {
     if (selectedOrder) {
-      setEditForm({
-        shipToAddress: selectedOrder.deliveryAddress || '',
-        billToAddress: selectedOrder.billToAddress || selectedOrder.customer?.billingAddress || selectedOrder.deliveryAddress || '',
-        shippingMethod: selectedOrder.shippingMethod || 'Road Transport',
-        transporterName: selectedOrder.transporterName || '',
-        vehicleNo: selectedOrder.vehicleNo || '',
-        lrNo: selectedOrder.lrNo || '',
-        ewayBillNo: selectedOrder.ewayBillNo || '',
-        ewayBillDate: selectedOrder.ewayBillDate ? selectedOrder.ewayBillDate.split('T')[0] : '',
-        paymentTerms: selectedOrder.paymentTerms || (selectedOrder.type === 'POS' ? 'Immediate Cash' : 'Not Paid'),
-        paymentStatus: selectedOrder.paymentStatus || (selectedOrder.type === 'POS' ? 'PAID' : 'PENDING'),
-        paymentMethod: selectedOrder.paymentMode || (selectedOrder.type === 'POS' ? 'Cash' : 'Bank Transfer / NEFT'),
-        amountPaid: Number(selectedOrder.amountPaid || (selectedOrder.type === 'POS' ? selectedOrder.grandTotal : 0)),
-        placeOfSupply: selectedOrder.placeOfSupply || '33',
-        taxRegNo: selectedOrder.taxRegNo || selectedOrder.customer?.gstin || '',
-        internalNote: selectedOrder.internalNote || '',
-        remarks: selectedOrder.quotationNote || '',
-        salesEmployee: selectedOrder.salesEmployee || '-No Sales Employee-',
-        owner: selectedOrder.creator?.name || selectedOrder.cashierName || 'Mathan'
-      });
+      resetEditForm(selectedOrder);
+      setIsEditing(false);
 
       // Parse attachments
       let initialAttachments = [];
@@ -396,8 +405,8 @@ export default function SalesListPage() {
     }
   };
 
-  // WhatsApp 1-Click Direct Web Dispatch
-  const handleShareWhatsApp = (order) => {
+  // WhatsApp 1-Click Direct Web Dispatch (with Automatic Bill PDF Generation, Download & Link)
+  const handleShareWhatsApp = async (order) => {
     const rawPhone = order.customerPhone || order.customer?.phone;
     if (!rawPhone) {
       Swal.fire({
@@ -412,12 +421,59 @@ export default function SalesListPage() {
     let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
     if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
 
-    const docNo = order.docNo || order.referenceNo;
+    const docNo = order.docNo || order.referenceNo || 'SO-000000';
     const grandTotal = Number(order.grandTotal || order.totalSubtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
     const dateStr = new Date(order.createdAt).toLocaleDateString('en-GB');
     const custName = order.customerName || order.customer?.name || 'Valued Client';
-    const company = compName || 'Manufacturing ERP';
+    const activeSettings = companySettings || storeCompany;
+    const company = activeSettings?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED';
 
+    // 1. Fetch full order if items are missing or empty
+    let fullOrder = order;
+    if (!order.items || order.items.length === 0) {
+      try {
+        const res = await api.get(`/orders/${order.id}`);
+        if (res.data) fullOrder = { ...order, ...res.data };
+      } catch (e) {
+        console.warn('Could not fetch full order details, using summary:', e);
+      }
+    }
+
+    // 2. Generate and download statutory Bill PDF directly to device
+    const safeDocNo = docNo.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const pdfFilename = `Tax_Invoice_${safeDocNo}.pdf`;
+    
+    try {
+      let pdfBlob;
+      try {
+        pdfBlob = (fullOrder.type === 'POS' && layoutMode === 'POS')
+          ? generateThermalReceipt(fullOrder, activeSettings)
+          : generateA4TaxInvoice(fullOrder, activeSettings);
+      } catch (pdfErr) {
+        console.warn('Advanced PDF generator error, falling back:', pdfErr);
+        pdfBlob = compileInvoiceA4PDF(fullOrder, activeSettings);
+      }
+
+      if (pdfBlob) {
+        const downloadUrl = URL.createObjectURL(pdfBlob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = pdfFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(downloadUrl), 10000);
+      }
+    } catch (err) {
+      console.error('Failed to trigger bill PDF download:', err);
+    }
+
+    // 3. Prepare direct downloadable bill PDF link for WhatsApp recipient
+    const apiBase = import.meta.env.VITE_API_URL || (window.location.port === '5173' ? 'http://localhost:5000/api' : `${window.location.origin}/api`);
+    const baseUrl = apiBase.startsWith('http') ? apiBase : `${window.location.origin}${apiBase}`;
+    const publicPdfUrl = `${baseUrl}/public/orders/${order.id}/pdf`;
+
+    // 4. Construct WhatsApp Message with official format and bill PDF link
     const text = `🧾 *${order.type === 'Quotation' ? 'PROFORMA QUOTATION' : 'TAX INVOICE'}*
 🏢 *${company}*
 ━━━━━━━━━━━━━━━━━━
@@ -428,10 +484,33 @@ export default function SalesListPage() {
 💳 *Payment:* ${order.paymentTerms || 'Cash'} [${order.paymentStatus || 'PAID'}]
 📦 *Status:* ${order.status || 'Confirmed'}
 
+📥 *Download / View Bill PDF:*
+${publicPdfUrl}
+
 Thank you for choosing ${company}!`;
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
     window.open(waUrl, '_blank');
+
+    // 5. Notify user with helpful feedback
+    Swal.fire({
+      icon: 'success',
+      title: 'WhatsApp Dispatched & Bill PDF Downloaded',
+      html: `
+        <div class="text-left text-xs text-slate-600 dark:text-slate-300 space-y-2 pt-1">
+          <div class="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-emerald-800 dark:text-emerald-200">
+            ✅ <b>Bill PDF Downloaded:</b> <span class="font-mono font-semibold">${pdfFilename}</span>
+          </div>
+          <p>WhatsApp Web has been opened with your bill summary and direct PDF download link.</p>
+          <div class="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg text-indigo-800 dark:text-indigo-200">
+            📎 <b>Send File on WhatsApp:</b> You can drag & drop the downloaded <b>${pdfFilename}</b> file directly into your WhatsApp chat window to send the official PDF document as an attachment!
+          </div>
+        </div>
+      `,
+      confirmButtonColor: '#4f46e5',
+      timer: 5000,
+      timerProgressBar: true
+    });
   };
 
   // Resend Invoice via Backend (Email)
@@ -617,6 +696,7 @@ Thank you for choosing ${company}!`;
       const res = await api.patch(`/orders/${selectedOrder.id}/update-details`, payload);
       setSelectedOrder(prev => ({ ...prev, ...res.data }));
       setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...res.data } : o));
+      setIsEditing(false);
 
       Swal.fire({
         icon: 'success',
@@ -921,33 +1001,68 @@ Thank you for choosing ${company}!`;
               <Mail className="w-3.5 h-3.5" /> Email
             </Button>
 
-            {/* Save Updates button */}
-            <Button
-              type="button"
-              disabled={isSaving}
-              onClick={handleSaveOrderUpdates}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5 disabled:opacity-50"
-              title="Save all changes to logistics, payment, or notes"
-            >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-              <span>{isSaving ? 'Saving...' : 'Save Updates'}</span>
-            </Button>
+            {/* Conditional Action: View Mode (Edit buttons) vs Edit Mode (Save & Cancel buttons) */}
+            {!isEditing ? (
+              <>
+                {/* Edit Order in SAP Studio / POS */}
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (selectedOrder.type === 'POS') {
+                      navigate(`/pos?edit=${selectedOrder.id}`);
+                    } else {
+                      navigate(`/sales/order?edit=${selectedOrder.id}`);
+                    }
+                  }}
+                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Edit line items and full parameters in SAP Studio"
+                >
+                  <FileText className="w-3.5 h-3.5" /> Edit in Studio
+                </Button>
 
-            {/* Edit Order in SAP Studio / POS */}
-            <Button
-              type="button"
-              onClick={() => {
-                if (selectedOrder.type === 'POS') {
-                  navigate(`/pos?edit=${selectedOrder.id}`);
-                } else {
-                  navigate(`/sales/order?edit=${selectedOrder.id}`);
-                }
-              }}
-              className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
-              title="Edit line items and all parameters in SAP Studio"
-            >
-              <FileText className="w-3.5 h-3.5" /> Edit in Studio
-            </Button>
+                {/* Change Logistics Button */}
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setActiveStudioTab('logistics');
+                    setIsEditing(true);
+                  }}
+                  variant="outline"
+                  className="border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Update delivery addresses, transporter, vehicle, and dispatch logistics"
+                >
+                  <Truck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Change Logistics
+                </Button>
+              </>
+            ) : (
+              <>
+                {/* Save Logistics button - ONLY displayed when editing */}
+                <Button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={handleSaveOrderUpdates}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5 disabled:opacity-50"
+                  title="Save all changes to logistics and dispatch details"
+                >
+                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  <span>{isSaving ? 'Saving...' : 'Save Logistics'}</span>
+                </Button>
+
+                {/* Cancel Edit Button */}
+                <Button
+                  type="button"
+                  onClick={() => {
+                    resetEditForm(selectedOrder);
+                    setIsEditing(false);
+                  }}
+                  variant="outline"
+                  className="border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-bold rounded-xl h-9 px-3 cursor-pointer flex items-center gap-1.5"
+                  title="Discard changes and exit edit mode"
+                >
+                  <X className="w-3.5 h-3.5" /> Cancel
+                </Button>
+              </>
+            )}
 
             {/* Plan / Start Production Work Order */}
             {isNeedPlanning ? (
@@ -1130,8 +1245,8 @@ Thank you for choosing ${company}!`;
           </div>
         </div>
 
-        {/* ── SAP STUDIO TAB STRIP (6 TABS) ── */}
-        <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto select-none pt-1">
+        {/* ── SAP STUDIO TAB STRIP (6 TABS - NO OVERFLOW) ── */}
+        <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 flex-wrap select-none pt-1">
           {[
             { id: 'contents', label: '📋 Contents (Line Items)', count: itemsList.length },
             { id: 'logistics', label: '🚚 Logistics' },
@@ -1164,9 +1279,9 @@ Thank you for choosing ${company}!`;
           ))}
         </div>
 
-        {/* ── TAB 1: CONTENTS (Line Items Table with Batches & Feasibility) ── */}
+        {/* ── TAB 1: CONTENTS (Line Items Table with Batches & Feasibility - FULL DISPLAY) ── */}
         {activeStudioTab === 'contents' && (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs space-y-3 p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs space-y-3 p-4">
             
             {/* Grid Sub-Controls */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800 text-xs">
@@ -1186,8 +1301,8 @@ Thank you for choosing ${company}!`;
             </div>
 
             {/* Line Items Table */}
-            <div className="overflow-x-auto text-xs">
-              <table className="w-full text-left">
+            <div className="w-full text-xs">
+              <table className="w-full text-left table-auto">
                 <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
                   <tr>
                     <th className="px-3 py-3 text-center w-10">#</th>
@@ -1298,20 +1413,22 @@ Thank you for choosing ${company}!`;
                   <label className="block text-slate-500 font-bold mb-1">Ship-To Address</label>
                   <textarea
                     rows={4}
+                    disabled={!isEditing}
                     value={editForm.shipToAddress}
                     onChange={(e) => setEditForm(prev => ({ ...prev, shipToAddress: e.target.value }))}
                     placeholder="Enter complete shipping destination address..."
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
                 <div>
                   <label className="block text-slate-500 font-bold mb-1">Bill-To Address</label>
                   <textarea
                     rows={4}
+                    disabled={!isEditing}
                     value={editForm.billToAddress}
                     onChange={(e) => setEditForm(prev => ({ ...prev, billToAddress: e.target.value }))}
                     placeholder="Enter customer billing address..."
-                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
               </div>
@@ -1326,9 +1443,10 @@ Thank you for choosing ${company}!`;
                 <div className="flex items-center">
                   <label className="w-36 text-slate-500 font-bold">Shipping Method</label>
                   <select
+                    disabled={!isEditing}
                     value={editForm.shippingMethod}
                     onChange={(e) => setEditForm(prev => ({ ...prev, shippingMethod: e.target.value }))}
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   >
                     <option value="Road Transport">Road Transport</option>
                     <option value="Rail Cargo">Rail Cargo</option>
@@ -1342,10 +1460,11 @@ Thank you for choosing ${company}!`;
                   <label className="w-36 text-slate-500 font-bold">Transporter Name</label>
                   <input
                     type="text"
+                    disabled={!isEditing}
                     value={editForm.transporterName}
                     onChange={(e) => setEditForm(prev => ({ ...prev, transporterName: e.target.value }))}
                     placeholder="Carrier or Agency name..."
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
 
@@ -1353,10 +1472,11 @@ Thank you for choosing ${company}!`;
                   <label className="w-36 text-slate-500 font-bold">Vehicle No</label>
                   <input
                     type="text"
+                    disabled={!isEditing}
                     value={editForm.vehicleNo}
                     onChange={(e) => setEditForm(prev => ({ ...prev, vehicleNo: e.target.value }))}
                     placeholder="e.g. TN-01-AB-1234"
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono uppercase outline-none"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono uppercase outline-none disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
 
@@ -1364,10 +1484,11 @@ Thank you for choosing ${company}!`;
                   <label className="w-36 text-slate-500 font-bold">Docket / LR Number</label>
                   <input
                     type="text"
+                    disabled={!isEditing}
                     value={editForm.lrNo}
                     onChange={(e) => setEditForm(prev => ({ ...prev, lrNo: e.target.value }))}
                     placeholder="LR-000000"
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
 
@@ -1375,10 +1496,11 @@ Thank you for choosing ${company}!`;
                   <label className="w-36 text-slate-500 font-bold">e-Way Bill No.</label>
                   <input
                     type="text"
+                    disabled={!isEditing}
                     value={editForm.ewayBillNo}
                     onChange={(e) => setEditForm(prev => ({ ...prev, ewayBillNo: e.target.value }))}
                     placeholder="12-digit e-way bill number"
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
 
@@ -1386,23 +1508,39 @@ Thank you for choosing ${company}!`;
                   <label className="w-36 text-slate-500 font-bold">e-Way Bill Date</label>
                   <input
                     type="date"
+                    disabled={!isEditing}
                     value={editForm.ewayBillDate}
                     onChange={(e) => setEditForm(prev => ({ ...prev, ewayBillDate: e.target.value }))}
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
               </div>
             </div>
 
-            <div className="pt-2 flex justify-end">
-              <Button
-                onClick={handleSaveOrderUpdates}
-                disabled={isSaving}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl cursor-pointer"
-              >
-                {isSaving ? 'Saving...' : 'Save Logistics Updates'}
-              </Button>
-            </div>
+            {/* Save Logistics Button - ONLY visible when editing */}
+            {isEditing && (
+              <div className="pt-2 flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    resetEditForm(selectedOrder);
+                    setIsEditing(false);
+                  }}
+                  className="text-xs font-bold h-9 px-4 rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSaveOrderUpdates}
+                  disabled={isSaving}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl cursor-pointer"
+                >
+                  {isSaving ? 'Saving...' : 'Save Logistics Updates'}
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1421,9 +1559,10 @@ Thank you for choosing ${company}!`;
                 <div className="flex items-center">
                   <label className="w-36 text-slate-500 font-bold">Payment Terms</label>
                   <select
+                    disabled={!isEditing}
                     value={editForm.paymentTerms}
                     onChange={(e) => setEditForm(prev => ({ ...prev, paymentTerms: e.target.value }))}
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   >
                     <option value="Not Paid">Not Paid</option>
                     <option value="Immediate Cash">Immediate Cash</option>
@@ -1436,9 +1575,10 @@ Thank you for choosing ${company}!`;
                 <div className="flex items-center">
                   <label className="w-36 text-slate-500 font-bold">Payment Mode</label>
                   <select
+                    disabled={!isEditing}
                     value={editForm.paymentMethod}
                     onChange={(e) => setEditForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   >
                     <option value="Bank Transfer / NEFT">Bank Transfer / NEFT</option>
                     <option value="Cash">Cash</option>
@@ -1451,9 +1591,10 @@ Thank you for choosing ${company}!`;
                 <div className="flex items-center">
                   <label className="w-36 text-slate-500 font-bold">Payment Status</label>
                   <select
+                    disabled={!isEditing}
                     value={editForm.paymentStatus}
                     onChange={(e) => setEditForm(prev => ({ ...prev, paymentStatus: e.target.value }))}
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-bold text-emerald-600"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-bold text-emerald-600 disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   >
                     <option value="PAID">PAID</option>
                     <option value="PARTIAL">PARTIAL</option>
@@ -1467,9 +1608,10 @@ Thank you for choosing ${company}!`;
                     type="number"
                     step="0.01"
                     min="0"
+                    disabled={!isEditing}
                     value={editForm.amountPaid}
                     onChange={(e) => setEditForm(prev => ({ ...prev, amountPaid: parseFloat(e.target.value) || 0 }))}
-                    className="w-48 h-9 px-3 font-mono font-bold text-right rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                    className="w-48 h-9 px-3 font-mono font-bold text-right rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
 
@@ -1517,15 +1659,30 @@ Thank you for choosing ${company}!`;
               </div>
             </div>
 
-            <div className="pt-2 flex justify-end">
-              <Button
-                onClick={handleSaveOrderUpdates}
-                disabled={isSaving}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl cursor-pointer"
-              >
-                {isSaving ? 'Saving...' : 'Save Accounting Updates'}
-              </Button>
-            </div>
+            {/* Save Accounting Button - ONLY visible when editing */}
+            {isEditing && (
+              <div className="pt-2 flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    resetEditForm(selectedOrder);
+                    setIsEditing(false);
+                  }}
+                  className="text-xs font-bold h-9 px-4 rounded-xl cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSaveOrderUpdates}
+                  disabled={isSaving}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl cursor-pointer"
+                >
+                  {isSaving ? 'Saving...' : 'Save Accounting Updates'}
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1547,19 +1704,21 @@ Thank you for choosing ${company}!`;
                   <label className="w-36 text-slate-500 font-bold">Customer GSTIN</label>
                   <input
                     type="text"
+                    disabled={!isEditing}
                     value={editForm.taxRegNo}
                     onChange={(e) => setEditForm(prev => ({ ...prev, taxRegNo: e.target.value.toUpperCase() }))}
                     placeholder="33AAAAA0000A1Z5"
-                    className="flex-1 h-9 px-3 font-mono font-bold uppercase rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                    className="flex-1 h-9 px-3 font-mono font-bold uppercase rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   />
                 </div>
 
                 <div className="flex items-center">
                   <label className="w-36 text-slate-500 font-bold">Place of Supply</label>
                   <select
+                    disabled={!isEditing}
                     value={editForm.placeOfSupply}
                     onChange={(e) => setEditForm(prev => ({ ...prev, placeOfSupply: e.target.value }))}
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                   >
                     {getIndianStates().map(st => (
                       <option key={st.code} value={st.code}>
@@ -1884,10 +2043,11 @@ Thank you for choosing ${company}!`;
                 <label className="block text-slate-500 font-bold mb-1">Remarks & Dispatch Notes</label>
                 <textarea
                   rows={3}
+                  disabled={!isEditing}
                   value={editForm.remarks}
                   onChange={(e) => setEditForm(prev => ({ ...prev, remarks: e.target.value }))}
                   placeholder="Enter dispatch notes, production priority, terms, or customer special requests..."
-                  className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
                 />
               </div>
 

@@ -4,7 +4,8 @@ const prisma = require('../../database/prisma');
 const authenticateToken = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
 const notificationService = require('../notifications/notifications.service');
-const { sendSalesInvoiceDual, resendDocument } = require('../../utils/communication');
+const { sendSalesInvoiceDual, resendDocument, generateInvoicePDFBuffer } = require('../../utils/communication');
+const { getTaxSettingsData } = require('../setup/tax.controller');
 const documentSeriesService = require('../../services/documentSeries.service');
 const batchAllocationService = require('../../services/batchAllocation.service');
 const gstEngine = require('../../utils/gstEngine');
@@ -313,6 +314,81 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     next(error);
   }
 });
+
+// PDF Handler for Customer Order Tax Invoice (A4 Statutory PDF)
+const getOrderPdfHandler = async (req, res, next) => {
+  try {
+    const id = req.params.id || req.query.id || req.query.orderId || req.query.docNo;
+    if (!id) {
+      return res.status(400).send('Order identifier is required');
+    }
+
+    const order = await prisma.customerOrder.findFirst({
+      where: {
+        OR: [
+          { id: id },
+          { docNo: id },
+          { referenceNo: id }
+        ],
+        deletedAt: null
+      },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: {
+              include: {
+                unit: true,
+                category: true
+              }
+            },
+            batchAllocations: true
+          }
+        },
+        deliveries: true,
+        creator: {
+          select: { id: true, name: true, email: true, role: true }
+        }
+      }
+    });
+
+    if (!order) {
+      return res.status(404).send('Invoice or order document not found');
+    }
+
+    const company = await prisma.companyDetails.findFirst();
+    const taxSettings = await getTaxSettingsData();
+
+    const mergedSettings = {
+      companyName: company?.companyName || taxSettings?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
+      companyAddress: company?.companyAddress || taxSettings?.companyAddress || 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
+      companyGstin: company?.companyGstin || taxSettings?.companyGstin || '33AABCA1234F1Z8',
+      companyMobile: company?.companyMobile || taxSettings?.companyMobile || '+91 94433 12345',
+      companyEmail: company?.companyEmail || taxSettings?.companyEmail || 'billing@antigravitydairy.com',
+      bankName: company?.bankName || taxSettings?.bankName || 'State Bank of India',
+      bankAccountNumber: company?.bankAccountNumber || taxSettings?.bankAccountNumber || '123456789012',
+      bankIfscCode: company?.bankIfscCode || taxSettings?.bankIfscCode || 'SBIN0001234',
+      bankBranch: company?.bankBranch || taxSettings?.bankBranch || 'Salem Main Branch',
+      invoiceTerms: company?.invoiceTerms || taxSettings?.invoiceTerms
+    };
+
+    const pdfBuffer = await generateInvoicePDFBuffer(order, mergedSettings);
+    const docNo = order.docNo || order.referenceNo || 'Tax_Invoice';
+    const safeFilename = `Tax_Invoice_${docNo.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${safeFilename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    return res.end(pdfBuffer);
+  } catch (error) {
+    console.error('[Order PDF Generator] Error generating PDF:', error);
+    next(error);
+  }
+};
+
+// GET /api/orders/:id/pdf - Stream statutory Tax Invoice PDF (authenticated route)
+router.get('/:id/pdf', authenticateToken, getOrderPdfHandler);
+
 
 // POST /api/orders - Create Order
 router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']), async (req, res, next) => {
@@ -1447,6 +1523,8 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       igst: z.coerce.number().optional().default(0),
       roundOff: z.coerce.number().optional().default(0),
       grandTotal: z.coerce.number().optional().default(0),
+      totalSubtotal: z.coerce.number().optional(),
+      invoiceDiscount: z.coerce.number().optional(),
       customerRefNo: z.string().optional().nullable(),
       billToAddress: z.string().optional().nullable(),
       shippingMethod: z.string().optional().nullable(),
@@ -1464,9 +1542,14 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       ewayBillDate: z.string().optional().nullable(),
       items: z.array(z.object({
         productId: z.string().min(1),
+        productName: z.string().optional(),
         quantity: z.coerce.number().positive(),
         unitPrice: z.coerce.number().positive(),
         discount: z.coerce.number().default(0),
+        discountPercent: z.coerce.number().optional().default(0),
+        gstRate: z.coerce.number().optional(),
+        hsnCode: z.string().optional(),
+        uomName: z.string().optional(),
         deliveryDate: z.string().optional()
       })),
       deliveries: z.array(z.object({
@@ -1499,7 +1582,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         if (!prod) throw new Error(`Product not found: ${item.productId}`);
 
         const itemSubtotal = (Number(item.unitPrice) - Number(item.discount)) * item.quantity;
-        const itemCost = Number(prod.totalCost) * item.quantity;
+        const itemCost = Number(prod.totalCost || 0) * item.quantity;
         const itemProfit = itemSubtotal - itemCost;
 
         totalSubtotal += itemSubtotal;
@@ -1508,9 +1591,14 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
 
         orderItemsData.push({
           productId: item.productId,
+          productName: item.productName || prod.name,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discount: item.discount,
+          discountPercent: item.discountPercent || 0,
+          gstRate: item.gstRate !== undefined ? Number(item.gstRate) : (prod.gstRate !== undefined ? Number(prod.gstRate) : 5),
+          hsnCode: item.hsnCode || prod.hsnCode || '21050000',
+          uomName: item.uomName || prod.unit?.abbreviation || prod.unit?.name || 'pcs',
           subtotal: itemSubtotal,
           cost: itemCost,
           profit: itemProfit,
@@ -1546,13 +1634,14 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           internalNote: data.internalNote || null,
           status: data.status,
           paymentTerms: data.paymentTerms || null,
-          totalSubtotal,
+          totalSubtotal: data.totalSubtotal !== undefined ? data.totalSubtotal : Math.max(0, totalSubtotal - (data.discountValue || 0)),
           totalCost,
           totalProfit,
           collectTax: data.collectTax,
           taxRegNo: data.taxRegNo || null,
           taxType: data.taxType || null,
           discountValue: data.discountValue,
+          invoiceDiscount: data.discountValue,
           tdsDeduction: data.tdsDeduction,
           freight: data.freight,
           freightGst: data.freightGst,
@@ -1578,9 +1667,14 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         data: orderItemsData.map(it => ({
           orderId: id,
           productId: it.productId,
+          productName: it.productName,
           quantity: it.quantity,
           unitPrice: it.unitPrice,
           discount: it.discount,
+          discountPercent: it.discountPercent,
+          gstRate: it.gstRate,
+          hsnCode: it.hsnCode,
+          uomName: it.uomName,
           subtotal: it.subtotal,
           cost: it.cost,
           profit: it.profit,
@@ -1687,4 +1781,7 @@ router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async 
   }
 });
 
+router.getOrderPdfHandler = getOrderPdfHandler;
+
 module.exports = router;
+

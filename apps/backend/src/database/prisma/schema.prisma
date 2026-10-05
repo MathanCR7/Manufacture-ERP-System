@@ -2019,6 +2019,8 @@ model SalesReturn {
   invoiceId      String                      @map("invoice_id") // Links to CustomerOrder (representing invoice)
   reason         String
   refundMethod   String                      @map("refund_method") // Cash, Credit Note, Replacement
+  refundAmount   Decimal?                    @default(0) @map("refund_amount")
+  notes          String?
   status         String                      @default("Completed")
   createdAt      DateTime                    @default(now()) @map("created_at")
   
@@ -2034,6 +2036,8 @@ model SalesReturnItem {
   productId     String                       @map("product_id")
   quantity      Decimal
   condition     String                       // Resaleable, Damaged, Destroyed
+  unitPrice     Decimal?                     @default(0) @map("unit_price")
+  refundAmount  Decimal?                     @default(0) @map("refund_amount")
   
   return        SalesReturn                  @relation(fields: [returnId], references: [id], onDelete: Cascade)
   product       FinishedProduct              @relation(fields: [productId], references: [id])
