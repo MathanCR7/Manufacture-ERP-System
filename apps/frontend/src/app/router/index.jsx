@@ -94,7 +94,6 @@ const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProdu
 
 // Sales Module Pages
 const SalesBillingPage = lazy(() => import('@/modules/sales/pages/SalesBillingPage'));
-const POSPage = lazy(() => import('@/modules/sales/pages/POSPage'));
 const SalesOrderSAPPage = lazy(() => import('@/modules/sales/pages/SalesOrderSAPPage'));
 const SalesListPage = lazy(() => import('@/modules/sales/pages/SalesListPage'));
 const SalesReturnsPage = lazy(() => import('@/modules/sales/pages/SalesReturnsPage'));
@@ -416,7 +415,7 @@ const AppRouter = () => {
             {/* Unified Sales & Order Management */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM']} />}> 
               <Route path="/sales/billing" element={<SalesBillingPage />} />
-              <Route path="/sales/pos" element={<POSPage />} />
+              <Route path="/sales/pos" element={<Navigate to="/sales/order" replace />} />
               <Route path="/sales/order" element={<SalesOrderSAPPage />} />
               <Route path="/sales/sap-order" element={<SalesOrderSAPPage />} />
               <Route path="/sales/add" element={<SalesBillingPage />} />

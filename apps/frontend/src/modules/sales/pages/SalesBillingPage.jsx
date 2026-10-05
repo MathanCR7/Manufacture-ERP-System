@@ -85,9 +85,9 @@ export default function SalesBillingPage() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
   
-  // Document Modes: 'Sales Order' | 'Quotation' | 'Invoice' | 'POS'
-  const [orderType, setOrderType] = useState('Sales Order');
-  const [paymentTerms, setPaymentTerms] = useState('Not Paid');
+  // Document Mode: Dedicated Walk-in POS
+  const [orderType, setOrderType] = useState('POS');
+  const [paymentTerms, setPaymentTerms] = useState('Immediate / Cash');
   
   // Live Clock & Order Timestamp
   const [orderDate, setOrderDate] = useState(new Date());
@@ -547,11 +547,11 @@ export default function SalesBillingPage() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                Sales Billing & Order Studio
+                <ShoppingCart className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                Walk-in POS Counter
               </h1>
-              <span className="text-[9px] bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-400 px-2.5 py-0.5 rounded-full font-black border border-indigo-200 dark:border-indigo-800 uppercase tracking-wide">
-                Unified Sales Hub
+              <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 px-2.5 py-0.5 rounded-full font-black border border-emerald-200 dark:border-emerald-800 uppercase tracking-wide">
+                Live POS Counter
               </span>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -591,10 +591,10 @@ export default function SalesBillingPage() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/sales/pos')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-all cursor-pointer shadow-xs"
+            onClick={() => navigate('/sales/order')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 transition-all cursor-pointer shadow-xs"
           >
-            <ShoppingBag className="w-3.5 h-3.5" /> Fast POS Counter
+            <FileText className="w-3.5 h-3.5" /> Sales Order
           </button>
         </div>
       </div>
@@ -789,20 +789,9 @@ export default function SalesBillingPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block uppercase">Order Mode</label>
-                  <SearchSelect
-                    value={orderType}
-                    onChange={setOrderType}
-                    options={[
-                      { value: 'Sales Order', label: 'Sales Order' },
-                      { value: 'Quotation', label: 'Quotation' },
-                      { value: 'Invoice', label: 'Invoice' },
-                      { value: 'POS', label: 'Retail POS' }
-                    ]}
-                    showSearch={false}
-                    placeholder="Select Type..."
-                    required
-                    triggerClassName="h-9 text-xs font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white"
-                  />
+                  <div className="h-9 px-3 flex items-center bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                    <ShoppingCart className="w-3.5 h-3.5 mr-1.5" /> Walk-in POS
+                  </div>
                 </div>
 
                 <div className="space-y-1">

@@ -266,6 +266,7 @@ router.get('/search', authenticateToken, async (req, res, next) => {
       take: limit,
       include: {
         category: { select: { id: true, name: true } },
+        subcategory: { select: { id: true, name: true, code: true } },
         unit: { select: { id: true, name: true, abbreviation: true } },
         stockLevels: { select: { minLevel: true, maxLevel: true, reorderPoint: true } }
       },
@@ -302,12 +303,21 @@ router.get('/search', authenticateToken, async (req, res, next) => {
       const totalBatchStock = pBatches.reduce((s, b) => s + Number(b.remainingQty || 0), 0);
       const nextBatch = pBatches[0] || null;
 
+      const baseCategory = p.specifications?.group || p.category?.name || 'General';
+      const subcategoryName = p.subcategory?.name || p.specifications?.category || p.specifications?.series || '';
+      const unitOfSaleName = p.unit?.abbreviation || p.unit?.name || 'pcs';
+
       return {
         id: p.id,
         code: p.code,
+        systemCode: p.code,
         name: p.name,
-        category: p.category?.name || 'General',
-        unit: p.unit?.abbreviation || p.unit?.name || 'pcs',
+        productName: p.productName || p.name,
+        category: p.category?.name || baseCategory,
+        baseCategory: baseCategory,
+        subcategory: subcategoryName,
+        unit: unitOfSaleName,
+        unitOfSale: unitOfSaleName,
         salePrice: Number(p.salePrice || 0),
         currentStock: Number(p.currentStock || totalBatchStock || 0),
         batchStock: totalBatchStock,
@@ -325,7 +335,9 @@ router.get('/search', authenticateToken, async (req, res, next) => {
         cgst: Number(p.cgst || 2.5),
         sgst: Number(p.sgst || 2.5),
         igst: Number(p.igst || 5.0),
-        size: p.size || '',
+        size: p.size || p.specifications?.sizeML || '',
+        cavity: p.specifications?.cavity || '',
+        series: p.specifications?.series || '',
         description: p.description || '',
         specifications: p.specifications || {},
         alertLevel: Number(p.alertLevel || 0)

@@ -1459,10 +1459,10 @@ Thank you for choosing ${company}!`;
             <Plus className="w-3.5 h-3.5" /> New B2B Invoice
           </Button>
           <Button
-            onClick={() => navigate('/sales/pos')}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
+            onClick={() => navigate('/sales/order')}
+            className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
-            <ShoppingBag className="w-3.5 h-3.5" /> Open POS Counter
+            <FileText className="w-3.5 h-3.5" /> Sales Order
           </Button>
         </div>
       </div>

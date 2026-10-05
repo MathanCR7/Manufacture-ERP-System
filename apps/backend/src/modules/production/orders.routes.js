@@ -853,7 +853,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
 }
 
 // POST /api/orders/pos - Fast counter retail billing
-router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const order = await processBillingOrder({
       req,
@@ -868,7 +868,7 @@ router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEA
 });
 
 // POST /api/orders/invoice - B2B Distributor / Professional Sales Billing
-router.post('/invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT']), async (req, res, next) => {
+router.post('/invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const order = await processBillingOrder({
       req,
@@ -892,7 +892,7 @@ router.post('/invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
 });
 
 // POST /api/orders/quotation - Quotation generation
-router.post('/quotation', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+router.post('/quotation', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const order = await processBillingOrder({
       req,
@@ -907,7 +907,7 @@ router.post('/quotation', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SAL
 });
 
 // POST /api/orders/sales-order - Sales Order creation
-router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const order = await processBillingOrder({
       req,
@@ -922,7 +922,7 @@ router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
 });
 
 // POST /api/orders/:id/convert-to-invoice - Quotation/Sales Order to Invoice conversion (supports partial quantities)
-router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
+router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const sourceOrderId = req.params.id;
     const sourceOrder = await prisma.customerOrder.findUnique({

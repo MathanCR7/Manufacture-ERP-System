@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
 import {
   ShoppingCart, Search, RefreshCw, Plus, Edit, Trash2, Eye,
-  Download, Printer, X, ChevronLeft, Package,
+  Download, Printer, X, ChevronLeft, Package, FileText,
   TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown, ArrowUp, ArrowDown, Info, Sparkles, AlertCircle, Loader2, AlertTriangle
 } from 'lucide-react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -1204,10 +1204,10 @@ export default function OrderListPage() {
               <Plus className="w-4 h-4" /> New B2B Order / Invoice
             </Button>
             <Button
-              onClick={() => navigate('/sales/pos')}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-sm h-9 flex items-center gap-1.5 transition-all cursor-pointer"
+              onClick={() => navigate('/sales/order')}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl shadow-sm h-9 flex items-center gap-1.5 transition-all cursor-pointer"
             >
-              <ShoppingCart className="w-4 h-4" /> Open POS Counter
+              <FileText className="w-4 h-4" /> Sales Order
             </Button>
           </div>
         )}
