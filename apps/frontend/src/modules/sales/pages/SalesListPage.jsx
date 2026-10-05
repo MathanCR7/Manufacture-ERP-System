@@ -777,14 +777,31 @@ Thank you for choosing ${company}!`;
   };
 
   const handleRemoveAttachment = async (attId) => {
+    const target = attachments.find(a => a.id === attId);
     const updated = attachments.filter(a => a.id !== attId);
     setAttachments(updated);
+
+    if (target?.url) {
+      try {
+        await api.post('/orders/delete-attachment', {
+          fileUrl: target.url,
+          filename: target.filename,
+          orderId: selectedOrder?.id,
+          orderDocNo: selectedOrder?.docNo || selectedOrder?.referenceNo
+        });
+      } catch (err) {
+        console.error('Failed to delete attachment from server disk:', err);
+      }
+    }
+
     if (selectedOrder) {
       const attJson = updated.length > 0 ? `[[ATTACHMENT:${JSON.stringify(updated)}]]` : '';
       const updatedNote = (editForm.internalNote || '').replace(/\[\[ATTACHMENT:.*?\]\]/g, '').trim() + (attJson ? ' ' + attJson : '');
+      const updatedUrl = updated.length > 0 ? updated.map(a => a.url).join(', ') : null;
       setEditForm(prev => ({ ...prev, internalNote: updatedNote }));
       await api.patch(`/orders/${selectedOrder.id}/update-details`, {
-        internalNote: updatedNote
+        internalNote: updatedNote,
+        attachmentUrl: updatedUrl
       });
     }
   };
@@ -1881,23 +1898,42 @@ Thank you for choosing ${company}!`;
                     className="p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-800/40 flex flex-col justify-between space-y-2 group shadow-xs"
                   >
                     <div className="flex items-start gap-3">
-                      <div
-                        onClick={() => setPreviewPhotoUrl(att.url)}
-                        className="w-16 h-16 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-600 cursor-pointer relative group-hover:opacity-90"
-                      >
-                        <img
-                          src={att.url}
-                          alt={att.filename}
-                          className="w-full h-full object-cover"
-                          onError={(e) => {
-                            e.target.onerror = null;
-                            e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="100%" height="100%" fill="%23cbd5e1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%23475569">Doc</text></svg>';
-                          }}
-                        />
-                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                          <Eye className="w-4 h-4 text-white" />
-                        </div>
-                      </div>
+                      {(() => {
+                        const isPdf = att.filename?.toLowerCase().endsWith('.pdf') || att.url?.toLowerCase().includes('.pdf');
+                        return (
+                          <div
+                            onClick={() => {
+                              if (isPdf) {
+                                window.open(att.url, '_blank');
+                              } else {
+                                setPreviewPhotoUrl(att.url);
+                              }
+                            }}
+                            className="w-16 h-16 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-600 cursor-pointer relative group-hover:opacity-90 flex items-center justify-center"
+                            title={isPdf ? 'Click to open PDF' : 'Click to preview image'}
+                          >
+                            {isPdf ? (
+                              <div className="w-full h-full flex flex-col items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
+                                <FileText className="w-6 h-6" />
+                                <span className="text-[9px] font-bold mt-0.5 tracking-wider">PDF</span>
+                              </div>
+                            ) : (
+                              <img
+                                src={att.url}
+                                alt={att.filename}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.onerror = null;
+                                  e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="100%" height="100%" fill="%23cbd5e1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%23475569">Doc</text></svg>';
+                                }}
+                              />
+                            )}
+                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                              <Eye className="w-4 h-4 text-white" />
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       <div className="flex-1 min-w-0">
                         <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 truncate" title={att.filename}>

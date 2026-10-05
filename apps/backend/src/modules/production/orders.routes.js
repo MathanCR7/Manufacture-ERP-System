@@ -1071,13 +1071,19 @@ router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
 router.post('/upload-attachment', authenticateToken, uploadAttachment.single('file'), async (req, res, next) => {
   try {
     const orderId = req.body?.orderId || req.query?.orderId || 'ORDER';
+    const oldFileUrl = req.body?.oldFileUrl || req.body?.oldPath || null;
     const cleanOrderId = String(orderId).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // Clean up previous attachment file from disk if replacing
+    if (oldFileUrl) {
+      deletePaymentImageFromDisk(oldFileUrl);
+    }
 
     let fileUrl = null;
     if (req.file) {
-      fileUrl = saveOrderAttachmentBufferToDisk(req.file.buffer, req.file.originalname, cleanOrderId);
+      fileUrl = saveOrderAttachmentBufferToDisk(req.file.buffer, req.file.originalname, cleanOrderId, oldFileUrl);
     } else if (req.body?.imageData) {
-      fileUrl = saveOrderAttachmentToDisk(req.body.imageData, cleanOrderId);
+      fileUrl = saveOrderAttachmentToDisk(req.body.imageData, cleanOrderId, oldFileUrl);
     }
 
     if (!fileUrl) {
@@ -1090,6 +1096,77 @@ router.post('/upload-attachment', authenticateToken, uploadAttachment.single('fi
       url: fileUrl,
       filename,
       orderId: cleanOrderId
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/delete-attachment - Remove attachment from server uploads directory & sync database
+router.post('/delete-attachment', authenticateToken, async (req, res, next) => {
+  try {
+    const { fileUrl, filename, orderId, orderDocNo } = req.body;
+    const targetFile = fileUrl || filename;
+    if (!targetFile) {
+      return res.status(400).json({ error: 'fileUrl or filename is required to delete attachment' });
+    }
+
+    const deleted = deletePaymentImageFromDisk(targetFile);
+
+    // If orderId or orderDocNo is provided, sync database record
+    if (orderId || orderDocNo) {
+      try {
+        const order = await prisma.customerOrder.findFirst({
+          where: {
+            OR: [
+              ...(orderId ? [{ id: orderId }] : []),
+              ...(orderDocNo ? [{ docNo: String(orderDocNo) }, { referenceNo: String(orderDocNo) }] : [])
+            ]
+          }
+        });
+
+        if (order) {
+          const baseName = path.basename(String(targetFile).split('?')[0]);
+          let updatedAttachmentUrl = order.attachmentUrl;
+          if (order.attachmentUrl) {
+            const list = order.attachmentUrl.split(',').map(u => u.trim()).filter(Boolean);
+            const filtered = list.filter(u => !u.includes(baseName));
+            updatedAttachmentUrl = filtered.length > 0 ? filtered.join(', ') : null;
+          }
+
+          let updatedInternalNote = order.internalNote;
+          if (order.internalNote && order.internalNote.includes('[[ATTACHMENT:')) {
+            const match = order.internalNote.match(/\[\[ATTACHMENT:(.*?)\]\]/);
+            if (match && match[1]) {
+              try {
+                const parsed = JSON.parse(match[1]);
+                if (Array.isArray(parsed)) {
+                  const filteredAtts = parsed.filter(a => !a.url?.includes(baseName) && a.filename !== baseName);
+                  const attJson = filteredAtts.length > 0 ? `[[ATTACHMENT:${JSON.stringify(filteredAtts)}]]` : '';
+                  updatedInternalNote = order.internalNote.replace(/\[\[ATTACHMENT:.*?\]\]/g, '').trim() + (attJson ? ' ' + attJson : '');
+                }
+              } catch (e) {}
+            }
+          }
+
+          await prisma.customerOrder.update({
+            where: { id: order.id },
+            data: {
+              attachmentUrl: updatedAttachmentUrl,
+              internalNote: updatedInternalNote
+            }
+          });
+        }
+      } catch (dbErr) {
+        console.error('Error syncing order in db after attachment delete:', dbErr);
+      }
+    }
+
+    res.json({
+      success: true,
+      deleted,
+      filename: path.basename(String(targetFile).split('?')[0]),
+      message: `Attachment file ${deleted ? 'deleted from' : 'removed'} uploads directory.`
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -1660,6 +1737,16 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           grandTotal: data.grandTotal
         }
       });
+
+      // Clean up any removed attachment files from server uploads disk
+      if (existing.attachmentUrl && data.attachmentUrl !== undefined) {
+        const oldUrls = existing.attachmentUrl.split(',').map(u => u.trim()).filter(Boolean);
+        const newUrls = (data.attachmentUrl || '').split(',').map(u => u.trim()).filter(Boolean);
+        const removedUrls = oldUrls.filter(oldU => !newUrls.some(newU => path.basename(newU.split('?')[0]) === path.basename(oldU.split('?')[0])));
+        for (const remUrl of removedUrls) {
+          deletePaymentImageFromDisk(remUrl);
+        }
+      }
 
       // 4. Recreate order items
       await tx.customerOrderItem.deleteMany({ where: { orderId: id } });

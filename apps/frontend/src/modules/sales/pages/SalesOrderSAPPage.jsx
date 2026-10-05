@@ -238,10 +238,19 @@ export default function SalesOrderPage() {
 
   // Attachments State & Uploads
   const [attachments, setAttachments] = useState([]);
+  const [removedAttachmentUrls, setRemovedAttachmentUrls] = useState([]);
   const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
   const [previewModalUrl, setPreviewModalUrl] = useState(null);
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
+
+  // Helper to get fully qualified attachment URL (proxied or direct backend)
+  const getFullAttachmentUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    const backendBase = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace(/\/api\/?$/, '');
+    return `${backendBase}${url.startsWith('/') ? '' : '/'}${url}`;
+  };
 
   // Status message bar (red error or green notification)
   const [statusMessage, setStatusMessage] = useState({
@@ -813,17 +822,21 @@ export default function SalesOrderPage() {
       reader.onloadend = async () => {
         const base64Data = reader.result;
         const currentOrderId = docNo || `SO_${Date.now()}`;
+        const oldAttachment = updatingAttachmentId ? attachments.find(a => a.id === updatingAttachmentId) : null;
+        const oldFileUrl = oldAttachment?.url || null;
 
         try {
           const res = await api.post('/orders/upload-attachment', {
             imageData: base64Data,
-            orderId: currentOrderId
+            orderId: currentOrderId,
+            oldFileUrl: oldFileUrl
           });
 
           if (res.data?.success && res.data?.url) {
+            const ext = file.name ? file.name.split('.').pop() : 'jpg';
             const itemData = {
               url: res.data.url,
-              filename: res.data.filename || `order_${currentOrderId}_${Date.now()}.jpg`,
+              filename: res.data.filename || `order_${currentOrderId}_${Date.now()}.${ext}`,
               fileSize: (file.size / 1024).toFixed(1) + ' KB',
               uploadedAt: new Date().toLocaleTimeString(),
               orderId: currentOrderId
@@ -831,6 +844,9 @@ export default function SalesOrderPage() {
 
             if (updatingAttachmentId) {
               setAttachments(prev => prev.map(a => a.id === updatingAttachmentId ? { ...a, ...itemData } : a));
+              if (oldFileUrl) {
+                setRemovedAttachmentUrls(prev => [...prev.filter(u => u !== oldFileUrl), oldFileUrl]);
+              }
               setStatusMessage({
                 type: 'ready',
                 text: `✔ Updated attachment in @[UPLOADS_DIR]: ${itemData.filename}`
@@ -838,7 +854,7 @@ export default function SalesOrderPage() {
               Swal.fire({
                 icon: 'success',
                 title: 'Attachment Updated!',
-                text: `Replaced with ${itemData.filename} in @[UPLOADS_DIR]`,
+                text: `Old file removed from disk. Saved new file ${itemData.filename} in @[UPLOADS_DIR]`,
                 timer: 2000,
                 showConfirmButton: false
               });
@@ -850,7 +866,7 @@ export default function SalesOrderPage() {
               setAttachments(prev => [...prev, newAttachment]);
               setStatusMessage({
                 type: 'ready',
-                text: `✔ Saved image to @[UPLOADS_DIR]: ${newAttachment.filename}`
+                text: `✔ Saved file to @[UPLOADS_DIR]: ${newAttachment.filename}`
               });
               Swal.fire({
                 icon: 'success',
@@ -879,7 +895,73 @@ export default function SalesOrderPage() {
     } catch (err) {
       setIsUploadingAttachment(false);
       setUpdatingAttachmentId(null);
-      console.error('Error reading image file:', err);
+      console.error('Error reading file:', err);
+    }
+  };
+
+  // Handle Removing Attachment (Permanently removes from server @[UPLOADS_DIR] and State)
+  const handleRemoveAttachment = async (att) => {
+    if (!att) return;
+
+    const result = await Swal.fire({
+      title: 'Remove Attachment?',
+      html: `
+        <div class="text-left text-xs space-y-1.5 p-1">
+          <p class="text-slate-700 dark:text-slate-300">Are you sure you want to remove <strong>${att.filename}</strong>?</p>
+          <p class="text-rose-600 dark:text-rose-400 font-medium">This will permanently delete the file from the server uploads directory (<span class="font-mono font-bold">@[UPLOADS_DIR]</span>).</p>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Delete from Uploads',
+      cancelButtonText: 'Cancel',
+      confirmButtonColor: '#e11d48',
+      cancelButtonColor: '#64748b'
+    });
+
+    if (!result.isConfirmed) return;
+
+    try {
+      // 1. Delete physical file from server uploads folder
+      await api.post('/orders/delete-attachment', {
+        fileUrl: att.url,
+        filename: att.filename,
+        orderId: editOrderId,
+        orderDocNo: docNo
+      });
+
+      // 2. Remove from React state
+      setAttachments(prev => prev.filter(a => a.id !== att.id));
+      setRemovedAttachmentUrls(prev => [...prev, att.url]);
+
+      setStatusMessage({
+        type: 'ready',
+        text: `✔ Attachment ${att.filename} deleted from server @[UPLOADS_DIR].`
+      });
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Attachment Deleted!',
+        text: `"${att.filename}" has been permanently removed from server uploads.`,
+        timer: 1800,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
+    } catch (err) {
+      console.error('Failed to remove attachment from server:', err);
+      // Remove from UI even if error
+      setAttachments(prev => prev.filter(a => a.id !== att.id));
+      setRemovedAttachmentUrls(prev => [...prev, att.url]);
+      Swal.fire({
+        icon: 'info',
+        title: 'Attachment Removed',
+        text: err.response?.data?.error || 'Attachment removed from order view.',
+        timer: 1800,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
     }
   };
 
@@ -1026,6 +1108,7 @@ export default function SalesOrderPage() {
     onSuccess: (data, variables) => {
       queryClient.invalidateQueries(['orders']);
       queryClient.invalidateQueries(['orders-count']);
+      setRemovedAttachmentUrls([]);
 
       if (editOrderId) {
         Swal.fire({
@@ -1204,7 +1287,11 @@ export default function SalesOrderPage() {
       salesEmployee: salesEmployee,
       owner: owner,
       remarks: remarks,
-      internalNote: remarks,
+      internalNote: (() => {
+        const cleanRemarks = (remarks || '').replace(/\[\[ATTACHMENT:.*?\]\]/g, '').trim();
+        const attJson = attachments.length > 0 ? `[[ATTACHMENT:${JSON.stringify(attachments)}]]` : '';
+        return cleanRemarks + (attJson ? ' ' + attJson : '');
+      })(),
       attachmentUrl: attachments.length > 0 ? attachments.map(a => a.url).join(', ') : null,
       deliveryAddress: shipToAddress,
       billToAddress: billToAddress,
@@ -1255,6 +1342,17 @@ export default function SalesOrderPage() {
       }))
     };
 
+    // Clean up any removed attachment files from server uploads
+    if (removedAttachmentUrls.length > 0) {
+      removedAttachmentUrls.forEach(url => {
+        api.post('/orders/delete-attachment', {
+          fileUrl: url,
+          orderId: editOrderId,
+          orderDocNo: docNo
+        }).catch(() => {});
+      });
+    }
+
     createOrderMutation.mutate(payload);
   };
 
@@ -1275,6 +1373,7 @@ export default function SalesOrderPage() {
     ]);
     setRemarks('');
     setAttachments([]);
+    setRemovedAttachmentUrls([]);
     setDiscountPercent(0);
     setFreight(0);
     setLoadingCharges(0);
@@ -1625,19 +1724,9 @@ export default function SalesOrderPage() {
                   )}
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                    Not Available (Unregistered)
-                  </span>
-                  <input
-                    type="text"
-                    value={taxRegNo}
-                    onChange={(e) => handleGstinInputChange(e.target.value)}
-                    placeholder="Enter GSTIN..."
-                    className="w-36 h-[22px] px-1.5 font-mono text-[10.5px] uppercase border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    title="Enter 15-digit GSTIN to auto-calculate tax state"
-                  />
-                </div>
+                <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                  Not Available (Unregistered)
+                </span>
               )}
             </div>
           </div>
@@ -2983,23 +3072,43 @@ export default function SalesOrderPage() {
                       className="p-2.5 border border-slate-200 dark:border-slate-800 rounded-sm bg-slate-50/50 dark:bg-slate-800/40 flex flex-col justify-between space-y-2 group shadow-xs"
                     >
                       <div className="flex items-start gap-2.5">
-                        <div
-                          onClick={() => setPreviewModalUrl(att.url)}
-                          className="w-16 h-16 rounded-xs bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-600 cursor-pointer relative group-hover:opacity-90"
-                        >
-                          <img
-                            src={att.url}
-                            alt={att.filename}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              e.target.onerror = null;
-                              e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="100%" height="100%" fill="%23cbd5e1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%23475569">Doc</text></svg>';
-                            }}
-                          />
-                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                            <Eye className="w-4 h-4 text-white" />
-                          </div>
-                        </div>
+                        {(() => {
+                          const isPdf = att.filename?.toLowerCase().endsWith('.pdf') || att.url?.toLowerCase().includes('.pdf');
+                          const fullUrl = getFullAttachmentUrl(att.url);
+                          return (
+                            <div
+                              onClick={() => {
+                                if (isPdf) {
+                                  window.open(fullUrl, '_blank');
+                                } else {
+                                  setPreviewModalUrl(fullUrl);
+                                }
+                              }}
+                              className="w-16 h-16 rounded-xs bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-600 cursor-pointer relative group-hover:opacity-90 flex items-center justify-center"
+                              title={isPdf ? 'Click to open PDF' : 'Click to preview image'}
+                            >
+                              {isPdf ? (
+                                <div className="w-full h-full flex flex-col items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
+                                  <FileText className="w-6 h-6" />
+                                  <span className="text-[9px] font-bold mt-0.5 tracking-wider">PDF</span>
+                                </div>
+                              ) : (
+                                <img
+                                  src={fullUrl}
+                                  alt={att.filename}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.target.onerror = null;
+                                    e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="100%" height="100%" fill="%23cbd5e1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%23475569">Doc</text></svg>';
+                                  }}
+                                />
+                              )}
+                              <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <Eye className="w-4 h-4 text-white" />
+                              </div>
+                            </div>
+                          );
+                        })()}
 
                         <div className="flex-1 min-w-0">
                           <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 truncate" title={att.filename}>
@@ -3022,7 +3131,7 @@ export default function SalesOrderPage() {
                           type="button"
                           onClick={() => handleTriggerUpdate(att.id, 'camera')}
                           className="px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
-                          title="Retake camera photo to update this attachment"
+                          title="Retake camera photo to update and replace this attachment"
                         >
                           <Camera className="w-3 h-3 text-amber-700" />
                           <span>Update Photo</span>
@@ -3031,21 +3140,29 @@ export default function SalesOrderPage() {
                           type="button"
                           onClick={() => handleTriggerUpdate(att.id, 'gallery')}
                           className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-300 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
-                          title="Replace with an image from device gallery"
+                          title="Replace with an image or PDF from device gallery"
                         >
                           <ImageIcon className="w-3 h-3 text-slate-600" />
                           <span>Update Gallery</span>
                         </button>
                         <button
                           type="button"
-                          onClick={() => setPreviewModalUrl(att.url)}
+                          onClick={() => {
+                            const isPdf = att.filename?.toLowerCase().endsWith('.pdf') || att.url?.toLowerCase().includes('.pdf');
+                            const fullUrl = getFullAttachmentUrl(att.url);
+                            if (isPdf) {
+                              window.open(fullUrl, '_blank');
+                            } else {
+                              setPreviewModalUrl(fullUrl);
+                            }
+                          }}
                           className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-300 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
                         >
                           <Eye className="w-3 h-3" />
                           <span>View</span>
                         </button>
                         <a
-                          href={att.url}
+                          href={getFullAttachmentUrl(att.url)}
                           download={att.filename}
                           target="_blank"
                           rel="noreferrer"
@@ -3056,10 +3173,9 @@ export default function SalesOrderPage() {
                         </a>
                         <button
                           type="button"
-                          onClick={() => {
-                            setAttachments(prev => prev.filter(a => a.id !== att.id));
-                          }}
+                          onClick={() => handleRemoveAttachment(att)}
                           className="px-2 py-0.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
+                          title="Permanently remove file from server uploads"
                         >
                           <Trash2 className="w-3 h-3" />
                           <span>Remove</span>
@@ -3746,37 +3862,45 @@ export default function SalesOrderPage() {
         </div>
       )}
 
-      {/* FULL PREVIEW MODAL FOR ATTACHMENT IMAGES */}
+      {/* FULL PREVIEW MODAL FOR ATTACHMENT IMAGES & DOCUMENTS */}
       {previewModalUrl && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-in fade-in">
-          <div className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-sm overflow-hidden p-2 flex flex-col items-center">
+          <div className="relative max-w-4xl w-full max-h-[90vh] bg-white dark:bg-slate-900 rounded-sm overflow-hidden p-3 flex flex-col items-center shadow-2xl">
             <button
               type="button"
               onClick={() => setPreviewModalUrl(null)}
-              className="absolute top-2 right-2 p-1 bg-black/60 hover:bg-black text-white rounded-full z-10"
+              className="absolute top-2 right-2 p-1.5 bg-black/60 hover:bg-black text-white rounded-full z-10 transition-colors"
             >
               <X className="w-5 h-5" />
             </button>
-            <img
-              src={previewModalUrl}
-              alt="Attachment Full Preview"
-              className="max-h-[80vh] max-w-full object-contain"
-            />
-            <div className="pt-2 flex items-center gap-3">
+            {previewModalUrl.toLowerCase().includes('.pdf') ? (
+              <iframe
+                src={previewModalUrl}
+                title="Document Attachment Preview"
+                className="w-full h-[75vh] border border-slate-200 dark:border-slate-800 rounded-xs"
+              />
+            ) : (
+              <img
+                src={previewModalUrl}
+                alt="Attachment Full Preview"
+                className="max-h-[75vh] max-w-full object-contain rounded-xs"
+              />
+            )}
+            <div className="pt-3 flex items-center gap-3 w-full justify-center border-t border-slate-200 dark:border-slate-800 mt-2">
               <a
                 href={previewModalUrl}
-                download="order_attachment.jpg"
+                download="order_attachment"
                 target="_blank"
                 rel="noreferrer"
-                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xs flex items-center gap-1.5"
+                className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xs flex items-center gap-1.5 text-xs shadow-xs"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>Download Attachment</span>
+                <span>Download / Open In New Tab</span>
               </a>
               <button
                 type="button"
                 onClick={() => setPreviewModalUrl(null)}
-                className="px-3 py-1 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold rounded-xs"
+                className="px-3.5 py-1.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-800 dark:text-slate-200 font-bold rounded-xs text-xs"
               >
                 Close
               </button>

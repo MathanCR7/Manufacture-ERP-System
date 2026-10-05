@@ -13,26 +13,46 @@ try {
 }
 
 /**
- * Deletes any existing receipt file(s) for a given PO from the server disk.
+ * Deletes any existing file (receipt, PO, or order attachment) from the server uploads disk.
+ * Supports absolute URLs, relative paths, query strings, and plain filenames.
  *
- * @param {string|null} imagePath - Stored path (e.g. /uploads/payments/PO-000004-receipt.webp)
- * @param {string|null} [cleanRef=null] - Clean PO reference (e.g. PO-000004)
+ * @param {string|null} imagePath - Stored path or URL (e.g. /uploads/payments/order_100100001_1791203006388.pdf or http://localhost:5173/uploads/payments/...)
+ * @returns {boolean} - True if file was deleted, false otherwise
  */
 function deletePaymentImageFromDisk(imagePath) {
-  if (imagePath && typeof imagePath === 'string') {
-    const cleanUrl = imagePath.split('?')[0];
-    if (cleanUrl.startsWith('/uploads/payments/')) {
-      const filename = path.basename(cleanUrl);
-      const fullPath = path.join(UPLOADS_DIR, filename);
-      try {
-        if (fs.existsSync(fullPath)) {
-          fs.unlinkSync(fullPath);
-          console.log(`[Storage] Cleaned up payment receipt file: ${filename}`);
-        }
-      } catch (err) {
-        console.error('Error deleting payment image file:', err);
-      }
+  if (!imagePath || typeof imagePath !== 'string') return false;
+
+  try {
+    const cleanUrl = imagePath.split('?')[0].trim();
+    let filename = '';
+
+    if (cleanUrl.includes('/uploads/payments/')) {
+      filename = cleanUrl.split('/uploads/payments/').pop();
+    } else if (cleanUrl.includes('\\uploads\\payments\\')) {
+      filename = cleanUrl.split('\\uploads\\payments\\').pop();
+    } else if (cleanUrl.includes('/') || cleanUrl.includes('\\')) {
+      filename = path.basename(cleanUrl);
+    } else {
+      filename = cleanUrl;
     }
+
+    if (!filename) return false;
+
+    // Sanitize filename to prevent directory traversal
+    filename = path.basename(filename);
+    const fullPath = path.join(UPLOADS_DIR, filename);
+
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+      console.log(`[Storage] Deleted file from UPLOADS_DIR: ${filename}`);
+      return true;
+    } else {
+      console.log(`[Storage] File not found on disk to delete: ${filename}`);
+      return false;
+    }
+  } catch (err) {
+    console.error('Error deleting file from disk:', err);
+    return false;
   }
 }
 
@@ -102,9 +122,10 @@ function savePaymentImageToDisk(imageData, referenceOrId = 'PO', oldImagePath = 
  *
  * @param {string} imageData - Base64 Data URL or file string
  * @param {string} orderId - Order ID or reference number
+ * @param {string|null} [oldFilePath=null] - Previous attachment URL/filename to remove on update
  * @returns {string|null} - Static URL path for access
  */
-function saveOrderAttachmentToDisk(imageData, orderId = 'ORDER') {
+function saveOrderAttachmentToDisk(imageData, orderId = 'ORDER', oldFilePath = null) {
   if (!imageData || typeof imageData !== 'string') return null;
 
   const trimmed = imageData.trim();
@@ -115,6 +136,11 @@ function saveOrderAttachmentToDisk(imageData, orderId = 'ORDER') {
   const matches = trimmed.match(/^data:([A-Za-z0-9-+/]+);base64,(.+)$/);
   if (!matches || matches.length !== 3) {
     return trimmed;
+  }
+
+  // If replacing an old attachment, delete it from disk
+  if (oldFilePath) {
+    deletePaymentImageFromDisk(oldFilePath);
   }
 
   const mimeType = matches[1].toLowerCase();
@@ -149,10 +175,16 @@ function saveOrderAttachmentToDisk(imageData, orderId = 'ORDER') {
  * @param {Buffer} buffer - Binary file buffer
  * @param {string} [originalname='photo.jpg'] - Original file name to extract extension
  * @param {string} [orderId='ORDER'] - Order ID or document reference number
+ * @param {string|null} [oldFilePath=null] - Previous attachment URL/filename to remove on update
  * @returns {string|null} - Static URL path for access
  */
-function saveOrderAttachmentBufferToDisk(buffer, originalname = 'photo.jpg', orderId = 'ORDER') {
+function saveOrderAttachmentBufferToDisk(buffer, originalname = 'photo.jpg', orderId = 'ORDER', oldFilePath = null) {
   if (!buffer) return null;
+
+  // If replacing an old attachment, delete it from disk
+  if (oldFilePath) {
+    deletePaymentImageFromDisk(oldFilePath);
+  }
 
   let ext = path.extname(originalname).replace('.', '').toLowerCase() || 'jpg';
   if (ext === 'jpeg') ext = 'jpg';
