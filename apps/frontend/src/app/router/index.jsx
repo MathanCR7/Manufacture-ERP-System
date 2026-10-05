@@ -95,6 +95,7 @@ const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProdu
 // Sales Module Pages
 const SalesBillingPage = lazy(() => import('@/modules/sales/pages/SalesBillingPage'));
 const POSPage = lazy(() => import('@/modules/sales/pages/POSPage'));
+const SalesOrderSAPPage = lazy(() => import('@/modules/sales/pages/SalesOrderSAPPage'));
 const SalesListPage = lazy(() => import('@/modules/sales/pages/SalesListPage'));
 const SalesReturnsPage = lazy(() => import('@/modules/sales/pages/SalesReturnsPage'));
 const SalesDashboard = lazy(() => import('@/modules/sales/pages/SalesDashboard'));
@@ -416,6 +417,8 @@ const AppRouter = () => {
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM']} />}> 
               <Route path="/sales/billing" element={<SalesBillingPage />} />
               <Route path="/sales/pos" element={<POSPage />} />
+              <Route path="/sales/order" element={<SalesOrderSAPPage />} />
+              <Route path="/sales/sap-order" element={<SalesOrderSAPPage />} />
               <Route path="/sales/add" element={<SalesBillingPage />} />
               <Route path="/sales/orders" element={<SalesListPage />} />
               <Route path="/sales/list" element={<SalesListPage />} />
@@ -443,7 +446,8 @@ const AppRouter = () => {
 
             {/* Customer Orders */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
-              <Route path="/orders/add" element={<SalesBillingPage />} />
+              <Route path="/orders/add" element={<SalesOrderSAPPage />} />
+              <Route path="/orders/create" element={<SalesOrderSAPPage />} />
               <Route path="/orders/list" element={<OrderListPage />} />
               <Route path="/orders/edit/:id" element={<OrderListPage />} />
               <Route path="/orders/status" element={<OrderStatusPage />} />
