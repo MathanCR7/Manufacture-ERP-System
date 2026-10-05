@@ -8,6 +8,10 @@ const { sendSalesInvoiceDual, resendDocument } = require('../../utils/communicat
 const documentSeriesService = require('../../services/documentSeries.service');
 const batchAllocationService = require('../../services/batchAllocation.service');
 const gstEngine = require('../../utils/gstEngine');
+const multer = require('multer');
+const { saveOrderAttachmentToDisk, saveOrderAttachmentBufferToDisk, UPLOADS_DIR } = require('../../utils/paymentFileStorage');
+
+const uploadAttachment = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
 const router = express.Router();
 
@@ -740,7 +744,9 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
         deliveryAddress: data.deliveryAddress || (type === 'POS' ? 'Over the Counter POS' : customer.address || 'Standard Delivery'),
         quotationNote: data.quotationNote || null,
-        internalNote: data.internalNote || data.note || null,
+        internalNote: data.attachmentUrl
+          ? (data.internalNote ? `${data.internalNote}\n[Attachment]: ${data.attachmentUrl}` : `[Attachment]: ${data.attachmentUrl}`)
+          : (data.internalNote || data.note || null),
         paymentTerms: data.paymentTerms || (type === 'POS' ? (data.paymentMode || 'Cash') : 'Net 30'),
         paymentStatus,
         amountPaid,
@@ -918,6 +924,35 @@ router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
     res.status(201).json(order);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/upload-attachment - Upload camera/gallery image to UPLOADS_DIR named with orderId
+router.post('/upload-attachment', authenticateToken, uploadAttachment.single('file'), async (req, res, next) => {
+  try {
+    const orderId = req.body?.orderId || req.query?.orderId || 'ORDER';
+    const cleanOrderId = String(orderId).replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    let fileUrl = null;
+    if (req.file) {
+      fileUrl = saveOrderAttachmentBufferToDisk(req.file.buffer, req.file.originalname, cleanOrderId);
+    } else if (req.body?.imageData) {
+      fileUrl = saveOrderAttachmentToDisk(req.body.imageData, cleanOrderId);
+    }
+
+    if (!fileUrl) {
+      return res.status(400).json({ error: 'Valid image file or base64 image data is required' });
+    }
+
+    const filename = fileUrl.split('?')[0].split('/').pop();
+    res.json({
+      success: true,
+      url: fileUrl,
+      filename,
+      orderId: cleanOrderId
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

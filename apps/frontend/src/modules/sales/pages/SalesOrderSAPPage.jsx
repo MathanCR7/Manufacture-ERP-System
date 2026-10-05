@@ -9,7 +9,8 @@ import {
   Sparkles, Layers, Receipt, Clock, CheckCircle2, Download, Tag, UserPlus, Eye,
   Package, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
   SlidersHorizontal, CheckSquare, Square, MapPin, Globe, Moon, Sun,
-  ExternalLink, ChevronRight, Minimize2, Maximize2, LayoutGrid, Table
+  ExternalLink, ChevronRight, Minimize2, Maximize2, LayoutGrid, Table,
+  Camera, Image as ImageIcon, Paperclip, UploadCloud
 } from 'lucide-react';
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
@@ -99,6 +100,7 @@ const getProductBaseCategory = (p) => p?.baseCategory || p?.specifications?.cate
 const getProductSubcategory = (p) => p?.subcategory || p?.specifications?.series || p?.specifications?.category || '-';
 const getProductUnitOfSale = (p) => p?.unitOfSale || p?.unit || p?.specifications?.sizeML || p?.size || 'pcs';
 const getProductSalePrice = (p) => Number(p?.salePrice !== undefined ? p.salePrice : (p?.price || 0));
+const getProductLiveStock = (p) => Number(p?.stock !== undefined ? p.stock : (p?.currentStock !== undefined ? p.currentStock : (p?.batchStock || 0)));
 
 // Create empty document line
 const createEmptyLine = (index = 1) => ({
@@ -198,6 +200,13 @@ export default function SalesOrderPage() {
   const [taxRegNo, setTaxRegNo] = useState('');
   const [placeOfSupply, setPlaceOfSupply] = useState('33'); // Default Tamil Nadu (33)
 
+  // Attachments State & Uploads
+  const [attachments, setAttachments] = useState([]);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [previewModalUrl, setPreviewModalUrl] = useState(null);
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+
   // Status message bar (red error or green notification)
   const [statusMessage, setStatusMessage] = useState({
     type: 'ready',
@@ -210,17 +219,24 @@ export default function SalesOrderPage() {
   const [catalogViewMode, setCatalogViewMode] = useState('table'); // 'table' | 'cards'
   const [stockQueryProductId, setStockQueryProductId] = useState(null);
   const [isStockQueryOpen, setIsStockQueryOpen] = useState(false);
+
+  // 2-Tier Screening States: Base Category & Subcategory
+  const [selectedBaseCategory, setSelectedBaseCategory] = useState('All');
+  const [selectedSubcategory, setSelectedSubcategory] = useState('All');
+  const [categorySearchQuery, setCategorySearchQuery] = useState('');
+  const [subcategorySearchQuery, setSubcategorySearchQuery] = useState('');
   const [searchCatalogQuery, setSearchCatalogQuery] = useState('');
-  const [catalogCategory, setCatalogCategory] = useState('All');
+  const [updatingAttachmentId, setUpdatingAttachmentId] = useState(null);
 
-  // Prominent Top Quick Product Search Bar State
-  const [topSearchText, setTopSearchText] = useState('');
-  const [isTopSearchOpen, setIsTopSearchOpen] = useState(false);
-  const searchContainerRef = useRef(null);
-
-  // Inline Autocomplete active line state
-  const [activeLookupLineId, setActiveLookupLineId] = useState(null);
-  const [inlineSearchText, setInlineSearchText] = useState('');
+  // In-Grid Search & Select State
+  const [activeGridSearchLineId, setActiveGridSearchLineId] = useState(null);
+  const [gridSearchQuery, setGridSearchQuery] = useState('');
+  const [gridSelectedBaseCategory, setGridSelectedBaseCategory] = useState('All');
+  const [gridSelectedSubcategory, setGridSelectedSubcategory] = useState('All');
+  const [gridCategorySearchQuery, setGridCategorySearchQuery] = useState('');
+  const [gridSubcategorySearchQuery, setGridSubcategorySearchQuery] = useState('');
+  const [gridPopupPos, setGridPopupPos] = useState({ top: 0, left: 0, width: 840, openAbove: false });
+  const inGridSearchRef = useRef(null);
 
   // 1. Fetch Customers
   const { data: customers = [], isLoading: isLoadingCustomers } = useQuery({
@@ -232,14 +248,15 @@ export default function SalesOrderPage() {
     staleTime: 60000
   });
 
-  // 2. Fetch Finished Products (207 items)
-  const { data: products = [], isLoading: isLoadingProducts } = useQuery({
+  // 2. Fetch Finished Products (207 items) with Real-Time Stock
+  const { data: products = [], isLoading: isLoadingProducts, refetch: refetchProducts } = useQuery({
     queryKey: ['products-catalog-sap'],
     queryFn: async () => {
       const res = await api.get('/products/search?limit=1000');
       return Array.isArray(res.data) ? res.data : (res.data?.data || []);
     },
-    staleTime: 60000
+    staleTime: 30000,
+    refetchOnWindowFocus: true
   });
 
   // 3. Fetch Master Data (Users/Staff for Sales Employee dropdown)
@@ -271,25 +288,128 @@ export default function SalesOrderPage() {
     }
   }, [ordersData, docNo]);
 
-  // Click outside to close top search dropdown
+  // Click outside or press Escape to close in-grid search popup
   useEffect(() => {
     const handleClickOutside = (e) => {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
-        setIsTopSearchOpen(false);
+      if (inGridSearchRef.current && !inGridSearchRef.current.contains(e.target)) {
+        setActiveGridSearchLineId(null);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setActiveGridSearchLineId(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, []);
 
-  // Extract Categories from 207 products
-  const productCategories = useMemo(() => {
-    const set = new Set();
+  const handleOpenGridSearch = (lineId, el, initialQuery = '') => {
+    setActiveGridSearchLineId(lineId);
+    setGridSearchQuery(initialQuery);
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      const popupHeight = 440;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      const openAbove = spaceBelow < 340 && spaceAbove > spaceBelow;
+
+      const top = openAbove
+        ? Math.max(10, rect.top - popupHeight - 4)
+        : Math.min(window.innerHeight - popupHeight - 10, rect.bottom + 4);
+
+      const width = Math.min(840, window.innerWidth - 24);
+      let left = rect.left;
+      if (left + width > window.innerWidth - 12) {
+        left = window.innerWidth - width - 12;
+      }
+      if (left < 12) left = 12;
+
+      setGridPopupPos({ top, left, width, openAbove });
+    }
+  };
+
+  // 2-Tier Category Hierarchy Map (Base Category -> Subcategories)
+  const categoryHierarchy = useMemo(() => {
+    const map = {};
     products.forEach(p => {
-      if (p.category) set.add(p.category);
+      const base = getProductCategory(p);
+      const sub = getProductSubcategory(p);
+      if (!map[base]) map[base] = new Set();
+      if (sub && sub.trim() && sub !== '-') {
+        map[base].add(sub.trim());
+      }
     });
-    return ['All', ...Array.from(set).sort()];
+    return map;
   }, [products]);
+
+  // All Base Categories
+  const baseCategories = useMemo(() => {
+    return ['All', ...Object.keys(categoryHierarchy).sort()];
+  }, [categoryHierarchy]);
+
+  // Filtered Base Categories for Catalog Browser Modal
+  const filteredBaseCategories = useMemo(() => {
+    if (!categorySearchQuery.trim()) return baseCategories;
+    const q = categorySearchQuery.toLowerCase().trim();
+    return baseCategories.filter(c => c === 'All' || c.toLowerCase().includes(q));
+  }, [baseCategories, categorySearchQuery]);
+
+  // Subcategories for Catalog Browser Modal
+  const availableSubcategories = useMemo(() => {
+    if (selectedBaseCategory === 'All') {
+      return [];
+    }
+    const subs = categoryHierarchy[selectedBaseCategory]
+      ? Array.from(categoryHierarchy[selectedBaseCategory]).sort()
+      : [];
+    return ['All', ...subs];
+  }, [categoryHierarchy, selectedBaseCategory]);
+
+  const screenedSubcategories = useMemo(() => {
+    if (!subcategorySearchQuery.trim()) return availableSubcategories;
+    const q = subcategorySearchQuery.toLowerCase().trim();
+    return availableSubcategories.filter(s => s === 'All' || s.toLowerCase().includes(q));
+  }, [availableSubcategories, subcategorySearchQuery]);
+
+  const handleSelectBaseCategory = (cat) => {
+    setSelectedBaseCategory(cat);
+    setSelectedSubcategory('All');
+    setSubcategorySearchQuery('');
+  };
+
+  // In-Grid Filtered Base Categories
+  const gridFilteredBaseCategories = useMemo(() => {
+    if (!gridCategorySearchQuery.trim()) return baseCategories;
+    const q = gridCategorySearchQuery.toLowerCase().trim();
+    return baseCategories.filter(c => c === 'All' || c.toLowerCase().includes(q));
+  }, [baseCategories, gridCategorySearchQuery]);
+
+  // In-Grid Subcategories for Selected Base Category
+  const gridAvailableSubcategories = useMemo(() => {
+    if (gridSelectedBaseCategory === 'All') return [];
+    const subs = categoryHierarchy[gridSelectedBaseCategory]
+      ? Array.from(categoryHierarchy[gridSelectedBaseCategory]).sort()
+      : [];
+    return ['All', ...subs];
+  }, [categoryHierarchy, gridSelectedBaseCategory]);
+
+  // In-Grid Screened Subcategories
+  const gridScreenedSubcategories = useMemo(() => {
+    if (!gridSubcategorySearchQuery.trim()) return gridAvailableSubcategories;
+    const q = gridSubcategorySearchQuery.toLowerCase().trim();
+    return gridAvailableSubcategories.filter(s => s === 'All' || s.toLowerCase().includes(q));
+  }, [gridAvailableSubcategories, gridSubcategorySearchQuery]);
+
+  const handleGridSelectBaseCategory = (cat) => {
+    setGridSelectedBaseCategory(cat);
+    setGridSelectedSubcategory('All');
+    setGridSubcategorySearchQuery('');
+  };
 
   // Handle Customer Selection
   const handleCustomerChange = (cid) => {
@@ -447,6 +567,7 @@ export default function SalesOrderPage() {
     const price = getProductSalePrice(product);
     const gstPct = (Number(product.cgst || 0) + Number(product.sgst || 0)) || Number(product.igst || 0) || 5;
     const taxCd = gstPct === 18 ? 'SCG18' : (gstPct === 12 ? 'SCG12' : (gstPct === 28 ? 'SCG28' : 'SCG5'));
+    const liveStock = getProductLiveStock(product);
 
     setLines(prev => prev.map(l => {
       if (l.id !== lineId) return l;
@@ -463,13 +584,12 @@ export default function SalesOrderPage() {
         discountPercent: 0,
         taxCode: taxCd,
         gstRate: gstPct,
-        stock: product.currentStock || product.stock || 0,
+        stock: liveStock,
         rawProduct: product
       };
     }));
 
-    setActiveLookupLineId(null);
-    setInlineSearchText('');
+    setActiveGridSearchLineId(null);
 
     // Append fresh empty line if this was the last row
     setLines(prev => {
@@ -482,7 +602,7 @@ export default function SalesOrderPage() {
 
     setStatusMessage({
       type: 'ready',
-      text: `✔ Added "${getProductName(product)}" (${getProductSystemCode(product)}) @ ₹${price.toFixed(2)}`
+      text: `✔ Added "${getProductName(product)}" (${getProductSystemCode(product)}) @ ₹${price.toFixed(2)} • Live Stock: ${liveStock}`
     });
   };
 
@@ -523,6 +643,100 @@ export default function SalesOrderPage() {
       setLines([createEmptyLine(1)]);
     } else {
       setLines(filled.map((l, i) => ({ ...l, rowNo: i + 1 })));
+    }
+  };
+
+  // Trigger updating an existing attachment via Camera or Gallery
+  const handleTriggerUpdate = (attId, mode = 'camera') => {
+    setUpdatingAttachmentId(attId);
+    if (mode === 'camera') {
+      cameraInputRef.current?.click();
+    } else {
+      galleryInputRef.current?.click();
+    }
+  };
+
+  // Handle Attachment Upload (Camera or Gallery) to UPLOADS_DIR
+  const handleAttachmentUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setUpdatingAttachmentId(null);
+      return;
+    }
+
+    setIsUploadingAttachment(true);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64Data = reader.result;
+        const currentOrderId = docNo || `SO_${Date.now()}`;
+
+        try {
+          const res = await api.post('/orders/upload-attachment', {
+            imageData: base64Data,
+            orderId: currentOrderId
+          });
+
+          if (res.data?.success && res.data?.url) {
+            const itemData = {
+              url: res.data.url,
+              filename: res.data.filename || `order_${currentOrderId}_${Date.now()}.jpg`,
+              fileSize: (file.size / 1024).toFixed(1) + ' KB',
+              uploadedAt: new Date().toLocaleTimeString(),
+              orderId: currentOrderId
+            };
+
+            if (updatingAttachmentId) {
+              setAttachments(prev => prev.map(a => a.id === updatingAttachmentId ? { ...a, ...itemData } : a));
+              setStatusMessage({
+                type: 'ready',
+                text: `✔ Updated attachment in @[UPLOADS_DIR]: ${itemData.filename}`
+              });
+              Swal.fire({
+                icon: 'success',
+                title: 'Attachment Updated!',
+                text: `Replaced with ${itemData.filename} in @[UPLOADS_DIR]`,
+                timer: 2000,
+                showConfirmButton: false
+              });
+            } else {
+              const newAttachment = {
+                id: `att_${Date.now()}`,
+                ...itemData
+              };
+              setAttachments(prev => [...prev, newAttachment]);
+              setStatusMessage({
+                type: 'ready',
+                text: `✔ Saved image to @[UPLOADS_DIR]: ${newAttachment.filename}`
+              });
+              Swal.fire({
+                icon: 'success',
+                title: 'Attachment Saved!',
+                text: `Stored as ${newAttachment.filename} in @[UPLOADS_DIR]`,
+                timer: 2000,
+                showConfirmButton: false
+              });
+            }
+          }
+        } catch (err) {
+          console.error('Failed to upload attachment:', err);
+          Swal.fire({
+            icon: 'error',
+            title: 'Upload Failed',
+            text: err.response?.data?.error || err.message || 'Failed to save attachment to server'
+          });
+        } finally {
+          setIsUploadingAttachment(false);
+          setUpdatingAttachmentId(null);
+          if (cameraInputRef.current) cameraInputRef.current.value = '';
+          if (galleryInputRef.current) galleryInputRef.current.value = '';
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      setIsUploadingAttachment(false);
+      setUpdatingAttachmentId(null);
+      console.error('Error reading image file:', err);
     }
   };
 
@@ -628,6 +842,7 @@ export default function SalesOrderPage() {
       owner: owner,
       remarks: remarks,
       internalNote: remarks,
+      attachmentUrl: attachments.length > 0 ? attachments.map(a => a.url).join(', ') : null,
       deliveryAddress: shipToAddress,
       billingAddress: billToAddress,
       shippingMethod: shippingMethod,
@@ -685,6 +900,7 @@ export default function SalesOrderPage() {
       createEmptyLine(5)
     ]);
     setRemarks('');
+    setAttachments([]);
     setDiscountPercent(0);
     setFreight(0);
     setLoadingCharges(0);
@@ -756,24 +972,41 @@ export default function SalesOrderPage() {
     }
   };
 
-  // Top Quick Product Search Filtered Results
-  const topFilteredProducts = useMemo(() => {
-    if (!topSearchText.trim()) return products.slice(0, 40);
-    const q = topSearchText.toLowerCase().trim();
-    return products.filter(p => {
-      const code = getProductSystemCode(p).toLowerCase();
-      const name = getProductName(p).toLowerCase();
-      const cat = getProductCategory(p).toLowerCase();
-      const baseCat = getProductBaseCategory(p).toLowerCase();
-      const subcat = getProductSubcategory(p).toLowerCase();
-      return code.includes(q) || name.includes(q) || cat.includes(q) || baseCat.includes(q) || subcat.includes(q);
-    }).slice(0, 40);
-  }, [products, topSearchText]);
+  // In-Grid Screened & Filtered Products (Base Category -> Subcategory -> Query)
+  const gridFilteredProducts = useMemo(() => {
+    let list = products;
 
-  // Filtered Catalog Items for Modal Drawer
+    // Filter by Base Category
+    if (gridSelectedBaseCategory !== 'All') {
+      list = list.filter(p => getProductCategory(p) === gridSelectedBaseCategory);
+    }
+
+    // Filter by Subcategory
+    if (gridSelectedSubcategory !== 'All') {
+      list = list.filter(p => getProductSubcategory(p) === gridSelectedSubcategory);
+    }
+
+    // Filter by Search Query
+    if (gridSearchQuery.trim()) {
+      const q = gridSearchQuery.toLowerCase().trim();
+      list = list.filter(p => {
+        const code = getProductSystemCode(p).toLowerCase();
+        const name = getProductName(p).toLowerCase();
+        const cat = getProductCategory(p).toLowerCase();
+        const baseCat = getProductBaseCategory(p).toLowerCase();
+        const subcat = getProductSubcategory(p).toLowerCase();
+        return code.includes(q) || name.includes(q) || cat.includes(q) || baseCat.includes(q) || subcat.includes(q);
+      });
+    }
+
+    return list.slice(0, 60);
+  }, [products, gridSearchQuery, gridSelectedBaseCategory, gridSelectedSubcategory]);
+
+  // Filtered Catalog Items for Modal Browser (respecting 2-tier screening)
   const filteredCatalogItems = useMemo(() => {
     return products.filter(p => {
-      const matchCat = catalogCategory === 'All' || p.category === catalogCategory;
+      const matchBase = selectedBaseCategory === 'All' || getProductCategory(p) === selectedBaseCategory;
+      const matchSub = selectedSubcategory === 'All' || getProductSubcategory(p) === selectedSubcategory;
       const q = searchCatalogQuery.toLowerCase().trim();
       const matchQuery = !q ||
         getProductSystemCode(p).toLowerCase().includes(q) ||
@@ -782,20 +1015,10 @@ export default function SalesOrderPage() {
         getProductBaseCategory(p).toLowerCase().includes(q) ||
         getProductSubcategory(p).toLowerCase().includes(q) ||
         (p.hsnCode && p.hsnCode.toLowerCase().includes(q));
-      return matchCat && matchQuery;
-    });
-  }, [products, catalogCategory, searchCatalogQuery]);
 
-  // Inline Autocomplete Results for Line Items
-  const inlineFilteredProducts = useMemo(() => {
-    if (!inlineSearchText.trim()) return products.slice(0, 30);
-    const q = inlineSearchText.toLowerCase().trim();
-    return products.filter(p =>
-      getProductSystemCode(p).toLowerCase().includes(q) ||
-      getProductName(p).toLowerCase().includes(q) ||
-      getProductCategory(p).toLowerCase().includes(q)
-    ).slice(0, 30);
-  }, [products, inlineSearchText]);
+      return matchBase && matchSub && matchQuery;
+    });
+  }, [products, selectedBaseCategory, selectedSubcategory, searchCatalogQuery]);
 
   return (
     <div className="sap-doc-container min-h-screen w-full bg-[var(--sap-bg-window)] text-[var(--sap-text)] font-sans text-xs antialiased selection:bg-amber-300 selection:text-slate-900 flex flex-col">
@@ -814,6 +1037,16 @@ export default function SalesOrderPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
+            onClick={() => refetchProducts()}
+            className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-amber-300 text-xs rounded-xs flex items-center gap-1 font-bold"
+            title="Refresh Live Stock"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Sync Stock</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setShowCatalogModal(true)}
             className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
             title="Browse 207 Finished Products"
@@ -825,10 +1058,10 @@ export default function SalesOrderPage() {
           <button
             type="button"
             onClick={() => handleResetForm()}
-            className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded-xs flex items-center gap-1"
+            className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded-xs flex items-center gap-1 font-medium"
             title="Reset Form"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
+            <Plus className="w-3.5 h-3.5" />
             <span>New Order</span>
           </button>
 
@@ -1076,6 +1309,11 @@ export default function SalesOrderPage() {
                 {activeLines.length}
               </span>
             )}
+            {tab.id === 'attachments' && attachments.length > 0 && (
+              <span className="ml-2 px-1.5 py-0.2 bg-blue-600 text-white font-black rounded-full text-[10px]">
+                {attachments.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -1083,157 +1321,10 @@ export default function SalesOrderPage() {
       {/* FULL SCREEN TAB BODY */}
       <div className="w-full p-4 bg-[var(--sap-bg-window)] flex-1 flex flex-col">
         
-        {/* TAB 1: CONTENTS (Grid & Rich Product Search Bar) */}
+        {/* TAB 1: CONTENTS (Table Grid with In-Grid Search & Select) */}
         {activeTab === 'contents' && (
-          <div className="w-full flex-1 flex flex-col space-y-3">
+          <div className="w-full flex-1 flex flex-col space-y-2">
             
-            {/* PROMINENT QUICK PRODUCT SEARCH BAR WITH RICH DROPDOWN */}
-            <div ref={searchContainerRef} className="relative w-full">
-              <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border-2 border-amber-400 dark:border-amber-500 rounded-sm px-3 py-1.5 shadow-sm">
-                <Search className="w-4 h-4 text-amber-500 shrink-0" />
-                <input
-                  type="text"
-                  value={topSearchText}
-                  onChange={(e) => {
-                    setTopSearchText(e.target.value);
-                    setIsTopSearchOpen(true);
-                  }}
-                  onFocus={() => setIsTopSearchOpen(true)}
-                  placeholder="Quick Product Search: Type System Code (e.g. BFD101, P141), Product Name (e.g. Vanilla), Category (e.g. FD Gallon)..."
-                  className="w-full bg-transparent border-0 outline-none text-xs font-semibold text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal"
-                />
-                {topSearchText && (
-                  <button
-                    type="button"
-                    onClick={() => { setTopSearchText(''); setIsTopSearchOpen(false); }}
-                    className="text-slate-400 hover:text-slate-600 text-xs px-1 font-bold"
-                  >
-                    ✕
-                  </button>
-                )}
-                <div className="h-4 w-[1px] bg-slate-300 dark:bg-slate-700 mx-1"></div>
-                <button
-                  type="button"
-                  onClick={() => setShowCatalogModal(true)}
-                  className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xs flex items-center gap-1.5 shrink-0 cursor-pointer shadow-xs transition-colors"
-                >
-                  <Package className="w-3.5 h-3.5" />
-                  <span>Catalog Browser (207)</span>
-                </button>
-              </div>
-
-              {/* Rich Dropdown Panel displaying System Code, Name, Category, Base Category, Subcategory, Unit of Sale, Sale Price */}
-              {isTopSearchOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 max-h-96 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl z-50 overflow-y-auto rounded-sm text-xs">
-                  <div className="p-2 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center text-[11px] font-bold text-slate-700 dark:text-slate-300 sticky top-0 z-10">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                      <span>SELECT PRODUCT TO ADD • SHOWING {topFilteredProducts.length} ITEMS</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsTopSearchOpen(false)}
-                      className="text-slate-400 hover:text-slate-700 dark:hover:text-white font-bold"
-                    >
-                      ✕ Close
-                    </button>
-                  </div>
-
-                  {/* Header labels for the dropdown */}
-                  <div className="grid grid-cols-12 gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-700 text-[10.5px] font-bold text-slate-500 uppercase tracking-wider sticky top-8 z-10">
-                    <div className="col-span-2">System Code *</div>
-                    <div className="col-span-3">Product Name *</div>
-                    <div className="col-span-2">Category *</div>
-                    <div className="col-span-2">Base / Subcategory</div>
-                    <div className="col-span-1 text-center">Unit of Sale *</div>
-                    <div className="col-span-2 text-right">Sale Price (INR) *</div>
-                  </div>
-
-                  {/* Items List */}
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {topFilteredProducts.map(p => {
-                      const sysCode = getProductSystemCode(p);
-                      const pName = getProductName(p);
-                      const cat = getProductCategory(p);
-                      const baseCat = getProductBaseCategory(p);
-                      const subcat = getProductSubcategory(p);
-                      const unitOfSale = getProductUnitOfSale(p);
-                      const price = getProductSalePrice(p);
-                      const gstRate = (p.cgst || 0) + (p.sgst || 0) || 5;
-
-                      return (
-                        <div
-                          key={p.id}
-                          onClick={() => {
-                            handleAddProductFromCatalog(p);
-                            setIsTopSearchOpen(false);
-                            setTopSearchText('');
-                          }}
-                          className="grid grid-cols-12 gap-2 px-3 py-2 hover:bg-amber-50 dark:hover:bg-slate-800 cursor-pointer items-center transition-colors group"
-                        >
-                          {/* System Code */}
-                          <div className="col-span-2 flex items-center gap-1.5">
-                            <span className="font-mono font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-xs border border-amber-200 dark:border-amber-900/60">
-                              {sysCode}
-                            </span>
-                            <span className={`text-[10px] px-1 py-0.2 rounded-xs font-mono ${
-                              Number(p.currentStock || p.stock) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              {p.currentStock || p.stock || 0}
-                            </span>
-                          </div>
-
-                          {/* Product Name */}
-                          <div className="col-span-3 font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors">
-                            {pName}
-                          </div>
-
-                          {/* Category * */}
-                          <div className="col-span-2 text-slate-600 dark:text-slate-300 font-medium truncate">
-                            {cat}
-                          </div>
-
-                          {/* Base Category & Subcategory */}
-                          <div className="col-span-2 text-slate-500 text-[11px] truncate">
-                            {baseCat} {subcat && subcat !== '-' ? `• ${subcat}` : ''}
-                          </div>
-
-                          {/* Unit of Sale * */}
-                          <div className="col-span-1 text-center font-medium text-slate-700 dark:text-slate-300">
-                            {unitOfSale}
-                          </div>
-
-                          {/* Sale Price (INR) * & Add Button */}
-                          <div className="col-span-2 text-right flex items-center justify-end gap-2">
-                            <div>
-                              <div className="font-extrabold text-slate-900 dark:text-white">
-                                ₹{price.toFixed(2)}
-                              </div>
-                              <div className="text-[10px] text-emerald-600 font-semibold">
-                                +{gstRate}% GST
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              className="px-2 py-1 bg-amber-500 group-hover:bg-amber-600 text-slate-950 font-bold text-[10.5px] rounded-xs shadow-xs"
-                            >
-                              + Add
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {topFilteredProducts.length === 0 && (
-                      <div className="p-6 text-center text-slate-400">
-                        No product matches "{topSearchText}"
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Grid Controls Bar */}
             <div className="flex items-center justify-between text-[11.5px] pb-1">
               <div className="flex items-center gap-4">
@@ -1262,6 +1353,15 @@ export default function SalesOrderPage() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
+                  onClick={() => setShowCatalogModal(true)}
+                  className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  title="Open full catalog browser modal"
+                >
+                  <Package className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Catalog Browser ({products.length})</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleAddLine}
                   className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
                 >
@@ -1279,9 +1379,9 @@ export default function SalesOrderPage() {
               </div>
             </div>
 
-            {/* FULL SCREEN DOCUMENT LINE TABLE GRID */}
-            <div className="w-full flex-1 border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] overflow-x-auto max-h-[460px] shadow-sm">
-              <table className="w-full min-w-[1180px] border-collapse text-[11.5px] select-text">
+            {/* FULL SCREEN DOCUMENT LINE TABLE GRID WITH LIVE STOCK */}
+            <div className="w-full flex-1 border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] overflow-x-auto max-h-[500px] shadow-sm relative">
+              <table className="w-full min-w-[1240px] border-collapse text-[11.5px] select-text">
                 <thead>
                   <tr className="bg-[var(--sap-header-bg)] text-[var(--sap-text)] border-b border-[var(--sap-border-inner)] sticky top-0 z-10 font-bold select-none text-[11px]">
                     <th className="w-10 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">#</th>
@@ -1295,7 +1395,7 @@ export default function SalesOrderPage() {
                     <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Discount %</th>
                     <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Tax Code</th>
                     <th className="w-32 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Total (LC)</th>
-                    <th className="w-16 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">Stock</th>
+                    <th className="w-24 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">Live Stock</th>
                     <th className="w-10 py-1.5 px-1 text-center">✕</th>
                   </tr>
                 </thead>
@@ -1303,7 +1403,7 @@ export default function SalesOrderPage() {
                   {computedLines.map((line, idx) => (
                     <tr
                       key={line.id}
-                      className={`h-[25px] border-b border-[var(--sap-border-inner)] hover:bg-amber-50/40 dark:hover:bg-blue-950/20 ${
+                      className={`h-[26px] border-b border-[var(--sap-border-inner)] hover:bg-amber-50/40 dark:hover:bg-blue-950/20 ${
                         idx % 2 === 1 ? 'bg-[var(--sap-grid-alt)]' : 'bg-[var(--sap-input-bg)]'
                       }`}
                     >
@@ -1313,99 +1413,75 @@ export default function SalesOrderPage() {
                       </td>
 
                       {/* System Code with Orange Drill-down */}
-                      <td className="border-r border-[var(--sap-border-inner)] p-0 relative">
-                        <div className="flex items-center h-full">
+                      <td className="border-r border-[var(--sap-border-inner)] p-0">
+                        <div className="flex items-center h-full px-1">
                           <input
                             type="text"
                             value={line.systemCode}
-                            placeholder="Code (e.g. BFD101)..."
+                            placeholder="BFD101..."
                             onChange={(e) => {
                               handleLineChange(line.id, 'systemCode', e.target.value);
-                              setActiveLookupLineId(line.id);
-                              setInlineSearchText(e.target.value);
+                              handleOpenGridSearch(line.id, e.target, e.target.value);
                             }}
-                            onFocus={() => {
-                              setActiveLookupLineId(line.id);
-                              setInlineSearchText(line.systemCode || '');
-                            }}
-                            className="w-full h-full px-2 bg-transparent border-0 outline-none font-mono font-bold text-[11px] text-[var(--sap-text)]"
+                            onClick={(e) => handleOpenGridSearch(line.id, e.target, line.systemCode || '')}
+                            onFocus={(e) => handleOpenGridSearch(line.id, e.target, line.systemCode || '')}
+                            className="flex-1 h-full px-1 bg-transparent border-0 outline-none font-mono font-bold text-[11px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal"
                           />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.systemCode || '');
+                            }}
+                            className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
+                            title="Search and select product in grid"
+                          >
+                            🔍
+                          </button>
                           {line.productId && (
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setStockQueryProductId(line.productId);
                                 setIsStockQueryOpen(true);
                               }}
                               className="w-5 h-full text-[var(--sap-drilldown)] font-extrabold text-[12px] flex items-center justify-center shrink-0 hover:scale-125 cursor-pointer"
-                              title="Drill-down into stock & batches"
+                              title="Drill-down into live batches"
                             >
                               ➔
                             </button>
                           )}
                         </div>
-
-                        {/* Inline Autocomplete Dropdown */}
-                        {activeLookupLineId === line.id && (
-                          <div className="absolute top-[25px] left-0 w-96 max-h-56 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl z-50 overflow-y-auto rounded-xs text-[11px]">
-                            <div className="p-1.5 bg-slate-100 dark:bg-slate-800 text-[10.5px] font-bold text-slate-600 flex justify-between border-b">
-                              <span>SELECT PRODUCT ({inlineFilteredProducts.length})</span>
-                              <button
-                                type="button"
-                                onClick={() => setActiveLookupLineId(null)}
-                                className="text-slate-400 hover:text-slate-600 font-bold"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                            {inlineFilteredProducts.map(p => (
-                              <div
-                                key={p.id}
-                                onClick={() => handleSelectProductForLine(line.id, p)}
-                                className="px-2.5 py-1.5 hover:bg-amber-100 dark:hover:bg-slate-800 border-b border-slate-100 dark:border-slate-800 cursor-pointer flex justify-between items-center"
-                              >
-                                <div>
-                                  <div className="font-bold text-slate-800 dark:text-slate-200">
-                                    <span className="font-mono text-amber-700 dark:text-amber-400 mr-1.5">
-                                      {getProductSystemCode(p)}
-                                    </span>
-                                    {getProductName(p)}
-                                  </div>
-                                  <div className="text-[10px] text-slate-500">
-                                    {getProductCategory(p)} • {getProductBaseCategory(p)} • {getProductUnitOfSale(p)}
-                                  </div>
-                                </div>
-                                <div className="text-right shrink-0">
-                                  <div className="font-bold text-slate-900 dark:text-white">
-                                    ₹{getProductSalePrice(p).toFixed(2)}
-                                  </div>
-                                  <div className="text-[9.5px] text-emerald-600">
-                                    +{(p.cgst || 0) + (p.sgst || 0) || 5}% GST
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </td>
 
                       {/* Product Name * */}
                       <td className="border-r border-[var(--sap-border-inner)] p-0">
-                        <input
-                          type="text"
-                          value={line.itemDescription}
-                          placeholder="Product Name..."
-                          onChange={(e) => {
-                            handleLineChange(line.id, 'itemDescription', e.target.value);
-                            setActiveLookupLineId(line.id);
-                            setInlineSearchText(e.target.value);
-                          }}
-                          onFocus={() => {
-                            setActiveLookupLineId(line.id);
-                            setInlineSearchText(line.itemDescription || '');
-                          }}
-                          className="w-full h-full px-2 bg-transparent border-0 outline-none font-semibold text-[11.5px] text-[var(--sap-text)]"
-                        />
+                        <div className="flex items-center h-full px-1">
+                          <input
+                            type="text"
+                            value={line.itemDescription}
+                            placeholder="Product Name..."
+                            onChange={(e) => {
+                              handleLineChange(line.id, 'itemDescription', e.target.value);
+                              handleOpenGridSearch(line.id, e.target, e.target.value);
+                            }}
+                            onClick={(e) => handleOpenGridSearch(line.id, e.target, line.itemDescription || '')}
+                            onFocus={(e) => handleOpenGridSearch(line.id, e.target, line.itemDescription || '')}
+                            className="flex-1 h-full px-1 bg-transparent border-0 outline-none font-semibold text-[11.5px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal"
+                          />
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.itemDescription || '');
+                            }}
+                            className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
+                            title="Search and select product in grid"
+                          >
+                            ▾
+                          </button>
+                        </div>
                       </td>
 
                       {/* Category * */}
@@ -1472,7 +1548,7 @@ export default function SalesOrderPage() {
                             handleLineChange(line.id, 'taxCode', val);
                             handleLineChange(line.id, 'gstRate', rate);
                           }}
-                          className="w-full h-full px-1.5 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)]"
+                          className="w-full h-full px-1.5 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)] cursor-pointer"
                         >
                           <option value="SCG5">SCG5 (5%)</option>
                           <option value="SCG12">SCG12 (12%)</option>
@@ -1487,12 +1563,13 @@ export default function SalesOrderPage() {
                         {line.lineTotal ? `${line.lineTotal.toFixed(2)} INR` : '0.00 INR'}
                       </td>
 
-                      {/* Direct Stock */}
+                      {/* Live Stock Display */}
                       <td className="border-r border-[var(--sap-border-inner)] text-center text-[10.5px]">
-                        <span className={`px-1.5 py-0.2 rounded-xs font-mono font-bold ${
+                        <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center justify-center gap-1 ${
                           Number(line.stock) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
                         }`}>
-                          {line.stock}
+                          <span className={`w-1.5 h-1.5 rounded-full ${Number(line.stock) > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                          <span>{line.stock}</span>
                         </span>
                       </td>
 
@@ -1511,6 +1588,218 @@ export default function SalesOrderPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* FLOATING IN-GRID SEARCH & SELECT PANEL */}
+              {activeGridSearchLineId && (
+                <div
+                  ref={inGridSearchRef}
+                  style={{
+                    position: 'fixed',
+                    top: `${gridPopupPos.top}px`,
+                    left: `${gridPopupPos.left}px`,
+                    width: `${gridPopupPos.width}px`,
+                    zIndex: 9999,
+                    maxHeight: '440px'
+                  }}
+                  className="bg-white dark:bg-slate-900 border-2 border-amber-400 dark:border-amber-500 shadow-2xl rounded-sm flex flex-col overflow-hidden text-xs animate-in fade-in duration-100"
+                >
+                  {/* Header */}
+                  <div className="bg-slate-800 text-white px-3 py-1.5 flex items-center justify-between select-none">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span className="font-bold text-xs">
+                        Select Product for Row #{lines.find(l => l.id === activeGridSearchLineId)?.rowNo || 1}
+                      </span>
+                      <span className="text-[10px] text-amber-300 font-mono bg-slate-700/80 px-1.5 py-0.2 rounded-xs">
+                        {gridFilteredProducts.length} items
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveGridSearchLineId(null)}
+                      className="text-slate-400 hover:text-white font-bold text-sm px-1 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  {/* Search Input Bar */}
+                  <div className="p-2 bg-slate-50 dark:bg-slate-850 border-b border-slate-200 dark:border-slate-800 flex items-center gap-2">
+                    <div className="relative flex-1 flex items-center">
+                      <Search className="w-3.5 h-3.5 text-amber-500 absolute left-2.5 pointer-events-none" />
+                      <input
+                        type="text"
+                        autoFocus
+                        value={gridSearchQuery}
+                        onChange={(e) => setGridSearchQuery(e.target.value)}
+                        placeholder="Search System Code (e.g. BFD101, BG306), Product Name (e.g. Butterscotch), Category..."
+                        className="w-full pl-8 pr-7 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500"
+                      />
+                      {gridSearchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setGridSearchQuery('')}
+                          className="absolute right-2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 2-Tier Screening in Grid: Base Category -> Subcategory */}
+                  <div className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 space-y-1.5">
+                    {/* Level 1: Base Category Selector */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
+                      <div className="relative shrink-0 flex items-center">
+                        <Search className="w-3 h-3 text-slate-400 absolute left-1.5" />
+                        <input
+                          type="text"
+                          value={gridCategorySearchQuery}
+                          onChange={(e) => setGridCategorySearchQuery(e.target.value)}
+                          placeholder="Search Base Category..."
+                          className="w-36 h-[20px] pl-5 pr-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10px] outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <span className="text-[9.5px] font-bold uppercase text-slate-500 shrink-0">
+                        Base Category:
+                      </span>
+                      {gridFilteredBaseCategories.map(cat => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => handleGridSelectBaseCategory(cat)}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 cursor-pointer transition-colors ${
+                            gridSelectedBaseCategory === cat
+                              ? 'bg-amber-500 text-slate-950 shadow-xs'
+                              : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                          }`}
+                        >
+                          {cat}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Level 2: Subcategories (ONLY for the selected Base Category) */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-slate-200/60 dark:border-slate-700/60 scrollbar-thin">
+                      <span className="text-[9.5px] font-bold uppercase text-indigo-600 dark:text-indigo-400 shrink-0">
+                        Subcategory:
+                      </span>
+                      {gridSelectedBaseCategory === 'All' ? (
+                        <span className="text-[10px] text-slate-500 italic">
+                          👉 Click any Base Category above to screen subcategories (e.g. Family Pack ➔ Family Pack 700ML)
+                        </span>
+                      ) : (
+                        <>
+                          <div className="relative shrink-0 flex items-center">
+                            <input
+                              type="text"
+                              value={gridSubcategorySearchQuery}
+                              onChange={(e) => setGridSubcategorySearchQuery(e.target.value)}
+                              placeholder={`Screen ${gridSelectedBaseCategory} subcategories...`}
+                              className="w-40 h-[19px] px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[9.5px] outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          {gridScreenedSubcategories.map(sub => (
+                            <button
+                              key={sub}
+                              type="button"
+                              onClick={() => setGridSelectedSubcategory(sub)}
+                              className={`px-2 py-0.2 rounded-full text-[9.5px] font-semibold shrink-0 cursor-pointer transition-colors ${
+                                gridSelectedSubcategory === sub
+                                  ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-indigo-50'
+                              }`}
+                            >
+                              {sub === 'All' ? `All (${gridSelectedBaseCategory})` : sub}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Products Table Grid in Popup */}
+                  <div className="flex-1 overflow-y-auto max-h-[250px] divide-y divide-slate-100 dark:divide-slate-800">
+                    <div className="grid grid-cols-12 gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
+                      <div className="col-span-2">System Code *</div>
+                      <div className="col-span-3">Product Name *</div>
+                      <div className="col-span-2">Category *</div>
+                      <div className="col-span-2">Base / Subcategory</div>
+                      <div className="col-span-1 text-center">Unit *</div>
+                      <div className="col-span-1 text-right">Sale Price *</div>
+                      <div className="col-span-1 text-center">Stock</div>
+                    </div>
+
+                    {gridFilteredProducts.map(p => {
+                      const sysCode = getProductSystemCode(p);
+                      const pName = getProductName(p);
+                      const cat = getProductCategory(p);
+                      const baseCat = getProductBaseCategory(p);
+                      const subcat = getProductSubcategory(p);
+                      const unitOfSale = getProductUnitOfSale(p);
+                      const price = getProductSalePrice(p);
+                      const liveStock = getProductLiveStock(p);
+
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            handleSelectProductForLine(activeGridSearchLineId, p);
+                            setActiveGridSearchLineId(null);
+                          }}
+                          className="grid grid-cols-12 gap-1.5 px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-slate-800 cursor-pointer items-center transition-colors group text-[11px]"
+                        >
+                          <div className="col-span-2 font-mono font-bold text-amber-700 dark:text-amber-400 truncate">
+                            {sysCode}
+                          </div>
+                          <div className="col-span-3 font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors truncate">
+                            {pName}
+                          </div>
+                          <div className="col-span-2 text-slate-600 dark:text-slate-300 font-medium truncate text-[10.5px]">
+                            {cat}
+                          </div>
+                          <div className="col-span-2 text-slate-500 text-[10px] truncate">
+                            {baseCat} {subcat && subcat !== '-' ? `• ${subcat}` : ''}
+                          </div>
+                          <div className="col-span-1 text-center text-slate-700 dark:text-slate-300 font-medium">
+                            {unitOfSale}
+                          </div>
+                          <div className="col-span-1 text-right font-bold text-slate-900 dark:text-white">
+                            ₹{price.toFixed(0)}
+                          </div>
+                          <div className="col-span-1 text-center">
+                            <span className={`px-1.5 py-0.2 rounded-xs font-mono font-bold text-[9.5px] inline-flex items-center gap-1 ${
+                              liveStock > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              <span className={`w-1 h-1 rounded-full ${liveStock > 0 ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                              {liveStock}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {gridFilteredProducts.length === 0 && (
+                      <div className="p-6 text-center text-slate-400">
+                        No product found matching "{gridSearchQuery}" in {gridSelectedBaseCategory}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer */}
+                  <div className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
+                    <span>Click any row to select into grid • Esc to close</span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveGridSearchLineId(null)}
+                      className="text-amber-600 font-bold hover:underline cursor-pointer"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1870,19 +2159,185 @@ export default function SalesOrderPage() {
           </div>
         )}
 
-        {/* TAB 5: ATTACHMENTS & REMARKS */}
+        {/* TAB 5: ATTACHMENTS (Camera Capture, Gallery Upload, Saved in UPLOADS_DIR with Order ID) */}
         {activeTab === 'attachments' && (
-          <div className="w-full space-y-3 text-[11.5px]">
-            <div>
-              <label className="block text-[var(--sap-text-muted)] font-bold mb-1">
-                Sales Order Remarks & Dispatch Instructions
+          <div className="w-full space-y-4 text-[11.5px]">
+            
+            {/* Upload Action Bar */}
+            <div className="p-4 bg-white dark:bg-slate-900 border border-[var(--sap-border-inner)] rounded-sm space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                <div>
+                  <div className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                    <Paperclip className="w-4 h-4 text-amber-500" />
+                    <span>Order Document Attachments & Proof Photos</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Images are saved directly to server directory <span className="font-mono font-semibold text-slate-700 dark:text-slate-300">@[UPLOADS_DIR]</span> prefixed with Order ID (<span className="font-mono font-bold text-amber-600">{docNo || 'SO_ORDER'}</span>).
+                  </p>
+                </div>
+
+                {/* Dual Upload Triggers: Camera & Gallery */}
+                <div className="flex items-center gap-2">
+                  
+                  {/* Camera Input */}
+                  <input
+                    type="file"
+                    ref={cameraInputRef}
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleAttachmentUpload}
+                    className="hidden"
+                    id="camera-photo-input"
+                  />
+                  <button
+                    type="button"
+                    disabled={isUploadingAttachment}
+                    onClick={() => cameraInputRef.current?.click()}
+                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4" />
+                    <span>{isUploadingAttachment ? 'Uploading...' : 'Take Camera Photo'}</span>
+                  </button>
+
+                  {/* Gallery Input */}
+                  <input
+                    type="file"
+                    ref={galleryInputRef}
+                    accept="image/*,application/pdf"
+                    onChange={handleAttachmentUpload}
+                    className="hidden"
+                    id="gallery-file-input"
+                  />
+                  <button
+                    type="button"
+                    disabled={isUploadingAttachment}
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    <ImageIcon className="w-4 h-4 text-amber-400" />
+                    <span>{isUploadingAttachment ? 'Uploading...' : 'Upload from Gallery'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Uploaded Attachments Grid / List */}
+              {attachments.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+                  {attachments.map(att => (
+                    <div
+                      key={att.id}
+                      className="p-2.5 border border-slate-200 dark:border-slate-800 rounded-sm bg-slate-50/50 dark:bg-slate-800/40 flex flex-col justify-between space-y-2 group shadow-xs"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div
+                          onClick={() => setPreviewModalUrl(att.url)}
+                          className="w-16 h-16 rounded-xs bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-600 cursor-pointer relative group-hover:opacity-90"
+                        >
+                          <img
+                            src={att.url}
+                            alt={att.filename}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="100%" height="100%" fill="%23cbd5e1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%23475569">Doc</text></svg>';
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                            <Eye className="w-4 h-4 text-white" />
+                          </div>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 truncate" title={att.filename}>
+                            {att.filename}
+                          </div>
+                          <div className="text-[10px] text-slate-500 mt-0.5">
+                            Order ID: <span className="font-bold text-amber-600">{att.orderId}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {att.fileSize} • {att.uploadedAt}
+                          </div>
+                          <span className="inline-block mt-1 px-1.5 py-0.2 rounded-xs text-[9.5px] font-bold bg-emerald-100 text-emerald-800">
+                            Saved in UPLOADS_DIR
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-end gap-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60 flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => handleTriggerUpdate(att.id, 'camera')}
+                          className="px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
+                          title="Retake camera photo to update this attachment"
+                        >
+                          <Camera className="w-3 h-3 text-amber-700" />
+                          <span>Update Photo</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleTriggerUpdate(att.id, 'gallery')}
+                          className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-300 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
+                          title="Replace with an image from device gallery"
+                        >
+                          <ImageIcon className="w-3 h-3 text-slate-600" />
+                          <span>Update Gallery</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPreviewModalUrl(att.url)}
+                          className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-300 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3" />
+                          <span>View</span>
+                        </button>
+                        <a
+                          href={att.url}
+                          download={att.filename}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 text-slate-700 dark:text-slate-300 rounded-xs text-[10.5px] font-semibold flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>Save</span>
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAttachments(prev => prev.filter(a => a.id !== att.id));
+                          }}
+                          className="px-2 py-0.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-xs text-[10.5px] font-semibold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>Remove</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-sm bg-slate-50/50 dark:bg-slate-950/20">
+                  <UploadCloud className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                  <div className="font-bold text-slate-700 dark:text-slate-300 text-xs">
+                    No attachments uploaded yet for this Sales Order
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto">
+                    Click <strong>Take Camera Photo</strong> to snap delivery/PO slip on mobile, or <strong>Upload from Gallery</strong> to attach invoice docs.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Remarks / Dispatch Instructions */}
+            <div className="p-3 bg-white dark:bg-slate-900 border border-[var(--sap-border-inner)] rounded-sm space-y-1.5">
+              <label className="block text-[var(--sap-text-muted)] font-bold text-xs">
+                Sales Order Remarks & Dispatch Notes
               </label>
               <textarea
-                rows={5}
+                rows={3}
                 value={remarks}
                 onChange={(e) => setRemarks(e.target.value)}
                 placeholder="Enter dispatch notes, production priority, terms, or customer special requests..."
-                className="w-full p-2.5 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                className="w-full p-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
@@ -2154,7 +2609,7 @@ export default function SalesOrderPage() {
         />
       )}
 
-      {/* FULL PRODUCT CATALOG BROWSER MODAL (207 Items - Table & Card Views with System Code, Category, Base Cat, Subcat, UoM, Price) */}
+      {/* FULL PRODUCT CATALOG BROWSER MODAL (207 Items - 2-Tier Screening with Table & Cards Views) */}
       {showCatalogModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 animate-in fade-in duration-150">
           <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 shadow-2xl rounded-sm w-full max-w-6xl max-h-[92vh] flex flex-col overflow-hidden text-xs">
@@ -2165,7 +2620,7 @@ export default function SalesOrderPage() {
                 <Package className="w-4 h-4 text-amber-400" />
                 <span>Finished Product Catalog (207 Items)</span>
                 <span className="text-xs font-normal text-slate-300 opacity-80 pl-2 border-l border-slate-600">
-                  Full Product Master Specifications
+                  Live Stock • 2-Tier Category Screening
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -2173,7 +2628,7 @@ export default function SalesOrderPage() {
                   <button
                     type="button"
                     onClick={() => setCatalogViewMode('table')}
-                    className={`px-2 py-0.5 rounded-xs flex items-center gap-1 text-[11px] font-semibold ${
+                    className={`px-2.5 py-0.5 rounded-xs flex items-center gap-1 text-[11px] font-semibold ${
                       catalogViewMode === 'table' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
                     }`}
                   >
@@ -2183,7 +2638,7 @@ export default function SalesOrderPage() {
                   <button
                     type="button"
                     onClick={() => setCatalogViewMode('cards')}
-                    className={`px-2 py-0.5 rounded-xs flex items-center gap-1 text-[11px] font-semibold ${
+                    className={`px-2.5 py-0.5 rounded-xs flex items-center gap-1 text-[11px] font-semibold ${
                       catalogViewMode === 'cards' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
                     }`}
                   >
@@ -2201,7 +2656,7 @@ export default function SalesOrderPage() {
               </div>
             </div>
 
-            {/* Search & Category Filter Pills */}
+            {/* Search & 2-Tier Category Screening */}
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 space-y-2">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
@@ -2209,27 +2664,79 @@ export default function SalesOrderPage() {
                   type="text"
                   value={searchCatalogQuery}
                   onChange={(e) => setSearchCatalogQuery(e.target.value)}
-                  placeholder="Search by System Code (e.g. BFD101, P141), Product Name (e.g. Vanilla), Category, Base Category, Subcategory..."
+                  placeholder="Search by System Code (e.g. BFD101, P141), Product Name (e.g. Vanilla), Category, Subcategory..."
                   className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-xs font-medium outline-none focus:border-amber-500"
                 />
               </div>
 
-              {/* Category Filter Pills */}
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                {productCategories.map(cat => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setCatalogCategory(cat)}
-                    className={`px-3 py-0.5 rounded-full text-[11px] font-bold shrink-0 cursor-pointer transition-colors ${
-                      catalogCategory === cat
-                        ? 'bg-amber-500 text-slate-950 shadow-xs'
-                        : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
+              {/* 2-Tier Filtering: Base Category -> Subcategory Pills */}
+              <div className="space-y-1.5 pt-1">
+                {/* Level 1: Base Category with Search Filter */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                  <div className="relative shrink-0 flex items-center">
+                    <Search className="w-3 h-3 text-slate-400 absolute left-2" />
+                    <input
+                      type="text"
+                      value={categorySearchQuery}
+                      onChange={(e) => setCategorySearchQuery(e.target.value)}
+                      placeholder="Search Base Category..."
+                      className="w-36 h-[22px] pl-6 pr-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10.5px] outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">Base Category:</span>
+                  {filteredBaseCategories.map(cat => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => handleSelectBaseCategory(cat)}
+                      className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shrink-0 cursor-pointer transition-colors ${
+                        selectedBaseCategory === cat
+                          ? 'bg-amber-500 text-slate-950 shadow-xs'
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Level 2: Subcategories for selected Base Category only */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5 border-t border-slate-200/60 dark:border-slate-700/60">
+                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase shrink-0">
+                    Subcategory:
+                  </span>
+                  {selectedBaseCategory === 'All' ? (
+                    <span className="text-[10.5px] text-slate-500 italic">
+                      👉 Click any Base Category above to screen and display its subcategories only
+                    </span>
+                  ) : (
+                    <>
+                      <div className="relative shrink-0 flex items-center">
+                        <input
+                          type="text"
+                          value={subcategorySearchQuery}
+                          onChange={(e) => setSubcategorySearchQuery(e.target.value)}
+                          placeholder={`Screen ${selectedBaseCategory} subcategories...`}
+                          className="w-44 h-[20px] px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10px] outline-none focus:border-indigo-500"
+                        />
+                      </div>
+                      {screenedSubcategories.map(sub => (
+                        <button
+                          key={sub}
+                          type="button"
+                          onClick={() => setSelectedSubcategory(sub)}
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 cursor-pointer transition-colors ${
+                            selectedSubcategory === sub
+                              ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-50'
+                          }`}
+                        >
+                          {sub === 'All' ? `All (${selectedBaseCategory})` : sub}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -2247,7 +2754,7 @@ export default function SalesOrderPage() {
                       <th className="py-2 px-2 text-left w-36">Subcategory</th>
                       <th className="py-2 px-2 text-center w-24">Unit of Sale *</th>
                       <th className="py-2 px-2 text-right w-32">Sale Price (INR) *</th>
-                      <th className="py-2 px-2 text-center w-20">Stock</th>
+                      <th className="py-2 px-2 text-center w-24">Live Stock</th>
                       <th className="py-2 px-2 text-center w-24">Action</th>
                     </tr>
                   </thead>
@@ -2260,6 +2767,7 @@ export default function SalesOrderPage() {
                       const subcat = getProductSubcategory(p);
                       const unitOfSale = getProductUnitOfSale(p);
                       const price = getProductSalePrice(p);
+                      const liveStock = getProductLiveStock(p);
                       const gstRate = (p.cgst || 0) + (p.sgst || 0) || 5;
 
                       return (
@@ -2294,10 +2802,11 @@ export default function SalesOrderPage() {
                             </div>
                           </td>
                           <td className="py-2 px-2 text-center">
-                            <span className={`px-2 py-0.5 rounded-xs font-mono font-bold ${
-                              Number(p.currentStock || p.stock) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                            <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center justify-center gap-1 ${
+                              liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
                             }`}>
-                              {p.currentStock || p.stock || 0}
+                              <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                              <span>{liveStock}</span>
                             </span>
                           </td>
                           <td className="py-2 px-2 text-center">
@@ -2329,6 +2838,7 @@ export default function SalesOrderPage() {
                     const subcat = getProductSubcategory(p);
                     const unitOfSale = getProductUnitOfSale(p);
                     const price = getProductSalePrice(p);
+                    const liveStock = getProductLiveStock(p);
                     const gstRate = (p.cgst || 0) + (p.sgst || 0) || 5;
 
                     return (
@@ -2341,10 +2851,11 @@ export default function SalesOrderPage() {
                             <span className="font-mono font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-xs border border-amber-200 dark:border-amber-900/60">
                               {sysCode}
                             </span>
-                            <span className={`px-1.5 py-0.5 rounded-xs font-mono font-bold ${
-                              Number(p.currentStock || p.stock) > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                            <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center gap-1 ${
+                              liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
                             }`}>
-                              Stock: {p.currentStock || p.stock || 0}
+                              <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                              <span>Stock: {liveStock}</span>
                             </span>
                           </div>
                           <div className="font-bold text-slate-900 dark:text-white text-xs line-clamp-1 group-hover:text-amber-600 transition-colors">
@@ -2392,6 +2903,45 @@ export default function SalesOrderPage() {
                 type="button"
                 onClick={() => setShowCatalogModal(false)}
                 className="px-4 py-1.5 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xs font-bold hover:bg-slate-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FULL PREVIEW MODAL FOR ATTACHMENT IMAGES */}
+      {previewModalUrl && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-in fade-in">
+          <div className="relative max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 rounded-sm overflow-hidden p-2 flex flex-col items-center">
+            <button
+              type="button"
+              onClick={() => setPreviewModalUrl(null)}
+              className="absolute top-2 right-2 p-1 bg-black/60 hover:bg-black text-white rounded-full z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={previewModalUrl}
+              alt="Attachment Full Preview"
+              className="max-h-[80vh] max-w-full object-contain"
+            />
+            <div className="pt-2 flex items-center gap-3">
+              <a
+                href={previewModalUrl}
+                download="order_attachment.jpg"
+                target="_blank"
+                rel="noreferrer"
+                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xs flex items-center gap-1.5"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Attachment</span>
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewModalUrl(null)}
+                className="px-3 py-1 bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold rounded-xs"
               >
                 Close
               </button>

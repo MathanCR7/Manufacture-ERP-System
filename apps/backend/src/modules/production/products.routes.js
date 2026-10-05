@@ -274,23 +274,33 @@ router.get('/search', authenticateToken, async (req, res, next) => {
     });
 
     const productIds = products.map(p => p.id);
-    const batches = await prisma.productionBatchNew.findMany({
-      where: {
-        productId: { in: productIds },
-        status: { in: ['Completed', 'qc_passed'] },
-        remainingQty: { gt: 0 },
-        deletedAt: null
-      },
-      orderBy: { expiryDate: 'asc' },
-      select: {
-        id: true,
-        productId: true,
-        batchNo: true,
-        referenceNo: true,
-        remainingQty: true,
-        expiryDate: true
-      }
-    });
+    const [batches, movements] = await Promise.all([
+      prisma.productionBatchNew.findMany({
+        where: {
+          productId: { in: productIds },
+          status: { in: ['Completed', 'qc_passed'] },
+          remainingQty: { gt: 0 },
+          deletedAt: null
+        },
+        orderBy: { expiryDate: 'asc' },
+        select: {
+          id: true,
+          productId: true,
+          batchNo: true,
+          referenceNo: true,
+          remainingQty: true,
+          expiryDate: true
+        }
+      }),
+      prisma.productStockMovement.findMany({
+        where: { productId: { in: productIds } },
+        select: {
+          productId: true,
+          quantity: true,
+          direction: true
+        }
+      })
+    ]);
 
     const batchMap = {};
     batches.forEach(b => {
@@ -298,14 +308,35 @@ router.get('/search', authenticateToken, async (req, res, next) => {
       batchMap[b.productId].push(b);
     });
 
+    const netMovements = {};
+    movements.forEach(m => {
+      const q = Number(m.quantity || 0);
+      const dir = Number(m.direction || 0);
+      netMovements[m.productId] = (netMovements[m.productId] || 0) + (dir * q);
+    });
+
     const results = products.map(p => {
       const pBatches = batchMap[p.id] || [];
       const totalBatchStock = pBatches.reduce((s, b) => s + Number(b.remainingQty || 0), 0);
       const nextBatch = pBatches[0] || null;
 
-      const baseCategory = p.specifications?.group || p.category?.name || 'General';
+      const baseCategory = p.category?.name || p.specifications?.group || 'General';
       const subcategoryName = p.subcategory?.name || p.specifications?.category || p.specifications?.series || '';
       const unitOfSaleName = p.unit?.abbreviation || p.unit?.name || 'pcs';
+
+      // Live ledger calculation: openingStock + stock movements
+      const ledgerMovementStock = Number(p.openingStock || 0) + (netMovements[p.id] || 0);
+      const rawCurrentStock = p.currentStock !== null && p.currentStock !== undefined ? Number(p.currentStock) : null;
+
+      // Real live stock: if active batch stock > 0, use batch stock; otherwise rawCurrentStock or ledger movement
+      let calculatedLiveStock = 0;
+      if (totalBatchStock > 0) {
+        calculatedLiveStock = totalBatchStock;
+      } else if (rawCurrentStock !== null && !isNaN(rawCurrentStock)) {
+        calculatedLiveStock = rawCurrentStock;
+      } else {
+        calculatedLiveStock = ledgerMovementStock;
+      }
 
       return {
         id: p.id,
@@ -319,8 +350,11 @@ router.get('/search', authenticateToken, async (req, res, next) => {
         unit: unitOfSaleName,
         unitOfSale: unitOfSaleName,
         salePrice: Number(p.salePrice || 0),
-        currentStock: Number(p.currentStock || totalBatchStock || 0),
+        currentStock: calculatedLiveStock,
+        stock: calculatedLiveStock,
+        directStock: rawCurrentStock !== null ? rawCurrentStock : ledgerMovementStock,
         batchStock: totalBatchStock,
+        ledgerStock: ledgerMovementStock,
         activeBatchesCount: pBatches.length,
         nextExpiringBatch: nextBatch ? {
           batchId: nextBatch.id,

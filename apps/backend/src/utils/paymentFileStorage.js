@@ -96,8 +96,86 @@ function savePaymentImageToDisk(imageData, referenceOrId = 'PO', oldImagePath = 
   }
 }
 
+/**
+ * Saves an order attachment image (camera capture or gallery upload) to UPLOADS_DIR
+ * Named using order ID or document number: `order_${cleanOrderId}_${timestamp}.${ext}`
+ *
+ * @param {string} imageData - Base64 Data URL or file string
+ * @param {string} orderId - Order ID or reference number
+ * @returns {string|null} - Static URL path for access
+ */
+function saveOrderAttachmentToDisk(imageData, orderId = 'ORDER') {
+  if (!imageData || typeof imageData !== 'string') return null;
+
+  const trimmed = imageData.trim();
+  if (trimmed.startsWith('/uploads/') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  const matches = trimmed.match(/^data:([A-Za-z0-9-+/]+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) {
+    return trimmed;
+  }
+
+  const mimeType = matches[1].toLowerCase();
+  const base64Data = matches[2];
+
+  let ext = 'jpg';
+  if (mimeType.includes('png')) ext = 'png';
+  else if (mimeType.includes('webp')) ext = 'webp';
+  else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
+  else if (mimeType.includes('pdf')) ext = 'pdf';
+
+  const cleanOrder = String(orderId || 'ORDER').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `order_${cleanOrder}_${Date.now()}.${ext}`;
+  const targetPath = path.join(UPLOADS_DIR, filename);
+
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
+    fs.writeFileSync(targetPath, buffer);
+    console.log(`[Storage] Saved order attachment to UPLOADS_DIR: ${filename}`);
+
+    return `/uploads/payments/${filename}?t=${Date.now()}`;
+  } catch (err) {
+    console.error('Error writing order attachment to disk:', err);
+    return null;
+  }
+}
+
+/**
+ * Saves a binary file buffer (e.g. from multer multipart upload) to UPLOADS_DIR
+ * Named using order ID: `order_${cleanOrderId}_${timestamp}.${ext}`
+ *
+ * @param {Buffer} buffer - Binary file buffer
+ * @param {string} [originalname='photo.jpg'] - Original file name to extract extension
+ * @param {string} [orderId='ORDER'] - Order ID or document reference number
+ * @returns {string|null} - Static URL path for access
+ */
+function saveOrderAttachmentBufferToDisk(buffer, originalname = 'photo.jpg', orderId = 'ORDER') {
+  if (!buffer) return null;
+
+  let ext = path.extname(originalname).replace('.', '').toLowerCase() || 'jpg';
+  if (ext === 'jpeg') ext = 'jpg';
+
+  const cleanOrder = String(orderId || 'ORDER').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `order_${cleanOrder}_${Date.now()}.${ext}`;
+  const targetPath = path.join(UPLOADS_DIR, filename);
+
+  try {
+    fs.writeFileSync(targetPath, buffer);
+    console.log(`[Storage] Saved order attachment buffer to UPLOADS_DIR: ${filename}`);
+
+    return `/uploads/payments/${filename}?t=${Date.now()}`;
+  } catch (err) {
+    console.error('Error writing order attachment buffer to disk:', err);
+    return null;
+  }
+}
+
 module.exports = {
   savePaymentImageToDisk,
+  saveOrderAttachmentToDisk,
+  saveOrderAttachmentBufferToDisk,
   deletePaymentImageFromDisk,
   UPLOADS_DIR,
 };
