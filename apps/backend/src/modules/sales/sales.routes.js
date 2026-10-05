@@ -42,9 +42,9 @@ const generateReturnReference = async (tx) => {
     return 'SR-000001';
   }
 
-  const lastNumberStr = lastRecord.return_no.split('-')[1];
-  const lastNumber = parseInt(lastNumberStr, 10);
-  const nextNumber = lastNumber + 1;
+  const match = lastRecord.return_no.match(/(\d+)$/);
+  const lastNumber = match ? parseInt(match[1], 10) : 0;
+  const nextNumber = isNaN(lastNumber) ? 1 : lastNumber + 1;
   return `SR-${String(nextNumber).padStart(6, '0')}`;
 };
 
@@ -435,30 +435,41 @@ router.get('/check-credit/:customerId', authenticateToken, async (req, res, next
 });
 
 // POST /api/sales/returns - Return / Replacement Sale (Type 4)
-router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM']), async (req, res, next) => {
+router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
   try {
     const schema = z.object({
-      invoiceNo: z.string().min(1), // original invoice
-      reason: z.enum(['Damaged', 'Wrong Product', 'Quality Issue', 'Expiry Concern', 'Customer Preference']),
-      refundMethod: z.enum(['Cash Refund', 'Credit Note', 'Replacement']),
+      invoiceNo: z.string().min(1, 'Invoice / Order reference is required'),
+      reason: z.string().min(1, 'Return reason is required'),
+      refundMethod: z.string().min(1, 'Refund method is required'),
       items: z.array(z.object({
-        productId: z.string().uuid(),
-        quantity: z.coerce.number().positive(),
-        condition: z.enum(['Resaleable', 'Damaged', 'Destroy'])
-      }))
+        productId: z.string().min(1, 'Product ID is required'),
+        quantity: z.coerce.number().positive('Quantity must be greater than zero'),
+        condition: z.string().min(1).default('Resaleable')
+      })).min(1, 'At least one return item must be provided')
     });
 
     const data = schema.parse(req.body);
 
     const result = await prisma.$transaction(async (tx) => {
-      // Validate original invoice
+      // Validate original invoice across referenceNo, docNo, or id
       const invoice = await tx.customerOrder.findFirst({
-        where: { referenceNo: data.invoiceNo, deletedAt: null },
+        where: {
+          OR: [
+            { referenceNo: data.invoiceNo },
+            { docNo: data.invoiceNo },
+            { id: data.invoiceNo }
+          ],
+          deletedAt: null
+        },
         include: { items: true }
       });
       if (!invoice) throw new Error(`Original invoice ${data.invoiceNo} not found.`);
 
       const returnNo = await generateReturnReference(tx);
+
+      // Normalize refundMethod for display & consistency
+      let normalizedRefundMethod = data.refundMethod;
+      if (normalizedRefundMethod === 'Direct Replacement') normalizedRefundMethod = 'Replacement';
 
       // Create return log
       const salesReturn = await tx.salesReturn.create({
@@ -466,7 +477,7 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
           returnNo,
           invoiceId: invoice.id,
           reason: data.reason,
-          refundMethod: data.refundMethod,
+          refundMethod: normalizedRefundMethod,
           status: 'Completed'
         }
       });
@@ -489,6 +500,7 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
           await tx.productStockMovement.create({
             data: {
               productId: item.productId,
+              orderId: invoice.id,
               type: 'order_return',
               quantity: item.quantity,
               direction: 1,
@@ -505,11 +517,12 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
           // Record wastage/loss
           await tx.productWastage.create({
             data: {
-              referenceNo: `RW-${returnNo.split('-')[1]}`,
+              referenceNo: `RW-${returnNo.replace(/\D/g, '') || Date.now().toString().slice(-6)}`,
               productId: item.productId,
               quantity: item.quantity,
-              note: `Sales Return ${returnNo} Damaged/Destroy: ${data.reason}`,
-              createdBy: req.user.id
+              note: `Sales Return ${returnNo} (${item.condition}): ${data.reason}`,
+              createdBy: req.user.id,
+              date: new Date()
             }
           });
 
@@ -517,10 +530,11 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
           await tx.productStockMovement.create({
             data: {
               productId: item.productId,
+              orderId: invoice.id,
               type: 'adjustment',
               quantity: item.quantity,
               direction: -1,
-              note: `Sales Return ${returnNo} Damaged/Wasted`,
+              note: `Sales Return ${returnNo} (${item.condition})`,
               createdBy: req.user.id
             }
           });
@@ -535,7 +549,7 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
           tableName: 'sales_returns',
           recordId: salesReturn.id,
           oldValue: { invoiceNo: data.invoiceNo },
-          newValue: { returnNo, reason: data.reason, refundMethod: data.refundMethod },
+          newValue: { returnNo, reason: data.reason, refundMethod: normalizedRefundMethod },
           ip: req.ip || '127.0.0.1'
         }
       });
@@ -545,7 +559,10 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
 
     res.status(201).json(result);
   } catch (error) {
-    if (error instanceof z.ZodError) return res.status(400).json({ error: error.errors });
+    if (error instanceof z.ZodError) {
+      const errMsgs = error.issues?.map(i => `${i.path.join('.')}: ${i.message}`).join(', ') || error.message;
+      return res.status(400).json({ error: errMsgs });
+    }
     res.status(400).json({ error: error.message });
   }
 });

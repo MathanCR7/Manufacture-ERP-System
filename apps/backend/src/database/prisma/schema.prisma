@@ -1395,6 +1395,15 @@ model CustomerOrder {
   ewayBillNo      String?                  @map("eway_bill_no")
   ewayBillDate    DateTime?                @map("eway_bill_date")
 
+  // Additional SAP Studio Commercial Fields
+  customerRefNo   String?                  @map("customer_ref_no")
+  billToAddress   String?                  @db.Text @map("bill_to_address")
+  shippingMethod  String?                  @default("Road Transport") @map("shipping_method")
+  salesEmployee   String?                  @default("-No Sales Employee-") @map("sales_employee")
+  paymentMode     String?                  @map("payment_mode")
+  orderMode       String?                  @default("STANDARD") @map("order_mode")
+  attachmentUrl   String?                  @db.Text @map("attachment_url")
+
   customer       Customer                 @relation("CustomerOrders", fields: [customerId], references: [id])
   creator        User                     @relation("CustomerOrderCreator", fields: [createdBy], references: [id])
   items          CustomerOrderItem[]

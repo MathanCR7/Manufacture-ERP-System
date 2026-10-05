@@ -69,12 +69,12 @@ export default function SalesReturnsPage() {
     }
     
     setInvoiceNo(refNo);
-    const selectedOrd = recentOrders.find(o => o.referenceNo === refNo);
+    const selectedOrd = recentOrders.find(o => o.referenceNo === refNo || o.docNo === refNo || o.id === refNo);
     
     if (selectedOrd) {
       const productsList = (selectedOrd.items || []).map(item => ({
         productId: item.productId,
-        name: item.product?.name || 'Finished Product',
+        name: item.product?.name || item.name || 'Finished Product',
         maxQty: Number(item.quantity)
       }));
       setInvoiceProducts(productsList);
@@ -124,6 +124,15 @@ export default function SalesReturnsPage() {
     e.preventDefault();
     const isDark = document.documentElement.classList.contains('dark');
 
+    if (!invoiceNo) {
+      Swal.fire({
+        title: '<span class="text-xs font-bold">No Invoice Selected</span>',
+        text: 'Please select an invoice / order to return against.',
+        icon: 'warning',
+      });
+      return;
+    }
+
     if (returnedItems.length === 0) {
       Swal.fire({
         title: '<span class="text-xs font-bold">No Items Selected</span>',
@@ -163,9 +172,11 @@ export default function SalesReturnsPage() {
       setReturnedItems([]);
       fetchPageResources();
     } catch (e) {
+      const rawErr = e.response?.data?.error || e.response?.data?.message || 'Failed to submit return request.';
+      const errMsg = typeof rawErr === 'object' ? JSON.stringify(rawErr) : String(rawErr);
       Swal.fire({
         title: '<span class="text-xs font-bold text-rose-500">Return Failed</span>',
-        text: e.response?.data?.error || 'Failed to submit return request.',
+        text: errMsg,
         icon: 'error',
       });
     } finally {
@@ -220,12 +231,16 @@ export default function SalesReturnsPage() {
               <SearchSelect
                 value={invoiceNo}
                 onChange={handleDropdownSelect}
-                options={recentOrders.map(o => ({
-                  value: o.referenceNo,
-                  label: `${o.referenceNo} - ${o.customer?.name || 'Walk-In Customer'}`,
-                  subLabel: `Subtotal: ₹${Number(o.totalSubtotal).toFixed(2)} | Date: ${new Date(o.createdAt).toLocaleDateString('en-GB')}`
-                }))}
-                placeholder="Search or Select Invoice Number (e.g. CO-000009)..."
+                options={recentOrders.map(o => {
+                  const ref = o.referenceNo || o.docNo || o.id;
+                  const displayDoc = o.docNo || o.referenceNo || ref;
+                  return {
+                    value: ref,
+                    label: `${displayDoc} - ${o.customer?.name || 'Walk-In Customer'}`,
+                    subLabel: `Subtotal: ₹${Number(o.totalSubtotal || 0).toFixed(2)} | Date: ${new Date(o.createdAt).toLocaleDateString('en-GB')}`
+                  };
+                })}
+                placeholder="Search or Select Invoice Number (e.g. POS/26-27/0008, SO/26-27/0002)..."
                 searchPlaceholder="Type invoice number or customer name to filter..."
                 triggerClassName="h-10 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold border-slate-200"
               />
@@ -248,8 +263,10 @@ export default function SalesReturnsPage() {
                     >
                       <option value="Quality Issue">Quality Issue / Spoilage</option>
                       <option value="Customer Return">Customer Returned / Exchange</option>
-                      <option value="Wrong Item">Incorrect Product Delivered</option>
-                      <option value="Damaged Transit">Damaged in Transit</option>
+                      <option value="Wrong Product">Incorrect Product Delivered</option>
+                      <option value="Damaged">Damaged in Transit / Storage</option>
+                      <option value="Expiry Concern">Near Expiry / Expired Spoilage</option>
+                      <option value="Customer Preference">Customer Preference / Unwanted</option>
                       <option value="Other">Other / Leftover Return</option>
                     </select>
                   </div>
@@ -263,7 +280,7 @@ export default function SalesReturnsPage() {
                     >
                       <option value="Credit Note">Generate Credit Note</option>
                       <option value="Cash Refund">Cash Settlement Refund</option>
-                      <option value="Direct Replacement">Direct Counter Replacement</option>
+                      <option value="Replacement">Direct Counter Replacement</option>
                     </select>
                   </div>
                 </div>
@@ -323,7 +340,7 @@ export default function SalesReturnsPage() {
                             >
                               <option value="Resaleable">Resaleable (Put in Stock)</option>
                               <option value="Damaged">Damaged / Wasted</option>
-                              <option value="Expired">Expired Spoilage</option>
+                              <option value="Destroy">Destroy / Expired Spoilage</option>
                             </select>
                           </div>
 
@@ -383,7 +400,7 @@ export default function SalesReturnsPage() {
                         <span>{new Date(ret.createdAt).toLocaleDateString('en-GB')}</span>
                       </div>
                       <div className="text-[11px] text-slate-500 space-y-0.5">
-                        <p>Invoice: <span className="font-bold text-slate-700 dark:text-slate-300">{ret.order?.referenceNo}</span></p>
+                        <p>Invoice: <span className="font-bold text-slate-700 dark:text-slate-300">{ret.order?.referenceNo || ret.order?.docNo || ret.invoiceId}</span></p>
                         <p>Reason: <span className="font-semibold text-slate-700 dark:text-slate-305">{ret.reason}</span></p>
                         <p>Refund Scheme: <span className="font-extrabold text-indigo-600 dark:text-indigo-400">{ret.refundMethod}</span></p>
                       </div>

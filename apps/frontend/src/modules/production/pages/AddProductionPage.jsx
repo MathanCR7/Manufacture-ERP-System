@@ -243,21 +243,30 @@ export default function AddProductionPage() {
           setAuthorizedBy(currentUser.name);
         }
 
-        // Handle navigation prefill state
+        // Handle navigation prefill state & URL query params
         const navState = location.state;
-        if (navState) {
-          if (navState.productId) {
-            setSelectedProductId(navState.productId);
-          }
-          if (navState.quantity) {
-            setQuantity(Number(navState.quantity));
-          }
-          if (navState.orderId) {
-            setTriggerType('Order-Based');
-            setSelectedOrderId(navState.orderId);
-          } else if (navState.triggerType) {
-            setTriggerType(navState.triggerType);
-          }
+        const searchParams = new URLSearchParams(location.search);
+        const queryOrderId = searchParams.get('orderId');
+        const queryProductId = searchParams.get('productId');
+        const queryQty = searchParams.get('quantity') || searchParams.get('deficitQty');
+
+        const targetOrderId = navState?.orderId || queryOrderId;
+        const targetProductId = navState?.productId || queryProductId;
+        const targetQty = navState?.quantity || queryQty;
+
+        if (targetOrderId) {
+          setTriggerType('Order-Based');
+          setSelectedOrderId(targetOrderId);
+        } else if (navState?.triggerType) {
+          setTriggerType(navState.triggerType);
+        }
+
+        if (targetProductId) {
+          setSelectedProductId(targetProductId);
+        }
+
+        if (targetQty) {
+          setQuantity(Number(targetQty));
         }
       } catch (err) {
         console.error('Error fetching master records:', err);
@@ -268,7 +277,7 @@ export default function AddProductionPage() {
 
     loadMasters();
     return () => { isMounted = false; };
-  }, [location.state, currentUser]);
+  }, [location.state, location.search, currentUser]);
 
   // Load subcategory base templates when subcategory changes
   useEffect(() => {

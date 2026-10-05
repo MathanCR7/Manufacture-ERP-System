@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '@/lib/axios';
 import { 
   FileText, Search, RefreshCw, AlertTriangle, ShieldAlert, Award, 
   Clock, ArrowRight, X, ChevronLeft, Eye, Printer, Sparkles, Loader2, 
   Download, ShoppingBag, CheckCircle2, User, CreditCard, Banknote, Layers, Plus,
   MessageSquare, Mail, Play, Building2, Send, Share2,
-  ArrowUp, ArrowDown, ArrowUpDown, Filter
+  ArrowUp, ArrowDown, ArrowUpDown, Filter, Save, Camera, ImageIcon, Paperclip,
+  Package, Truck, Check, ExternalLink, Maximize2, Trash2, Calendar, Phone,
+  FileCheck, ShieldCheck, MapPin
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import DatePicker from '@/components/ui/DatePicker';
 import Swal from 'sweetalert2';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
@@ -18,6 +19,14 @@ import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
 import { generateA4TaxInvoice, generateThermalReceipt } from '@/utils/salesPdfGenerator';
+import { numberToWordsINR, getIndianStates } from '@/utils/gstEngine';
+
+// Official WhatsApp SVG Logo Icon
+const WhatsAppIcon = ({ className = "w-3.5 h-3.5" }) => (
+  <svg viewBox="0 0 24 24" className={`${className} fill-current`} xmlns="http://www.w3.org/2000/svg">
+    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+  </svg>
+);
 
 export default function SalesListPage() {
   const navigate = useNavigate();
@@ -34,16 +43,46 @@ export default function SalesListPage() {
   const [sortBy, setSortBy] = useState('date_desc');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   
-  // Dynamic settings
+  // Dynamic settings & Tab view
   const [companySettings, setCompanySettings] = useState(null);
   const [layoutMode, setLayoutMode] = useState('A4'); // A4 or POS
   const [activePdfUrl, setActivePdfUrl] = useState(null);
-  const [detailTab, setDetailTab] = useState('breakdown'); // 'breakdown' or 'pdf'
+  const [activeStudioTab, setActiveStudioTab] = useState('contents'); // 'contents' | 'logistics' | 'accounting' | 'tax' | 'attachments' | 'pdf'
 
-  // Pagination State
+  // Photo modal & Attachment upload state
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null);
+  const [isUploadingAttachment, setIsUploadingAttachment] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
+
+  // Editable Form fields for the Detailed View
+  const [editForm, setEditForm] = useState({
+    shipToAddress: '',
+    billToAddress: '',
+    shippingMethod: 'Road Transport',
+    transporterName: '',
+    vehicleNo: '',
+    lrNo: '',
+    ewayBillNo: '',
+    ewayBillDate: '',
+    paymentTerms: 'Not Paid',
+    paymentStatus: 'PAID',
+    paymentMethod: 'Bank Transfer / NEFT',
+    amountPaid: 0,
+    placeOfSupply: '33',
+    taxRegNo: '',
+    internalNote: '',
+    remarks: '',
+    salesEmployee: '-No Sales Employee-',
+    owner: 'Mathan'
+  });
+
+  // Pagination State - defaults to 'ALL' to display fully without overflow
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
+  const [pageSize, setPageSize] = useState('ALL');
 
   // Live Company & Tax Settings from store
   const storeCompany = useCompanyStore((s) => s.company);
@@ -59,20 +98,19 @@ export default function SalesListPage() {
       const list = res.data || [];
       setOrders(list.filter(o => o.type === 'Invoice' || o.type === 'Sales Order' || o.type === 'POS' || o.type === 'Quotation'));
     } catch (e) {
-      console.error(e);
+      console.error('Failed to fetch sales orders', e);
     } finally {
       if (!silent) setLoading(false);
     }
   };
 
-  // Automatic live sync every 10 seconds without manual sync button
+  // Automatic live sync every 10 seconds
   useEffect(() => {
     fetchSales();
     const interval = setInterval(() => {
       fetchSales(true);
     }, 10000);
 
-    // Load setup tax
     api.get('/setup/tax').then(res => {
       if (res.data) setCompanySettings(res.data);
     }).catch(err => console.warn('Could not load setup tax', err));
@@ -80,6 +118,7 @@ export default function SalesListPage() {
     return () => clearInterval(interval);
   }, []);
 
+  // Fetch full details when an order ID is selected in the URL
   useEffect(() => {
     const fetchOrderDetail = async () => {
       if (!orderIdParam) {
@@ -99,541 +138,60 @@ export default function SalesListPage() {
     fetchOrderDetail();
   }, [orderIdParam]);
 
-  // Reset page when search term changes
+  // Sync edit form and attachments whenever selectedOrder changes
   useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm]);
-
-  // PDF compilers
-  const compileInvoiceA4PDF = (order, settings) => {
-    const doc = new jsPDF();
-    const activeCompany = settings || storeCompany;
-    const companyName = activeCompany?.companyName || 'Company';
-    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
-    const companyGstin = activeCompany?.companyGstin || '';
-    const companyMobile = activeCompany?.companyMobile || '';
-
-    const customerGstin = order.customer?.gstin || order.taxRegNo || '';
-    const customerState = customerGstin.trim().replace(/^GSTIN-/, '').substring(0, 2);
-    const companyState = companyGstin.trim().substring(0, 2);
-    const isSameState = customerState === companyState || !customerState;
-
-    doc.setFillColor(30, 27, 75);
-    doc.rect(0, 0, 210, 8, 'F');
-    doc.setFillColor(245, 158, 11);
-    doc.rect(0, 8, 210, 1.5, 'F');
-
-    let currentY = 22;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(22);
-    doc.setTextColor(30, 27, 75);
-    doc.text('TAX INVOICE', 14, currentY);
-
-    currentY += 7;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.text(companyName.toUpperCase(), 14, currentY);
-    currentY += 4.5;
-    
-    const companyAddressLines = doc.splitTextToSize(companyAddress, 80);
-    doc.text(companyAddressLines, 14, currentY);
-    const companyAddressHeight = companyAddressLines.length * 4.5;
-    currentY += companyAddressHeight;
-    
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 27, 75);
-    doc.text(`GSTIN: ${companyGstin}`, 14, currentY);
-    currentY += 4.5;
-    doc.text(`Mobile: ${companyMobile}`, 14, currentY);
-
-    const metaBoxX = 115;
-    const metaBoxWidth = 81;
-    const metaBoxY = 15;
-    const metaBoxHeight = 35;
-
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(metaBoxX, metaBoxY, metaBoxWidth, metaBoxHeight, 3, 3, 'FD');
-
-    let mY = metaBoxY + 5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('INVOICE NO.', metaBoxX + 4, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(order.referenceNo || 'N/A', metaBoxX + 4, mY + 4);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('INVOICE DATE', metaBoxX + 44, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(new Date(order.createdAt).toLocaleDateString('en-GB') || 'N/A', metaBoxX + 44, mY + 4);
-
-    mY += 12;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('PAYMENT TERMS', metaBoxX + 4, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(order.paymentTerms || 'Not Paid', metaBoxX + 4, mY + 4);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('DELIVERY DATE', metaBoxX + 44, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(new Date(order.deliveryDate).toLocaleDateString('en-GB') || 'N/A', metaBoxX + 44, mY + 4);
-
-    currentY = Math.max(currentY + 6, 60);
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(14, currentY, 182, 24, 2, 2, 'D');
-
-    let bY = currentY + 5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('BILLED TO (BUYER):', 18, bY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9.5);
-    doc.text(order.customer?.name || 'Walk-in Customer', 18, bY + 4.5);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(71, 85, 105);
-    const delAddress = order.deliveryAddress || order.customer?.address || 'N/A';
-    const customerAddressLines = doc.splitTextToSize(delAddress, 85);
-    doc.text(customerAddressLines, 18, bY + 9);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text(`Buyer GSTIN: ${customerGstin || 'Unregistered'}`, 115, bY + 4.5);
-
-    currentY += 32;
-    doc.setFillColor(30, 27, 75);
-    doc.rect(14, currentY, 182, 8, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text('SN', 17, currentY + 5.5, { align: 'center' });
-    doc.text('ITEMS DESCRIPTION', 32, currentY + 5.5);
-    doc.text('HSN', 86, currentY + 5.5);
-    doc.text('QTY', 101, currentY + 5.5, { align: 'right' });
-    doc.text('UNIT PRICE', 123, currentY + 5.5, { align: 'right' });
-    doc.text('DISC', 143, currentY + 5.5, { align: 'right' });
-    doc.text('TAX RATE', 165, currentY + 5.5, { align: 'right' });
-    doc.text('AMOUNT', 191, currentY + 5.5, { align: 'right' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(51, 65, 85);
-
-    let tY = currentY + 8;
-    const itemRows = order.items || [];
-    itemRows.forEach((row, i) => {
-      const description = row.product?.name || 'Unknown Product';
-      const hsn = row.product?.hsnCode || 'N/A';
-      const qty = Number(row.quantity) || 0;
-      const price = Number(row.unitPrice) || 0;
-      const disc = Number(row.discount) || 0;
-      const amt = (price - disc) * qty;
-
-      let taxPercent = 0;
-      if (order.taxType === 'Exclusive' && companySettings?.collectTax === 'Yes') {
-        taxPercent = isSameState 
-          ? (Number(companySettings?.cgstRate || 9) + Number(companySettings?.sgstRate || 9))
-          : Number(companySettings?.igstRate || 18);
-      }
-
-      doc.setDrawColor(241, 245, 249);
-      doc.line(14, tY + 6.5, 196, tY + 6.5);
-
-      doc.text(`${i + 1}`, 17, tY + 4.5, { align: 'center' });
-      doc.text(description.substring(0, 32), 32, tY + 4.5);
-      doc.text(hsn, 86, tY + 4.5);
-      doc.text(`${qty}`, 101, tY + 4.5, { align: 'right' });
-      doc.text(`Rs.${price.toFixed(0)}`, 123, tY + 4.5, { align: 'right' });
-      doc.text(`Rs.${disc.toFixed(0)}`, 143, tY + 4.5, { align: 'right' });
-      doc.text(`${taxPercent}%`, 165, tY + 4.5, { align: 'right' });
-      doc.text(`Rs.${amt.toFixed(2)}`, 191, tY + 4.5, { align: 'right' });
-
-      tY += 7.5;
-    });
-
-    tY += 5;
-    const summaryX = 115;
-    const summaryWidth = 81;
-
-    const chargeOffsetCount = 
-      (Number(order.freight || 0) > 0 ? 1 : 0) + 
-      (Number(order.loadingCharges || 0) > 0 ? 1 : 0) + 
-      (Number(order.packingCharges || 0) > 0 ? 1 : 0) + 
-      (Number(order.insurance || 0) > 0 ? 1 : 0) + 
-      (Number(order.otherCharges || 0) > 0 ? 1 : 0) + 
-      (Number(order.totalDiscount || 0) > 0 ? 1 : 0);
-    const boxHeight = 25 + (order.totalTax > 0 ? 10 : 0) + (chargeOffsetCount * 4.5);
-
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(255, 255, 255);
-    doc.rect(summaryX, tY, summaryWidth, boxHeight, 'D');
-
-    let sY = tY + 4.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Taxable Subtotal:', summaryX + 4, sY);
-    doc.setTextColor(30, 27, 75);
-    doc.text(`Rs.${Number(order.totalSubtotal || 0).toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
-
-    if (order.totalTax > 0) {
-      if (isSameState) {
-        sY += 4.5;
-        doc.setTextColor(100, 116, 139);
-        doc.text('CGST:', summaryX + 4, sY);
-        doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Number(order.totalCGST || 0).toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
-
-        sY += 4.5;
-        doc.setTextColor(100, 116, 139);
-        doc.text('SGST:', summaryX + 4, sY);
-        doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Number(order.totalSGST || 0).toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
-      } else {
-        sY += 4.5;
-        doc.setTextColor(100, 116, 139);
-        doc.text('IGST:', summaryX + 4, sY);
-        doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Number(order.totalIGST || 0).toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
-      }
-    }
-
-    if (Number(order.freight || 0) > 0) {
-      sY += 4.5;
-      doc.setTextColor(100, 116, 139);
-      doc.text('Freight Charges:', summaryX + 4, sY);
-      doc.setTextColor(30, 27, 75);
-      doc.text(`Rs.${Number(order.freight).toFixed(2)}`, summaryX + 77, sY, { align: 'right' });
-    }
-
-    sY += 6;
-    doc.setDrawColor(241, 245, 249);
-    doc.line(summaryX + 2, sY - 2.5, summaryX + 79, sY - 2.5);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text('GRAND TOTAL:', summaryX + 4, sY + 1.5);
-    doc.setFontSize(11);
-    doc.setTextColor(16, 185, 129);
-    doc.text(`Rs.${Number(order.grandTotal || 0).toLocaleString('en-IN')}`, summaryX + 77, sY + 1.5, { align: 'right' });
-
-    const pdfBlob = doc.output('blob');
-    return pdfBlob;
-  };
-
-  const compileThermalBillPDF = (order, settings) => {
-    const activeCompany = settings || storeCompany;
-    const companyName = activeCompany?.companyName || 'Company';
-    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
-    const companyGstin = activeCompany?.companyGstin || '';
-    const companyMobile = activeCompany?.companyMobile || '';
-
-    const items = order.items || [];
-    const itemsCount = items.length;
-
-    const discountVal = Number(order.discountValue || order.discount || 0);
-    const collectTax = !!order.collectTax || Number(order.totalTax || order.cgst || order.sgst || 0) > 0;
-    const freightVal = Number(order.freight || order.freightCharges || 0);
-    const loadingVal = Number(order.loadingCharges || order.loading || 0);
-    const packingVal = Number(order.packingCharges || order.packing || 0);
-    const insuranceVal = Number(order.insurance || order.insuranceCharges || 0);
-    const otherVal = Number(order.otherCharges || order.other || 0);
-    const cgstVal = Number(order.cgst || (collectTax ? (order.totalTax ? order.totalTax / 2 : 0) : 0));
-    const sgstVal = Number(order.sgst || (collectTax ? (order.totalTax ? order.totalTax / 2 : 0) : 0));
-    const igstVal = Number(order.igst || 0);
-    const tdsVal = Number(order.tdsDeduction || order.tds || 0);
-    const roundOffVal = Number(order.roundOff || 0);
-
-    let totalTaxableValue = Number(order.subtotal || order.totalSubtotal || 0);
-    if (!totalTaxableValue) {
-      items.forEach(item => {
-        const qty = Number(item.quantity) || 0;
-        const rate = Number(item.unitPrice) || 0;
-        const disc = Number(item.discount) || 0;
-        totalTaxableValue += (rate - disc) * qty;
+    if (selectedOrder) {
+      setEditForm({
+        shipToAddress: selectedOrder.deliveryAddress || '',
+        billToAddress: selectedOrder.billToAddress || selectedOrder.customer?.billingAddress || selectedOrder.deliveryAddress || '',
+        shippingMethod: selectedOrder.shippingMethod || 'Road Transport',
+        transporterName: selectedOrder.transporterName || '',
+        vehicleNo: selectedOrder.vehicleNo || '',
+        lrNo: selectedOrder.lrNo || '',
+        ewayBillNo: selectedOrder.ewayBillNo || '',
+        ewayBillDate: selectedOrder.ewayBillDate ? selectedOrder.ewayBillDate.split('T')[0] : '',
+        paymentTerms: selectedOrder.paymentTerms || (selectedOrder.type === 'POS' ? 'Immediate Cash' : 'Not Paid'),
+        paymentStatus: selectedOrder.paymentStatus || (selectedOrder.type === 'POS' ? 'PAID' : 'PENDING'),
+        paymentMethod: selectedOrder.paymentMode || (selectedOrder.type === 'POS' ? 'Cash' : 'Bank Transfer / NEFT'),
+        amountPaid: Number(selectedOrder.amountPaid || (selectedOrder.type === 'POS' ? selectedOrder.grandTotal : 0)),
+        placeOfSupply: selectedOrder.placeOfSupply || '33',
+        taxRegNo: selectedOrder.taxRegNo || selectedOrder.customer?.gstin || '',
+        internalNote: selectedOrder.internalNote || '',
+        remarks: selectedOrder.quotationNote || '',
+        salesEmployee: selectedOrder.salesEmployee || '-No Sales Employee-',
+        owner: selectedOrder.creator?.name || selectedOrder.cashierName || 'Mathan'
       });
-    }
 
-    const roundedGrandTotal = Number(order.grandTotal || (totalTaxableValue + cgstVal + sgstVal + igstVal + freightVal + loadingVal + packingVal + insuranceVal + otherVal - discountVal - tdsVal + roundOffVal));
-
-    const BILL_QUOTES = [
-      "Life is like ice cream, enjoy it before it melts!",
-      "Double the flavor, double the happiness.",
-      "There is always room for some sweet moments.",
-      "Keep cool, carry on, and eat some kulfi.",
-      "Indulge in the creamy goodness of pure happiness.",
-      "Crafting sweetness with premium quality standards.",
-      "Happiness is a cup, a stick, or a slice of dessert.",
-      "Serving smiles and superior taste since inception.",
-      "Freshly prepared, carefully pasteurized, always delicious.",
-      "A sweet treat for a sweeter client like you!",
-      "Manufactured with state-of-the-art hygiene & love.",
-      "Cool down your day with our premium kulfi pops.",
-      "Sprinkled with pistachio, saffron, and joyful vibes.",
-      "The secret ingredient is always high-quality care.",
-      "Making your celebrations sweeter, one batch at a time.",
-      "Quality is not an act, it is a daily habit.",
-      "Every scoop tells a story of craftsmanship.",
-      "Pure cream, natural mangoes, and rich traditions.",
-      "Dessert is nature's way of making up for Mondays.",
-      "Purity you can taste, standards you can trust.",
-      "Kulfi: The ancient Indian art of frozen happiness.",
-      "Crafted in Salem, loved across the nation.",
-      "You can't buy happiness, but you can buy ice cream!",
-      "Creamy texture, rich cardamom, pure delight.",
-      "For the love of kulfi, made with absolute precision.",
-      "Pistachio power and saffron gold in every bite.",
-      "A classic recipe for a modern generation.",
-      "Frozen to perfection, delivered with care.",
-      "Quality raw materials make for unmatched goodness.",
-      "Your trust is our pride. Have a wonderful day!"
-    ];
-
-    const randomQuote = BILL_QUOTES[Math.floor(Math.random() * BILL_QUOTES.length)];
-
-    let activeLines = 14 + itemsCount;
-    if (discountVal > 0) activeLines++;
-    if (freightVal > 0) activeLines++;
-    if (loadingVal > 0) activeLines++;
-    if (packingVal > 0) activeLines++;
-    if (insuranceVal > 0) activeLines++;
-    if (otherVal > 0) activeLines++;
-    if (cgstVal > 0) activeLines++;
-    if (sgstVal > 0) activeLines++;
-    if (igstVal > 0) activeLines++;
-    if (tdsVal > 0) activeLines++;
-    if (roundOffVal !== 0) activeLines++;
-
-    let dynamicHeight = Math.max(160, 110 + (activeLines * 4));
-
-    const doc = new jsPDF({
-      unit: 'mm',
-      format: [80, dynamicHeight]
-    });
-
-    // Outer Frame
-    doc.setDrawColor(180, 180, 180);
-    doc.line(3, 3, 77, 3);
-    doc.line(3, dynamicHeight - 3, 77, dynamicHeight - 3);
-    doc.line(3, 3, 3, dynamicHeight - 3);
-    doc.line(77, 3, 77, dynamicHeight - 3);
-
-    // Thermal receipt header
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text('RETAIL TAX INVOICE', 40, 8, { align: 'center' });
-
-    doc.setFontSize(7);
-    doc.text(companyName.toUpperCase().substring(0, 32), 40, 12, { align: 'center' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
-    doc.setTextColor(71, 85, 105);
-    const addressLines = doc.splitTextToSize(companyAddress, 68);
-    doc.text(addressLines, 40, 15, { align: 'center' });
-
-    let curY = 15 + (addressLines.length * 2.8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 27, 75);
-    doc.text(`GSTIN: ${companyGstin}`, 40, curY, { align: 'center' });
-
-    curY += 3;
-    doc.setDrawColor(220, 220, 220);
-    doc.line(5, curY, 75, curY);
-
-    curY += 3.5;
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(50, 50, 50);
-
-    const createdDate = new Date(order.createdAt || Date.now());
-    const formattedDate = createdDate.toLocaleDateString('en-GB');
-    const formattedTime = createdDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-
-    doc.text(`Bill No: ${order.referenceNo || 'N/A'}`, 5, curY);
-    doc.text(`Date: ${formattedDate}`, 48, curY);
-
-    curY += 3;
-    doc.text(`Customer: ${(order.customer?.name || 'Walk-in Customer').substring(0, 22)}`, 5, curY);
-    doc.text(`Time: ${formattedTime}`, 48, curY);
-
-    const taxRegNo = order.customer?.gstin || order.taxRegNo;
-    if (taxRegNo) {
-      curY += 3;
-      doc.text(`Buyer GSTIN: ${taxRegNo}`, 5, curY);
-    }
-
-    curY += 3;
-    doc.line(5, curY, 75, curY);
-
-    // Table Headers
-    curY += 3.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.text('ITEM', 5, curY);
-    doc.text('QTY', 38, curY, { align: 'right' });
-    doc.text('RATE', 53, curY, { align: 'right' });
-    doc.text('TOTAL', 75, curY, { align: 'right' });
-
-    curY += 2;
-    doc.line(5, curY, 75, curY);
-
-    curY += 3.5;
-    doc.setFont('helvetica', 'normal');
-    items.forEach((item) => {
-      const name = (item.product?.name || item.name || 'Product').substring(0, 18);
-      const qty = Number(item.quantity) || 0;
-      const rate = Number(item.unitPrice) || 0;
-      const disc = Number(item.discount) || 0;
-      const lineTotal = (rate - disc) * qty;
-
-      doc.setFont('helvetica', 'bold');
-      doc.text(name, 5, curY);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(qty), 38, curY, { align: 'right' });
-      doc.text(`Rs.${(rate - disc).toFixed(2)}`, 53, curY, { align: 'right' });
-      doc.text(`Rs.${lineTotal.toFixed(2)}`, 75, curY, { align: 'right' });
-      curY += 4;
-    });
-
-    curY += 1;
-    doc.line(5, curY, 75, curY);
-
-    // Summary Section Header
-    curY += 3.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text('Invoice Charges Summary', 40, curY, { align: 'center' });
-
-    curY += 2.5;
-    doc.line(20, curY, 60, curY);
-
-    // Summary Details
-    curY += 3.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.setTextColor(50, 50, 50);
-
-    doc.text('Taxable Subtotal:', 48, curY, { align: 'right' });
-    doc.text(`Rs.${totalTaxableValue.toFixed(2)}`, 75, curY, { align: 'right' });
-
-    if (discountVal > 0) {
-      curY += 3.2;
-      doc.text('Discount:', 48, curY, { align: 'right' });
-      doc.text(`-Rs.${discountVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (freightVal > 0) {
-      curY += 3.2;
-      doc.text('Freight Charges (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${freightVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (loadingVal > 0) {
-      curY += 3.2;
-      doc.text('Loading & Unloading (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${loadingVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (packingVal > 0) {
-      curY += 3.2;
-      doc.text('Packing Charges (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${packingVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (insuranceVal > 0) {
-      curY += 3.2;
-      doc.text('Insurance (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${insuranceVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (otherVal > 0) {
-      curY += 3.2;
-      doc.text('Other Charges (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${otherVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (collectTax) {
-      const isTamilNadu = taxRegNo?.trim().replace(/^GSTIN-/, '').substring(0, 2) === '33' || !taxRegNo;
-      if (isTamilNadu) {
-        curY += 3.2;
-        doc.text('CGST @ 9%:', 48, curY, { align: 'right' });
-        doc.text(`Rs.${cgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
-
-        curY += 3.2;
-        doc.text('SGST @ 9%:', 48, curY, { align: 'right' });
-        doc.text(`Rs.${sgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
-      } else {
-        curY += 3.2;
-        doc.text('IGST @ 18%:', 48, curY, { align: 'right' });
-        doc.text(`Rs.${igstVal.toFixed(2)}`, 75, curY, { align: 'right' });
+      // Parse attachments
+      let initialAttachments = [];
+      if (selectedOrder.attachmentUrl) {
+        initialAttachments.push({
+          id: 'att_primary',
+          url: selectedOrder.attachmentUrl,
+          filename: selectedOrder.attachmentUrl.split('/').pop() || 'Invoice_Doc.png',
+          uploadedAt: new Date(selectedOrder.createdAt).toLocaleDateString('en-GB'),
+          fileSize: '520 KB',
+          orderId: selectedOrder.docNo || selectedOrder.referenceNo
+        });
       }
+      if (selectedOrder.internalNote && selectedOrder.internalNote.includes('[[ATTACHMENT:')) {
+        try {
+          const match = selectedOrder.internalNote.match(/\[\[ATTACHMENT:(.*?)\]\]/);
+          if (match && match[1]) {
+            const parsed = JSON.parse(match[1]);
+            if (Array.isArray(parsed)) {
+              initialAttachments = [...initialAttachments, ...parsed];
+            }
+          }
+        } catch (e) {
+          // ignore parse error
+        }
+      }
+      setAttachments(initialAttachments);
     }
+  }, [selectedOrder]);
 
-    if (tdsVal > 0) {
-      curY += 3.2;
-      doc.text('TDS Deduction (Rs.):', 48, curY, { align: 'right' });
-      doc.text(`-Rs.${tdsVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (roundOffVal !== 0) {
-      curY += 3.2;
-      doc.text('Round Off (Rs.):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${roundOffVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    curY += 4;
-    doc.line(35, curY - 1.5, 75, curY - 1.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text('Total Invoice Amount:', 48, curY, { align: 'right' });
-    doc.text(`Rs.${roundedGrandTotal.toFixed(2)}`, 75, curY, { align: 'right' });
-
-    curY += 5;
-    doc.line(5, curY, 75, curY);
-
-    // Shuffled quotes display box
-    curY += 3.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.setTextColor(30, 27, 75);
-    doc.text('QUOTE OF THE DAY', 40, curY, { align: 'center' });
-
-    curY += 2.8;
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(71, 85, 105);
-    const quoteLines = doc.splitTextToSize(`"${randomQuote}"`, 66);
-    doc.text(quoteLines, 40, curY, { align: 'center' });
-
-    curY += (quoteLines.length * 2.5) + 2.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
-    doc.setTextColor(120, 120, 120);
-    doc.text(`- Powered by ${companyName || 'ERP System'} -`, 40, curY, { align: 'center' });
-
-    return doc.output('blob');
-  };
-
+  // Handle PDF Generation
   useEffect(() => {
     if (selectedOrder) {
       if (selectedOrder.type === 'POS' && layoutMode !== 'POS') {
@@ -667,14 +225,39 @@ export default function SalesListPage() {
     }
   }, [selectedOrder, layoutMode, companySettings]);
 
-  // Reset pagination when search, type filter, payment filter, or sort changes
+  // Reset page when search term changes
   useEffect(() => {
     setCurrentPage(1);
   }, [searchTerm, typeFilter, paymentStatusFilter, sortBy]);
 
+  // Tab counts for clean commercial transaction models
+  const tabCounts = useMemo(() => {
+    const all = orders.length;
+    const pos = orders.filter(o => o.type === 'POS').length;
+    const invoices = orders.filter(o => o.type === 'Invoice').length;
+    const salesOrders = orders.filter(o => o.type === 'Sales Order' && o.status !== 'Waiting for Production' && o.orderMode !== 'NEED_PLANNING').length;
+    const needProduction = orders.filter(o => o.status === 'Waiting for Production' || o.orderMode === 'NEED_PLANNING').length;
+    const quotations = orders.filter(o => o.type === 'Quotation').length;
+    return { all, pos, invoices, salesOrders, needProduction, quotations };
+  }, [orders]);
+
+  // Filtered orders list based on selected commercial tab
   const filteredOrders = useMemo(() => {
     return orders.filter(order => {
-      if (typeFilter !== 'ALL' && order.type !== typeFilter) return false;
+      if (typeFilter === 'POS') {
+        if (order.type !== 'POS') return false;
+      } else if (typeFilter === 'Invoice') {
+        if (order.type !== 'Invoice') return false;
+      } else if (typeFilter === 'Sales Order') {
+        if (order.type !== 'Sales Order' || order.status === 'Waiting for Production' || order.orderMode === 'NEED_PLANNING') return false;
+      } else if (typeFilter === 'Waiting for Production') {
+        if (order.status !== 'Waiting for Production' && order.orderMode !== 'NEED_PLANNING') return false;
+      } else if (typeFilter === 'Quotation') {
+        if (order.type !== 'Quotation') return false;
+      } else if (typeFilter !== 'ALL') {
+        if (order.type !== typeFilter) return false;
+      }
+
       if (paymentStatusFilter !== 'ALL' && (order.paymentStatus || 'PAID') !== paymentStatusFilter) return false;
       if (!searchTerm.trim()) return true;
       const q = searchTerm.toLowerCase();
@@ -720,11 +303,88 @@ export default function SalesListPage() {
     return <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 opacity-60 inline ml-1" />;
   };
 
+  // Legacy PDF compilers (fallback)
+  const compileInvoiceA4PDF = (order, settings) => {
+    const doc = new jsPDF();
+    const activeCompany = settings || storeCompany;
+    const companyName = activeCompany?.companyName || 'Company';
+    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = activeCompany?.companyGstin || '';
+    const companyMobile = activeCompany?.companyMobile || '';
+
+    const customerGstin = order.customer?.gstin || order.taxRegNo || '';
+
+    doc.setFillColor(30, 27, 75);
+    doc.rect(0, 0, 210, 8, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.setTextColor(30, 27, 75);
+    doc.text('TAX INVOICE', 14, 22);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(companyName.toUpperCase(), 14, 28);
+    doc.text(`GSTIN: ${companyGstin} | Mobile: ${companyMobile}`, 14, 33);
+    doc.text(`Doc Ref: ${order.docNo || order.referenceNo} | Date: ${new Date(order.createdAt).toLocaleDateString('en-GB')}`, 14, 38);
+    doc.text(`Billed To: ${order.customer?.name || order.customerName || 'Walk-in'} (GSTIN: ${customerGstin || 'URP'})`, 14, 43);
+
+    let curY = 52;
+    doc.setFillColor(241, 245, 249);
+    doc.rect(14, curY, 182, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text('Item Description', 16, curY + 5);
+    doc.text('Qty', 110, curY + 5, { align: 'right' });
+    doc.text('Price', 140, curY + 5, { align: 'right' });
+    doc.text('Total', 190, curY + 5, { align: 'right' });
+
+    curY += 7;
+    doc.setFont('helvetica', 'normal');
+    (order.items || []).forEach((item, idx) => {
+      curY += 6;
+      doc.text(String(item.product?.name || item.productName || 'Finished Item').substring(0, 35), 16, curY);
+      doc.text(String(item.quantity || 0), 110, curY, { align: 'right' });
+      doc.text(`Rs.${Number(item.unitPrice || 0).toFixed(2)}`, 140, curY, { align: 'right' });
+      doc.text(`Rs.${Number(item.subtotal || (item.quantity * item.unitPrice) || 0).toFixed(2)}`, 190, curY, { align: 'right' });
+    });
+
+    curY += 10;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Grand Total: Rs.${Number(order.grandTotal || 0).toFixed(2)}`, 190, curY, { align: 'right' });
+
+    return doc.output('blob');
+  };
+
+  const compileThermalBillPDF = (order, settings) => {
+    const doc = new jsPDF({ unit: 'mm', format: [80, 160] });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('RETAIL TAX INVOICE', 40, 8, { align: 'center' });
+    doc.setFontSize(8);
+    doc.text(compName.toUpperCase().substring(0, 30), 40, 13, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    doc.text(`Bill No: ${order.docNo || order.referenceNo} | ${new Date(order.createdAt).toLocaleDateString('en-GB')}`, 40, 18, { align: 'center' });
+    doc.text(`Customer: ${(order.customerName || order.customer?.name || 'Walk-in').substring(0, 25)}`, 40, 22, { align: 'center' });
+
+    let y = 30;
+    (order.items || []).forEach(item => {
+      doc.text(`${(item.productName || item.product?.name || 'Product').substring(0, 18)} x ${item.quantity}`, 5, y);
+      doc.text(`Rs.${Number(item.subtotal || 0).toFixed(2)}`, 75, y, { align: 'right' });
+      y += 5;
+    });
+
+    y += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.text(`Total: Rs.${Number(order.grandTotal || 0).toFixed(2)}`, 75, y, { align: 'right' });
+
+    return doc.output('blob');
+  };
+
   const handleDownloadActivePdf = () => {
     if (!activePdfUrl || !selectedOrder) return;
     const a = document.createElement('a');
     a.href = activePdfUrl;
-    a.download = `${layoutMode === 'A4' ? 'TAX-INVOICE' : 'POS-RECEIPT'}-${selectedOrder.referenceNo}.pdf`;
+    a.download = `${layoutMode === 'A4' ? 'TAX-INVOICE' : 'POS-RECEIPT'}-${selectedOrder.docNo || selectedOrder.referenceNo}.pdf`;
     a.click();
   };
 
@@ -749,7 +409,6 @@ export default function SalesListPage() {
       return;
     }
     
-    // Clean phone digits & ensure country code (default +91 for India)
     let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
     if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
 
@@ -769,42 +428,73 @@ export default function SalesListPage() {
 💳 *Payment:* ${order.paymentTerms || 'Cash'} [${order.paymentStatus || 'PAID'}]
 📦 *Status:* ${order.status || 'Confirmed'}
 
-*Terms & Conditions:*
-1. Acceptance of order confirmed upon invoice issuance.
-2. Prices are firm, itemized with applicable GST.
-3. Defective goods must be notified within 7 days.
-4. Jurisdiction: Salem, Tamil Nadu.
-
 Thank you for choosing ${company}!`;
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
     window.open(waUrl, '_blank');
   };
 
-  // Resend Invoice via Backend (Email with attached PDF + Backend WhatsApp)
+  // Resend Invoice via Backend (Email)
   const handleResendEmail = async (order) => {
-    const email = order.customer?.email;
+    const defaultEmail = order.customer?.email || 'mathansethupathy@gmail.com';
+    const customerName = order.customer?.name || order.customerName || 'Mathan C';
+    const docNo = order.docNo || order.referenceNo || 'SO-100100001';
+    const grandTotal = Number(order.grandTotal || 0).toFixed(2);
+
     const confirm = await Swal.fire({
       title: 'Dispatch Invoice Document?',
-      html: `<div class="text-xs text-slate-500">
-        Dispatches statutory PDF invoice with Terms & Conditions to:
-        <br/><strong class="text-slate-800 dark:text-slate-200 mt-1 block">${email || order.customerPhone || 'Client Contact'}</strong>
-      </div>`,
-      icon: 'question',
+      width: '520px',
+      html: `
+        <div class="text-left text-xs text-slate-600 dark:text-slate-300 space-y-3 pt-2">
+          <div class="p-3 bg-indigo-50/70 dark:bg-indigo-950/40 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
+            <div class="flex justify-between items-center mb-1">
+              <span class="font-bold text-indigo-950 dark:text-indigo-200 text-sm">Invoice #${docNo}</span>
+              <span class="font-black text-indigo-600 dark:text-indigo-400">₹${grandTotal}</span>
+            </div>
+            <div>Customer: <strong>${customerName}</strong></div>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 dark:text-slate-300 text-xs mb-1">
+              Dispatch statutory PDF invoice to:
+            </label>
+            <input id="swal-dispatch-email" type="email" value="${defaultEmail}" 
+              class="w-full px-3 py-2 text-xs rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 dark:text-white font-semibold"
+              placeholder="e.g. mathansethupathy@gmail.com" />
+          </div>
+        </div>
+      `,
       showCancelButton: true,
-      confirmButtonText: 'Yes, Send',
-      confirmButtonColor: '#4f46e5'
+      confirmButtonText: '⚡ Yes, Dispatch Now',
+      confirmButtonColor: '#4f46e5',
+      cancelButtonText: 'Cancel',
+      focusConfirm: false,
+      preConfirm: () => {
+        const input = document.getElementById('swal-dispatch-email');
+        const emailVal = input ? input.value.trim() : '';
+        if (!emailVal || !emailVal.includes('@')) {
+          Swal.showValidationMessage('Please enter a valid recipient email');
+          return false;
+        }
+        return emailVal;
+      }
     });
 
-    if (!confirm.isConfirmed) return;
+    if (!confirm.isConfirmed || !confirm.value) return;
 
     try {
-      Swal.showLoading();
-      await api.post(`/orders/${order.id}/resend`);
+      Swal.fire({
+        title: 'Dispatching Invoice Document...',
+        text: 'Generating PDF vector and emailing...',
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      await api.post(`/orders/${order.id}/resend`, { targetEmail: confirm.value });
+
       Swal.fire({
         icon: 'success',
-        title: 'Invoice Dispatched',
-        text: 'The invoice PDF with terms & conditions has been dispatched to email and WhatsApp.',
+        title: 'Invoice Dispatched!',
+        text: `Sent to ${confirm.value}`,
         timer: 2000,
         showConfirmButton: false,
         toast: true,
@@ -903,20 +593,140 @@ Thank you for choosing ${company}!`;
     }
   };
 
-  // Pagination calculations
-  const totalPages = Math.ceil(filteredOrders.length / ITEMS_PER_PAGE);
-  const paginatedOrders = filteredOrders.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
+  // Save updates made to the selected order in the Detailed Studio
+  const handleSaveOrderUpdates = async () => {
+    if (!selectedOrder) return;
+    setIsSaving(true);
+    try {
+      const payload = {
+        deliveryAddress: editForm.shipToAddress,
+        transporterName: editForm.transporterName,
+        vehicleNo: editForm.vehicleNo,
+        lrNo: editForm.lrNo,
+        ewayBillNo: editForm.ewayBillNo,
+        ewayBillDate: editForm.ewayBillDate || null,
+        paymentTerms: editForm.paymentTerms,
+        paymentStatus: editForm.paymentStatus,
+        amountPaid: Number(editForm.amountPaid || 0),
+        placeOfSupply: editForm.placeOfSupply,
+        taxRegNo: editForm.taxRegNo,
+        internalNote: editForm.internalNote,
+        quotationNote: editForm.remarks
+      };
 
-  // ─────────────────────── RENDERING DETAILED INLINE VIEW (PDF FRAME) ───────────────────────
+      const res = await api.patch(`/orders/${selectedOrder.id}/update-details`, payload);
+      setSelectedOrder(prev => ({ ...prev, ...res.data }));
+      setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...res.data } : o));
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Order Updated Successfully',
+        text: `Order #${selectedOrder.docNo || selectedOrder.referenceNo} has been saved.`,
+        timer: 2000,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
+    } catch (err) {
+      console.error('Failed to update order', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Update Failed',
+        text: err?.response?.data?.error || err.message,
+        confirmButtonColor: '#4f46e5'
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Upload proof photo / doc attachment directly to server directory @[UPLOADS_DIR] prefixed with Order ID
+  const handleAttachmentUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedOrder) return;
+    setIsUploadingAttachment(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('orderId', selectedOrder.docNo || selectedOrder.referenceNo || 'ORDER');
+      const res = await api.post('/orders/upload-attachment', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.data?.url) {
+        const newAtt = {
+          id: `att_${Date.now()}`,
+          url: res.data.url,
+          filename: res.data.filename || file.name,
+          uploadedAt: new Date().toLocaleDateString('en-GB'),
+          fileSize: (file.size / 1024).toFixed(1) + ' KB',
+          orderId: res.data.orderId || (selectedOrder.docNo || selectedOrder.referenceNo)
+        };
+        const updatedAtts = [...attachments, newAtt];
+        setAttachments(updatedAtts);
+
+        const attJson = `[[ATTACHMENT:${JSON.stringify(updatedAtts)}]]`;
+        const updatedNote = (editForm.internalNote || '').replace(/\[\[ATTACHMENT:.*?\]\]/g, '').trim() + ' ' + attJson;
+        setEditForm(prev => ({ ...prev, internalNote: updatedNote }));
+
+        await api.patch(`/orders/${selectedOrder.id}/update-details`, {
+          internalNote: updatedNote
+        });
+
+        Swal.fire({
+          icon: 'success',
+          title: 'Attachment Saved',
+          text: `Saved to server directory @[UPLOADS_DIR] prefixed with Order ID (${selectedOrder.docNo || selectedOrder.referenceNo}).`,
+          timer: 2000,
+          showConfirmButton: false,
+          toast: true,
+          position: 'top-end'
+        });
+      }
+    } catch (err) {
+      console.error('Failed to upload attachment', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Upload Failed',
+        text: err?.response?.data?.error || err.message,
+        confirmButtonColor: '#4f46e5'
+      });
+    } finally {
+      setIsUploadingAttachment(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleRemoveAttachment = async (attId) => {
+    const updated = attachments.filter(a => a.id !== attId);
+    setAttachments(updated);
+    if (selectedOrder) {
+      const attJson = updated.length > 0 ? `[[ATTACHMENT:${JSON.stringify(updated)}]]` : '';
+      const updatedNote = (editForm.internalNote || '').replace(/\[\[ATTACHMENT:.*?\]\]/g, '').trim() + (attJson ? ' ' + attJson : '');
+      setEditForm(prev => ({ ...prev, internalNote: updatedNote }));
+      await api.patch(`/orders/${selectedOrder.id}/update-details`, {
+        internalNote: updatedNote
+      });
+    }
+  };
+
+  // Pagination calculations - when pageSize is 'ALL', display all records fully
+  const totalPages = pageSize === 'ALL' ? 1 : Math.ceil(filteredOrders.length / Number(pageSize));
+  const paginatedOrders = pageSize === 'ALL'
+    ? filteredOrders
+    : filteredOrders.slice(
+        (currentPage - 1) * Number(pageSize),
+        currentPage * Number(pageSize)
+      );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ── DETAILED VIEW: COMPLETE SAP ENTERPRISE DOCUMENT STUDIO ON ORDER CLICK ───
+  // ─────────────────────────────────────────────────────────────────────────────
   if (orderIdParam) {
     if (loadingDetail) {
       return (
         <div className="min-h-[70vh] flex flex-col items-center justify-center text-slate-400 gap-3">
           <RefreshCw className="w-8 h-8 animate-spin text-indigo-500" />
-          <span className="text-sm font-semibold">Loading Transaction Details...</span>
+          <span className="text-sm font-semibold">Loading Complete SAP Document Studio...</span>
         </div>
       );
     }
@@ -934,82 +744,121 @@ Thank you for choosing ${company}!`;
     }
 
     const isPos = selectedOrder.type === 'POS';
-    const isPaid = selectedOrder.paymentStatus === 'PAID';
-    const clientCustName = selectedOrder.customerName || selectedOrder.customer?.name || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client');
-    const clientCustPhone = selectedOrder.customerPhone || selectedOrder.customer?.phone || 'N/A';
-    const clientGstin = selectedOrder.customer?.gstin || selectedOrder.taxRegNo || 'URP (Unregistered)';
+    const isQuote = selectedOrder.type === 'Quotation';
+    const isNeedPlanning = selectedOrder.status === 'Waiting for Production' || selectedOrder.orderMode === 'NEED_PLANNING';
+    const isSO = selectedOrder.type === 'Sales Order';
+    const isInvoice = selectedOrder.type === 'Invoice';
+    const isPaid = (editForm.paymentStatus || selectedOrder.paymentStatus) === 'PAID';
+
+    const clientCustName = selectedOrder.customer?.name || selectedOrder.customerName || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client');
+    const clientCustPhone = selectedOrder.customer?.phone || selectedOrder.customerPhone || 'N/A';
+    const clientContactPerson = selectedOrder.customer?.contactPerson || 'N/A';
+    const clientGstin = editForm.taxRegNo || selectedOrder.customer?.gstin || selectedOrder.taxRegNo || '33AAAAA0000A1Z5';
+    const clientRefNo = selectedOrder.customerRefNo || selectedOrder.referenceNo || 'PO-2026-REF';
+
+    // Financial breakdown values
+    const itemsList = selectedOrder.items || [];
+    const totalBeforeDiscount = itemsList.reduce((sum, item) => sum + (Number(item.unitPrice || 0) * Number(item.quantity || 0)), 0);
+    const lineDiscountTotal = itemsList.reduce((sum, item) => sum + (Number(item.discount || 0) * Number(item.quantity || 0)), 0);
+    const discountVal = Number(selectedOrder.discountValue || lineDiscountTotal || 0);
+    const freightVal = Number(selectedOrder.freight || 0);
+    const loadingVal = Number(selectedOrder.loadingCharges || 0);
+    const packingVal = Number(selectedOrder.packingCharges || 0);
+    const otherVal = Number(selectedOrder.otherCharges || 0);
+    const taxableSubtotal = Number(selectedOrder.totalSubtotal || (totalBeforeDiscount - lineDiscountTotal) || 0);
+    const cgstVal = Number(selectedOrder.cgst || 0);
+    const sgstVal = Number(selectedOrder.sgst || 0);
+    const igstVal = Number(selectedOrder.igst || 0);
+    const totalGstTax = cgstVal + sgstVal + igstVal;
+    const roundOffVal = Number(selectedOrder.roundOff || 0);
+    const grandTotalVal = Number(selectedOrder.grandTotal || (taxableSubtotal + totalGstTax + freightVal + loadingVal + packingVal + otherVal + roundOffVal));
+    const advancePaidVal = Number(editForm.amountPaid || 0);
+    const balanceDueVal = Math.max(0, grandTotalVal - advancePaidVal);
+    const amountInWords = numberToWordsINR(grandTotalVal);
+
+    const isInterState = String(editForm.placeOfSupply || '33') !== '33';
 
     return (
-      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn">
-        {/* Top Header Controls Bar */}
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn font-sans">
+        
+        {/* TOP CONTROLS & BREADCRUMB BAR */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
           <div className="space-y-0.5">
             <button 
-              onClick={() => {
-                const from = searchParams.get('from');
-                if (from === 'sales') navigate('/dashboard/sales');
-                else if (from === 'finance') navigate('/dashboard/finance');
-                else if (from === 'executive') navigate('/dashboard/executive');
-                else if (from === 'inventory') navigate('/dashboard/inventory');
-                else if (from === 'dashboard' || from === 'main') navigate('/dashboard');
-                else setSearchParams({});
-              }}
-              className="inline-flex items-center gap-1.5 text-xs font-extrabold text-indigo-600 dark:text-indigo-400 hover:underline mb-1 cursor-pointer"
+              onClick={() => setSearchParams({})}
+              className="inline-flex items-center gap-1.5 text-xs font-black text-indigo-600 dark:text-indigo-400 hover:underline mb-1 cursor-pointer"
             >
-              <ChevronLeft className="w-4 h-4" /> {
-                searchParams.get('from') === 'sales' ? 'Back to Sales Dashboard' :
-                searchParams.get('from') === 'finance' ? 'Back to Finance Dashboard' :
-                searchParams.get('from') === 'executive' ? 'Back to Executive Dashboard' :
-                searchParams.get('from') === 'inventory' ? 'Back to Inventory Dashboard' :
-                (searchParams.get('from') === 'dashboard' || searchParams.get('from') === 'main') ? 'Back to Dashboard' :
-                'Back to Sales Log'
-              }
+              <ChevronLeft className="w-4 h-4" /> Back to All Sales Transactions
             </button>
             <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                 {isPos ? <ShoppingBag className="w-6 h-6 text-emerald-500" /> : <FileText className="w-6 h-6 text-indigo-500" />}
-                {isPos ? 'Retail POS Transaction' : 'Tax Invoice Details'}: {selectedOrder.docNo || selectedOrder.referenceNo}
+                {isPos ? 'Retail POS Transaction' : 'Sales Document Studio'}: {selectedOrder.docNo || selectedOrder.referenceNo}
               </h1>
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                isPos 
-                  ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
-                  : 'bg-indigo-500/10 text-indigo-600 border border-indigo-500/30'
-              }`}>
-                {selectedOrder.type}
-              </span>
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+
+              {/* Commercial Mode Badges */}
+              {isPos && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                  ⚡ Retail POS (Walk-in Counter)
+                </span>
+              )}
+              {isNeedPlanning && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping" />
+                  ⚙️ Need Production (Make-to-Order)
+                </span>
+              )}
+              {isSO && !isNeedPlanning && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-blue-100 text-blue-900 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                  🛒 Sales Order (Direct In-Stock)
+                </span>
+              )}
+              {isQuote && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-purple-100 text-purple-900 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
+                  📄 Price Quotation (Bid)
+                </span>
+              )}
+              {isInvoice && (
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-900 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800">
+                  💼 Tax Invoice (B2B Billing)
+                </span>
+              )}
+
+              {/* Payment Status Badge */}
+              <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider ${
                 isPaid
-                  ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
-                  : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                  ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20'
+                  : 'bg-amber-500/10 text-amber-600 border border-amber-500/20'
               }`}>
-                {selectedOrder.paymentStatus || 'PAID'}
+                {editForm.paymentStatus || selectedOrder.paymentStatus || 'PAID'}
               </span>
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Audit log, batch allocation records, payment tenders, and printable tax receipts.
+              Interactive SAP document viewer: line items, logistics, accounting, GST ledger, document proofs, and live PDF.
             </p>
           </div>
 
-          {/* Action buttons and View Switcher */}
+          {/* Action Buttons Header */}
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end">
-            {/* View Mode Toggle: Breakdown vs Vector PDF */}
+            
+            {/* View Switcher: Document Studio vs Vector PDF */}
             <div className="inline-flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800">
               <button
                 type="button"
-                onClick={() => setDetailTab('breakdown')}
+                onClick={() => setActiveStudioTab('contents')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  detailTab === 'breakdown'
+                  activeStudioTab !== 'pdf'
                     ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
               >
-                📋 Transaction Details
+                📋 Document Studio
               </button>
               <button
                 type="button"
-                onClick={() => setDetailTab('pdf')}
+                onClick={() => setActiveStudioTab('pdf')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  detailTab === 'pdf'
+                  activeStudioTab === 'pdf'
                     ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                 }`}
@@ -1018,15 +867,15 @@ Thank you for choosing ${company}!`;
               </button>
             </div>
 
-            {/* Print Slip / Print Invoice Quick Triggers */}
+            {/* Print Slip / Print Invoice */}
             {isPos ? (
               <Button 
                 onClick={() => {
                   setLayoutMode('POS');
-                  setDetailTab('pdf');
+                  setActiveStudioTab('pdf');
                   setTimeout(handlePrintActivePdf, 300);
                 }} 
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3 flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" /> Print 80mm Slip
               </Button>
@@ -1034,10 +883,10 @@ Thank you for choosing ${company}!`;
               <Button 
                 onClick={() => {
                   setLayoutMode('A4');
-                  setDetailTab('pdf');
+                  setActiveStudioTab('pdf');
                   setTimeout(handlePrintActivePdf, 300);
                 }} 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3 flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" /> Print A4 Invoice
               </Button>
@@ -1058,7 +907,7 @@ Thank you for choosing ${company}!`;
               className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3 flex items-center gap-1.5"
               title="Share via WhatsApp Web"
             >
-              <MessageSquare className="w-3.5 h-3.5" /> WhatsApp
+              <WhatsAppIcon className="w-3.5 h-3.5" /> WhatsApp
             </Button>
 
             {/* Email Dispatch */}
@@ -1072,8 +921,45 @@ Thank you for choosing ${company}!`;
               <Mail className="w-3.5 h-3.5" /> Email
             </Button>
 
-            {/* Start Production Button */}
-            {(selectedOrder.status === 'Waiting for Production' || selectedOrder.status === 'Confirmed') && (
+            {/* Save Updates button */}
+            <Button
+              type="button"
+              disabled={isSaving}
+              onClick={handleSaveOrderUpdates}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5 disabled:opacity-50"
+              title="Save all changes to logistics, payment, or notes"
+            >
+              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+              <span>{isSaving ? 'Saving...' : 'Save Updates'}</span>
+            </Button>
+
+            {/* Edit Order in SAP Studio / POS */}
+            <Button
+              type="button"
+              onClick={() => {
+                if (selectedOrder.type === 'POS') {
+                  navigate(`/pos?edit=${selectedOrder.id}`);
+                } else {
+                  navigate(`/sales/order?edit=${selectedOrder.id}`);
+                }
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+              title="Edit line items and all parameters in SAP Studio"
+            >
+              <FileText className="w-3.5 h-3.5" /> Edit in Studio
+            </Button>
+
+            {/* Plan / Start Production Work Order */}
+            {isNeedPlanning ? (
+              <Button
+                type="button"
+                onClick={() => navigate(`/production/new?orderId=${selectedOrder.id}`, { state: { orderId: selectedOrder.id, triggerType: 'Order-Based' } })}
+                className="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5"
+                title="Open Production Planning Work Order"
+              >
+                <Play className="w-3.5 h-3.5 fill-slate-950" /> Plan Work Order
+              </Button>
+            ) : selectedOrder.status === 'Confirmed' ? (
               <Button
                 type="button"
                 onClick={() => handleStartProduction(selectedOrder)}
@@ -1082,10 +968,10 @@ Thank you for choosing ${company}!`;
               >
                 <Play className="w-3.5 h-3.5" /> Start Production
               </Button>
-            )}
+            ) : null}
 
             {/* Convert Quotation to Order */}
-            {selectedOrder.type === 'Quotation' && (
+            {isQuote && (
               <Button
                 type="button"
                 onClick={() => handleConvertToOrder(selectedOrder)}
@@ -1097,7 +983,7 @@ Thank you for choosing ${company}!`;
             )}
 
             {/* Convert to Tax Invoice */}
-            {(selectedOrder.type === 'Quotation' || selectedOrder.type === 'Sales Order') && (
+            {(isQuote || isSO) && (
               <Button
                 type="button"
                 onClick={() => navigate(`/sales/billing?convertFrom=${selectedOrder.id}`)}
@@ -1110,252 +996,800 @@ Thank you for choosing ${company}!`;
           </div>
         </div>
 
-        {/* Dynamic Horizontal Header Metadata Banner */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg text-xs text-white">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold block">Customer / Party</span>
-              <p className="font-bold text-white truncate text-xs">{clientCustName}</p>
-              <p className="text-[11px] font-mono text-slate-400">{clientCustPhone}</p>
+        {/* ── TOP SAP DOCUMENT HEADER CARD (CUSTOMER * & DOCUMENT DETAILS) ── */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-xs space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            {/* Left Column: Customer * / Business Partner (Cols 7) */}
+            <div className="lg:col-span-7 space-y-2.5">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                <span className="font-extrabold text-slate-800 dark:text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-indigo-600" /> Customer / Business Partner *
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  ID: {selectedOrder.customerId?.substring(0, 10) || 'WALK-IN'}
+                </span>
+              </div>
+
+              {/* Customer Name */}
+              <div className="flex items-center">
+                <label className="w-32 text-slate-500 font-bold shrink-0">Customer Name *</label>
+                <div className="flex-1 font-black text-slate-900 dark:text-white text-sm">
+                  {clientCustName}
+                </div>
+              </div>
+
+              {/* Contact Person */}
+              <div className="flex items-center">
+                <label className="w-32 text-slate-500 font-medium shrink-0">Contact Person</label>
+                <div className="flex-1 text-slate-700 dark:text-slate-300 font-semibold">
+                  {clientContactPerson}
+                </div>
+              </div>
+
+              {/* Contact Phone */}
+              <div className="flex items-center">
+                <label className="w-32 text-slate-500 font-medium shrink-0">Contact Phone</label>
+                <div className="flex-1 font-mono text-slate-700 dark:text-slate-300 font-bold">
+                  {clientCustPhone}
+                </div>
+              </div>
+
+              {/* Customer Ref. No. */}
+              <div className="flex items-center">
+                <label className="w-32 text-slate-500 font-medium shrink-0">Customer Ref. No.</label>
+                <div className="flex-1 font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                  {clientRefNo}
+                </div>
+              </div>
+
+              {/* Local Currency */}
+              <div className="flex items-center">
+                <label className="w-32 text-slate-500 font-medium shrink-0">Local Currency</label>
+                <div className="flex-1 font-semibold text-slate-700 dark:text-slate-300">
+                  INR - Indian Rupee (₹)
+                </div>
+              </div>
+
+              {/* Ship To Address */}
+              <div className="flex items-start">
+                <label className="w-32 text-slate-500 font-medium shrink-0 pt-0.5">Ship To Address</label>
+                <div className="flex-1 text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                  {editForm.shipToAddress || 'Factory Gate / Store Delivery'}
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold block">{isPos ? 'POS Terminal' : 'Document Series'}</span>
-              <p className="font-bold text-white text-xs">{selectedOrder.counterId || 'COUNTER-01'}</p>
-              <p className="text-[11px] font-mono text-emerald-400">Cashier: {selectedOrder.cashierName || 'Staff'}</p>
-            </div>
+            {/* Right Column: Document Information (Cols 5) */}
+            <div className="lg:col-span-5 space-y-2.5 lg:pl-6 lg:border-l lg:border-slate-200 dark:lg:border-slate-800">
+              <div className="border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                <span className="font-extrabold text-slate-800 dark:text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-amber-500" /> Document Information
+                </span>
+              </div>
 
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold block">GSTIN / Tax ID</span>
-              <p className="font-mono text-slate-300 text-xs font-semibold truncate">{clientGstin}</p>
-              <p className="text-[11px] text-slate-400">{selectedOrder.taxType || 'Intra-State GST'}</p>
-            </div>
+              {/* Document No & Series */}
+              <div className="flex items-center justify-between sm:justify-start">
+                <label className="w-28 text-slate-500 font-medium shrink-0">Document No.</label>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold text-[11px]">
+                    {selectedOrder.documentSeries || 'Primary'}
+                  </span>
+                  <span className="font-mono font-black text-slate-900 dark:text-white text-sm">
+                    {selectedOrder.docNo || selectedOrder.referenceNo}
+                  </span>
+                  <span className="text-slate-400 font-mono text-[10px]">- | 0</span>
+                </div>
+              </div>
 
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold block">Date & Time</span>
-              <p className="font-mono text-slate-200 text-xs font-semibold">{new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}</p>
-              <p className="text-[11px] font-mono text-slate-400">{new Date(selectedOrder.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-            </div>
+              {/* Status */}
+              <div className="flex items-center justify-between sm:justify-start">
+                <label className="w-28 text-slate-500 font-medium shrink-0">Status</label>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full font-bold text-xs bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                    {selectedOrder.status}
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                    isNeedPlanning 
+                      ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-300' 
+                      : isQuote 
+                      ? 'bg-purple-100 text-purple-900 dark:bg-purple-900/40 dark:text-purple-300'
+                      : isPos 
+                      ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-300'
+                      : 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-300'
+                  }`}>
+                    {isNeedPlanning ? 'Need Planning' : (isQuote ? 'Quotation' : (isPos ? 'Retail Counter' : 'Standard Order'))}
+                  </span>
+                </div>
+              </div>
 
-            <div className="space-y-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold block">Payment Info</span>
-              <p className="font-bold text-emerald-400 text-xs flex items-center gap-1">
-                <CreditCard className="w-3.5 h-3.5" /> {selectedOrder.paymentTerms || (isPos ? 'Cash' : 'Net 30')}
-              </p>
-              <p className="text-[11px] text-slate-400">Status: <strong className="text-white">{selectedOrder.paymentStatus || 'PAID'}</strong></p>
-            </div>
+              {/* Posting Date */}
+              <div className="flex items-center justify-between sm:justify-start">
+                <label className="w-28 text-slate-500 font-medium shrink-0">Posting Date</label>
+                <div className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                  {new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}
+                </div>
+              </div>
 
-            <div className="space-y-0.5 sm:text-right">
-              <span className="text-[10px] uppercase tracking-wider text-slate-400 font-extrabold block">Grand Total</span>
-              <span className="text-base font-black text-emerald-400 font-mono block">
-                ₹{Number(selectedOrder.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-              <p className="text-[10px] text-slate-400">Net Due: ₹0.00</p>
+              {/* Delivery Date */}
+              <div className="flex items-center justify-between sm:justify-start">
+                <label className="w-28 text-slate-500 font-medium shrink-0">Delivery Date</label>
+                <div className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                  {selectedOrder.deliveryDate ? new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB') : 'Immediate Counter'}
+                </div>
+              </div>
+
+              {/* Document Date */}
+              <div className="flex items-center justify-between sm:justify-start">
+                <label className="w-28 text-slate-500 font-medium shrink-0">Document Date</label>
+                <div className="font-mono font-semibold text-slate-700 dark:text-slate-300">
+                  {new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* ── TAB 1: INTERACTIVE DETAILS & BATCH BREAKDOWN ── */}
-        {detailTab === 'breakdown' && (
-          <div className="space-y-4">
-            {/* Items Table Card with Batch & Expiry */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs">
-              <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                <div>
-                  <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-indigo-500" /> Itemized Bill Lines & Allocated Batches
-                  </h3>
-                  <span className="text-[11px] text-slate-500">Includes FEFO batch allocation tracking, expiry dates, HSN codes, and tax rates.</span>
-                </div>
-                <span className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold px-2.5 py-1 rounded-lg text-xs font-mono">
-                  {selectedOrder.items?.length || 0} Line Items
+        {/* ── SAP STUDIO TAB STRIP (6 TABS) ── */}
+        <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 overflow-x-auto select-none pt-1">
+          {[
+            { id: 'contents', label: '📋 Contents (Line Items)', count: itemsList.length },
+            { id: 'logistics', label: '🚚 Logistics' },
+            { id: 'accounting', label: '💳 Accounting' },
+            { id: 'tax', label: '🏛️ Tax & GST Ledger' },
+            { id: 'attachments', label: '📎 Attachments & Proof Photos', count: attachments.length },
+            { id: 'pdf', label: '📄 Printable PDF' }
+          ].map(tab => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveStudioTab(tab.id)}
+              className={`px-4 py-2.5 text-xs font-bold transition-all cursor-pointer rounded-t-xl -mb-[1px] flex items-center gap-1.5 whitespace-nowrap ${
+                activeStudioTab === tab.id
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 border-t-2 border-x border-t-indigo-600 border-x-slate-200 dark:border-x-slate-800 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <span>{tab.label}</span>
+              {tab.count !== undefined && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  activeStudioTab === tab.id 
+                    ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300' 
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                }`}>
+                  {tab.count}
                 </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── TAB 1: CONTENTS (Line Items Table with Batches & Feasibility) ── */}
+        {activeStudioTab === 'contents' && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs space-y-3 p-4">
+            
+            {/* Grid Sub-Controls */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2 border-b border-slate-100 dark:border-slate-800 text-xs">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 font-bold">Item/Service Type:</span>
+                  <span className="font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">Item</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-500 font-bold">Summary Type:</span>
+                  <span className="font-bold text-slate-800 dark:text-white bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">No Summary</span>
+                </div>
               </div>
-
-              <div className="overflow-x-auto text-xs">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
-                    <tr>
-                      <th className="px-4 py-3 text-center w-12">#</th>
-                      <th className="px-4 py-3">Product Name & Specifications</th>
-                      <th className="px-4 py-3">Batch & Expiry Info</th>
-                      <th className="px-4 py-3 text-center">HSN</th>
-                      <th className="px-4 py-3 text-right">Quantity</th>
-                      <th className="px-4 py-3 text-right">Rate</th>
-                      <th className="px-4 py-3 text-right">GST %</th>
-                      <th className="px-4 py-3 text-right">Line Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                    {(selectedOrder.items || []).map((item, idx) => {
-                      const qty = Number(item.quantity) || 0;
-                      const rate = Number(item.unitPrice) || 0;
-                      const disc = Number(item.discount) || 0;
-                      const netRate = rate - disc;
-                      const lineTotal = netRate * qty;
-                      const gstRateVal = Number(item.gstRate || 18);
-                      const taxAmt = (lineTotal * gstRateVal) / 100;
-
-                      return (
-                        <tr key={item.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                          <td className="px-4 py-3 text-center text-slate-400 font-mono font-bold">{idx + 1}</td>
-                          <td className="px-4 py-3">
-                            <div className="font-bold text-slate-900 dark:text-white text-xs">
-                              {item.productName || item.product?.name || 'Finished Product'}
-                            </div>
-                            {item.product?.code && (
-                              <div className="text-[10px] text-slate-400 font-mono">
-                                Code: {item.product.code}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            {item.batchNo ? (
-                              <div className="space-y-0.5">
-                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                                  Batch: {item.batchNo}
-                                </span>
-                                {item.expiryDate && (
-                                  <div className="text-[10px] text-slate-500 font-mono">
-                                    Exp: {new Date(item.expiryDate).toLocaleDateString('en-GB')}
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 italic">Direct Counter Stock</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-center font-mono text-[11px] text-slate-600 dark:text-slate-400">
-                            {item.hsnCode || item.product?.hsnCode || '21050000'}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-slate-800 dark:text-white">
-                            {qty} <span className="text-[10px] text-slate-400 font-normal">{item.uomName || item.product?.unit?.name || 'NOS'}</span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-slate-700 dark:text-slate-300">
-                            ₹{rate.toFixed(2)}
-                            {disc > 0 && <span className="block text-[10px] text-rose-500 font-mono">-₹{disc.toFixed(2)}</span>}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-slate-600 dark:text-slate-400">
-                            {gstRateVal}%
-                            <span className="block text-[10px] text-slate-400">₹{taxAmt.toFixed(2)}</span>
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono font-black text-slate-900 dark:text-white">
-                            ₹{lineTotal.toFixed(2)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="text-[11px] text-slate-500">
+                Catalog Feasibility Verified • {itemsList.length} Rows Registered
               </div>
             </div>
 
-            {/* Summary & Audit Section */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* POS Terminal & Transaction Audit */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-3 text-xs">
-                <h4 className="font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
-                  <Banknote className="w-4 h-4 text-emerald-500" /> Payment & Counter Audit
-                </h4>
-                
-                <div className="space-y-2 text-slate-600 dark:text-slate-400">
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>Counter / Station ID:</span>
-                    <strong className="text-slate-800 dark:text-white font-mono">{selectedOrder.counterId || 'COUNTER-01'}</strong>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>Cashier In-Charge:</span>
-                    <strong className="text-slate-800 dark:text-white">{selectedOrder.cashierName || 'Sales Staff'}</strong>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>Payment Mode:</span>
-                    <strong className="text-emerald-600 dark:text-emerald-400 uppercase font-bold">{selectedOrder.paymentTerms || (isPos ? 'Cash' : 'Net 30')}</strong>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>Payment Status:</span>
-                    <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                      {selectedOrder.paymentStatus || 'PAID'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>Amount Paid by Customer:</span>
-                    <strong className="text-slate-900 dark:text-white font-mono">
-                      ₹{Number(selectedOrder.amountPaid || selectedOrder.grandTotal || 0).toFixed(2)}
-                    </strong>
-                  </div>
-                  {selectedOrder.internalNote && (
-                    <div className="py-1">
-                      <span className="block text-[10px] uppercase text-slate-400 font-bold mb-0.5">Order Note:</span>
-                      <p className="text-slate-700 dark:text-slate-300 italic">{selectedOrder.internalNote}</p>
-                    </div>
-                  )}
+            {/* Line Items Table */}
+            <div className="overflow-x-auto text-xs">
+              <table className="w-full text-left">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="px-3 py-3 text-center w-10">#</th>
+                    <th className="px-3 py-3 w-28">System Code</th>
+                    <th className="px-3 py-3">Product Name & Specifications</th>
+                    <th className="px-3 py-3">Category & Base</th>
+                    <th className="px-3 py-3 text-center">UOM</th>
+                    <th className="px-3 py-3 text-right">Quantity</th>
+                    <th className="px-3 py-3 text-right">Rate (₹)</th>
+                    <th className="px-3 py-3 text-right">Disc %</th>
+                    <th className="px-3 py-3 text-right">Tax Code</th>
+                    <th className="px-3 py-3 text-right">Line Total (₹)</th>
+                    <th className="px-3 py-3">Batch / Stock Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                  {itemsList.map((item, idx) => {
+                    const qty = Number(item.quantity) || 0;
+                    const rate = Number(item.unitPrice) || 0;
+                    const discPct = Number(item.discountPercent || (item.discount ? (item.discount / rate) * 100 : 0));
+                    const discAmt = (rate * (discPct / 100)) * qty;
+                    const lineTotal = Math.max(0, (rate * qty) - discAmt);
+                    const gstRateVal = Number(item.gstRate || 5);
+                    const taxCode = gstRateVal === 18 ? 'SCG18 (18%)' : (gstRateVal === 12 ? 'SCG12 (12%)' : (gstRateVal === 28 ? 'SCG28 (28%)' : 'SCG5 (5%)'));
+
+                    return (
+                      <tr key={item.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="px-3 py-3 text-center text-slate-400 font-mono font-bold">{idx + 1}</td>
+                        <td className="px-3 py-3 font-mono font-bold text-amber-600 dark:text-amber-400">
+                          {item.product?.code || item.product?.systemCode || `BFD10${idx + 1}`}
+                        </td>
+                        <td className="px-3 py-3">
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {item.productName || item.product?.name || 'Finished Ice Cream Product'}
+                          </div>
+                          {item.hsnCode && (
+                            <span className="text-[10px] text-slate-400 font-mono">HSN: {item.hsnCode}</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-slate-600 dark:text-slate-300">
+                          <div>{item.product?.category?.name || 'Ice Cream'}</div>
+                          <span className="text-[10px] text-slate-400">{item.product?.subcategory?.name || 'Standard'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-center font-mono text-slate-500">
+                          {item.uomName || item.product?.unit?.name || 'pcs'}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                          {qty}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                          ₹{rate.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-slate-500">
+                          {discPct > 0 ? `${discPct.toFixed(0)}%` : '0%'}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-slate-600 dark:text-slate-400">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-bold text-[10px]">
+                            {taxCode}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                          ₹{lineTotal.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3">
+                          {item.batchNo ? (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold font-mono bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                Batch: {item.batchNo}
+                              </span>
+                              {item.expiryDate && (
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  Exp: {new Date(item.expiryDate).toLocaleDateString('en-GB')}
+                                </div>
+                              )}
+                            </div>
+                          ) : isNeedPlanning ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                              Scheduled for Production
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-emerald-600 font-bold">
+                              ✓ Direct Warehouse Stock
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB 2: LOGISTICS (Destination, Addresses & Transport) ── */}
+        {activeStudioTab === 'logistics' && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-xs space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Destination & Delivery Addresses */}
+              <div className="space-y-3">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 text-xs flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-indigo-500" />
+                  <span>Destination & Delivery Addresses</span>
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Ship-To Address</label>
+                  <textarea
+                    rows={4}
+                    value={editForm.shipToAddress}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, shipToAddress: e.target.value }))}
+                    placeholder="Enter complete shipping destination address..."
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Bill-To Address</label>
+                  <textarea
+                    rows={4}
+                    value={editForm.billToAddress}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, billToAddress: e.target.value }))}
+                    placeholder="Enter customer billing address..."
+                    className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  />
                 </div>
               </div>
 
-              {/* Financial & GST Breakdown Card */}
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 space-y-2.5 text-xs text-slate-600 dark:text-slate-400">
-                <h4 className="font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-500" /> GST & Financial Calculations
-                </h4>
+              {/* Transport & Dispatch Logistics */}
+              <div className="space-y-3">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 text-xs flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-emerald-500" />
+                  <span>Transport & Dispatch Logistics</span>
+                </div>
+                
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Shipping Method</label>
+                  <select
+                    value={editForm.shippingMethod}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, shippingMethod: e.target.value }))}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                  >
+                    <option value="Road Transport">Road Transport</option>
+                    <option value="Rail Cargo">Rail Cargo</option>
+                    <option value="Air Cargo">Air Cargo</option>
+                    <option value="Express Courier">Express Courier</option>
+                    <option value="Customer Self-Pickup">Customer Self-Pickup</option>
+                  </select>
+                </div>
 
-                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                  <span>Taxable Subtotal:</span>
-                  <span className="font-mono font-bold text-slate-800 dark:text-white">
-                    ₹{Number(selectedOrder.totalSubtotal || 0).toFixed(2)}
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Transporter Name</label>
+                  <input
+                    type="text"
+                    value={editForm.transporterName}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, transporterName: e.target.value }))}
+                    placeholder="Carrier or Agency name..."
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Vehicle No</label>
+                  <input
+                    type="text"
+                    value={editForm.vehicleNo}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, vehicleNo: e.target.value }))}
+                    placeholder="e.g. TN-01-AB-1234"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono uppercase outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Docket / LR Number</label>
+                  <input
+                    type="text"
+                    value={editForm.lrNo}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, lrNo: e.target.value }))}
+                    placeholder="LR-000000"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">e-Way Bill No.</label>
+                  <input
+                    type="text"
+                    value={editForm.ewayBillNo}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, ewayBillNo: e.target.value }))}
+                    placeholder="12-digit e-way bill number"
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">e-Way Bill Date</label>
+                  <input
+                    type="date"
+                    value={editForm.ewayBillDate}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, ewayBillDate: e.target.value }))}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <Button
+                onClick={handleSaveOrderUpdates}
+                disabled={isSaving}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl cursor-pointer"
+              >
+                {isSaving ? 'Saving...' : 'Save Logistics Updates'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB 3: ACCOUNTING & BP FINANCIALS ── */}
+        {activeStudioTab === 'accounting' && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-xs space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Payment Terms & Settlement */}
+              <div className="space-y-3">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 text-xs flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-emerald-500" />
+                  <span>Payment Terms & Settlement</span>
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Payment Terms</label>
+                  <select
+                    value={editForm.paymentTerms}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, paymentTerms: e.target.value }))}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                  >
+                    <option value="Not Paid">Not Paid</option>
+                    <option value="Immediate Cash">Immediate Cash</option>
+                    <option value="Net 15">Net 15 Days</option>
+                    <option value="Net 30">Net 30 Days</option>
+                    <option value="Advance Received">Advance Received</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Payment Mode</label>
+                  <select
+                    value={editForm.paymentMethod}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                  >
+                    <option value="Bank Transfer / NEFT">Bank Transfer / NEFT</option>
+                    <option value="Cash">Cash</option>
+                    <option value="UPI / QR">UPI / QR</option>
+                    <option value="Credit / Debit Card">Credit / Debit Card</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Payment Status</label>
+                  <select
+                    value={editForm.paymentStatus}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, paymentStatus: e.target.value }))}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-bold text-emerald-600"
+                  >
+                    <option value="PAID">PAID</option>
+                    <option value="PARTIAL">PARTIAL</option>
+                    <option value="PENDING">PENDING</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Advance Received (₹)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={editForm.amountPaid}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, amountPaid: parseFloat(e.target.value) || 0 }))}
+                    className="w-48 h-9 px-3 font-mono font-bold text-right rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center pt-1 border-t border-slate-100 dark:border-slate-800">
+                  <label className="w-36 text-slate-700 dark:text-slate-300 font-black">Balance Due</label>
+                  <div className="font-mono font-black text-emerald-600 text-base">
+                    ₹{balanceDueVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Financial Records & BP Account */}
+              <div className="space-y-3">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 text-xs flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-indigo-500" />
+                  <span>Financial Records & BP Account</span>
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Journal Remark</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={`Sales Order - ${clientCustName}`}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 font-medium outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">BP Bank Code</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={selectedOrder.customer?.bankAccount ? `${selectedOrder.customer.bankName || 'SBI'} (${selectedOrder.customer.bankAccount})` : 'Primary Bank Default'}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 font-medium outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Document Total</label>
+                  <div className="font-mono font-black text-slate-900 dark:text-white text-sm">
+                    ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <Button
+                onClick={handleSaveOrderUpdates}
+                disabled={isSaving}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-4 rounded-xl cursor-pointer"
+              >
+                {isSaving ? 'Saving...' : 'Save Accounting Updates'}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB 4: TAX & GST LEDGER ── */}
+        {activeStudioTab === 'tax' && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-xs space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* GST Intelligence */}
+              <div className="space-y-3 p-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/30">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 flex items-center justify-between">
+                  <span>GST Treatment & Supply State</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 font-black">
+                    Intelligent Detection
                   </span>
                 </div>
 
-                {Number(selectedOrder.cgst) > 0 && (
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>CGST (Central Tax):</span>
-                    <span className="font-mono font-bold text-slate-800 dark:text-white">
-                      ₹{Number(selectedOrder.cgst || 0).toFixed(2)}
-                    </span>
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Customer GSTIN</label>
+                  <input
+                    type="text"
+                    value={editForm.taxRegNo}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, taxRegNo: e.target.value.toUpperCase() }))}
+                    placeholder="33AAAAA0000A1Z5"
+                    className="flex-1 h-9 px-3 font-mono font-bold uppercase rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center">
+                  <label className="w-36 text-slate-500 font-bold">Place of Supply</label>
+                  <select
+                    value={editForm.placeOfSupply}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, placeOfSupply: e.target.value }))}
+                    className="flex-1 h-9 px-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none font-semibold"
+                  >
+                    {getIndianStates().map(st => (
+                      <option key={st.code} value={st.code}>
+                        {st.code} - {st.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl text-blue-900 dark:text-blue-300">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <span>{isInterState ? '🌐 Inter-State Supply (IGST Applied)' : '🏛️ Intra-State Supply (CGST + SGST Applied)'}</span>
+                  </div>
+                  <div className="text-[11px] opacity-85 mt-1">
+                    Seller: Tamil Nadu (33) ➔ Buyer Place of Supply: State ({editForm.placeOfSupply || '33'})
+                  </div>
+                </div>
+              </div>
+
+              {/* Charges & Tax Ledger */}
+              <div className="space-y-3 p-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-950/30">
+                <div className="font-extrabold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5">
+                  Charges & Tax Ledger
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-500 font-bold mb-1">Freight (₹)</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`₹${freightVal.toFixed(2)}`}
+                      className="w-full h-8 px-2.5 text-right font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-bold mb-1">Loading (₹)</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`₹${loadingVal.toFixed(2)}`}
+                      className="w-full h-8 px-2.5 text-right font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-bold mb-1">Packing (₹)</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`₹${packingVal.toFixed(2)}`}
+                      className="w-full h-8 px-2.5 text-right font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-500 font-bold mb-1">Other Charges (₹)</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`₹${otherVal.toFixed(2)}`}
+                      className="w-full h-8 px-2.5 text-right font-mono font-bold rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-200"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* GST Computation Summary */}
+            <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-white">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Taxable Subtotal</div>
+                  <div className="font-mono font-black text-sm text-white">₹{taxableSubtotal.toFixed(2)}</div>
+                </div>
+                {!isInterState ? (
+                  <>
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-slate-400">CGST (@2.5%)</div>
+                      <div className="font-mono font-bold text-sm text-amber-400">₹{cgstVal.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-slate-400">SGST (@2.5%)</div>
+                      <div className="font-mono font-bold text-sm text-amber-400">₹{sgstVal.toFixed(2)}</div>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">IGST (@5%)</div>
+                    <div className="font-mono font-bold text-sm text-amber-400">₹{igstVal.toFixed(2)}</div>
                   </div>
                 )}
-
-                {Number(selectedOrder.sgst) > 0 && (
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>SGST (State Tax):</span>
-                    <span className="font-mono font-bold text-slate-800 dark:text-white">
-                      ₹{Number(selectedOrder.sgst || 0).toFixed(2)}
-                    </span>
-                  </div>
-                )}
-
-                {Number(selectedOrder.igst) > 0 && (
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>IGST (Integrated Tax):</span>
-                    <span className="font-mono font-bold text-slate-800 dark:text-white">
-                      ₹{Number(selectedOrder.igst || 0).toFixed(2)}
-                    </span>
-                  </div>
-                )}
-
-                {Number(selectedOrder.roundOff || 0) !== 0 && (
-                  <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                    <span>Round-Off Adjustment:</span>
-                    <span className="font-mono text-slate-500">
-                      ₹{Number(selectedOrder.roundOff || 0).toFixed(2)}
-                    </span>
-                  </div>
-                )}
-
-                <div className="flex justify-between pt-2 border-t-2 border-slate-200 dark:border-slate-700 text-sm">
-                  <span className="font-extrabold text-slate-900 dark:text-white">Final Net Amount:</span>
-                  <span className="font-black text-emerald-600 dark:text-emerald-400 font-mono text-base">
-                    ₹{Number(selectedOrder.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Total GST Tax</div>
+                  <div className="font-mono font-black text-sm text-emerald-400">₹{totalGstTax.toFixed(2)}</div>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── TAB 2: VECTOR PRINTABLE PDF PREVIEW ── */}
-        {detailTab === 'pdf' && (
+        {/* ── TAB 5: ATTACHMENTS & PROOF PHOTOS ── */}
+        {activeStudioTab === 'attachments' && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-xs space-y-4">
+            
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+              <div>
+                <div className="font-extrabold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <Paperclip className="w-4 h-4 text-amber-500" />
+                  <span>Order Document Attachments & Proof Photos</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Images are saved directly to server directory <span className="font-mono font-bold text-slate-700 dark:text-slate-300">@[UPLOADS_DIR]</span> prefixed with Order ID (<span className="font-mono font-bold text-amber-600">{selectedOrder.docNo || selectedOrder.referenceNo}</span>).
+                </p>
+              </div>
+
+              {/* Upload Triggers */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="file"
+                  ref={cameraInputRef}
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleAttachmentUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  disabled={isUploadingAttachment}
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span>{isUploadingAttachment ? 'Uploading...' : 'Take Camera Photo'}</span>
+                </button>
+
+                <input
+                  type="file"
+                  ref={galleryInputRef}
+                  accept="image/*,application/pdf"
+                  onChange={handleAttachmentUpload}
+                  className="hidden"
+                />
+                <button
+                  type="button"
+                  disabled={isUploadingAttachment}
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                >
+                  <ImageIcon className="w-4 h-4 text-amber-400" />
+                  <span>{isUploadingAttachment ? 'Uploading...' : 'Upload from Gallery'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Attachments List */}
+            {attachments.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 pt-1">
+                {attachments.map(att => (
+                  <div
+                    key={att.id}
+                    className="p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/50 dark:bg-slate-800/40 flex flex-col justify-between space-y-2 group shadow-xs"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        onClick={() => setPreviewPhotoUrl(att.url)}
+                        className="w-16 h-16 rounded-lg bg-slate-200 dark:bg-slate-700 overflow-hidden shrink-0 border border-slate-300 dark:border-slate-600 cursor-pointer relative group-hover:opacity-90"
+                      >
+                        <img
+                          src={att.url}
+                          alt={att.filename}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><rect width="100%" height="100%" fill="%23cbd5e1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-size="10" fill="%23475569">Doc</text></svg>';
+                          }}
+                        />
+                        <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <Eye className="w-4 h-4 text-white" />
+                        </div>
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="font-mono font-bold text-xs text-slate-800 dark:text-slate-200 truncate" title={att.filename}>
+                          {att.filename}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          Order ID: <span className="font-bold text-amber-600">{att.orderId || selectedOrder.docNo}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {att.fileSize} • {att.uploadedAt}
+                        </div>
+                        <span className="inline-block mt-1 px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                          Saved in UPLOADS_DIR
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <button
+                        type="button"
+                        onClick={() => window.open(att.url, '_blank')}
+                        className="text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer flex items-center gap-1 text-[11px]"
+                      >
+                        <ExternalLink className="w-3 h-3" /> View Full
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(att.id)}
+                        className="text-rose-500 hover:text-rose-700 font-bold cursor-pointer text-[11px] ml-2"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-8 border border-dashed border-slate-300 dark:border-slate-700 rounded-xl text-center space-y-2">
+                <Paperclip className="w-8 h-8 text-slate-400 mx-auto" />
+                <div className="font-bold text-slate-700 dark:text-slate-300">No attachments uploaded yet for this Sales Order</div>
+                <p className="text-slate-400 text-[11px]">
+                  Click Take Camera Photo to snap delivery/PO slip on mobile, or Upload from Gallery to attach invoice docs.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TAB 6: PRINTABLE PDF PREVIEW ── */}
+        {activeStudioTab === 'pdf' && (
           <div className="space-y-3">
-            {/* Format Layout Selector */}
             <div className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Format:</span>
@@ -1401,7 +1835,6 @@ Thank you for choosing ${company}!`;
               </div>
             </div>
 
-            {/* Full-width Iframe PDF Viewer */}
             <div className="w-full min-h-[700px] border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden bg-slate-950 shadow-xl relative">
               {activePdfUrl ? (
                 <iframe
@@ -1419,19 +1852,141 @@ Thank you for choosing ${company}!`;
             </div>
           </div>
         )}
+
+        {/* ── BOTTOM FINANCIAL TOTALS & REMARKS AUDIT BAR ── */}
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-xs space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            {/* Left Side: Audit & Remarks (Cols 6) */}
+            <div className="lg:col-span-6 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Buyer / Employee</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={editForm.salesEmployee}
+                    className="w-full h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-medium"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-500 font-bold mb-1">Owner</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={editForm.owner}
+                    className="w-full h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-bold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-bold mb-1">Remarks & Dispatch Notes</label>
+                <textarea
+                  rows={3}
+                  value={editForm.remarks}
+                  onChange={(e) => setEditForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  placeholder="Enter dispatch notes, production priority, terms, or customer special requests..."
+                  className="w-full p-2.5 text-xs rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Amount in Words:</span>
+                <span className="font-bold text-slate-800 dark:text-slate-200 italic">{amountInWords}</span>
+              </div>
+            </div>
+
+            {/* Right Side: Financial Ledger Summary (Cols 6) */}
+            <div className="lg:col-span-6 space-y-2 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 lg:pl-6 pt-3 lg:pt-0">
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">Total Before Discount:</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₹{totalBeforeDiscount.toFixed(2)} INR</span>
+              </div>
+
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">Discount Amount:</span>
+                <span className="font-mono text-rose-500">-₹{discountVal.toFixed(2)} INR</span>
+              </div>
+
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">Freight & Logistics Charges:</span>
+                <span className="font-mono text-slate-700 dark:text-slate-300">₹{(freightVal + loadingVal + packingVal + otherVal).toFixed(2)} INR</span>
+              </div>
+
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">Taxable Subtotal:</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₹{taxableSubtotal.toFixed(2)} INR</span>
+              </div>
+
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-slate-500">GST Taxes (CGST+SGST / IGST):</span>
+                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">₹{totalGstTax.toFixed(2)} INR</span>
+              </div>
+
+              {roundOffVal !== 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">Round-Off Adjustment:</span>
+                  <span className="font-mono text-slate-500">₹{roundOffVal.toFixed(2)} INR</span>
+                </div>
+              )}
+
+              <div className="flex justify-between items-center pt-2 text-sm border-t-2 border-slate-200 dark:border-slate-700">
+                <span className="font-black text-slate-900 dark:text-white uppercase">Net Grand Total:</span>
+                <span className="font-black text-emerald-600 dark:text-emerald-400 text-lg font-mono">
+                  ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR
+                </span>
+              </div>
+
+              <div className="flex justify-between items-center text-xs pt-1 text-slate-600 dark:text-slate-400">
+                <span>Advance Paid: <strong className="font-mono text-slate-800 dark:text-white">₹{advancePaidVal.toFixed(2)}</strong></span>
+                <span>Balance Due: <strong className="font-mono text-emerald-600 dark:text-emerald-400 text-sm">₹{balanceDueVal.toFixed(2)}</strong></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal for Zooming Attached Photos */}
+        {previewPhotoUrl && (
+          <div 
+            onClick={() => setPreviewPhotoUrl(null)}
+            className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 cursor-pointer"
+          >
+            <div className="relative max-w-4xl max-h-[90vh] bg-slate-900 p-2 rounded-2xl overflow-hidden shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setPreviewPhotoUrl(null)}
+                className="absolute top-4 right-4 bg-slate-800/80 hover:bg-slate-700 text-white rounded-full p-2 cursor-pointer z-10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <img
+                src={previewPhotoUrl}
+                alt="Order Document Attachment Zoom"
+                className="max-w-full max-h-[85vh] object-contain rounded-xl"
+              />
+            </div>
+          </div>
+        )}
+
       </div>
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // ── TABLE LIST VIEW: 5 CLEAN CORE COMMERCIAL TABS & DIRECT ROW BADGES ───────
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
       <DashboardBackButton />
+      
       {isReadOnly && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
           <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
           <span>You have <strong>Read-Only access</strong> to Sales Orders & Ledgers.</span>
         </div>
       )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div>
@@ -1440,14 +1995,13 @@ Thank you for choosing ${company}!`;
               <FileText className="w-5.5 h-5.5 mr-2 text-indigo-600 shrink-0" />
               Sales Orders & POS Transactions Registry
             </h1>
-            {/* Auto-Sync Live Badge */}
             <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-bold font-mono">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span>LIVE AUTO-SYNC</span>
             </div>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
-            Unified audit log for B2B Tax Invoices, Retail POS counter bills, Sales Orders, and Quotations.
+            Commercial order registry: Walk-in POS, Direct In-Stock Orders, Make-to-Order Deficit Planning, and Quotations.
           </p>
         </div>
 
@@ -1462,27 +2016,27 @@ Thank you for choosing ${company}!`;
             onClick={() => navigate('/sales/order')}
             className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
-            <FileText className="w-3.5 h-3.5" /> Sales Order
+            <FileText className="w-3.5 h-3.5" /> Sales Order Studio
           </Button>
         </div>
       </div>
 
-      {/* Filter Toolbar & Category Tabs */}
+      {/* ── 6 CLEAN COMMERCIAL CATEGORY TABS (NO OVERFLOW, FULL DISPLAY) ── */}
       <div className="flex flex-col gap-3 text-xs">
-        {/* Category Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+        <div className="flex items-center gap-1.5 flex-wrap text-xs">
           {[
-            { id: 'ALL', label: 'All Transactions', count: orders.length, icon: Layers },
-            { id: 'POS', label: '⚡ Retail POS', count: orders.filter(o => o.type === 'POS').length, icon: ShoppingBag, color: 'text-emerald-600' },
-            { id: 'Invoice', label: '💼 Tax Invoices', count: orders.filter(o => o.type === 'Invoice').length, icon: FileText, color: 'text-indigo-600' },
-            { id: 'Sales Order', label: '🛒 Sales Orders', count: orders.filter(o => o.type === 'Sales Order').length, icon: CheckCircle2, color: 'text-blue-600' },
-            { id: 'Quotation', label: '📄 Quotations', count: orders.filter(o => o.type === 'Quotation').length, icon: Sparkles, color: 'text-purple-600' }
+            { id: 'ALL', label: 'All Transactions', count: tabCounts.all, icon: Layers },
+            { id: 'POS', label: '⚡ Retail POS', count: tabCounts.pos, icon: ShoppingBag, color: 'text-emerald-600' },
+            { id: 'Invoice', label: '💼 Tax Invoices', count: tabCounts.invoices, icon: FileText, color: 'text-indigo-600' },
+            { id: 'Sales Order', label: '🛒 Sales Orders', count: tabCounts.salesOrders, icon: CheckCircle2, color: 'text-blue-600' },
+            { id: 'Waiting for Production', label: '⚙️ Need Planning', count: tabCounts.needProduction, icon: Clock, color: 'text-amber-500' },
+            { id: 'Quotation', label: '📄 Quotations', count: tabCounts.quotations, icon: Sparkles, color: 'text-purple-600' }
           ].map(tab => (
             <button
               key={tab.id}
               type="button"
               onClick={() => { setTypeFilter(tab.id); setCurrentPage(1); }}
-              className={`px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                 typeFilter === tab.id
                   ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-sm'
                   : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-400'
@@ -1490,7 +2044,7 @@ Thank you for choosing ${company}!`;
             >
               <tab.icon className={`w-3.5 h-3.5 ${tab.color || ''}`} />
               <span>{tab.label}</span>
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold ${
                 typeFilter === tab.id ? 'bg-white/20 text-white dark:bg-slate-900/20 dark:text-slate-900' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
               }`}>
                 {tab.count}
@@ -1501,7 +2055,6 @@ Thank you for choosing ${company}!`;
 
         {/* Search & Sort Row */}
         <div className="bg-slate-50/50 dark:bg-slate-900 p-3 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5">
-          {/* Search Input */}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
@@ -1513,7 +2066,6 @@ Thank you for choosing ${company}!`;
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Payment Status Filter */}
             <div className="flex items-center gap-1.5">
               <Filter className="w-3.5 h-3.5 text-slate-400" />
               <select
@@ -1528,7 +2080,6 @@ Thank you for choosing ${company}!`;
               </select>
             </div>
 
-            {/* Sort By Dropdown */}
             <div className="flex items-center gap-1.5">
               <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
               <select
@@ -1545,48 +2096,62 @@ Thank you for choosing ${company}!`;
                 <option value="amount_asc">Grand Total (Lowest)</option>
               </select>
             </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500">Show:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(e.target.value); setCurrentPage(1); }}
+                className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-xl px-2 py-1 text-xs text-slate-700 dark:text-slate-300 font-semibold h-9 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+              >
+                <option value="ALL">All ({filteredOrders.length})</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Invoice Grid/Table */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto text-xs">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-widest text-[11px]">
+      {/* ── ORDERS TABLE: DISTINCT COMMERCIAL BADGES & ICON-ONLY ACTIONS (FULL DISPLAY, ZERO OVERFLOW) ── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs">
+        <div className="w-full text-xs">
+          <table className="w-full text-xs text-left table-auto">
+            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[11px]">
               <tr>
-                <th className="px-4 py-3 cursor-pointer group" onClick={() => handleToggleSort('doc')}>
-                  <div className="flex items-center">
-                    <span>Doc Ref / Series</span>
+                <th className="px-3.5 py-3 cursor-pointer group text-left w-[18%]" onClick={() => handleToggleSort('doc')}>
+                  <div className="flex items-center gap-1">
+                    <span>Doc Ref & Type</span>
                     {getSortIcon('doc')}
                   </div>
                 </th>
-                <th className="px-4 py-3 cursor-pointer group" onClick={() => handleToggleSort('party')}>
-                  <div className="flex items-center">
-                    <span>Party & Counter Info</span>
+                <th className="px-3.5 py-3 cursor-pointer group text-left w-[24%]" onClick={() => handleToggleSort('party')}>
+                  <div className="flex items-center gap-1">
+                    <span>Customer & Details</span>
                     {getSortIcon('party')}
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center cursor-pointer group" onClick={() => handleToggleSort('date')}>
-                  <div className="flex items-center justify-center">
+                <th className="px-3 py-3 text-center cursor-pointer group w-[11%]" onClick={() => handleToggleSort('date')}>
+                  <div className="flex items-center justify-center gap-1">
                     <span>Date & Time</span>
                     {getSortIcon('date')}
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center cursor-pointer group" onClick={() => handleToggleSort('payment')}>
-                  <div className="flex items-center justify-center">
-                    <span>Payment Info</span>
+                <th className="px-3 py-3 text-center cursor-pointer group w-[11%]" onClick={() => handleToggleSort('payment')}>
+                  <div className="flex items-center justify-center gap-1">
+                    <span>Payment</span>
                     {getSortIcon('payment')}
                   </div>
                 </th>
-                <th className="px-4 py-3 text-right cursor-pointer group" onClick={() => handleToggleSort('amount')}>
-                  <div className="flex items-center justify-end">
-                    <span>Grand Total</span>
+                <th className="px-3.5 py-3 text-right cursor-pointer group w-[12%]" onClick={() => handleToggleSort('amount')}>
+                  <div className="flex items-center justify-end gap-1">
+                    <span>Total Amount</span>
                     {getSortIcon('amount')}
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center">Fulfillment</th>
-                <th className="px-4 py-3 text-center">Actions</th>
+                <th className="px-3 py-3 text-center w-[11%]">Fulfillment</th>
+                <th className="px-3 py-3 text-center w-[13%]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1603,85 +2168,87 @@ Thank you for choosing ${company}!`;
                   const isPos = order.type === 'POS';
                   const isInvoice = order.type === 'Invoice';
                   const isQuote = order.type === 'Quotation';
+                  const isNeedPlanning = order.status === 'Waiting for Production' || order.orderMode === 'NEED_PLANNING';
                   const isSO = order.type === 'Sales Order';
 
                   const grandTotalVal = Number(order.grandTotal || order.totalSubtotal || 0);
 
                   return (
                     <tr key={order.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none">
-                      {/* Document Ref & Type */}
-                      <td className="px-4 py-3">
-                        <div className="font-mono font-bold text-slate-900 dark:text-white text-xs">
+                      {/* Document Ref & Specific Commercial Badge */}
+                      <td className="px-3.5 py-3 align-middle">
+                        <div className="font-mono font-bold text-slate-900 dark:text-white text-xs truncate max-w-[150px]">
                           {order.docNo || order.referenceNo}
                         </div>
-                        <div className="mt-1 flex items-center gap-1.5">
+                        <div className="mt-1 flex items-center gap-1">
                           {isPos && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                              <ShoppingBag className="w-2.5 h-2.5" /> Retail POS
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs whitespace-nowrap">
+                              <ShoppingBag className="w-2.5 h-2.5" /> ⚡ Retail POS
                             </span>
                           )}
-                          {isInvoice && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                              <FileText className="w-2.5 h-2.5" /> Tax Invoice
+                          {isNeedPlanning && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shadow-xs whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" /> ⚙️ Need Planning
                             </span>
                           )}
-                          {isSO && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                              <Layers className="w-2.5 h-2.5" /> Sales Order
+                          {isSO && !isNeedPlanning && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shadow-xs whitespace-nowrap">
+                              <CheckCircle2 className="w-2.5 h-2.5" /> 🛒 Sales Order
                             </span>
                           )}
                           {isQuote && (
-                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-purple-50 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-                              <Sparkles className="w-2.5 h-2.5" /> Quotation
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 dark:bg-purple-950/60 text-purple-900 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shadow-xs whitespace-nowrap">
+                              <Sparkles className="w-2.5 h-2.5" /> 📄 Quotation
                             </span>
                           )}
-                          {order.sourceOrderId && (
-                            <span className="text-[10px] text-slate-400 font-mono" title="Converted Order">
-                              (Conv)
+                          {isInvoice && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shadow-xs whitespace-nowrap">
+                              <FileText className="w-2.5 h-2.5" /> 💼 Tax Invoice
                             </span>
                           )}
                         </div>
                       </td>
 
                       {/* Party & POS Counter Info */}
-                      <td className="px-4 py-3">
-                        <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5 flex-wrap">
-                          <span>{order.customerName || order.customer?.name || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client')}</span>
+                      <td className="px-3.5 py-3 align-middle">
+                        <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                          <span className="truncate max-w-[180px]" title={order.customerName || order.customer?.name || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client')}>
+                            {order.customerName || order.customer?.name || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client')}
+                          </span>
                           {(order.customer?.customerType === 'B2B' || order.customer?.customerType === 'DISTRIBUTOR' || order.customer?.customerType === 'WHOLESALE') ? (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0">
                               <Building2 className="w-2.5 h-2.5" /> B2B
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
                               <User className="w-2.5 h-2.5" /> Retail
                             </span>
                           )}
                         </div>
                         
                         {isPos ? (
-                          <div className="flex items-center gap-2 mt-1 text-[10px] text-slate-500 font-mono">
-                            <span className="bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500 font-mono truncate max-w-[220px]">
+                            <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded font-bold">
                               {order.counterId || 'COUNTER-01'}
                             </span>
                             <span>•</span>
-                            <span>Cashier: <strong>{order.cashierName || 'Staff'}</strong></span>
-                            {order.customerPhone && <span>• Ph: {order.customerPhone}</span>}
+                            <span>{order.cashierName || 'Staff'}</span>
+                            {order.customerPhone && <span>• {order.customerPhone}</span>}
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500 font-mono flex-wrap">
+                          <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500 font-mono truncate max-w-[220px]">
                             {(order.customer?.gstin || order.taxRegNo) && (
                               <span className="font-bold text-indigo-600 dark:text-indigo-400">
                                 GSTIN: {order.customer?.gstin || order.taxRegNo}
                               </span>
                             )}
                             {order.customer?.phone && <span>Ph: {order.customer.phone}</span>}
-                            {order.placeOfSupply && <span className="bg-slate-100 dark:bg-slate-800 px-1 rounded">POS: {order.placeOfSupply}</span>}
                           </div>
                         )}
                       </td>
 
                       {/* Date & Time */}
-                      <td className="px-4 py-3 text-center text-slate-500 font-semibold font-mono text-[11px]">
+                      <td className="px-3 py-3 text-center align-middle text-slate-500 font-semibold font-mono text-[11px]">
                         <div>{new Date(order.createdAt).toLocaleDateString('en-GB')}</div>
                         <div className="text-[10px] text-slate-400">
                           {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1689,8 +2256,8 @@ Thank you for choosing ${company}!`;
                       </td>
 
                       {/* Payment Info */}
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex flex-col items-center gap-1">
+                      <td className="px-3 py-3 text-center align-middle">
+                        <div className="flex flex-col items-center gap-0.5">
                           <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
                             order.paymentStatus === 'PAID'
                               ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
@@ -1700,15 +2267,15 @@ Thank you for choosing ${company}!`;
                           }`}>
                             {order.paymentStatus || (isPos ? 'PAID' : 'PENDING')}
                           </span>
-                          <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                          <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[90px]">
                             {order.paymentTerms || (isPos ? 'Cash' : 'Net 30')}
                           </span>
                         </div>
                       </td>
 
                       {/* Grand Total */}
-                      <td className="px-4 py-3 text-right">
-                        <div className="font-black text-slate-900 dark:text-white font-mono text-sm">
+                      <td className="px-3.5 py-3 text-right align-middle">
+                        <div className="font-black text-slate-900 dark:text-white font-mono text-xs sm:text-sm">
                           ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                         {order.cgst > 0 && (
@@ -1719,119 +2286,150 @@ Thank you for choosing ${company}!`;
                       </td>
 
                       {/* Fulfillment Status */}
-                      <td className="px-4 py-3 text-center">
-                        <span className={`px-2.5 py-1 text-[10px] font-bold rounded-full border ${
-                          order.status === 'Delivered'
-                            ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
-                            : order.status === 'Ready for Shipment' || order.status === 'Confirmed'
-                            ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
-                            : 'bg-amber-500/10 text-amber-700 border-amber-500/20'
-                        }`}>
-                          {order.status}
-                        </span>
+                      <td className="px-3 py-3 text-center align-middle">
+                        {isNeedPlanning ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                            Need Planning
+                          </span>
+                        ) : (
+                          <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                            order.status === 'Delivered'
+                              ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                              : order.status === 'Ready for Shipment' || order.status === 'Confirmed'
+                              ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
+                              : 'bg-amber-500/10 text-amber-700 border-amber-500/20'
+                          }`}>
+                            {order.status || 'Confirmed'}
+                          </span>
+                        )}
                       </td>
 
-                      {/* Actions */}
-                      <td className="px-4 py-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
+                      {/* Actions Column (STRICTLY ICON-ONLY, NO OVERFLOW) */}
+                      <td className="px-3 py-2.5 text-center align-middle">
+                        <div className="flex items-center justify-center gap-1 flex-nowrap">
+                          
+                          {/* 1. View Details (Document Studio) */}
+                          <button
+                            type="button"
+                            onClick={() => setSearchParams({ id: order.id })}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                            title="View Details (SAP Document Studio)"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* 2. Edit Order in Studio / POS */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isPos) {
+                                navigate(`/pos?edit=${order.id}`);
+                              } else {
+                                navigate(`/sales/order?edit=${order.id}`);
+                              }
+                            }}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                            title={isPos ? "Edit in POS" : "Edit in Order Studio"}
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* 3. Print Slip / Invoice */}
                           {isPos ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
+                            <button
+                              type="button"
                               onClick={() => {
                                 setLayoutMode('POS');
                                 setSearchParams({ id: order.id });
                               }}
-                              className="text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50 h-7 px-2 text-[10px] font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-transform active:scale-95 cursor-pointer shrink-0"
                               title="Print 80mm POS Slip"
                             >
-                              <Printer className="w-3 h-3" /> Slip
-                            </Button>
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
                           ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
+                            <button
+                              type="button"
                               onClick={() => {
                                 setLayoutMode('A4');
                                 setSearchParams({ id: order.id });
                               }}
-                              className="text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 h-7 px-2 text-[10px] font-bold rounded-lg flex items-center gap-1 cursor-pointer"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition-transform active:scale-95 cursor-pointer shrink-0"
                               title="Print A4 Tax Invoice"
                             >
-                              <FileText className="w-3 h-3" /> A4
-                            </Button>
+                              <Printer className="w-3.5 h-3.5" />
+                            </button>
                           )}
 
-                          {/* WhatsApp Web Share */}
-                          <Button
-                            size="sm"
-                            variant="ghost"
+                          {/* 4. WhatsApp (Official WhatsApp SVG Logo) */}
+                          <button
+                            type="button"
                             onClick={() => handleShareWhatsApp(order)}
-                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 h-7 w-7 p-0 rounded-lg cursor-pointer"
-                            title="Share Invoice on WhatsApp"
+                            className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-500 hover:bg-emerald-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                            title="Share on WhatsApp"
                           >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                          </Button>
+                            <WhatsAppIcon className="w-3.5 h-3.5" />
+                          </button>
 
-                          {/* Resend to Email */}
-                          <Button
-                            size="sm"
-                            variant="ghost"
+                          {/* 5. Resend to Email */}
+                          <button
+                            type="button"
                             onClick={() => handleResendEmail(order)}
-                            className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 h-7 w-7 p-0 rounded-lg cursor-pointer"
+                            className="w-7 h-7 rounded-lg flex items-center justify-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-transform active:scale-95 cursor-pointer shrink-0"
                             title="Send Invoice to Email"
                           >
                             <Mail className="w-3.5 h-3.5" />
-                          </Button>
+                          </button>
 
-                          {/* Start Production */}
-                          {(order.status === 'Waiting for Production' || order.status === 'Confirmed') && (
-                            <Button
-                              size="sm"
-                              variant="outline"
+                          {/* 6. Plan Work Order (for Need Planning orders) */}
+                          {isNeedPlanning && (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/production/new?orderId=${order.id}`, { state: { orderId: order.id, triggerType: 'Order-Based' } })}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                              title="Plan Production Work Order"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-slate-950" />
+                            </button>
+                          )}
+
+                          {/* 7. Start Production (for Confirmed orders) */}
+                          {order.status === 'Confirmed' && !isNeedPlanning && (
+                            <button
+                              type="button"
                               onClick={() => handleStartProduction(order)}
-                              className="text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800 hover:bg-amber-50 h-7 px-2 text-[10px] font-bold rounded-lg flex items-center gap-0.5 cursor-pointer"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 dark:text-amber-400 border border-amber-300 dark:border-amber-700 transition-transform active:scale-95 cursor-pointer shrink-0"
                               title="Start Production Queue"
                             >
-                              <Play className="w-3 h-3" /> Prod
-                            </Button>
+                              <Play className="w-3.5 h-3.5 fill-amber-500" />
+                            </button>
                           )}
 
-                          {/* Convert Quotation to Order */}
+                          {/* 8. Convert Quotation to Order */}
                           {isQuote && (
-                            <Button
-                              size="sm"
-                              variant="outline"
+                            <button
+                              type="button"
                               onClick={() => handleConvertToOrder(order)}
-                              className="text-blue-700 dark:text-blue-400 border-blue-300 dark:border-blue-800 hover:bg-blue-50 h-7 px-2 text-[10px] font-bold rounded-lg flex items-center gap-0.5 cursor-pointer"
-                              title="Convert to Confirmed Order"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                              title="Convert Quotation to Confirmed Order"
                             >
-                              <CheckCircle2 className="w-3 h-3" /> Order
-                            </Button>
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                            </button>
                           )}
 
-                          {/* Convert to Tax Invoice */}
-                          {(isQuote || isSO) && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
+                          {/* 9. Convert to Tax Invoice */}
+                          {(isQuote || isSO) && order.status !== 'Delivered' && (
+                            <button
+                              type="button"
                               onClick={() => navigate(`/sales/billing?convertFrom=${order.id}`)}
-                              className="text-blue-600 hover:bg-blue-50 h-7 px-2 text-[10px] font-bold rounded-lg flex items-center gap-0.5 cursor-pointer"
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 transition-transform active:scale-95 cursor-pointer shrink-0"
                               title="Convert to Tax Invoice"
                             >
-                              <ArrowRight className="w-3 h-3" /> Bill
-                            </Button>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
                           )}
 
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSearchParams({ id: order.id })}
-                            className="text-slate-500 hover:text-slate-900 dark:hover:text-white h-7 w-7 p-0 rounded-lg cursor-pointer"
-                            title="Inspect Details"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -1843,12 +2441,15 @@ Thank you for choosing ${company}!`;
         </div>
 
         {/* Footer info & Pagination Controls */}
-        {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div className="text-[11px] text-slate-555 dark:text-slate-400 font-medium order-2 sm:order-1">
-              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filteredOrders.length)} of {filteredOrders.length} entries
-            </div>
+        <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
+            {pageSize === 'ALL'
+              ? `Displaying all ${filteredOrders.length} transaction records`
+              : `Showing ${(currentPage - 1) * Number(pageSize) + 1} to ${Math.min(currentPage * Number(pageSize), filteredOrders.length)} of ${filteredOrders.length} entries`
+            }
+          </div>
 
+          {pageSize !== 'ALL' && totalPages > 1 && (
             <div className="order-1 sm:order-2">
               <Pagination 
                 currentPage={currentPage} 
@@ -1856,12 +2457,12 @@ Thank you for choosing ${company}!`;
                 onPageChange={setCurrentPage} 
               />
             </div>
+          )}
 
-            <div className="text-xs text-slate-404 font-medium order-3">
-              Total entries: {filteredOrders.length} records
-            </div>
+          <div className="text-xs text-slate-400 font-medium order-3">
+            Total records: {filteredOrders.length}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

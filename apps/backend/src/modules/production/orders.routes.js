@@ -284,8 +284,23 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       where: { id: req.params.id, deletedAt: null },
       include: {
         customer: true,
-        items: { include: { product: true } },
-        deliveries: true
+        items: {
+          include: {
+            product: {
+              include: {
+                unit: true,
+                category: true,
+                subcategory: true
+              }
+            },
+            batchAllocations: true
+          }
+        },
+        deliveries: true,
+        productionBatches: true,
+        creator: {
+          select: { id: true, name: true, email: true, role: true }
+        }
       }
     });
 
@@ -640,6 +655,29 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       let mfgDate = item.mfgDate ? new Date(item.mfgDate) : null;
       let expiryDate = item.expiryDate ? new Date(item.expiryDate) : null;
 
+      // Stock Validation for Standard Sales Order (Customer can ONLY order if stock is available)
+      const effectiveOrderMode = data.orderMode || (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : (type === 'Quotation' ? 'QUOTATION' : 'STANDARD'));
+      if (type === 'Sales Order' && effectiveOrderMode === 'STANDARD') {
+        const sumIn = await tx.productStockMovement.aggregate({
+          where: { productId: item.productId, direction: 1 },
+          _sum: { quantity: true }
+        });
+        const sumOut = await tx.productStockMovement.aggregate({
+          where: { productId: item.productId, direction: -1 },
+          _sum: { quantity: true }
+        });
+        const movementStock = Number(sumIn._sum.quantity || 0) - Number(sumOut._sum.quantity || 0);
+        const prodCurrentStock = prod.currentStock !== null && prod.currentStock !== undefined 
+          ? Number(prod.currentStock) 
+          : movementStock;
+        const availableStock = Math.max(0, Math.max(prodCurrentStock, movementStock));
+
+        if (qty > availableStock) {
+          const shortage = qty - availableStock;
+          throw new Error(`Cannot place Standard Sales Order: Stock unavailable for "${prod.name}" (Required: ${qty}, In Stock: ${availableStock}, Shortage: ${shortage}). Standard Sales Orders can ONLY be placed when stock is available. Please switch to "Need Planning" (Make-to-Order) mode to order deficit quantity and schedule manufacturing production.`);
+        }
+      }
+
       if (type === 'Invoice' || type === 'POS') {
         if (item.allocations && item.allocations.length > 0) {
           allocations = item.allocations;
@@ -728,7 +766,25 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       paymentStatus = 'PARTIAL';
     }
 
-    const orderStatus = data.status || defaultStatus || (type === 'Invoice' || type === 'POS' ? 'Delivered' : (type === 'Sales Order' ? 'Confirmed' : 'Quotation'));
+    let orderStatus = data.status || defaultStatus;
+    if (type === 'Sales Order' && (data.orderMode === 'NEED_PLANNING' || data.status === 'Waiting for Production')) {
+      orderStatus = 'Waiting for Production';
+    } else if (type === 'Invoice' || type === 'POS') {
+      orderStatus = 'Delivered';
+    } else if (type === 'Quotation') {
+      orderStatus = 'Quotation';
+    } else if (!orderStatus) {
+      orderStatus = 'Confirmed';
+    }
+
+    let finalInternalNote = data.attachmentUrl
+      ? (data.internalNote ? `${data.internalNote}\n[Attachment]: ${data.attachmentUrl}` : `[Attachment]: ${data.attachmentUrl}`)
+      : (data.internalNote || data.note || null);
+
+    if (type === 'Sales Order' && (data.orderMode === 'NEED_PLANNING' || orderStatus === 'Waiting for Production')) {
+      const planNote = `[Fulfillment Mode: Need Planning / Make-to-Order | Scheduled for Manufacturing Production]`;
+      finalInternalNote = finalInternalNote ? `${finalInternalNote}\n${planNote}` : planNote;
+    }
 
     // 8. Create CustomerOrder record
     const createdOrder = await tx.customerOrder.create({
@@ -744,9 +800,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
         deliveryAddress: data.deliveryAddress || (type === 'POS' ? 'Over the Counter POS' : customer.address || 'Standard Delivery'),
         quotationNote: data.quotationNote || null,
-        internalNote: data.attachmentUrl
-          ? (data.internalNote ? `${data.internalNote}\n[Attachment]: ${data.attachmentUrl}` : `[Attachment]: ${data.attachmentUrl}`)
-          : (data.internalNote || data.note || null),
+        internalNote: finalInternalNote,
         paymentTerms: data.paymentTerms || (type === 'POS' ? (data.paymentMode || 'Cash') : 'Net 30'),
         paymentStatus,
         amountPaid,
@@ -787,6 +841,13 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         lrNo: data.lrNo || data.lrNumber || null,
         ewayBillNo: data.ewayBillNo || data.eWayBillNumber || null,
         ewayBillDate: data.ewayBillDate ? new Date(data.ewayBillDate) : null,
+        customerRefNo: data.customerRefNo || null,
+        billToAddress: data.billToAddress || null,
+        shippingMethod: data.shippingMethod || 'Road Transport',
+        salesEmployee: data.salesEmployee || '-No Sales Employee-',
+        paymentMode: data.paymentMethod || data.paymentMode || null,
+        orderMode: data.orderMode || (defaultStatus === 'Waiting for Production' ? 'NEED_PLANNING' : 'STANDARD'),
+        attachmentUrl: data.attachmentUrl || null,
         createdBy: req.user.id
       }
     });
@@ -915,11 +976,14 @@ router.post('/quotation', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUP
 // POST /api/orders/sales-order - Sales Order creation
 router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
+    const isQuotation = req.body.orderMode === 'QUOTATION' || req.body.type === 'Quotation';
+    const isNeedPlanning = req.body.orderMode === 'NEED_PLANNING' || req.body.status === 'Waiting for Production';
+
     const order = await processBillingOrder({
       req,
-      type: 'Sales Order',
+      type: isQuotation ? 'Quotation' : 'Sales Order',
       data: req.body,
-      defaultStatus: 'Confirmed'
+      defaultStatus: isQuotation ? 'Quotation' : (isNeedPlanning ? 'Waiting for Production' : 'Confirmed')
     });
     res.status(201).json(order);
   } catch (error) {
@@ -1030,7 +1094,8 @@ router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_
 // POST /api/orders/:id/resend - Resend invoice via Email & WhatsApp
 router.post('/:id/resend', authenticateToken, async (req, res, next) => {
   try {
-    const result = await resendDocument('SALES_INVOICE', req.params.id);
+    const { targetEmail } = req.body || {};
+    const result = await resendDocument('SALES_INVOICE', req.params.id, null, targetEmail);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -1274,6 +1339,80 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
   }
 });
 
+// PATCH /api/orders/:id/update-details - Update order logistics, payment status, transport, and notes
+router.patch('/:id/update-details', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
+  try {
+    const id = req.params.id;
+    const {
+      deliveryAddress,
+      billToAddress,
+      shippingMethod,
+      transporterName,
+      vehicleNo,
+      lrNo,
+      ewayBillNo,
+      ewayBillDate,
+      customerRefNo,
+      salesEmployee,
+      paymentTerms,
+      paymentStatus,
+      paymentMode,
+      amountPaid,
+      placeOfSupply,
+      taxRegNo,
+      internalNote,
+      quotationNote,
+      status,
+      attachmentUrl
+    } = req.body;
+
+    const dataToUpdate = {};
+    if (deliveryAddress !== undefined) dataToUpdate.deliveryAddress = deliveryAddress;
+    if (billToAddress !== undefined) dataToUpdate.billToAddress = billToAddress;
+    if (shippingMethod !== undefined) dataToUpdate.shippingMethod = shippingMethod;
+    if (transporterName !== undefined) dataToUpdate.transporterName = transporterName;
+    if (vehicleNo !== undefined) dataToUpdate.vehicleNo = vehicleNo;
+    if (lrNo !== undefined) dataToUpdate.lrNo = lrNo;
+    if (ewayBillNo !== undefined) dataToUpdate.ewayBillNo = ewayBillNo;
+    if (ewayBillDate !== undefined) dataToUpdate.ewayBillDate = ewayBillDate ? new Date(ewayBillDate) : null;
+    if (customerRefNo !== undefined) dataToUpdate.customerRefNo = customerRefNo;
+    if (salesEmployee !== undefined) dataToUpdate.salesEmployee = salesEmployee;
+    if (paymentTerms !== undefined) dataToUpdate.paymentTerms = paymentTerms;
+    if (paymentStatus !== undefined) dataToUpdate.paymentStatus = paymentStatus;
+    if (paymentMode !== undefined) dataToUpdate.paymentMode = paymentMode;
+    if (amountPaid !== undefined) dataToUpdate.amountPaid = Number(amountPaid);
+    if (placeOfSupply !== undefined) dataToUpdate.placeOfSupply = placeOfSupply;
+    if (taxRegNo !== undefined) dataToUpdate.taxRegNo = taxRegNo;
+    if (internalNote !== undefined) dataToUpdate.internalNote = internalNote;
+    if (quotationNote !== undefined) dataToUpdate.quotationNote = quotationNote;
+    if (status !== undefined) dataToUpdate.status = status;
+    if (attachmentUrl !== undefined) dataToUpdate.attachmentUrl = attachmentUrl;
+
+    const updated = await prisma.customerOrder.update({
+      where: { id },
+      data: dataToUpdate,
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: {
+              include: { unit: true, category: true, subcategory: true }
+            },
+            batchAllocations: true
+          }
+        },
+        deliveries: true,
+        productionBatches: true,
+        creator: { select: { id: true, name: true, email: true, role: true } }
+      }
+    });
+
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // PUT /api/orders/:id - Update Order
 router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']), async (req, res, next) => {
   try {
@@ -1308,12 +1447,27 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       igst: z.coerce.number().optional().default(0),
       roundOff: z.coerce.number().optional().default(0),
       grandTotal: z.coerce.number().optional().default(0),
+      customerRefNo: z.string().optional().nullable(),
+      billToAddress: z.string().optional().nullable(),
+      shippingMethod: z.string().optional().nullable(),
+      salesEmployee: z.string().optional().nullable(),
+      paymentMode: z.string().optional().nullable(),
+      orderMode: z.string().optional().nullable(),
+      attachmentUrl: z.string().optional().nullable(),
+      placeOfSupply: z.string().optional().nullable(),
+      paymentStatus: z.string().optional(),
+      amountPaid: z.coerce.number().optional().default(0),
+      transporterName: z.string().optional().nullable(),
+      vehicleNo: z.string().optional().nullable(),
+      lrNo: z.string().optional().nullable(),
+      ewayBillNo: z.string().optional().nullable(),
+      ewayBillDate: z.string().optional().nullable(),
       items: z.array(z.object({
         productId: z.string().min(1),
         quantity: z.coerce.number().positive(),
         unitPrice: z.coerce.number().positive(),
         discount: z.coerce.number().default(0),
-        deliveryDate: z.string()
+        deliveryDate: z.string().optional()
       })),
       deliveries: z.array(z.object({
         deliveryDate: z.string(),
@@ -1360,7 +1514,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           subtotal: itemSubtotal,
           cost: itemCost,
           profit: itemProfit,
-          deliveryDate: new Date(item.deliveryDate)
+          deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : (data.deliveryDate ? new Date(data.deliveryDate) : new Date())
         });
       }
 
@@ -1373,6 +1527,21 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           deliveryDate: new Date(data.deliveryDate),
           createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
           deliveryAddress: data.deliveryAddress || null,
+          billToAddress: data.billToAddress || null,
+          shippingMethod: data.shippingMethod || 'Road Transport',
+          customerRefNo: data.customerRefNo || null,
+          salesEmployee: data.salesEmployee || '-No Sales Employee-',
+          paymentMode: data.paymentMode || null,
+          orderMode: data.orderMode || (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : 'STANDARD'),
+          attachmentUrl: data.attachmentUrl || null,
+          placeOfSupply: data.placeOfSupply || null,
+          paymentStatus: data.paymentStatus || existing.paymentStatus,
+          amountPaid: data.amountPaid !== undefined ? data.amountPaid : existing.amountPaid,
+          transporterName: data.transporterName || null,
+          vehicleNo: data.vehicleNo || null,
+          lrNo: data.lrNo || null,
+          ewayBillNo: data.ewayBillNo || null,
+          ewayBillDate: data.ewayBillDate ? new Date(data.ewayBillDate) : null,
           quotationNote: data.quotationNote || null,
           internalNote: data.internalNote || null,
           status: data.status,
