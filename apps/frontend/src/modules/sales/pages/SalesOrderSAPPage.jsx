@@ -2246,9 +2246,11 @@ export default function SalesOrderPage() {
                   ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-300'
                   : orderMode === 'NEED_PLANNING'
                   ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-300'
+                  : orderMode === 'INVOICE'
+                  ? 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-300'
                   : 'bg-purple-100 text-purple-900 dark:bg-purple-900/40 dark:text-purple-300'
               }`}>
-                {orderMode === 'STANDARD' ? 'Standard Order' : (orderMode === 'NEED_PLANNING' ? 'Need Planning' : 'Quotation')}
+                {orderMode === 'STANDARD' ? 'Standard Order' : (orderMode === 'NEED_PLANNING' ? 'Need Planning' : (orderMode === 'INVOICE' ? 'Invoice' : 'Quotation'))}
               </span>
             </div>
           </div>
