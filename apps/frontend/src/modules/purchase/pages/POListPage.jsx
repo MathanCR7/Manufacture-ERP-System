@@ -9,13 +9,15 @@ import {
   Plus, Search, Eye, Edit, Trash2, ChevronRight, ChevronDown,
   CheckCircle2, Clock, Package, TrendingUp, AlertCircle, FileText,
   RotateCcw, X, CreditCard, Loader2, ArrowUpDown, ArrowUp, ArrowDown,
-  Image as ImageIcon, Lock
+  Image as ImageIcon, Lock, Printer, Download
 } from 'lucide-react';
 import { 
   UpdatePaymentSettlementModal, 
   PaymentSettlementDetailsModal 
 } from '../components/PaymentSettlementManager';
 import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
+import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
+import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
@@ -1004,6 +1006,24 @@ export default function POListPage() {
                               title="View Details"
                             >
                               <Eye className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => generatePurchaseOrderPDF(po)}
+                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                              title="Download PDF with all details"
+                            >
+                              <Printer className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => exportPurchaseOrderToExcel(po)}
+                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer"
+                              title="Export to Excel (.xlsx) with all items and batches"
+                            >
+                              <Download className="w-3.5 h-3.5" />
                             </Button>
                             {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT' || po.status?.toUpperCase() === 'ORDERED') && (
                               <Button

@@ -31,6 +31,9 @@ import {
   Trash2,
   GripVertical,
   AlertCircle,
+  Printer,
+  Download,
+  Eye,
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import Swal from 'sweetalert2';
@@ -47,6 +50,11 @@ import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 const AddSupplierInline = QuickAddSupplierModal;
 import BatchDateInput from '../components/BatchDateInput';
 import PaymentFieldsSection from '../components/PaymentFieldsSection';
+import PurchaseOrderPrintModal from '../components/PurchaseOrderPrintModal';
+import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
+import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
+import useCompanyStore from '@/app/store/companyStore';
+import useAuthStore from '@/app/store/authStore';
 
 /* ─────────────────────── Searchable Raw Material Dropdown ─────────────────────── */
 import RawMaterialSelect from '../components/SearchableItemSelect';
@@ -175,6 +183,9 @@ export default function EditPOPage({ id: propId, onBack }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [showAddSupplier, setShowAddSupplier] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const storeCompany = useCompanyStore((s) => s.company);
+  const currentUser = useAuthStore((s) => s.user);
   const rawMaterialSelectRef = useRef(null);
 
   const triggerAddRmDropdown = () => {
@@ -815,6 +826,7 @@ export default function EditPOPage({ id: propId, onBack }) {
 
   // Dynamic calculations
   const subtotal = form?.items?.reduce((sum, item) => sum + (parseFloat(item.subtotal) || (Number(item.quantity || 0) * Number(item.unitPrice || 0))), 0) || 0;
+  const totalQuantity = useMemo(() => (form?.items || []).reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0), [form?.items]);
   const shipping = Number(form?.shipping || 0);
   const discount = Number(form?.discount || 0);
   const otherCharges = Number(form?.otherCharges || 0);
@@ -846,6 +858,81 @@ export default function EditPOPage({ id: propId, onBack }) {
   const unroundedTotal = Math.max(0, subtotal + totalItemTax + shipping + otherCharges - discount);
   const grandTotal = Math.round(unroundedTotal);
   const roundOff = Number((grandTotal - unroundedTotal).toFixed(2));
+
+  // Unified data structure for Print and Excel export
+  const poUnifiedData = useMemo(() => ({
+    referenceNo: form?.referenceNo || po?.referenceNo || 'PO DRAFT',
+    orderDate: form?.orderDate || po?.createdAt || new Date(),
+    expectedDelivery: form?.expectedDelivery,
+    purchaseStatus: form?.status || po?.status,
+    selectedSupplier: form?.selectedSupplier,
+    supplierInvoiceNo: form?.supplierInvoiceNo,
+    supplierInvoiceDate: form?.supplierInvoiceDate,
+    transportMode: form?.transportMode,
+    vehicleNumber: form?.vehicleNumber,
+    transporterName: form?.transporterName,
+    lrNumber: form?.lrNumber,
+    ewayBillNo: form?.ewayBillNo,
+    ewayBillDate: form?.ewayBillDate,
+    tillDate: form?.tillDate,
+    items: form?.items || [],
+    discount: discount,
+    shipping: shipping,
+    otherCharges: otherCharges,
+    subtotal: subtotal,
+    isInterState: isInterState,
+    cgstAmount: cgstAmount,
+    sgstAmount: sgstAmount,
+    igstAmount: igstAmount,
+    roundOff: roundOff,
+    grandTotal: grandTotal,
+    paymentStatus: form?.paymentStatus,
+    paidAmount: form?.paidAmount,
+    paymentMode: form?.paymentMode,
+    paymentRef: form?.paymentRef,
+    paymentNotes: form?.paymentNotes,
+    notes: form?.notes,
+    company: storeCompany,
+    creator: currentUser?.name || po?.createdBy?.name || 'Admin Master'
+  }), [form, po, discount, shipping, otherCharges, subtotal, isInterState, cgstAmount, sgstAmount, igstAmount, roundOff, grandTotal, storeCompany, currentUser]);
+
+  const handleExportExcel = () => {
+    if (!form?.items || form.items.length === 0) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'No Items Added',
+        text: 'This Purchase Order does not have any items to export.'
+      });
+      return;
+    }
+    exportPurchaseOrderToExcel(poUnifiedData);
+  };
+
+  const handleDownloadPdf = () => {
+    if (!form?.items || form.items.length === 0) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'No Items Added',
+        text: 'This Purchase Order does not have any items to download as PDF.'
+      });
+      return;
+    }
+    generatePurchaseOrderPDF(poUnifiedData);
+  };
+
+  const handleOpenPrint = handleDownloadPdf;
+
+  const handleOpenPrintPreview = () => {
+    if (!form?.items || form.items.length === 0) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'No Items Added',
+        text: 'This Purchase Order does not have any items to preview.'
+      });
+      return;
+    }
+    setShowPrintModal(true);
+  };
 
   /* ── Update mutation ── */
   const updateMutation = useMutation({
@@ -1051,6 +1138,45 @@ export default function EditPOPage({ id: propId, onBack }) {
         </div>
 
         <div className="flex items-center justify-end gap-2 w-full sm:w-auto shrink-0">
+          {/* Export to Excel Button */}
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            onClick={handleExportExcel}
+            className="h-8 px-2.5 sm:px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800 bg-emerald-50/60 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 rounded-xl gap-1.5 shadow-2xs transition-colors cursor-pointer"
+            title="Export Purchase Order to Excel (.xlsx)"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="hidden sm:inline">Export</span> Excel
+          </Button>
+
+          {/* Preview PO Button */}
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            onClick={handleOpenPrintPreview}
+            className="h-8 px-2 sm:px-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl gap-1.5 transition-colors cursor-pointer"
+            title="Preview Purchase Order"
+          >
+            <Eye className="w-3.5 h-3.5 text-slate-500" />
+            <span className="hidden sm:inline">Preview</span>
+          </Button>
+
+          {/* Direct Download PO PDF Button */}
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm" 
+            onClick={handleDownloadPdf}
+            className="h-8 px-2.5 sm:px-3 text-xs font-semibold text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/40 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-xl gap-1.5 shadow-2xs transition-colors cursor-pointer"
+            title="Download Complete Purchase Order PDF"
+          >
+            <Download className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span className="hidden sm:inline">Print /</span> PDF
+          </Button>
+
           <Button 
             type="button" 
             variant="outline" 
@@ -1392,7 +1518,7 @@ export default function EditPOPage({ id: propId, onBack }) {
               3. Browse Raw Materials & Non-Inventory Items with Category & UOM
             </span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-              Added Items ({form.items.length})
+              Added Items ({form.items.length}) • Total Qty: {totalQuantity.toLocaleString('en-IN', { maximumFractionDigits: 3 })}
             </span>
           </div>
           <span className="text-[10px] text-slate-400 dark:text-slate-500">
@@ -1886,9 +2012,35 @@ export default function EditPOPage({ id: propId, onBack }) {
               >
                 <Plus className="w-3.5 h-3.5" /> Add Another Item
               </Button>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                Items Subtotal ({form.items.length} items): <strong className="text-slate-800 dark:text-slate-200 ml-1">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-              </span>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Items Subtotal ({form.items.length} items • Total Qty: <strong className="text-slate-800 dark:text-slate-200">{totalQuantity.toLocaleString('en-IN', { maximumFractionDigits: 3 })}</strong>): <strong className="text-slate-800 dark:text-slate-200 ml-1">₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadPdf}
+                    className="h-6 px-2 text-[10.5px] font-bold text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg gap-1 cursor-pointer"
+                    title="Download Purchase Order PDF with all items & batches"
+                  >
+                    <Download className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                    <span>Print PDF</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleExportExcel}
+                    className="h-6 px-2 text-[10.5px] font-bold text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-lg gap-1 cursor-pointer"
+                    title="Export to Excel"
+                  >
+                    <Download className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                    <span>Excel</span>
+                  </Button>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1977,7 +2129,7 @@ export default function EditPOPage({ id: propId, onBack }) {
           {/* Right Column (5 cols): Live Financial Summary Box */}
           <div className="lg:col-span-5 p-3.5 bg-gradient-to-br from-slate-50 via-indigo-50/30 to-slate-50 dark:from-slate-950/80 dark:via-indigo-950/30 dark:to-slate-950/80 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-2 text-xs shadow-xs">
             <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-              <span>Items Subtotal ({form.items.length} items)</span>
+              <span>Items Subtotal ({form.items.length} items • Total Qty: {totalQuantity.toLocaleString('en-IN', { maximumFractionDigits: 3 })})</span>
               <span className="font-semibold text-slate-800 dark:text-slate-200">
                 ₹{subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
@@ -2123,6 +2275,13 @@ export default function EditPOPage({ id: propId, onBack }) {
           </Button>
         </div>
       </div>
+
+      {/* Purchase Order Full Page Print & Export Preview Modal */}
+      <PurchaseOrderPrintModal 
+        isOpen={showPrintModal} 
+        onClose={() => setShowPrintModal(false)} 
+        rawData={poUnifiedData} 
+      />
 
     </div>
   );

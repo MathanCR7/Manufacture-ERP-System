@@ -9,7 +9,7 @@ import {
   Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck, PackageCheck,
   Copy, Check, ExternalLink, Boxes, RefreshCw, Scale,
   CreditCard, Wallet, Image as ImageIcon, ZoomIn, UploadCloud, Eye, X, Loader2, AlertCircle,
-  RotateCcw, Undo2
+  RotateCcw, Undo2, Download
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { 
@@ -26,6 +26,8 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
+import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
+import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
 
 // Safely import QRCode
 import _QRCode from 'react-qr-code';
@@ -759,8 +761,22 @@ export default function PODetailPage() {
             </Button>
           )}
 
-          <Button variant="outline" onClick={() => window.print()} className="print:hidden gap-2">
-            <Printer className="w-4 h-4" /> Print Label
+          <Button 
+            variant="outline" 
+            onClick={() => exportPurchaseOrderToExcel(po)} 
+            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 gap-2 font-semibold cursor-pointer"
+            title="Export Purchase Order to Excel (.xlsx) with all items and batches"
+          >
+            <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> Export Excel
+          </Button>
+
+          <Button 
+            variant="outline" 
+            onClick={() => generatePurchaseOrderPDF(po)} 
+            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 gap-2 font-semibold cursor-pointer"
+            title="Download complete Purchase Order PDF with all details"
+          >
+            <Download className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Download PDF
           </Button>
 
           {isPending && (
