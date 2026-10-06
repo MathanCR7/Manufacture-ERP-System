@@ -749,21 +749,33 @@ export default function POListPage() {
             </div>
           </div>
 
-          {/* Table: Exact column structure requested with NO UOM column */}
-          {/* Order: SN -> Date -> PO -> Supplier -> Raw Materials -> Purchase Status -> Grand Total -> Paid Amount -> Due Amount -> Payment Status -> Action */}
-          <div className="w-full overflow-x-auto lg:overflow-x-hidden">
+          {/* Table: Compact Professional ERP Layout with Balanced Column Widths */}
+          {/* Width distribution: SN 35px | Date 80px | PO Ref 90px | Supplier 120px | Purchase Status 150px | Grand Total 95px | Paid 90px | Due 90px | Payment Status 105px | Action 130px (min 125px) */}
+          <div className="w-full overflow-x-auto">
             <Table className="w-full table-fixed text-xs border-collapse">
+              <colgroup>
+                <col style={{ width: '35px' }} />
+                <col style={{ width: '80px' }} />
+                <col style={{ width: '90px' }} />
+                <col style={{ width: '120px' }} />
+                <col style={{ width: '150px' }} />
+                <col style={{ width: '95px' }} />
+                <col style={{ width: '90px' }} />
+                <col style={{ width: '90px' }} />
+                <col style={{ width: '105px' }} />
+                <col style={{ width: '130px' }} />
+              </colgroup>
               <TableHeader className="bg-slate-50/90 dark:bg-slate-950/70 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 select-none">
                 <TableRow className="dark:border-slate-800">
-                  {/* 1. SN: 3.5% */}
-                  <TableHead className="py-2 px-1 text-center text-[10px] uppercase tracking-wider font-extrabold w-[3.5%] min-w-[32px]">
+                  {/* 1. SN: 35px */}
+                  <TableHead className="py-2 px-1 text-center text-[10px] uppercase tracking-wider font-extrabold w-[35px] min-w-[35px]">
                     SN
                   </TableHead>
 
-                  {/* 2. Date: 7.5% */}
+                  {/* 2. Date: 80px */}
                   <TableHead 
                     onClick={handleToggleSortDate}
-                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[7.5%]"
+                    className="py-2 px-2.5 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[80px] min-w-[80px]"
                   >
                     <div className="flex items-center gap-1 truncate">
                       <span>Date</span>
@@ -777,10 +789,10 @@ export default function POListPage() {
                     </div>
                   </TableHead>
 
-                  {/* 3. PO Reference: 12% */}
+                  {/* 3. PO Reference: 90px */}
                   <TableHead 
                     onClick={handleToggleSortRef}
-                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[12%]"
+                    className="py-2 px-2.5 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[90px] min-w-[90px]"
                   >
                     <div className="flex items-center gap-1 truncate">
                       <span>PO Ref</span>
@@ -794,11 +806,10 @@ export default function POListPage() {
                     </div>
                   </TableHead>
 
-                  {/* 4. Supplier: 13% */}
-                  {/* 4. Supplier: 20% */}
+                  {/* 4. Supplier: 120px */}
                   <TableHead 
                     onClick={handleToggleSortSupplier}
-                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[20%]"
+                    className="py-2 px-2.5 text-[10px] uppercase tracking-wider font-extrabold cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[120px] min-w-[120px]"
                   >
                     <div className="flex items-center gap-1 truncate">
                       <span>Supplier</span>
@@ -812,57 +823,57 @@ export default function POListPage() {
                     </div>
                   </TableHead>
 
-                  {/* 5. Purchase Status: 11% */}
-                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold w-[11%]">
+                  {/* 5. Purchase Status: 150px */}
+                  <TableHead className="py-2 px-2.5 text-[10px] uppercase tracking-wider font-extrabold w-[150px] min-w-[150px]">
                     <div className="truncate">Purchase Status</div>
                   </TableHead>
 
-                  {/* 7. Grand Total: 8.5% */}
+                  {/* 6. Grand Total: 95px */}
                   <TableHead 
                     onClick={handleToggleSortTotal}
-                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[8.5%]"
+                    className="py-2 px-2.5 text-[10px] uppercase tracking-wider font-extrabold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[95px] min-w-[95px]"
                   >
                     <div className="flex items-center justify-end gap-1 truncate">
                       <span>Grand Total</span>
-                      {sortBy === 'total_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      ) : sortBy === 'total_desc' ? (
+                      {sortBy === 'total_desc' ? (
                         <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      ) : sortBy === 'total_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
                         <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  {/* 8. Paid Amount: 8.5% */}
-                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-right w-[8.5%]">
+                  {/* 7. Paid Amount: 90px */}
+                  <TableHead className="py-2 px-2.5 text-[10px] uppercase tracking-wider font-extrabold text-right w-[90px] min-w-[90px]">
                     <div className="truncate">Paid Amount</div>
                   </TableHead>
 
-                  {/* 9. Due Amount: 8.5% */}
+                  {/* 8. Due Amount: 90px */}
                   <TableHead 
                     onClick={handleToggleSortDue}
-                    className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[8.5%]"
+                    className="py-2 px-2.5 text-[10px] uppercase tracking-wider font-extrabold text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors w-[90px] min-w-[90px]"
                   >
                     <div className="flex items-center justify-end gap-1 truncate">
                       <span>Due Amount</span>
-                      {sortBy === 'due_asc' ? (
-                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
-                      ) : sortBy === 'due_desc' ? (
+                      {sortBy === 'due_desc' ? (
                         <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                      ) : sortBy === 'due_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
                       ) : (
                         <ArrowUpDown className="w-3 h-3 opacity-40 shrink-0" />
                       )}
                     </div>
                   </TableHead>
 
-                  {/* 10. Payment Status: 8% */}
-                  <TableHead className="py-2 px-1 text-[10px] uppercase tracking-wider font-extrabold text-center w-[8%]">
+                  {/* 9. Payment Status: 105px */}
+                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-center w-[105px] min-w-[105px]">
                     <div className="truncate">Payment Status</div>
                   </TableHead>
 
-                  {/* 11. Action: 4% (min-w 65px) */}
-                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-center w-[4%] min-w-[65px]">
+                  {/* 10. Action: 130px (min-w 125px) */}
+                  <TableHead className="py-2 px-2 text-[10px] uppercase tracking-wider font-extrabold text-center w-[130px] min-w-[125px]">
                     Action
                   </TableHead>
                 </TableRow>
@@ -873,7 +884,7 @@ export default function POListPage() {
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i} className="border-b border-slate-100 dark:border-slate-800">
                       {Array.from({ length: 10 }).map((__, j) => (
-                        <TableCell key={j} className="py-2 px-2"><Skeleton className="h-4.5 w-full rounded" /></TableCell>
+                        <TableCell key={j} className="py-2 px-2.5"><Skeleton className="h-4.5 w-full rounded" /></TableCell>
                       ))}
                     </TableRow>
                   ))
@@ -901,23 +912,23 @@ export default function POListPage() {
                         </TableCell>
 
                         {/* 2. Date */}
-                        <TableCell className="py-2 px-2 text-[11px] text-slate-600 dark:text-slate-300 font-medium truncate" title={po.createdAt ? format(new Date(po.createdAt), 'dd-MM-yyyy') : '—'}>
+                        <TableCell className="py-2 px-2.5 text-[11px] text-slate-600 dark:text-slate-300 font-medium truncate" title={po.createdAt ? format(new Date(po.createdAt), 'dd-MM-yyyy') : '—'}>
                           <span className="truncate block font-mono">
                             {po.createdAt ? format(new Date(po.createdAt), 'dd-MM-yyyy') : '—'}
                           </span>
                         </TableCell>
 
                         {/* 3. PO Reference */}
-                        <TableCell className="py-2 px-2 text-xs truncate">
+                        <TableCell className="py-2 px-2.5 text-xs truncate">
                           <button
                             onClick={() => navigate(`/purchase-orders/${po.id}`)}
-                            className="font-mono font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer block truncate text-left"
+                            className="font-mono font-bold text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer block truncate text-left leading-tight"
                             title={`View ${po.referenceNo}`}
                           >
                             {po.referenceNo}
                           </button>
                           {(po.supplierInvoiceNo || po.ewayBillNo) && (
-                            <div className="flex items-center gap-1 mt-0.5 truncate">
+                            <div className="flex items-center gap-1 mt-0.5 truncate leading-none">
                               {po.supplierInvoiceNo && (
                                 <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/60 truncate" title={`Invoice: ${po.supplierInvoiceNo}`}>
                                   Inv: {po.supplierInvoiceNo}
@@ -933,15 +944,15 @@ export default function POListPage() {
                         </TableCell>
 
                         {/* 4. Supplier */}
-                        <TableCell className="py-2 px-2 text-[11px] text-slate-700 dark:text-slate-300 font-semibold truncate" title={po.supplierName || po.supplier?.name || '—'}>
+                        <TableCell className="py-2 px-2.5 text-[11px] text-slate-700 dark:text-slate-300 font-semibold truncate" title={po.supplierName || po.supplier?.name || '—'}>
                           <span className="truncate block">
                             {po.supplierName || po.supplier?.name || '—'}
                           </span>
                         </TableCell>
 
                         {/* 5. Purchase Status */}
-                        <TableCell className="py-2 px-2">
-                          <div className="flex items-center gap-1 flex-wrap">
+                        <TableCell className="py-2 px-2.5">
+                          <div className="flex items-center gap-1.5 whitespace-nowrap">
                             <StatusChip status={po.status} />
                             {canChangeStatus && ['PENDING', 'ORDERED'].includes(po.status) && (
                               <StatusAdvanceButton po={po} />
@@ -949,14 +960,14 @@ export default function POListPage() {
                           </div>
                         </TableCell>
 
-                        {/* 7. Grand Total */}
-                        <TableCell className="py-2 px-2 text-right font-bold text-slate-900 dark:text-slate-100 font-mono text-[11px] truncate">
+                        {/* 6. Grand Total */}
+                        <TableCell className="py-2 px-2.5 text-right font-bold text-slate-900 dark:text-slate-100 font-mono text-[11px] truncate">
                           ₹{Number(po.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </TableCell>
 
-                        {/* 8. Paid Amount */}
+                        {/* 7. Paid Amount */}
                         <TableCell 
-                          className="py-2 px-2 text-right cursor-pointer group/paid hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-colors truncate"
+                          className="py-2 px-2.5 text-right cursor-pointer group/paid hover:bg-emerald-50/40 dark:hover:bg-emerald-950/20 transition-colors truncate"
                           onClick={(e) => {
                             e.stopPropagation();
                             setPaymentModalPO({ po, initialStatus: po.paymentStatus });
@@ -969,9 +980,9 @@ export default function POListPage() {
                           </span>
                         </TableCell>
 
-                        {/* 9. Due Amount */}
+                        {/* 8. Due Amount */}
                         <TableCell 
-                          className="py-2 px-2 text-right cursor-pointer group/due hover:bg-rose-50/40 dark:hover:bg-rose-950/20 transition-colors truncate"
+                          className="py-2 px-2.5 text-right cursor-pointer group/due hover:bg-rose-50/40 dark:hover:bg-rose-950/20 transition-colors truncate"
                           onClick={(e) => {
                             e.stopPropagation();
                             setPaymentModalPO({ 
@@ -987,22 +998,22 @@ export default function POListPage() {
                           </span>
                         </TableCell>
 
-                        {/* 10. Payment Status */}
-                        <TableCell className="py-2 px-1 text-center">
+                        {/* 9. Payment Status */}
+                        <TableCell className="py-2 px-2 text-center whitespace-nowrap">
                           <PaymentStatusCell 
                             po={po} 
                             onOpenSummary={(selectedPo) => setSummaryModalPO(selectedPo)} 
                           />
                         </TableCell>
 
-                        {/* 11. Action */}
+                        {/* 10. Action: Clean 8px icon spacing */}
                         <TableCell className="py-2 px-2 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-0.5">
+                          <div className="flex items-center justify-center gap-2 whitespace-nowrap">
                             <Button
                               variant="ghost" 
                               size="icon"
                               onClick={() => navigate(`/purchase-orders/${po.id}`)}
-                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
+                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer shrink-0"
                               title="View Details"
                             >
                               <Eye className="w-3.5 h-3.5" />
@@ -1011,8 +1022,8 @@ export default function POListPage() {
                               variant="ghost" 
                               size="icon"
                               onClick={() => generatePurchaseOrderPDF(po)}
-                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
-                              title="Download PDF with all details"
+                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer shrink-0"
+                              title="Download PDF"
                             >
                               <Printer className="w-3.5 h-3.5" />
                             </Button>
@@ -1020,8 +1031,8 @@ export default function POListPage() {
                               variant="ghost" 
                               size="icon"
                               onClick={() => exportPurchaseOrderToExcel(po)}
-                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer"
-                              title="Export to Excel (.xlsx) with all items and batches"
+                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer shrink-0"
+                              title="Export to Excel (.xlsx)"
                             >
                               <Download className="w-3.5 h-3.5" />
                             </Button>
@@ -1030,7 +1041,7 @@ export default function POListPage() {
                                 variant="ghost" 
                                 size="icon"
                                 onClick={() => navigate(`/purchase-orders/edit/${po.id}`)}
-                                className="h-7 w-7 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer"
+                                className="h-7 w-7 rounded-lg text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/50 transition-colors cursor-pointer shrink-0"
                                 title="Edit Purchase Order"
                               >
                                 <Edit className="w-3.5 h-3.5" />
@@ -1042,7 +1053,7 @@ export default function POListPage() {
                                   <Button
                                     variant="ghost" 
                                     size="icon"
-                                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer shrink-0"
                                     title="Delete"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -1074,7 +1085,7 @@ export default function POListPage() {
                                   <Button
                                     variant="ghost" 
                                     size="icon"
-                                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors cursor-pointer"
+                                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors cursor-pointer shrink-0"
                                     title={po.status === 'ORDERED' ? "Revert Order to Draft" : "Undo Receive / Revert PO"}
                                   >
                                     <RotateCcw className="w-3.5 h-3.5" />

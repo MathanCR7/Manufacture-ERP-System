@@ -1698,21 +1698,21 @@ export default function CreatePOPage({ onBack }) {
                               setItems(prev => prev.map(it => it.id === item.id ? { ...it, labTestRequired: !it.labTestRequired } : it));
                             }}
                             className={twMerge(
-                              "h-7 px-2 text-[10px] font-bold rounded-lg transition-all border shadow-2xs inline-flex items-center gap-1 cursor-pointer",
+                              "h-7 px-2.5 text-[10px] font-bold rounded-lg transition-all border shadow-2xs inline-flex items-center gap-1.5 cursor-pointer",
                               item.labTestRequired
-                                ? "bg-indigo-50 text-indigo-700 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 hover:bg-indigo-100"
-                                : "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 hover:bg-emerald-100"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40"
+                                : "bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800 hover:bg-rose-100 dark:hover:bg-rose-900/40"
                             )}
                             title={item.labTestRequired ? "Click to exempt this material from lab test" : "Click to require lab test for this material"}
                           >
                             {item.labTestRequired ? (
                               <>
-                                <FlaskConical className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                                <FlaskConical className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                                 <span>Lab Required</span>
                               </>
                             ) : (
                               <>
-                                <ShieldCheck className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                                <ShieldCheck className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                                 <span>Lab Exempt</span>
                               </>
                             )}

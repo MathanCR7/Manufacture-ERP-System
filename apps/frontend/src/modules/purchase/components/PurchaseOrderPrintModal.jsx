@@ -335,8 +335,8 @@ export default function PurchaseOrderPrintModal({ isOpen, onClose, rawData }) {
                     <td className="px-2 py-2 text-center">
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
                         item.labTestStatus === 'Lab Required' 
-                          ? 'bg-amber-50 text-amber-800 border-amber-300' 
-                          : 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+                          : 'bg-rose-50 text-rose-800 border-rose-300'
                       }`}>
                         {item.labTestStatus}
                       </span>

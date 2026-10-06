@@ -327,13 +327,13 @@ export function generatePurchaseOrderPDF(rawData) {
       const badgeX = colX + (cols[6].w - badgeW) / 2;
       const badgeY = curY + 2.5;
 
-      doc.setFillColor(isLabReq ? 254 : 209, isLabReq ? 243 : 250, isLabReq ? 199 : 229);
-      doc.setDrawColor(isLabReq ? 252 : 110, isLabReq ? 211 : 231, isLabReq ? 77 : 183);
+      doc.setFillColor(isLabReq ? 209 : 255, isLabReq ? 250 : 228, isLabReq ? 229 : 230);
+      doc.setDrawColor(isLabReq ? 110 : 253, isLabReq ? 231 : 164, isLabReq ? 183 : 175);
       doc.roundedRect(badgeX, badgeY, badgeW, badgeH, 1, 1, 'FD');
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6);
-      doc.setTextColor(isLabReq ? 180 : 6, isLabReq ? 83 : 95, isLabReq ? 9 : 70);
+      doc.setTextColor(isLabReq ? 6 : 190, isLabReq ? 95 : 18, isLabReq ? 70 : 60);
       doc.text(item.labTestStatus, colX + (cols[6].w / 2), badgeY + 3, { align: 'center' });
       colX += cols[6].w;
 

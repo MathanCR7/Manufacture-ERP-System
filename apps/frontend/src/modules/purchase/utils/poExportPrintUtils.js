@@ -91,8 +91,11 @@ export function normalizePOData(rawInput = {}) {
       unitPrice: price,
       subtotal: itemSubtotal,
       taxStatus: it.isTaxable !== false ? 'GST (Yes)' : 'GST Exempt',
-      gstPercent: it.gstPercent !== undefined ? Number(it.gstPercent) : (it.gstPercentage !== undefined ? Number(it.gstPercentage) : 18),
-      labTestStatus: it.labExempt ? 'Lab Exempt' : 'Lab Required',
+      labTestStatus: it.labTestStatus 
+        ? it.labTestStatus 
+        : (it.labTestRequired !== undefined 
+            ? (it.labTestRequired ? 'Lab Required' : 'Lab Exempt') 
+            : (it.labExempt ? 'Lab Exempt' : 'Lab Required')),
       batches
     };
   });
@@ -531,9 +534,9 @@ export async function exportPurchaseOrderToExcel(poRawData) {
         const isLabReq = item.labTestStatus === 'Lab Required';
         row.getCell(13).value = isFirst ? item.labTestStatus : '';
         row.getCell(13).alignment = { vertical: 'middle', horizontal: 'center' };
-        row.getCell(13).font = { name: 'Segoe UI', size: 8.5, bold: true, color: { argb: isLabReq ? COLORS.AMBER_TEXT : COLORS.GREEN_TEXT } };
+        row.getCell(13).font = { name: 'Segoe UI', size: 8.5, bold: true, color: { argb: isLabReq ? COLORS.GREEN_TEXT : COLORS.ROSE_TEXT } };
         if (isFirst) {
-          row.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isLabReq ? COLORS.AMBER_BG : COLORS.GREEN_BG } };
+          row.getCell(13).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: isLabReq ? COLORS.GREEN_BG : COLORS.ROSE_BG } };
         }
 
         // 14: Subtotal

@@ -1138,12 +1138,12 @@ export default function PODetailPage() {
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             {item.labTestRequired !== false ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
-                                <FlaskConical className="w-3 h-3 text-violet-500" /> Lab Required
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                <FlaskConical className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Lab Required
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                <ShieldCheck className="w-3 h-3 text-emerald-600" /> Lab Exempt (Direct)
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                <ShieldCheck className="w-3 h-3 text-rose-600 dark:text-rose-400" /> Lab Exempt (Direct)
                               </span>
                             )}
                           </td>
@@ -1164,12 +1164,12 @@ export default function PODetailPage() {
                     <FlaskConical className="w-3.5 h-3.5 text-slate-400" /> Quality / Lab Inspection Policy:
                   </span>
                   {isLabExempt ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Lab Exempt (Direct to Inventory)
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                      <ShieldCheck className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> Lab Exempt (Direct to Inventory)
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-800">
-                      <FlaskConical className="w-3.5 h-3.5 text-violet-500" /> Lab Test Required
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                      <FlaskConical className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" /> Lab Test Required
                     </span>
                   )}
                 </div>
