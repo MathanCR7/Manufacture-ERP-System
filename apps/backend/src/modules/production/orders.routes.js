@@ -423,6 +423,24 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       igst: z.coerce.number().optional().default(0),
       roundOff: z.coerce.number().optional().default(0),
       grandTotal: z.coerce.number().optional().default(0),
+      orderMode: z.string().optional().nullable(),
+      skipStockDeduction: z.boolean().optional().default(false),
+      docNo: z.string().optional().nullable(),
+      documentSeries: z.string().optional().nullable(),
+      placeOfSupply: z.string().optional().nullable(),
+      sellerStateCode: z.string().optional().nullable(),
+      buyerStateCode: z.string().optional().nullable(),
+      salesEmployee: z.string().optional().nullable(),
+      paymentMode: z.string().optional().nullable(),
+      customerRefNo: z.string().optional().nullable(),
+      billToAddress: z.string().optional().nullable(),
+      shippingMethod: z.string().optional().nullable(),
+      attachmentUrl: z.string().optional().nullable(),
+      transporterName: z.string().optional().nullable(),
+      vehicleNo: z.string().optional().nullable(),
+      lrNo: z.string().optional().nullable(),
+      ewayBillNo: z.string().optional().nullable(),
+      amountPaid: z.coerce.number().optional().default(0),
       items: z.array(z.object({
         productId: z.string().uuid(),
         quantity: z.coerce.number().positive(),
@@ -512,6 +530,23 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
           igst: data.igst,
           roundOff: data.roundOff,
           grandTotal: data.grandTotal,
+          docNo: data.docNo || null,
+          documentSeries: data.documentSeries || null,
+          orderMode: data.orderMode || (data.type === 'Invoice' ? 'INVOICE' : (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : 'STANDARD')),
+          customerRefNo: data.customerRefNo || null,
+          billToAddress: data.billToAddress || null,
+          shippingMethod: data.shippingMethod || 'Road Transport',
+          salesEmployee: data.salesEmployee || '-No Sales Employee-',
+          paymentMode: data.paymentMode || null,
+          attachmentUrl: data.attachmentUrl || null,
+          placeOfSupply: data.placeOfSupply || null,
+          sellerStateCode: data.sellerStateCode || null,
+          buyerStateCode: data.buyerStateCode || null,
+          amountPaid: data.amountPaid || 0,
+          transporterName: data.transporterName || null,
+          vehicleNo: data.vehicleNo || null,
+          lrNo: data.lrNo || null,
+          ewayBillNo: data.ewayBillNo || null,
           createdBy: req.user.id
         }
       });
@@ -545,9 +580,9 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       }
 
       // 4b. Handle stock allocation if order is confirmed/invoiced immediately
-      const isAllocated = ALLOCATED_STATUSES.includes(data.status) || 
+      const isAllocated = (ALLOCATED_STATUSES.includes(data.status) || 
                           data.type === 'Invoice' || 
-                          data.type === 'POS';
+                          data.type === 'POS') && data.orderMode !== 'INVOICE' && !data.skipStockDeduction;
 
       if (isAllocated) {
         for (const item of orderItemsData) {
@@ -754,7 +789,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         }
       }
 
-      if (type === 'Invoice' || type === 'POS') {
+      if ((type === 'Invoice' || type === 'POS') && !data.skipStockDeduction && data.orderMode !== 'INVOICE') {
         if (item.allocations && item.allocations.length > 0) {
           allocations = item.allocations;
           batchId = allocations[0].batchId;
@@ -860,6 +895,9 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     if (type === 'Sales Order' && (data.orderMode === 'NEED_PLANNING' || orderStatus === 'Waiting for Production')) {
       const planNote = `[Fulfillment Mode: Need Planning / Make-to-Order | Scheduled for Manufacturing Production]`;
       finalInternalNote = finalInternalNote ? `${finalInternalNote}\n${planNote}` : planNote;
+    } else if (data.orderMode === 'INVOICE') {
+      const invNote = `[Commercial Mode: Direct Invoice (Financial Billing Only) | Inventory Stock Untouched]`;
+      finalInternalNote = finalInternalNote ? `${finalInternalNote}\n${invNote}` : invNote;
     }
 
     // 8. Create CustomerOrder record
@@ -956,8 +994,8 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       item.orderItemId = createdItem.id;
     }
 
-    // 10. Commit Stock Decrements if Invoice or POS
-    if (type === 'Invoice' || type === 'POS') {
+    // 10. Commit Stock Decrements if Invoice or POS (Skipped if INVOICE mode or skipStockDeduction is true)
+    if ((type === 'Invoice' || type === 'POS') && !data.skipStockDeduction && data.orderMode !== 'INVOICE') {
       await batchAllocationService.commitDecrements(itemsPrepared, createdOrder, req.user.id, tx);
     }
 
@@ -1054,12 +1092,16 @@ router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
   try {
     const isQuotation = req.body.orderMode === 'QUOTATION' || req.body.type === 'Quotation';
     const isNeedPlanning = req.body.orderMode === 'NEED_PLANNING' || req.body.status === 'Waiting for Production';
+    const isInvoiceMode = req.body.orderMode === 'INVOICE' || req.body.type === 'Invoice';
 
     const order = await processBillingOrder({
       req,
-      type: isQuotation ? 'Quotation' : 'Sales Order',
-      data: req.body,
-      defaultStatus: isQuotation ? 'Quotation' : (isNeedPlanning ? 'Waiting for Production' : 'Confirmed')
+      type: isInvoiceMode ? 'Invoice' : (isQuotation ? 'Quotation' : 'Sales Order'),
+      data: {
+        ...req.body,
+        skipStockDeduction: isInvoiceMode ? true : Boolean(req.body.skipStockDeduction)
+      },
+      defaultStatus: isInvoiceMode ? 'Delivered' : (isQuotation ? 'Quotation' : (isNeedPlanning ? 'Waiting for Production' : 'Confirmed'))
     });
     res.status(201).json(order);
   } catch (error) {
@@ -1617,6 +1659,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       lrNo: z.string().optional().nullable(),
       ewayBillNo: z.string().optional().nullable(),
       ewayBillDate: z.string().optional().nullable(),
+      skipStockDeduction: z.boolean().optional().default(false),
       items: z.array(z.object({
         productId: z.string().min(1),
         productName: z.string().optional(),
@@ -1697,7 +1740,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           customerRefNo: data.customerRefNo || null,
           salesEmployee: data.salesEmployee || '-No Sales Employee-',
           paymentMode: data.paymentMode || null,
-          orderMode: data.orderMode || (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : 'STANDARD'),
+          orderMode: data.orderMode || (data.type === 'Invoice' || existing.type === 'Invoice' || existing.orderMode === 'INVOICE' ? 'INVOICE' : (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : (existing.orderMode || 'STANDARD'))),
           attachmentUrl: data.attachmentUrl || null,
           placeOfSupply: data.placeOfSupply || null,
           paymentStatus: data.paymentStatus || existing.paymentStatus,
@@ -1784,7 +1827,12 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       }
 
       // 6. Manage stock adjustments
-      const isAllocated = ALLOCATED_STATUSES.includes(data.status) || data.type === 'Invoice' || data.type === 'POS';
+      const isAllocated = (ALLOCATED_STATUSES.includes(data.status) || 
+                          data.type === 'Invoice' || 
+                          data.type === 'POS') && 
+                          data.orderMode !== 'INVOICE' && 
+                          existing.orderMode !== 'INVOICE' &&
+                          !data.skipStockDeduction;
       if (isAllocated) {
         // Delete old movements for this order and recreate based on updated items
         await tx.productStockMovement.deleteMany({ where: { orderId: id, type: 'order_allocation' } });
@@ -1802,7 +1850,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           });
         }
       } else {
-        // If status changed away from allocated status, clear allocations
+        // If orderMode is INVOICE, Quotation, or unallocated, clear any stock allocations
         await tx.productStockMovement.deleteMany({ where: { orderId: id, type: 'order_allocation' } });
       }
 

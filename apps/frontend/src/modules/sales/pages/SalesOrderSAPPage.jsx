@@ -102,6 +102,164 @@ const getProductUnitOfSale = (p) => p?.unitOfSale || p?.unit || p?.specification
 const getProductSalePrice = (p) => Number(p?.salePrice !== undefined ? p.salePrice : (p?.price || 0));
 const getProductLiveStock = (p) => Number(p?.stock !== undefined ? p.stock : (p?.currentStock !== undefined ? p.currentStock : (p?.batchStock || 0)));
 
+// Optimized Product Search Index Builder (Pre-computed for instant 0ms multi-field searching)
+const createProductSearchIndex = (p) => {
+  const code = (getProductSystemCode(p) || '').toLowerCase();
+  const name = (getProductName(p) || '').toLowerCase();
+  const cat = (getProductCategory(p) || '').toLowerCase();
+  const baseCat = (getProductBaseCategory(p) || '').toLowerCase();
+  const subcat = (getProductSubcategory(p) || '').toLowerCase();
+  const cleanSubcat = subcat === '-' ? '' : subcat;
+  const hsn = (p?.hsnCode || '').toLowerCase();
+  const unit = (getProductUnitOfSale(p) || '').toLowerCase();
+
+  // Strip non-alphanumeric characters for space-agnostic & punctuation-agnostic search
+  const codeCompact = code.replace(/[^a-z0-9]/g, '');
+  const nameCompact = name.replace(/[^a-z0-9]/g, '');
+  const catCompact = cat.replace(/[^a-z0-9]/g, '');
+  const baseCatCompact = baseCat.replace(/[^a-z0-9]/g, '');
+  const subcatCompact = cleanSubcat.replace(/[^a-z0-9]/g, '');
+  const hsnCompact = hsn.replace(/[^a-z0-9]/g, '');
+  const unitCompact = unit.replace(/[^a-z0-9]/g, '');
+
+  // Combined text with spaces for token / phrase matching across any field
+  const combined = `${code} ${name} ${cat} ${baseCat} ${cleanSubcat} ${hsn} ${unit}`.trim();
+
+  // Combined compact strings for space-less cross-field matching (e.g. "kulfistickalmond")
+  const combinedCompact = `${codeCompact}${nameCompact}${catCompact}${baseCatCompact}${subcatCompact}${hsnCompact}`;
+  const combinedCompactAlt = `${catCompact}${baseCatCompact}${subcatCompact}${nameCompact}${codeCompact}`;
+
+  return {
+    code,
+    name,
+    cat,
+    baseCat,
+    subcat: cleanSubcat,
+    hsn,
+    unit,
+    codeCompact,
+    nameCompact,
+    catCompact,
+    baseCatCompact,
+    subcatCompact,
+    hsnCompact,
+    unitCompact,
+    combined,
+    combinedCompact,
+    combinedCompactAlt
+  };
+};
+
+// Ultra-fast Multi-Field, Space-Agnostic, Tokenized Matcher
+const matchProductSearch = (index, query) => {
+  if (!query) return { matched: true, score: 0 };
+
+  const rawQ = query.trim().toLowerCase();
+  if (!rawQ) return { matched: true, score: 0 };
+
+  const compactQ = rawQ.replace(/[^a-z0-9]/g, '');
+
+  // 1. Direct exact system code match (e.g. "K123" === "k123")
+  if (index.code === rawQ || (compactQ && index.codeCompact === compactQ)) {
+    return { matched: true, score: 1000 };
+  }
+
+  // 2. System code starts with query (e.g. "K12" -> "K123")
+  if (index.code.startsWith(rawQ) || (compactQ && index.codeCompact.startsWith(compactQ))) {
+    return { matched: true, score: 900 };
+  }
+
+  // 3. Exact product name match (e.g. "Almond Pista" or "almondpista")
+  if (index.name === rawQ || (compactQ && index.nameCompact === compactQ)) {
+    return { matched: true, score: 850 };
+  }
+
+  // 4. Product name starts with query
+  if (index.name.startsWith(rawQ) || (compactQ && index.nameCompact.startsWith(compactQ))) {
+    return { matched: true, score: 750 };
+  }
+
+  // 5. Exact category or subcategory match (e.g. "Kulfi Stick" or "kulfistick")
+  if (index.cat === rawQ || (compactQ && index.catCompact === compactQ)) {
+    return { matched: true, score: 700 };
+  }
+  if (index.subcat && (index.subcat === rawQ || (compactQ && index.subcatCompact === compactQ))) {
+    return { matched: true, score: 680 };
+  }
+
+  // 6. Category or subcategory starts with query
+  if (index.cat.startsWith(rawQ) || (compactQ && index.catCompact.startsWith(compactQ))) {
+    return { matched: true, score: 650 };
+  }
+  if (index.subcat && (index.subcat.startsWith(rawQ) || (compactQ && index.subcatCompact.startsWith(compactQ)))) {
+    return { matched: true, score: 630 };
+  }
+
+  // 7. System code contains query anywhere
+  if (index.code.includes(rawQ) || (compactQ && index.codeCompact.includes(compactQ))) {
+    return { matched: true, score: 600 };
+  }
+
+  // 8. Product name contains query anywhere
+  if (index.name.includes(rawQ) || (compactQ && index.nameCompact.includes(compactQ))) {
+    return { matched: true, score: 580 };
+  }
+
+  // 9. Combined raw phrase match
+  if (index.combined.includes(rawQ)) {
+    return { matched: true, score: 550 };
+  }
+
+  // 10. Space-less full query match across any field or concatenated fields
+  // (handles "kulfistick", "almondpista", "familypack700ml", "fruitblend", etc.)
+  if (compactQ && (
+    index.combinedCompact.includes(compactQ) ||
+    index.combinedCompactAlt.includes(compactQ) ||
+    index.catCompact.includes(compactQ) ||
+    index.baseCatCompact.includes(compactQ) ||
+    index.subcatCompact.includes(compactQ) ||
+    index.nameCompact.includes(compactQ) ||
+    index.hsnCompact.includes(compactQ)
+  )) {
+    return { matched: true, score: 500 };
+  }
+
+  // 11. Multi-term / Combined search across multiple fields
+  // (e.g. "kulfi almond", "k123 almond", "kulfi assorted", "kulfistick almondpista")
+  const tokens = rawQ.split(/[\s,+/•\-]+/).filter(Boolean);
+  if (tokens.length > 1) {
+    let allTokensMatch = true;
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      const tokenCompact = token.replace(/[^a-z0-9]/g, '');
+
+      const tokenMatched =
+        index.combined.includes(token) ||
+        (tokenCompact && (
+          index.combinedCompact.includes(tokenCompact) ||
+          index.codeCompact.includes(tokenCompact) ||
+          index.nameCompact.includes(tokenCompact) ||
+          index.catCompact.includes(tokenCompact) ||
+          index.baseCatCompact.includes(tokenCompact) ||
+          index.subcatCompact.includes(tokenCompact) ||
+          index.hsnCompact.includes(tokenCompact) ||
+          index.unitCompact.includes(tokenCompact)
+        ));
+
+      if (!tokenMatched) {
+        allTokensMatch = false;
+        break;
+      }
+    }
+
+    if (allTokensMatch) {
+      return { matched: true, score: 450 };
+    }
+  }
+
+  return { matched: false, score: 0 };
+};
+
 // Indian State name helper (from 2-digit GST code)
 const getIndianStateName = (code) => {
   if (!code) return 'Tamil Nadu';
@@ -164,14 +322,13 @@ export default function SalesOrderPage() {
   // Active Tab: 'contents' | 'logistics' | 'accounting' | 'tax' | 'attachments'
   const [activeTab, setActiveTab] = useState('contents');
 
-  // Commercial Order Fulfillment Mode: 'STANDARD' (In-Stock Only) | 'NEED_PLANNING' (Make-to-Order) | 'QUOTATION' (Quotation)
+  // Commercial Order Fulfillment Mode: 'STANDARD' (In-Stock Only) | 'NEED_PLANNING' (Make-to-Order) | 'QUOTATION' (Quotation) | 'INVOICE' (Direct Invoice - No Stock Deduction)
   const [orderMode, setOrderMode] = useState('STANDARD');
 
   // Customer & Header Details
   const [customerId, setCustomerId] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerRefNo, setCustomerRefNo] = useState('');
-  const [currency, setCurrency] = useState('INR');
   const [contactPerson, setContactPerson] = useState('');
   const [shipToAddress, setShipToAddress] = useState('');
   const [billToAddress, setBillToAddress] = useState('');
@@ -283,6 +440,10 @@ export default function SalesOrderPage() {
   const [gridPopupPos, setGridPopupPos] = useState({ top: 0, left: 0, width: 840, openAbove: false });
   const inGridSearchRef = useRef(null);
 
+  // Stock Synchronization State & Feedback
+  const [isSyncingStock, setIsSyncingStock] = useState(false);
+  const [lastStockSyncTime, setLastStockSyncTime] = useState(null);
+
   // 1. Fetch Customers
   const { data: customers = [], isLoading: isLoadingCustomers } = useQuery({
     queryKey: ['customers-list'],
@@ -303,6 +464,72 @@ export default function SalesOrderPage() {
     staleTime: 30000,
     refetchOnWindowFocus: true
   });
+
+  // Fast Lookup Map for Real-Time Product Stock & Attributes
+  const productMap = useMemo(() => {
+    const map = new Map();
+    products.forEach(p => map.set(p.id, p));
+    return map;
+  }, [products]);
+
+  // Synchronize Live Warehouse Inventory with Real-Time Feedback
+  const handleSyncStock = async () => {
+    try {
+      setIsSyncingStock(true);
+      setStatusMessage({
+        type: 'info',
+        text: '🔄 Synchronizing live warehouse stock with database...'
+      });
+
+      const res = await refetchProducts();
+      const freshList = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+
+      await queryClient.invalidateQueries({ queryKey: ['products-catalog-sap'] });
+      await queryClient.invalidateQueries({ queryKey: ['products-search-list'] });
+
+      // Synchronize existing lines with updated warehouse stock
+      setLines(prev => prev.map(line => {
+        if (!line.productId) return line;
+        const freshItem = freshList.find(p => p.id === line.productId);
+        if (freshItem) {
+          return {
+            ...line,
+            stock: getProductLiveStock(freshItem),
+            rawProduct: freshItem
+          };
+        }
+        return line;
+      }));
+
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      setLastStockSyncTime(timeStr);
+
+      setStatusMessage({
+        type: 'ready',
+        text: `✔ Stock Synchronized at ${timeStr} • Live inventory updated across ${freshList.length} products.`
+      });
+
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        icon: 'success',
+        title: `Stock Synchronized (${freshList.length} Items)`,
+        text: `Live stock updated at ${timeStr}`,
+        showConfirmButton: false,
+        timer: 2200,
+        timerProgressBar: true
+      });
+    } catch (err) {
+      console.error('Stock sync error:', err);
+      setStatusMessage({
+        type: 'error',
+        text: '✖ Failed to synchronize stock with database.'
+      });
+    } finally {
+      setIsSyncingStock(false);
+    }
+  };
 
   // 3. Fetch Master Data (Users/Staff for Sales Employee dropdown)
   const { data: mastersData } = useQuery({
@@ -356,6 +583,10 @@ export default function SalesOrderPage() {
   const handleOpenGridSearch = (lineId, el, initialQuery = '') => {
     setActiveGridSearchLineId(lineId);
     setGridSearchQuery(initialQuery);
+    setGridSelectedBaseCategory('All');
+    setGridSelectedSubcategory('All');
+    setGridCategorySearchQuery('');
+    setGridSubcategorySearchQuery('');
     if (el) {
       const rect = el.getBoundingClientRect();
       const popupHeight = 440;
@@ -401,7 +632,13 @@ export default function SalesOrderPage() {
   const filteredBaseCategories = useMemo(() => {
     if (!categorySearchQuery.trim()) return baseCategories;
     const q = categorySearchQuery.toLowerCase().trim();
-    return baseCategories.filter(c => c === 'All' || c.toLowerCase().includes(q));
+    const qCompact = q.replace(/[^a-z0-9]/g, '');
+    return baseCategories.filter(c => {
+      if (c === 'All') return true;
+      const cLower = c.toLowerCase();
+      const cCompact = cLower.replace(/[^a-z0-9]/g, '');
+      return cLower.includes(q) || (qCompact && cCompact.includes(qCompact));
+    });
   }, [baseCategories, categorySearchQuery]);
 
   // Subcategories for Catalog Browser Modal
@@ -418,7 +655,13 @@ export default function SalesOrderPage() {
   const screenedSubcategories = useMemo(() => {
     if (!subcategorySearchQuery.trim()) return availableSubcategories;
     const q = subcategorySearchQuery.toLowerCase().trim();
-    return availableSubcategories.filter(s => s === 'All' || s.toLowerCase().includes(q));
+    const qCompact = q.replace(/[^a-z0-9]/g, '');
+    return availableSubcategories.filter(s => {
+      if (s === 'All') return true;
+      const sLower = s.toLowerCase();
+      const sCompact = sLower.replace(/[^a-z0-9]/g, '');
+      return sLower.includes(q) || (qCompact && sCompact.includes(qCompact));
+    });
   }, [availableSubcategories, subcategorySearchQuery]);
 
   const handleSelectBaseCategory = (cat) => {
@@ -431,7 +674,13 @@ export default function SalesOrderPage() {
   const gridFilteredBaseCategories = useMemo(() => {
     if (!gridCategorySearchQuery.trim()) return baseCategories;
     const q = gridCategorySearchQuery.toLowerCase().trim();
-    return baseCategories.filter(c => c === 'All' || c.toLowerCase().includes(q));
+    const qCompact = q.replace(/[^a-z0-9]/g, '');
+    return baseCategories.filter(c => {
+      if (c === 'All') return true;
+      const cLower = c.toLowerCase();
+      const cCompact = cLower.replace(/[^a-z0-9]/g, '');
+      return cLower.includes(q) || (qCompact && cCompact.includes(qCompact));
+    });
   }, [baseCategories, gridCategorySearchQuery]);
 
   // In-Grid Subcategories for Selected Base Category
@@ -447,7 +696,13 @@ export default function SalesOrderPage() {
   const gridScreenedSubcategories = useMemo(() => {
     if (!gridSubcategorySearchQuery.trim()) return gridAvailableSubcategories;
     const q = gridSubcategorySearchQuery.toLowerCase().trim();
-    return gridAvailableSubcategories.filter(s => s === 'All' || s.toLowerCase().includes(q));
+    const qCompact = q.replace(/[^a-z0-9]/g, '');
+    return gridAvailableSubcategories.filter(s => {
+      if (s === 'All') return true;
+      const sLower = s.toLowerCase();
+      const sCompact = sLower.replace(/[^a-z0-9]/g, '');
+      return sLower.includes(q) || (qCompact && sCompact.includes(qCompact));
+    });
   }, [gridAvailableSubcategories, gridSubcategorySearchQuery]);
 
   const handleGridSelectBaseCategory = (cat) => {
@@ -564,7 +819,7 @@ export default function SalesOrderPage() {
     }
   };
 
-  // Line Calculations & Real-Time Stock Feasibility Checking
+  // Line Calculations & Real-Time Stock Feasibility Checking (Dynamic productMap lookup)
   const computedLines = useMemo(() => {
     return lines.map(line => {
       const qty = Number(line.quantity) || 0;
@@ -574,7 +829,10 @@ export default function SalesOrderPage() {
       const discAmt = gross * (discPct / 100);
       const lineTotal = Math.max(0, gross - discAmt);
       
-      const liveStock = Number(line.stock !== undefined ? line.stock : (line.rawProduct ? getProductLiveStock(line.rawProduct) : 0));
+      const matchedProd = line.productId ? productMap.get(line.productId) : null;
+      const liveStock = matchedProd 
+        ? getProductLiveStock(matchedProd) 
+        : Number(line.stock !== undefined ? line.stock : (line.rawProduct ? getProductLiveStock(line.rawProduct) : 0));
       const isSufficient = line.productId ? liveStock >= qty : true;
       const deficit = line.productId ? Math.max(0, qty - liveStock) : 0;
       const allocatedFromStock = line.productId ? Math.min(qty, Math.max(0, liveStock)) : 0;
@@ -590,7 +848,7 @@ export default function SalesOrderPage() {
         lineTotal: lineTotal
       };
     });
-  }, [lines]);
+  }, [lines, productMap]);
 
   // Active (Non-Empty) Lines
   const activeLines = useMemo(() => {
@@ -974,7 +1232,7 @@ export default function SalesOrderPage() {
       setDocNo(ord.docNo || ord.referenceNo || '');
       setDocSeries(ord.documentSeries || 'Primary');
       setDocStatus(ord.status || 'Open');
-      setOrderMode(ord.orderMode || (ord.status === 'Waiting for Production' ? 'NEED_PLANNING' : (ord.type === 'Quotation' ? 'QUOTATION' : 'STANDARD')));
+      setOrderMode(ord.orderMode || (ord.type === 'Invoice' ? 'INVOICE' : (ord.status === 'Waiting for Production' ? 'NEED_PLANNING' : (ord.type === 'Quotation' ? 'QUOTATION' : 'STANDARD'))));
       setCustomerId(ord.customerId || '');
       setSelectedCustomer(ord.customer || null);
       setCustomerRefNo(ord.customerRefNo || ord.referenceNo || '');
@@ -1124,13 +1382,16 @@ export default function SalesOrderPage() {
         return;
       }
 
+      const isInvoice = variables?.orderMode === 'INVOICE' || variables?.type === 'Invoice';
       const isNeedPlanning = variables?.orderMode === 'NEED_PLANNING';
       const isQuotation = variables?.orderMode === 'QUOTATION' || variables?.type === 'Quotation';
 
       Swal.fire({
-        title: isNeedPlanning 
-          ? 'Order Queued for Production!' 
-          : (isQuotation ? 'Quotation Created!' : 'Sales Order Confirmed!'),
+        title: isInvoice
+          ? 'Tax Invoice Generated!'
+          : (isNeedPlanning 
+            ? 'Order Queued for Production!' 
+            : (isQuotation ? 'Quotation Created!' : 'Sales Order Confirmed!')),
         html: `
           <div class="text-left font-sans text-sm space-y-2 p-2">
             <div class="flex justify-between border-b pb-1">
@@ -1139,8 +1400,8 @@ export default function SalesOrderPage() {
             </div>
             <div class="flex justify-between border-b pb-1">
               <span class="text-slate-500">Fulfillment Mode:</span>
-              <span class="font-bold ${isNeedPlanning ? 'text-amber-600' : isQuotation ? 'text-purple-600' : 'text-emerald-600'}">
-                ${isNeedPlanning ? '🟠 Need Planning (Make-to-Order)' : isQuotation ? '🟣 Quotation' : '🟢 Standard Order (In-Stock Only)'}
+              <span class="font-bold ${isInvoice ? 'text-blue-600' : isNeedPlanning ? 'text-amber-600' : isQuotation ? 'text-purple-600' : 'text-emerald-600'}">
+                ${isInvoice ? '🔵 Invoice (No Stock Deduction)' : isNeedPlanning ? '🟠 Need Planning (Make-to-Order)' : isQuotation ? '🟣 Quotation' : '🟢 Standard Order (In-Stock Only)'}
               </span>
             </div>
             <div class="flex justify-between border-b pb-1">
@@ -1151,6 +1412,11 @@ export default function SalesOrderPage() {
               <span class="text-slate-500">Total Items:</span>
               <span class="font-bold">${activeLines.length} Lines</span>
             </div>
+            ${isInvoice ? `
+              <div class="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded p-2 text-xs text-blue-800 dark:text-blue-200 font-medium">
+                📄 Official Tax Invoice generated with complete GST & financial details. <strong>Warehouse inventory is not deducted.</strong>
+              </div>
+            ` : ''}
             ${isNeedPlanning ? `
               <div class="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded p-2 text-xs text-amber-800 dark:text-amber-200 font-medium">
                 ⚙️ Status: <strong>Waiting for Production</strong>. Deficit items scheduled for manufacturing work order.
@@ -1168,7 +1434,7 @@ export default function SalesOrderPage() {
         confirmButtonText: '🖨️ Print Document PDF',
         denyButtonText: '⚙️ Plan Production Batch Now',
         cancelButtonText: 'Create Another Order',
-        confirmButtonColor: '#f0b429',
+        confirmButtonColor: isInvoice ? '#2563eb' : '#f0b429',
         denyButtonColor: '#4f46e5'
       }).then((result) => {
         if (result.isConfirmed) {
@@ -1268,15 +1534,17 @@ export default function SalesOrderPage() {
       return;
     }
 
+    const isInvoice = orderMode === 'INVOICE';
     const isQuotation = orderMode === 'QUOTATION';
     const isNeedPlanning = orderMode === 'NEED_PLANNING';
 
     const payload = {
       docNo: docNo,
       documentSeries: docSeries,
-      type: isQuotation ? 'Quotation' : 'Sales Order',
+      type: isInvoice ? 'Invoice' : (isQuotation ? 'Quotation' : 'Sales Order'),
       orderMode: orderMode,
-      status: isNeedPlanning ? 'Waiting for Production' : (isQuotation ? 'Quotation' : (docStatus === 'Open' ? 'Confirmed' : 'Quotation')),
+      status: isInvoice ? 'Delivered' : (isNeedPlanning ? 'Waiting for Production' : (isQuotation ? 'Quotation' : (docStatus === 'Open' ? 'Confirmed' : 'Quotation'))),
+      skipStockDeduction: isInvoice,
       customerId: customerId,
       customerName: selectedCustomer?.name,
       customerPhone: selectedCustomer?.phone,
@@ -1455,53 +1723,90 @@ export default function SalesOrderPage() {
     }
   };
 
-  // In-Grid Screened & Filtered Products (Base Category -> Subcategory -> Query)
+  // Pre-indexed products with useMemo for high-performance instant searching
+  const productsWithSearchIndex = useMemo(() => {
+    return products.map(p => ({
+      product: p,
+      index: createProductSearchIndex(p)
+    }));
+  }, [products]);
+
+  // In-Grid Screened & Filtered Products (Base Category -> Subcategory -> Multi-Token Fuzzy Search)
   const gridFilteredProducts = useMemo(() => {
-    let list = products;
+    let pool = productsWithSearchIndex;
 
     // Filter by Base Category
     if (gridSelectedBaseCategory !== 'All') {
-      list = list.filter(p => getProductCategory(p) === gridSelectedBaseCategory);
+      pool = pool.filter(item => getProductCategory(item.product) === gridSelectedBaseCategory);
     }
 
     // Filter by Subcategory
     if (gridSelectedSubcategory !== 'All') {
-      list = list.filter(p => getProductSubcategory(p) === gridSelectedSubcategory);
+      pool = pool.filter(item => getProductSubcategory(item.product) === gridSelectedSubcategory);
     }
 
-    // Filter by Search Query
+    // Filter & rank by Search Query
     if (gridSearchQuery.trim()) {
-      const q = gridSearchQuery.toLowerCase().trim();
-      list = list.filter(p => {
-        const code = getProductSystemCode(p).toLowerCase();
-        const name = getProductName(p).toLowerCase();
-        const cat = getProductCategory(p).toLowerCase();
-        const baseCat = getProductBaseCategory(p).toLowerCase();
-        const subcat = getProductSubcategory(p).toLowerCase();
-        return code.includes(q) || name.includes(q) || cat.includes(q) || baseCat.includes(q) || subcat.includes(q);
+      const q = gridSearchQuery.trim();
+      const scored = [];
+      for (let i = 0; i < pool.length; i++) {
+        const item = pool[i];
+        const res = matchProductSearch(item.index, q);
+        if (res.matched) {
+          scored.push({
+            product: item.product,
+            score: res.score
+          });
+        }
+      }
+
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return getProductSystemCode(a.product).localeCompare(getProductSystemCode(b.product));
       });
+
+      return scored.slice(0, 100).map(s => s.product);
     }
 
-    return list.slice(0, 60);
-  }, [products, gridSearchQuery, gridSelectedBaseCategory, gridSelectedSubcategory]);
+    return pool.slice(0, 60).map(item => item.product);
+  }, [productsWithSearchIndex, gridSearchQuery, gridSelectedBaseCategory, gridSelectedSubcategory]);
 
-  // Filtered Catalog Items for Modal Browser (respecting 2-tier screening)
+  // Filtered Catalog Items for Modal Browser (respecting 2-tier screening + optimized multi-field search)
   const filteredCatalogItems = useMemo(() => {
-    return products.filter(p => {
-      const matchBase = selectedBaseCategory === 'All' || getProductCategory(p) === selectedBaseCategory;
-      const matchSub = selectedSubcategory === 'All' || getProductSubcategory(p) === selectedSubcategory;
-      const q = searchCatalogQuery.toLowerCase().trim();
-      const matchQuery = !q ||
-        getProductSystemCode(p).toLowerCase().includes(q) ||
-        getProductName(p).toLowerCase().includes(q) ||
-        getProductCategory(p).toLowerCase().includes(q) ||
-        getProductBaseCategory(p).toLowerCase().includes(q) ||
-        getProductSubcategory(p).toLowerCase().includes(q) ||
-        (p.hsnCode && p.hsnCode.toLowerCase().includes(q));
+    let pool = productsWithSearchIndex;
 
-      return matchBase && matchSub && matchQuery;
-    });
-  }, [products, selectedBaseCategory, selectedSubcategory, searchCatalogQuery]);
+    if (selectedBaseCategory !== 'All') {
+      pool = pool.filter(item => getProductCategory(item.product) === selectedBaseCategory);
+    }
+
+    if (selectedSubcategory !== 'All') {
+      pool = pool.filter(item => getProductSubcategory(item.product) === selectedSubcategory);
+    }
+
+    if (searchCatalogQuery.trim()) {
+      const q = searchCatalogQuery.trim();
+      const scored = [];
+      for (let i = 0; i < pool.length; i++) {
+        const item = pool[i];
+        const res = matchProductSearch(item.index, q);
+        if (res.matched) {
+          scored.push({
+            product: item.product,
+            score: res.score
+          });
+        }
+      }
+
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return getProductSystemCode(a.product).localeCompare(getProductSystemCode(b.product));
+      });
+
+      return scored.map(s => s.product);
+    }
+
+    return pool.map(item => item.product);
+  }, [productsWithSearchIndex, selectedBaseCategory, selectedSubcategory, searchCatalogQuery]);
 
   return (
     <div className="sap-doc-container min-h-screen w-full bg-[var(--sap-bg-window)] text-[var(--sap-text)] font-sans text-xs antialiased selection:bg-amber-300 selection:text-slate-900 flex flex-col">
@@ -1518,24 +1823,33 @@ export default function SalesOrderPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Active Sync Stock Button with Animated Spinner & Status Feedback */}
           <button
             type="button"
-            onClick={() => refetchProducts()}
-            className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-amber-300 text-xs rounded-xs flex items-center gap-1 font-bold"
-            title="Refresh Live Stock"
+            disabled={isSyncingStock}
+            onClick={handleSyncStock}
+            className={`px-2.5 py-1 text-xs rounded-xs flex items-center gap-1.5 font-bold transition-all cursor-pointer shadow-xs ${
+              isSyncingStock
+                ? 'bg-amber-600 text-slate-950 opacity-90'
+                : 'bg-slate-700 hover:bg-slate-600 text-amber-300 hover:text-amber-200 border border-slate-600'
+            }`}
+            title="Synchronize Live Warehouse Inventory"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Sync Stock</span>
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingStock ? 'animate-spin text-slate-950' : 'text-amber-300'}`} />
+            <span>{isSyncingStock ? 'Syncing...' : 'Sync Stock'}</span>
           </button>
 
           <button
             type="button"
             onClick={() => setShowCatalogModal(true)}
             className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
-            title="Browse 207 Finished Products"
+            title={`Browse ${products.length} Finished Products`}
           >
             <Package className="w-3.5 h-3.5" />
-            <span>Product Catalog (207 Items)</span>
+            <span>Product Catalog ({products.length} Items)</span>
+            {lastStockSyncTime && (
+              <span className="w-2 h-2 rounded-full bg-emerald-700 animate-pulse" title="Live Stock Synced" />
+            )}
           </button>
           
           <button
@@ -1561,20 +1875,17 @@ export default function SalesOrderPage() {
       </div>
 
       {/* COMMERCIAL SALES ORDER MODE SELECTOR */}
-      <div className="w-full bg-slate-900 border-b border-slate-700 px-4 py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-inner">
+      <div className="w-full bg-slate-900 border-b border-slate-700 px-4 py-2 flex items-center justify-between gap-3 shadow-inner select-none">
+        {/* Left: Mode Title */}
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-            <SlidersHorizontal className="w-3.5 h-3.5" />
+          <span className="text-[11px] font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1.5 bg-amber-500/10 px-2.5 py-1 rounded-sm border border-amber-500/20">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
             <span>Commercial Order Mode:</span>
-          </span>
-          <span className="text-[11px] text-slate-300 hidden sm:inline">
-            {orderMode === 'STANDARD' && '• In-Stock Gated: Only goods currently available in inventory can be ordered'}
-            {orderMode === 'NEED_PLANNING' && '• Make-to-Order: Shortages / out-of-stock items will route to Production Work Orders'}
-            {orderMode === 'QUOTATION' && '• Price Quotation: Commercial proposal for customer without inventory reservation'}
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Right: 4 Mode Buttons */}
+        <div className="flex items-center gap-2">
           {/* Mode 1: Standard Order (In-Stock Only) */}
           <button
             type="button"
@@ -1585,7 +1896,7 @@ export default function SalesOrderPage() {
                 text: '🟢 Standard Sales Order Mode: Customer can ONLY order goods that are in-stock.'
               });
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               orderMode === 'STANDARD'
                 ? 'bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-300'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
@@ -1594,7 +1905,11 @@ export default function SalesOrderPage() {
           >
             <CheckCircle2 className={`w-3.5 h-3.5 ${orderMode === 'STANDARD' ? 'text-slate-950 font-black' : 'text-emerald-400'}`} />
             <span>Standard Order</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded font-extrabold ${orderMode === 'STANDARD' ? 'bg-slate-950/20 text-slate-950' : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'}`}>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+              orderMode === 'STANDARD'
+                ? 'bg-slate-950/20 text-slate-950'
+                : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'
+            }`}>
               In-Stock Only
             </span>
           </button>
@@ -1609,7 +1924,7 @@ export default function SalesOrderPage() {
                 text: '🟠 Need Planning (Make-to-Order) Mode: Shortages will route to Production Planning Work Orders.'
               });
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               orderMode === 'NEED_PLANNING'
                 ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-300'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
@@ -1618,7 +1933,11 @@ export default function SalesOrderPage() {
           >
             <Clock className={`w-3.5 h-3.5 ${orderMode === 'NEED_PLANNING' ? 'text-slate-950 font-black' : 'text-amber-400'}`} />
             <span>Need Planning</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded font-extrabold ${orderMode === 'NEED_PLANNING' ? 'bg-slate-950/20 text-slate-950' : 'bg-amber-950/60 text-amber-300 border border-amber-800'}`}>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+              orderMode === 'NEED_PLANNING'
+                ? 'bg-slate-950/20 text-slate-950'
+                : 'bg-amber-950/60 text-amber-300 border border-amber-800'
+            }`}>
               Make-to-Order
             </span>
           </button>
@@ -1633,7 +1952,7 @@ export default function SalesOrderPage() {
                 text: '🟣 Quotation Mode: Commercial quotation without inventory check or stock lock.'
               });
             }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
               orderMode === 'QUOTATION'
                 ? 'bg-purple-500 text-white shadow-md ring-2 ring-purple-300'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
@@ -1642,8 +1961,40 @@ export default function SalesOrderPage() {
           >
             <Sparkles className={`w-3.5 h-3.5 ${orderMode === 'QUOTATION' ? 'text-white font-black' : 'text-purple-400'}`} />
             <span>Quotation</span>
-            <span className={`text-[10px] px-1.5 py-0.2 rounded font-extrabold ${orderMode === 'QUOTATION' ? 'bg-white/20 text-white' : 'bg-purple-950/60 text-purple-300 border border-purple-800'}`}>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+              orderMode === 'QUOTATION'
+                ? 'bg-white/20 text-white'
+                : 'bg-purple-950/60 text-purple-300 border border-purple-800'
+            }`}>
               Price Quote
+            </span>
+          </button>
+
+          {/* Mode 4: Invoice (No Stock Deduction) */}
+          <button
+            type="button"
+            onClick={() => {
+              setOrderMode('INVOICE');
+              setStatusMessage({
+                type: 'ready',
+                text: '🔵 Invoice Mode: Generate legal Tax Invoice with complete billing details without deducting inventory stock.'
+              });
+            }}
+            className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+              orderMode === 'INVOICE'
+                ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+            }`}
+            title="Invoice: Direct commercial Tax Invoice without inventory deduction"
+          >
+            <FileText className={`w-3.5 h-3.5 ${orderMode === 'INVOICE' ? 'text-white font-black' : 'text-blue-400'}`} />
+            <span>Invoice</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+              orderMode === 'INVOICE'
+                ? 'bg-white/20 text-white'
+                : 'bg-blue-950/60 text-blue-300 border border-blue-800'
+            }`}>
+              No Stock Deduction
             </span>
           </button>
         </div>
@@ -1832,21 +2183,6 @@ export default function SalesOrderPage() {
             />
           </div>
 
-          {/* Local Currency */}
-          <div className="flex items-center">
-            <label className="w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0">
-              Local Currency
-            </label>
-            <select
-              value={currency}
-              onChange={(e) => setCurrency(e.target.value)}
-              className="w-48 h-[23px] px-2 text-[11.5px] font-medium border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-            >
-              <option value="INR">INR - Indian Rupee (₹)</option>
-              <option value="USD">USD - US Dollar ($)</option>
-            </select>
-          </div>
-
           {/* Ship To Address */}
           <div className="flex items-start">
             <label className="w-32 text-[var(--sap-text-muted)] text-[11.5px] shrink-0 pt-0.5">
@@ -2001,27 +2337,20 @@ export default function SalesOrderPage() {
             
             {/* Grid Controls Bar */}
             <div className="flex items-center justify-between text-[11.5px] pb-1">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[var(--sap-text-muted)] font-bold">Item/Service Type:</span>
-                  <select
-                    value={itemServiceType}
-                    onChange={(e) => setItemServiceType(e.target.value)}
-                    className="h-[22px] px-2 text-[11px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                  >
-                    <option value="Item">Item</option>
-                    <option value="Service">Service</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[var(--sap-text-muted)] font-bold">Summary Type:</span>
-                  <select
-                    className="h-[22px] px-2 text-[11px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                  >
-                    <option>No Summary</option>
-                    <option>By Category</option>
-                  </select>
-                </div>
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-bold text-[var(--sap-text)] flex items-center gap-1.5">
+                  <Table className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Document Rows:</span>
+                  <span className="text-slate-500 dark:text-slate-400 font-semibold text-[11px]">
+                    ({lines.filter(l => l.productId).length} filled / {lines.length} total)
+                  </span>
+                </span>
+                {lastStockSyncTime && (
+                  <span className="text-[10.5px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Live Stock Synced</span>
+                  </span>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -2136,6 +2465,25 @@ export default function SalesOrderPage() {
                     <span className="text-[10px] font-mono font-bold bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded text-purple-800 dark:text-purple-300">
                       Quotation Only
                     </span>
+                  </div>
+                )}
+
+                {orderMode === 'INVOICE' && (
+                  <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 rounded-md p-2.5 flex items-center justify-between gap-3 text-blue-900 dark:text-blue-200">
+                    <div className="flex items-center gap-2">
+                      <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                      <div>
+                        <div className="font-bold text-xs flex items-center gap-2">
+                          <span>Direct Invoice Mode Active (Financial Billing Only)</span>
+                          <span className="bg-blue-200 dark:bg-blue-900 text-blue-900 dark:text-blue-200 px-1.5 py-0.2 rounded font-mono text-[10px]">
+                            Stock Untouched
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-blue-800 dark:text-blue-300">
+                          Generates an official Tax Invoice with complete financial and GST details. <strong>Warehouse inventory values and stock levels will NOT be deducted or changed.</strong>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2430,7 +2778,14 @@ export default function SalesOrderPage() {
                         autoFocus
                         value={gridSearchQuery}
                         onChange={(e) => setGridSearchQuery(e.target.value)}
-                        placeholder="Search System Code (e.g. BFD101, BG306), Product Name (e.g. Butterscotch), Category..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && gridFilteredProducts.length > 0) {
+                            e.preventDefault();
+                            handleSelectProductForLine(activeGridSearchLineId, gridFilteredProducts[0]);
+                            setActiveGridSearchLineId(null);
+                          }
+                        }}
+                        placeholder="Search System Code, Product Name, Category, Subcategory (e.g. K123, kulfistick, kulfi almond)..."
                         className="w-full pl-8 pr-7 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500"
                       />
                       {gridSearchQuery && (
@@ -2580,7 +2935,19 @@ export default function SalesOrderPage() {
 
                     {gridFilteredProducts.length === 0 && (
                       <div className="p-6 text-center text-slate-400">
-                        No product found matching "{gridSearchQuery}" in {gridSelectedBaseCategory}
+                        <div>No product found matching "{gridSearchQuery}" {gridSelectedBaseCategory !== 'All' ? `in ${gridSelectedBaseCategory}` : ''}</div>
+                        {gridSelectedBaseCategory !== 'All' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGridSelectedBaseCategory('All');
+                              setGridSelectedSubcategory('All');
+                            }}
+                            className="mt-2.5 px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
+                          >
+                            <span>Search in All Categories</span>
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -3465,6 +3832,8 @@ export default function SalesOrderPage() {
               </>
             ) : editOrderId ? (
               <span>Update Order</span>
+            ) : orderMode === 'INVOICE' ? (
+              <span>Generate Tax Invoice</span>
             ) : orderMode === 'STANDARD' ? (
               <span>Add Standard Order</span>
             ) : orderMode === 'NEED_PLANNING' ? (
@@ -3569,12 +3938,26 @@ export default function SalesOrderPage() {
             <div className="bg-slate-800 text-white px-4 py-2.5 flex items-center justify-between select-none">
               <div className="flex items-center gap-2 font-bold text-sm">
                 <Package className="w-4 h-4 text-amber-400" />
-                <span>Finished Product Catalog (207 Items)</span>
-                <span className="text-xs font-normal text-slate-300 opacity-80 pl-2 border-l border-slate-600">
-                  Live Stock • 2-Tier Category Screening
+                <span>Finished Product Catalog ({products.length} Items)</span>
+                <span className="text-xs font-normal text-slate-300 opacity-80 pl-2 border-l border-slate-600 flex items-center gap-1.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>Live Stock</span>
+                  {lastStockSyncTime && (
+                    <span className="text-emerald-300 font-mono text-[11px]">(Synced: {lastStockSyncTime})</span>
+                  )}
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isSyncingStock}
+                  onClick={handleSyncStock}
+                  className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-amber-300 font-bold text-xs rounded-xs flex items-center gap-1.5 cursor-pointer border border-slate-600 mr-1"
+                  title="Synchronize Live Warehouse Inventory"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isSyncingStock ? 'animate-spin text-amber-400' : 'text-amber-300'}`} />
+                  <span>{isSyncingStock ? 'Syncing...' : 'Sync Stock'}</span>
+                </button>
                 <div className="flex items-center bg-slate-700 rounded-xs p-0.5 border border-slate-600">
                   <button
                     type="button"
@@ -3609,15 +3992,24 @@ export default function SalesOrderPage() {
 
             {/* Search & 2-Tier Category Screening */}
             <div className="p-3 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 space-y-2">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+              <div className="relative flex items-center">
+                <Search className="w-4 h-4 absolute left-3 text-slate-400 pointer-events-none" />
                 <input
                   type="text"
                   value={searchCatalogQuery}
                   onChange={(e) => setSearchCatalogQuery(e.target.value)}
-                  placeholder="Search by System Code (e.g. BFD101, P141), Product Name (e.g. Vanilla), Category, Subcategory..."
-                  className="w-full pl-9 pr-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-xs font-medium outline-none focus:border-amber-500"
+                  placeholder="Search System Code, Product Name, Category, Subcategory (e.g. K123, kulfistick, kulfi almond)..."
+                  className="w-full pl-9 pr-8 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-xs font-semibold outline-none focus:border-amber-500"
                 />
+                {searchCatalogQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchCatalogQuery('')}
+                    className="absolute right-2.5 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                )}
               </div>
 
               {/* 2-Tier Filtering: Base Category -> Subcategory Pills */}
@@ -3776,6 +4168,29 @@ export default function SalesOrderPage() {
                         </tr>
                       );
                     })}
+
+                    {filteredCatalogItems.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="py-12 text-center text-slate-400">
+                          <div className="font-bold text-sm text-slate-600 dark:text-slate-300">No products found</div>
+                          <div className="text-xs text-slate-400 mt-1">
+                            No product matching "{searchCatalogQuery}" {selectedBaseCategory !== 'All' ? `in ${selectedBaseCategory}` : ''}
+                          </div>
+                          {(selectedBaseCategory !== 'All' || selectedSubcategory !== 'All') && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedBaseCategory('All');
+                                setSelectedSubcategory('All');
+                              }}
+                              className="mt-3 px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
+                            >
+                              <span>Search across All Categories</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               ) : (
@@ -3843,6 +4258,27 @@ export default function SalesOrderPage() {
                       </div>
                     );
                   })}
+
+                  {filteredCatalogItems.length === 0 && (
+                    <div className="col-span-full py-12 text-center text-slate-400">
+                      <div className="font-bold text-sm text-slate-600 dark:text-slate-300">No products found</div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        No product matching "{searchCatalogQuery}" {selectedBaseCategory !== 'All' ? `in ${selectedBaseCategory}` : ''}
+                      </div>
+                      {(selectedBaseCategory !== 'All' || selectedSubcategory !== 'All') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedBaseCategory('All');
+                            setSelectedSubcategory('All');
+                          }}
+                          className="mt-3 px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
+                        >
+                          <span>Search across All Categories</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

@@ -1175,14 +1175,6 @@ Thank you for choosing ${company}!`;
                 </div>
               </div>
 
-              {/* Local Currency */}
-              <div className="flex items-center">
-                <label className="w-32 text-slate-500 font-medium shrink-0">Local Currency</label>
-                <div className="flex-1 font-semibold text-slate-700 dark:text-slate-300">
-                  INR - Indian Rupee (₹)
-                </div>
-              </div>
-
               {/* Ship To Address */}
               <div className="flex items-start">
                 <label className="w-32 text-slate-500 font-medium shrink-0 pt-0.5">Ship To Address</label>
