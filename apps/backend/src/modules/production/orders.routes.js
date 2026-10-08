@@ -1613,9 +1613,9 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
   try {
     const id = req.params.id;
     const schema = z.object({
-      customerId: z.string().min(1),
-      type: z.enum(['Quotation', 'Sales Order', 'Invoice']),
-      deliveryDate: z.string(),
+      customerId: z.string().optional().nullable(),
+      type: z.enum(['Quotation', 'Sales Order', 'Invoice', 'POS']),
+      deliveryDate: z.string().optional(),
       createdAt: z.string().optional(),
       deliveryAddress: z.string().optional(),
       quotationNote: z.string().optional(),
@@ -1730,9 +1730,9 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       await tx.customerOrder.update({
         where: { id },
         data: {
-          customerId: data.customerId,
-          type: data.type,
-          deliveryDate: new Date(data.deliveryDate),
+          customerId: data.customerId || existing.customerId,
+          type: data.type || existing.type,
+          deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : existing.deliveryDate,
           createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
           deliveryAddress: data.deliveryAddress || null,
           billToAddress: data.billToAddress || null,

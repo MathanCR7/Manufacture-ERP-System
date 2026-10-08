@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
 import {
   ShoppingCart, Search, RefreshCw, Plus, Edit, Trash2, Eye,
-  Download, Printer, X, ChevronLeft, Package, FileText,
+  ChevronLeft, Package, FileText,
   TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown, ArrowUp, ArrowDown, Info, Sparkles, AlertCircle, Loader2, AlertTriangle
 } from 'lucide-react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import Swal from 'sweetalert2';
-import { jsPDF } from 'jspdf';
 import { Pagination } from '@/components/ui/Pagination';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
 
@@ -44,11 +43,21 @@ export default function OrderListPage() {
       navigate('/sales/billing?mode=sales-order', { replace: true, state: location.state });
       return;
     }
-    if (canEdit && (location.pathname.startsWith('/orders/edit/') || location.state)) {
-      setView({ type: 'create', prefill: location.state });
-    } else {
-      setView({ type: 'list', prefill: null });
+    const editMatch = location.pathname.match(/^\/orders\/edit\/([^/]+)/);
+    if (editMatch) {
+      const editId = editMatch[1];
+      api.get(`/orders/${editId}`).then(res => {
+        if (res.data?.type === 'POS') {
+          navigate(`/sales/billing?edit=${editId}&from=/orders/list`, { replace: true });
+        } else {
+          navigate(`/sales/order?edit=${editId}&from=/orders/list`, { replace: true });
+        }
+      }).catch(() => {
+        navigate(`/sales/order?edit=${editId}&from=/orders/list`, { replace: true });
+      });
+      return;
     }
+    setView({ type: 'list', prefill: null });
   }, [location, canEdit, navigate]);
 
   const [orders, setOrders] = useState([]);
@@ -60,16 +69,9 @@ export default function OrderListPage() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  const [invoiceData, setInvoiceData] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState(null);
-  const [pdfUrlA4, setPdfUrlA4] = useState(null);
-  const [pdfUrlBill, setPdfUrlBill] = useState(null);
-  const [previewMode, setPreviewMode] = useState('invoice');
 
   // Live Company & Tax Settings from store
   const storeCompany = useCompanyStore((s) => s.company);
-  const fetchCompany = useCompanyStore((s) => s.fetchCompany);
   const compName = storeCompany?.companyName || 'Company';
   const compAddr = storeCompany?.companyAddress || 'Factory / Registered Office Address';
   const compGstin = storeCompany?.companyGstin || '';
@@ -187,679 +189,11 @@ export default function OrderListPage() {
     });
   };
 
-  const compileInvoiceA4PDF = (order, companySettings) => {
-    const doc = new jsPDF();
-
-    const activeCompany = companySettings || storeCompany;
-    const companyName = activeCompany?.companyName || 'Company';
-    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
-    const companyGstin = activeCompany?.companyGstin || '';
-    const companyMobile = activeCompany?.companyMobile || '';
-
-    const customerGstin = order.customer?.gstin || order.taxRegNo || '';
-    const customerState = customerGstin.trim().replace(/^GSTIN-/, '').substring(0, 2);
-    const companyState = companyGstin.trim().substring(0, 2);
-    const isSameState = customerState === companyState || !customerState;
-
-    doc.setFillColor(30, 27, 75);
-    doc.rect(0, 0, 210, 8, 'F');
-    doc.setFillColor(245, 158, 11);
-    doc.rect(0, 8, 210, 1.5, 'F');
-
-    let currentY = 22;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(22);
-    doc.setTextColor(30, 27, 75);
-    doc.text('TAX INVOICE', 14, currentY);
-
-    currentY += 7;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(71, 85, 105);
-    doc.text(companyName.toUpperCase(), 14, currentY);
-    currentY += 4.5;
-    
-    const companyAddressLines = doc.splitTextToSize(companyAddress, 80);
-    doc.text(companyAddressLines, 14, currentY);
-    const companyAddressHeight = companyAddressLines.length * 4.5;
-    currentY += companyAddressHeight;
-    
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 27, 75);
-    doc.text(`GSTIN: ${companyGstin}`, 14, currentY);
-    currentY += 4.5;
-    doc.text(`Mobile: ${companyMobile}`, 14, currentY);
-
-    const metaBoxX = 115;
-    const metaBoxWidth = 81;
-    const metaBoxY = 15;
-    const metaBoxHeight = 35;
-
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(metaBoxX, metaBoxY, metaBoxWidth, metaBoxHeight, 3, 3, 'FD');
-
-    let mY = metaBoxY + 5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('INVOICE NO.', metaBoxX + 4, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(order.referenceNo || 'N/A', metaBoxX + 4, mY + 4);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('INVOICE DATE', metaBoxX + 44, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(new Date(order.createdAt).toLocaleDateString('en-GB') || 'N/A', metaBoxX + 44, mY + 4);
-
-    mY += 12;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('PAYMENT TERMS', metaBoxX + 4, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(order.paymentTerms || 'Not Paid', metaBoxX + 4, mY + 4);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('DELIVERY DATE', metaBoxX + 44, mY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9);
-    doc.text(new Date(order.deliveryDate).toLocaleDateString('en-GB') || 'N/A', metaBoxX + 44, mY + 4);
-
-    currentY = Math.max(currentY + 6, 60);
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(255, 255, 255);
-    doc.roundedRect(14, currentY, 182, 24, 2, 2, 'D');
-
-    let bY = currentY + 5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('BILLED TO (BUYER):', 18, bY);
-    doc.setTextColor(30, 27, 75);
-    doc.setFontSize(9.5);
-    doc.text(order.customer?.name || 'Walk-in Customer', 18, bY + 4.5);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(71, 85, 105);
-    const delAddress = order.deliveryAddress || order.customer?.address || 'N/A';
-    const customerAddressLines = doc.splitTextToSize(delAddress, 85);
-    doc.text(customerAddressLines, 18, bY + 9);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text(`Buyer GSTIN: ${customerGstin || 'Unregistered'}`, 115, bY + 4.5);
-
-    currentY += 32;
-    doc.setFillColor(30, 27, 75);
-    doc.rect(14, currentY, 182, 8, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text('SN', 17, currentY + 5.5, { align: 'center' });
-    doc.text('PRODUCT DESCRIPTION', 24, currentY + 5.5);
-    doc.text('HSN CODE', 95, currentY + 5.5);
-    doc.text('QTY', 120, currentY + 5.5, { align: 'right' });
-    doc.text('RATE (Rs.)', 140, currentY + 5.5, { align: 'right' });
-    doc.text('DISC (Rs.)', 160, currentY + 5.5, { align: 'right' });
-    doc.text('TOTAL (Rs.)', 192, currentY + 5.5, { align: 'right' });
-
-    let tY = currentY + 8;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(30, 27, 75);
-
-    let totalTaxableValue = 0;
-    (order.items || []).forEach((item, index) => {
-      const qty = Number(item.quantity) || 0;
-      const rate = Math.round(Number(item.unitPrice) || 0);
-      const disc = Math.round(Number(item.discount) || 0);
-      const lineTotalVal = (rate - disc) * qty;
-      totalTaxableValue += lineTotalVal;
-
-      doc.setDrawColor(241, 245, 249);
-      doc.line(14, tY + 7, 196, tY + 7);
-
-      doc.text(String(index + 1), 17, tY + 4.5, { align: 'center' });
-      doc.setFont('helvetica', 'bold');
-      doc.text(item.product?.name || 'Product', 24, tY + 4.5);
-      doc.setFont('helvetica', 'normal');
-      doc.text(item.product?.hsnCode || '21050000', 95, tY + 4.5);
-      doc.text(String(qty), 120, tY + 4.5, { align: 'right' });
-      doc.text(`Rs.${rate}`, 140, tY + 4.5, { align: 'right' });
-      doc.text(`Rs.${disc}`, 160, tY + 4.5, { align: 'right' });
-      doc.text(`Rs.${lineTotalVal}`, 192, tY + 4.5, { align: 'right' });
-
-      tY += 7.5;
-    });
-
-    const discountVal = Number(order.discountValue || 0);
-    const collectTax = !!order.collectTax;
-    const freightVal = Number(order.freight || 0);
-    const loadingVal = Number(order.loadingCharges || 0);
-    const packingVal = Number(order.packingCharges || 0);
-    const insuranceVal = Number(order.insurance || 0);
-    const otherVal = Number(order.otherCharges || 0);
-    const cgstVal = Number(order.cgst || 0);
-    const sgstVal = Number(order.sgst || 0);
-    const igstVal = Number(order.igst || 0);
-    const roundedGrandTotal = Number(order.grandTotal || (totalTaxableValue + cgstVal + sgstVal + igstVal + freightVal + loadingVal + packingVal + insuranceVal + otherVal - discountVal));
-
-    tY += 5;
-    const summaryX = 115;
-    const summaryWidth = 81;
-
-    const chargeOffsetCount = 
-      (freightVal > 0 ? 1 : 0) + 
-      (loadingVal > 0 ? 1 : 0) + 
-      (packingVal > 0 ? 1 : 0) + 
-      (insuranceVal > 0 ? 1 : 0) + 
-      (otherVal > 0 ? 1 : 0) + 
-      (discountVal > 0 ? 1 : 0);
-    const boxHeight = 25 + (collectTax ? 10 : 0) + (chargeOffsetCount * 4.5);
-
-    doc.setDrawColor(226, 232, 240);
-    doc.setFillColor(255, 255, 255);
-    doc.rect(summaryX, tY, summaryWidth, boxHeight, 'D');
-
-    let sY = tY + 4.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Taxable Subtotal:', summaryX + 4, sY);
-    doc.setTextColor(30, 27, 75);
-    doc.text(`Rs.${totalTaxableValue}`, summaryX + 77, sY, { align: 'right' });
-
-    if (discountVal > 0) {
-      sY += 4.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Discount:', summaryX + 4, sY);
-      doc.setTextColor(220, 38, 38);
-      doc.text(`-Rs.${discountVal}`, summaryX + 77, sY, { align: 'right' });
-    }
-
-    if (collectTax) {
-      if (isSameState) {
-        sY += 4.5;
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 116, 139);
-        doc.text('CGST:', summaryX + 4, sY);
-        doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Math.round(cgstVal)}`, summaryX + 77, sY, { align: 'right' });
-
-        sY += 4.5;
-        doc.setTextColor(100, 116, 139);
-        doc.text('SGST:', summaryX + 4, sY);
-        doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Math.round(sgstVal)}`, summaryX + 77, sY, { align: 'right' });
-      } else {
-        sY += 4.5;
-        doc.setFont('helvetica', 'normal');
-        doc.setTextColor(100, 116, 139);
-        doc.text('IGST:', summaryX + 4, sY);
-        doc.setTextColor(30, 27, 75);
-        doc.text(`Rs.${Math.round(igstVal)}`, summaryX + 77, sY, { align: 'right' });
-      }
-    }
-
-    if (freightVal > 0) {
-      sY += 4.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Freight Charges:', summaryX + 4, sY);
-      doc.setTextColor(30, 27, 75);
-      doc.text(`Rs.${freightVal}`, summaryX + 77, sY, { align: 'right' });
-    }
-
-    if (loadingVal > 0) {
-      sY += 4.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Loading/Unloading:', summaryX + 4, sY);
-      doc.setTextColor(30, 27, 75);
-      doc.text(`Rs.${loadingVal}`, summaryX + 77, sY, { align: 'right' });
-    }
-
-    if (packingVal > 0) {
-      sY += 4.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Packing Charges:', summaryX + 4, sY);
-      doc.setTextColor(30, 27, 75);
-      doc.text(`Rs.${packingVal}`, summaryX + 77, sY, { align: 'right' });
-    }
-
-    if (insuranceVal > 0) {
-      sY += 4.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Insurance:', summaryX + 4, sY);
-      doc.setTextColor(30, 27, 75);
-      doc.text(`Rs.${insuranceVal}`, summaryX + 77, sY, { align: 'right' });
-    }
-
-    if (otherVal > 0) {
-      sY += 4.5;
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text('Other Charges:', summaryX + 4, sY);
-      doc.setTextColor(30, 27, 75);
-      doc.text(`Rs.${otherVal}`, summaryX + 77, sY, { align: 'right' });
-    }
-
-    sY += 5;
-    doc.setDrawColor(226, 232, 240);
-    doc.line(summaryX, sY - 1, summaryX + summaryWidth, sY - 1);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.setTextColor(30, 27, 75);
-    doc.text('Grand Total:', summaryX + 4, sY + 1.5);
-    doc.text(`Rs.${Math.round(roundedGrandTotal)}`, summaryX + 77, sY + 1.5, { align: 'right' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text('Page 1 of 2 - Terms & Conditions and Seal on Page 2.', 105, 286, { align: 'center' });
-
-    doc.addPage();
-    doc.setFillColor(30, 27, 75);
-    doc.rect(0, 0, 210, 8, 'F');
-    doc.setFillColor(245, 158, 11);
-    doc.rect(0, 8, 210, 1.5, 'F');
-
-    let termsY = 22;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.setTextColor(30, 27, 75);
-    doc.text('TERMS & CONDITIONS', 14, termsY);
-    doc.line(14, termsY + 2, 196, termsY + 2);
-
-    termsY += 8;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.setTextColor(71, 85, 105);
-    
-    const termsText = order.quotationNote || 'No terms specified.';
-    const termsLines = doc.splitTextToSize(termsText, 182);
-    doc.text(termsLines, 14, termsY);
-
-    const sigY = 230;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text(`For ${companyName.toUpperCase()}`, 145, sigY);
-    
-    doc.setDrawColor(16, 185, 129);
-    doc.setLineWidth(0.4);
-    doc.setFillColor(209, 250, 229);
-    doc.roundedRect(145, sigY + 3, 40, 14, 1, 1, 'FD');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(4, 120, 87);
-    doc.text('DIGITALLY VERIFIED', 165, sigY + 8.5, { align: 'center' });
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5);
-    doc.text('AUTHORISED SIGNATORY', 165, sigY + 13, { align: 'center' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text('Page 2 of 2 - Generated via ERP System.', 105, 286, { align: 'center' });
-
-    return doc.output('blob');
-  };
-
-  const compileThermalBillPDF = (order, companySettings) => {
-    const activeCompany = companySettings || storeCompany;
-    const companyName = activeCompany?.companyName || 'Company';
-    const companyAddress = activeCompany?.companyAddress || 'Factory / Registered Office Address';
-    const companyGstin = activeCompany?.companyGstin || '';
-    const companyMobile = activeCompany?.companyMobile || '';
-
-    const items = order.items || [];
-    const itemsCount = items.length;
-
-    const discountVal = Number(order.discountValue || order.discount || 0);
-    const collectTax = !!order.collectTax || Number(order.totalTax || order.cgst || order.sgst || 0) > 0;
-    const freightVal = Number(order.freight || order.freightCharges || 0);
-    const loadingVal = Number(order.loadingCharges || order.loading || 0);
-    const packingVal = Number(order.packingCharges || order.packing || 0);
-    const insuranceVal = Number(order.insurance || order.insuranceCharges || 0);
-    const otherVal = Number(order.otherCharges || order.other || 0);
-    const cgstVal = Number(order.cgst || (collectTax ? (order.totalTax ? order.totalTax / 2 : 0) : 0));
-    const sgstVal = Number(order.sgst || (collectTax ? (order.totalTax ? order.totalTax / 2 : 0) : 0));
-    const igstVal = Number(order.igst || 0);
-    const tdsVal = Number(order.tdsDeduction || order.tds || 0);
-    const roundOffVal = Number(order.roundOff || 0);
-
-    let totalTaxableValue = Number(order.subtotal || order.totalSubtotal || 0);
-    if (!totalTaxableValue) {
-      items.forEach(item => {
-        const qty = Number(item.quantity) || 0;
-        const rate = Number(item.unitPrice) || 0;
-        const disc = Number(item.discount) || 0;
-        totalTaxableValue += (rate - disc) * qty;
-      });
-    }
-
-    const roundedGrandTotal = Number(order.grandTotal || (totalTaxableValue + cgstVal + sgstVal + igstVal + freightVal + loadingVal + packingVal + insuranceVal + otherVal - discountVal - tdsVal + roundOffVal));
-
-    const BILL_QUOTES = [
-      "Life is like ice cream, enjoy it before it melts!",
-      "Double the flavor, double the happiness.",
-      "There is always room for some sweet moments.",
-      "Keep cool, carry on, and eat some kulfi.",
-      "Indulge in the creamy goodness of pure happiness.",
-      "Crafting sweetness with premium quality standards.",
-      "Happiness is a cup, a stick, or a slice of dessert.",
-      "Serving smiles and superior taste since inception.",
-      "Freshly prepared, carefully pasteurized, always delicious.",
-      "A sweet treat for a sweeter client like you!",
-      "Manufactured with state-of-the-art hygiene & love.",
-      "Cool down your day with our premium kulfi pops.",
-      "Sprinkled with pistachio, saffron, and joyful vibes.",
-      "The secret ingredient is always high-quality care.",
-      "Making your celebrations sweeter, one batch at a time.",
-      "Quality is not an act, it is a daily habit.",
-      "Every scoop tells a story of craftsmanship.",
-      "Pure cream, natural mangoes, and rich traditions.",
-      "Dessert is nature's way of making up for Mondays.",
-      "Purity you can taste, standards you can trust.",
-      "Kulfi: The ancient Indian art of frozen happiness.",
-      "Crafted in Salem, loved across the nation.",
-      "You can't buy happiness, but you can buy ice cream!",
-      "Creamy texture, rich cardamom, pure delight.",
-      "For the love of kulfi, made with absolute precision.",
-      "Pistachio power and saffron gold in every bite.",
-      "A classic recipe for a modern generation.",
-      "Frozen to perfection, delivered with care.",
-      "Quality raw materials make for unmatched goodness.",
-      "Your trust is our pride. Have a wonderful day!"
-    ];
-
-    const randomQuote = BILL_QUOTES[Math.floor(Math.random() * BILL_QUOTES.length)];
-
-    let activeLines = 14 + itemsCount;
-    if (discountVal > 0) activeLines++;
-    if (freightVal > 0) activeLines++;
-    if (loadingVal > 0) activeLines++;
-    if (packingVal > 0) activeLines++;
-    if (insuranceVal > 0) activeLines++;
-    if (otherVal > 0) activeLines++;
-    if (cgstVal > 0) activeLines++;
-    if (sgstVal > 0) activeLines++;
-    if (igstVal > 0) activeLines++;
-    if (tdsVal > 0) activeLines++;
-    if (roundOffVal !== 0) activeLines++;
-
-    let dynamicHeight = Math.max(160, 110 + (activeLines * 4));
-
-    const doc = new jsPDF({
-      unit: 'mm',
-      format: [80, dynamicHeight]
-    });
-
-    // Outer Frame
-    doc.setDrawColor(180, 180, 180);
-    doc.line(3, 3, 77, 3);
-    doc.line(3, dynamicHeight - 3, 77, dynamicHeight - 3);
-    doc.line(3, 3, 3, dynamicHeight - 3);
-    doc.line(77, 3, 77, dynamicHeight - 3);
-
-    // Thermal receipt header
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text('RETAIL TAX INVOICE', 40, 8, { align: 'center' });
-
-    doc.setFontSize(7);
-    doc.text(companyName.toUpperCase().substring(0, 32), 40, 12, { align: 'center' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
-    doc.setTextColor(71, 85, 105);
-    const addressLines = doc.splitTextToSize(companyAddress, 68);
-    doc.text(addressLines, 40, 15, { align: 'center' });
-
-    let curY = 15 + (addressLines.length * 2.8);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(30, 27, 75);
-    doc.text(`GSTIN: ${companyGstin}`, 40, curY, { align: 'center' });
-
-    curY += 3;
-    doc.setDrawColor(220, 220, 220);
-    doc.line(5, curY, 75, curY);
-
-    curY += 3.5;
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(50, 50, 50);
-
-    const createdDate = new Date(order.createdAt || Date.now());
-    const formattedDate = createdDate.toLocaleDateString('en-GB');
-    const formattedTime = createdDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-
-    doc.text(`Bill No: ${order.referenceNo || 'N/A'}`, 5, curY);
-    doc.text(`Date: ${formattedDate}`, 48, curY);
-
-    curY += 3;
-    doc.text(`Customer: ${(order.customer?.name || 'Walk-in Customer').substring(0, 22)}`, 5, curY);
-    doc.text(`Time: ${formattedTime}`, 48, curY);
-
-    const taxRegNo = order.customer?.gstin || order.taxRegNo;
-    if (taxRegNo) {
-      curY += 3;
-      doc.text(`Buyer GSTIN: ${taxRegNo}`, 5, curY);
-    }
-
-    curY += 3;
-    doc.line(5, curY, 75, curY);
-
-    // Table Headers
-    curY += 3.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.text('ITEM', 5, curY);
-    doc.text('QTY', 38, curY, { align: 'right' });
-    doc.text('RATE', 53, curY, { align: 'right' });
-    doc.text('TOTAL', 75, curY, { align: 'right' });
-
-    curY += 2;
-    doc.line(5, curY, 75, curY);
-
-    curY += 3.5;
-    doc.setFont('helvetica', 'normal');
-    items.forEach((item) => {
-      const name = (item.product?.name || item.name || 'Product').substring(0, 18);
-      const qty = Number(item.quantity) || 0;
-      const rate = Number(item.unitPrice) || 0;
-      const disc = Number(item.discount) || 0;
-      const lineTotal = (rate - disc) * qty;
-
-      doc.setFont('helvetica', 'bold');
-      doc.text(name, 5, curY);
-      doc.setFont('helvetica', 'normal');
-      doc.text(String(qty), 38, curY, { align: 'right' });
-      doc.text(`Rs.${(rate - disc).toFixed(2)}`, 53, curY, { align: 'right' });
-      doc.text(`Rs.${lineTotal.toFixed(2)}`, 75, curY, { align: 'right' });
-      curY += 4;
-    });
-
-    curY += 1;
-    doc.line(5, curY, 75, curY);
-
-    // Summary Section Header
-    curY += 3.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text('Invoice Charges Summary', 40, curY, { align: 'center' });
-
-    curY += 2.5;
-    doc.line(20, curY, 60, curY);
-
-    // Summary Details
-    curY += 3.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6);
-    doc.setTextColor(50, 50, 50);
-
-    doc.text('Taxable Subtotal:', 48, curY, { align: 'right' });
-    doc.text(`Rs.${totalTaxableValue.toFixed(2)}`, 75, curY, { align: 'right' });
-
-    if (discountVal > 0) {
-      curY += 3.2;
-      doc.text('Discount:', 48, curY, { align: 'right' });
-      doc.text(`-Rs.${discountVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (freightVal > 0) {
-      curY += 3.2;
-      doc.text('Freight Charges (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${freightVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (loadingVal > 0) {
-      curY += 3.2;
-      doc.text('Loading & Unloading (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${loadingVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (packingVal > 0) {
-      curY += 3.2;
-      doc.text('Packing Charges (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${packingVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (insuranceVal > 0) {
-      curY += 3.2;
-      doc.text('Insurance (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${insuranceVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (otherVal > 0) {
-      curY += 3.2;
-      doc.text('Other Charges (GST 18%):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${otherVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (collectTax) {
-      const isTamilNadu = taxRegNo?.trim().replace(/^GSTIN-/, '').substring(0, 2) === '33' || !taxRegNo;
-      if (isTamilNadu) {
-        curY += 3.2;
-        doc.text('CGST @ 9%:', 48, curY, { align: 'right' });
-        doc.text(`Rs.${cgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
-
-        curY += 3.2;
-        doc.text('SGST @ 9%:', 48, curY, { align: 'right' });
-        doc.text(`Rs.${sgstVal.toFixed(2)}`, 75, curY, { align: 'right' });
-      } else {
-        curY += 3.2;
-        doc.text('IGST @ 18%:', 48, curY, { align: 'right' });
-        doc.text(`Rs.${igstVal.toFixed(2)}`, 75, curY, { align: 'right' });
-      }
-    }
-
-    if (tdsVal > 0) {
-      curY += 3.2;
-      doc.text('TDS Deduction (Rs.):', 48, curY, { align: 'right' });
-      doc.text(`-Rs.${tdsVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    if (roundOffVal !== 0) {
-      curY += 3.2;
-      doc.text('Round Off (Rs.):', 48, curY, { align: 'right' });
-      doc.text(`Rs.${roundOffVal.toFixed(2)}`, 75, curY, { align: 'right' });
-    }
-
-    curY += 4;
-    doc.line(35, curY - 1.5, 75, curY - 1.5);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(30, 27, 75);
-    doc.text('Total Invoice Amount:', 48, curY, { align: 'right' });
-    doc.text(`Rs.${roundedGrandTotal.toFixed(2)}`, 75, curY, { align: 'right' });
-
-    curY += 5;
-    doc.line(5, curY, 75, curY);
-
-    // Shuffled quotes display box
-    curY += 3.5;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6);
-    doc.setTextColor(30, 27, 75);
-    doc.text('QUOTE OF THE DAY', 40, curY, { align: 'center' });
-
-    curY += 2.8;
-    doc.setFont('helvetica', 'italic');
-    doc.setTextColor(71, 85, 105);
-    const quoteLines = doc.splitTextToSize(`"${randomQuote}"`, 66);
-    doc.text(quoteLines, 40, curY, { align: 'center' });
-
-    curY += (quoteLines.length * 2.5) + 2.5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(5.5);
-    doc.setTextColor(120, 120, 120);
-    doc.text(`- Powered by ${companyName || 'ERP System'} -`, 40, curY, { align: 'center' });
-
-    return doc.output('blob');
-  };
-
-  const handlePrint = async (order) => {
-    const isDark = document.documentElement.classList.contains('dark');
-    Swal.fire({
-      title: 'Compiling Invoice PDF',
-      html: '<p class="text-xs text-slate-500 mt-1">Generating printable tax receipt...</p>',
-      allowOutsideClick: false,
-      didOpen: () => {
-        Swal.showLoading();
-      },
-      background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-      color: isDark ? '#f8fafc' : '#0f172a',
-      customClass: {
-        popup: 'rounded-2xl border border-slate-100 dark:border-slate-800 shadow-xl'
-      }
-    });
-
-    try {
-      const taxRes = await api.get('/setup/tax');
-      const taxSettings = taxRes.data;
-
-      const orderRes = await api.get(`/orders/${order.id}`);
-      const fullOrder = orderRes.data;
-
-      const a4Blob = compileInvoiceA4PDF(fullOrder, taxSettings);
-      const billBlob = compileThermalBillPDF(fullOrder, taxSettings);
-      const a4Url = URL.createObjectURL(a4Blob);
-      const billUrl = URL.createObjectURL(billBlob);
-
-      setPdfUrlA4(a4Url);
-      setPdfUrlBill(billUrl);
-      setPdfUrl(a4Url); // Default to A4 Invoice
-      setPreviewMode('invoice');
-      setInvoiceData(fullOrder);
-      setShowInvoiceModal(true);
-      Swal.close();
-    } catch (err) {
-      console.error(err);
-      Swal.fire({
-        title: 'Error',
-        text: 'Failed to retrieve billing information or target details.',
-        icon: 'error',
-        confirmButtonColor: '#6366f1'
-      });
+  const handleEditOrder = (order) => {
+    if (order.type === 'POS') {
+      navigate(`/sales/billing?edit=${order.id}&from=/orders/list`);
+    } else {
+      navigate(`/sales/order?edit=${order.id}&from=/orders/list`);
     }
   };
 
@@ -957,8 +291,8 @@ export default function OrderListPage() {
     }
 
     return (
-      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto animate__animated animate__fadeIn print:p-0 print:bg-white">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800 print:hidden">
+      <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto animate__animated animate__fadeIn">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
           <div className="space-y-0.5">
             <button 
               onClick={handleCloseInvoiceView}
@@ -982,23 +316,23 @@ export default function OrderListPage() {
         </div>
 
         {/* Invoice Page Wrapper */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden p-6 sm:p-8 space-y-6 print:shadow-none print:rounded-none print:border-none print:bg-white print:text-slate-900">
-          <div className="flex flex-col sm:flex-row justify-between border-b border-slate-205 dark:border-slate-800 pb-5 gap-4">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden p-6 sm:p-8 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between border-b border-slate-200 dark:border-slate-800 pb-5 gap-4">
             <div>
-              <h2 className="text-xl sm:text-2xl font-black text-indigo-650 dark:text-indigo-450 uppercase tracking-tight flex items-center gap-1.5">
+              <h2 className="text-xl sm:text-2xl font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-tight flex items-center gap-1.5">
                 <Sparkles className="w-5.5 h-5.5 text-amber-500" /> {compName}
               </h2>
-              <p className="text-xs text-slate-550 dark:text-slate-400 mt-1 max-w-sm leading-relaxed">{compAddr}</p>
-              <p className="text-xs text-slate-550 dark:text-slate-400 font-bold font-mono mt-0.5">GSTIN: {compGstin}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm leading-relaxed">{compAddr}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-bold font-mono mt-0.5">GSTIN: {compGstin}</p>
             </div>
             <div className="text-left sm:text-right">
               <h3 className="text-xs font-extrabold text-slate-700 dark:text-slate-300 uppercase tracking-widest bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-lg inline-block">TAX INVOICE</h3>
-              <p className="text-sm font-mono font-black text-indigo-650 dark:text-indigo-400 mt-2">{selectedOrder.referenceNo}</p>
-              <p className="text-xs text-slate-550 dark:text-slate-400 mt-0.5">Date: {new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}</p>
+              <p className="text-sm font-mono font-black text-indigo-600 dark:text-indigo-400 mt-2">{selectedOrder.referenceNo}</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Date: {new Date(selectedOrder.createdAt).toLocaleDateString('en-GB')}</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-xl text-xs border border-slate-200 dark:border-slate-800 print:bg-slate-50">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 bg-slate-50 dark:bg-slate-950/40 p-4 rounded-xl text-xs border border-slate-200 dark:border-slate-800">
             <div className="space-y-1">
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Billed To Customer</span>
               <p className="font-extrabold text-slate-800 dark:text-white text-xs">
@@ -1009,22 +343,22 @@ export default function OrderListPage() {
                   Phone: {selectedOrder.customerPhone || selectedOrder.customer?.phone}
                 </p>
               )}
-              <p className="text-slate-550 dark:text-slate-400 leading-relaxed">
+              <p className="text-slate-500 dark:text-slate-400 leading-relaxed">
                 Address: {selectedOrder.deliveryAddress || selectedOrder.customer?.address || 'N/A'}
               </p>
             </div>
             <div className="text-left sm:text-right space-y-1 text-xs">
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Order Parameters</span>
-              <p className="text-slate-700 dark:text-slate-350">Order Type: <strong className="text-slate-900 dark:text-white">{selectedOrder.type}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Order Type: <strong className="text-slate-900 dark:text-white">{selectedOrder.type}</strong></p>
               {selectedOrder.counterId && (
-                <p className="text-slate-700 dark:text-slate-350">
+                <p className="text-slate-700 dark:text-slate-300">
                   POS Counter: <strong className="text-emerald-600 font-mono">{selectedOrder.counterId}</strong>
                   {selectedOrder.cashierName && <span> • Cashier: {selectedOrder.cashierName}</span>}
                 </p>
               )}
-              <p className="text-slate-700 dark:text-slate-350">Payment Status: <strong className="text-indigo-605 dark:text-indigo-400">{selectedOrder.paymentStatus || selectedOrder.paymentTerms || 'PAID'}</strong></p>
-              <p className="text-slate-700 dark:text-slate-355">Delivery Date: <strong className="text-slate-900 dark:text-white">{new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB')}</strong></p>
-              <p className="text-slate-700 dark:text-slate-355">Status: <strong className="text-emerald-600 uppercase">{selectedOrder.status}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Payment Status: <strong className="text-indigo-600 dark:text-indigo-400">{selectedOrder.paymentStatus || selectedOrder.paymentTerms || 'PAID'}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Delivery Date: <strong className="text-slate-900 dark:text-white">{new Date(selectedOrder.deliveryDate).toLocaleDateString('en-GB')}</strong></p>
+              <p className="text-slate-700 dark:text-slate-300">Status: <strong className="text-emerald-600 uppercase">{selectedOrder.status}</strong></p>
             </div>
           </div>
 
@@ -1032,13 +366,13 @@ export default function OrderListPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left min-w-[700px]">
               <thead>
-                <tr className="bg-slate-50 dark:bg-slate-950 text-slate-650 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-200 dark:border-slate-800">
+                <tr className="bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 text-[10px] uppercase font-bold border-b border-slate-200 dark:border-slate-800">
                   <th className="px-4 py-2.5 text-center w-12 font-bold">SN</th>
                   <th className="px-4 py-2.5">Item Details & Batch</th>
                   <th className="px-4 py-2.5 text-right w-16">Qty</th>
                   <th className="px-4 py-2.5 text-right w-24">Rate</th>
                   <th className="px-4 py-2.5 text-right w-20">Discount</th>
-                  <th className="px-4 py-2.5 text-right w-32 text-indigo-650 dark:text-indigo-400 font-bold">Total Value</th>
+                  <th className="px-4 py-2.5 text-right w-32 text-indigo-600 dark:text-indigo-400 font-bold">Total Value</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-[11px]">
@@ -1047,11 +381,11 @@ export default function OrderListPage() {
                   return (
                     <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/10">
                       <td className="px-4 py-2.5 text-center text-slate-400 font-bold">{idx + 1}</td>
-                      <td className="px-4 py-2.5 font-bold text-slate-805 dark:text-slate-200">
+                      <td className="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200">
                         {item.productName || item.product?.name} <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">({item.product?.code || item.hsnCode || '21050000'})</span>
                         {(item.batchNo || item.expiryDate) && (
                           <div className="text-[10px] flex items-center gap-2 mt-0.5 font-normal">
-                            {item.batchNo && <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 px-1.5 py-0.2 rounded font-mono font-bold">Batch: {item.batchNo}</span>}
+                            {item.batchNo && <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 px-1.5 py-0.5 rounded font-mono font-bold">Batch: {item.batchNo}</span>}
                             {item.expiryDate && <span className="text-slate-400 font-mono">Exp: {new Date(item.expiryDate).toLocaleDateString('en-GB')}</span>}
                           </div>
                         )}
@@ -1092,7 +426,7 @@ export default function OrderListPage() {
             </div>
 
             {/* Right side: Charges and Totals breakdown */}
-            <div className="w-full md:w-96 space-y-2 bg-slate-50 dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-350">
+            <div className="w-full md:w-96 space-y-2 bg-slate-50 dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300">
               <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block mb-1">Invoice Charges Summary</span>
               
               <div className="flex justify-between">
@@ -1157,9 +491,9 @@ export default function OrderListPage() {
                 <span className="font-mono font-bold text-slate-800 dark:text-white">₹{Number(selectedOrder.roundOff || 0).toFixed(2)}</span>
               </div>
 
-              <div className="flex justify-between text-xs font-black text-indigo-650 dark:text-indigo-400 border-t border-slate-205 dark:border-slate-800 pt-2 font-semibold">
+              <div className="flex justify-between text-xs font-black text-indigo-600 dark:text-indigo-400 border-t border-slate-200 dark:border-slate-800 pt-2 font-semibold">
                 <span>Total Invoice Amount:</span>
-                <span className="font-mono text-sm text-indigo-505 font-black">₹{Number(selectedOrder.grandTotal || 0).toFixed(2)}</span>
+                <span className="font-mono text-sm text-indigo-600 font-black">₹{Number(selectedOrder.grandTotal || 0).toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -1172,7 +506,7 @@ export default function OrderListPage() {
     <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
       <DashboardBackButton />
       {!canEdit && (
-        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-955/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
+        <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl text-amber-800 dark:text-amber-300 text-sm font-medium mb-4">
           <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
           <span>You have <strong>Read-Only access</strong> to Customer Order Registry. Hitting saves, changes, additions, or deletes are restricted.</span>
         </div>
@@ -1182,7 +516,7 @@ export default function OrderListPage() {
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-              <ShoppingCart className="w-5.5 h-5.5 text-indigo-650" />
+              <ShoppingCart className="w-5.5 h-5.5 text-indigo-600" />
               Customer Order Registry
             </h1>
             {/* Auto-Sync Live Badge */}
@@ -1217,10 +551,10 @@ export default function OrderListPage() {
       <div className="bg-slate-50/50 dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-col md:flex-row gap-3 justify-between items-center text-xs">
         <div className="flex items-center gap-2 w-full md:w-auto flex-1">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-405" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input
               placeholder="Search reference no, customer, phone, address..."
-              className="pl-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-850 dark:text-white rounded-xl focus:ring-indigo-500 text-xs h-9"
+              className="pl-9 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white rounded-xl focus:ring-indigo-500 text-xs h-9"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
@@ -1280,7 +614,7 @@ export default function OrderListPage() {
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
         <div className="overflow-x-auto text-xs animate__animated animate__fadeIn">
           <table className="w-full text-left">
-            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-450 uppercase font-bold tracking-widest border-b dark:border-slate-800">
+            <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 uppercase font-bold tracking-widest border-b dark:border-slate-800">
               <tr>
                 <th className="px-4 py-2.5 cursor-pointer group" onClick={() => handleToggleSort('ref')}>
                   <div className="flex items-center">
@@ -1327,7 +661,7 @@ export default function OrderListPage() {
                   const config = STATUS_CONFIG[order.status] || { bg: 'bg-slate-50', text: 'text-slate-600', dot: 'bg-slate-400', border: 'border-slate-200' };
                   return (
                     <tr key={order.id} className="dark:border-slate-800 hover:bg-slate-50/40 dark:hover:bg-slate-800/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none">
-                      <td className="px-4 py-2.5 font-mono font-bold text-indigo-650 dark:text-indigo-400">{order.referenceNo}</td>
+                      <td className="px-4 py-2.5 font-mono font-bold text-indigo-600 dark:text-indigo-400">{order.referenceNo}</td>
                       <td className="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200">
                         <div>{order.customerName || order.customer?.name || (order.type === 'POS' ? 'Walk-in Cash Customer' : 'Unregistered Client')}</div>
                         {order.counterId && (
@@ -1338,7 +672,7 @@ export default function OrderListPage() {
                       </td>
                       <td className="px-4 py-2.5 text-center text-slate-500 font-semibold">{order.type}</td>
                       <td className="px-4 py-2.5 text-right font-mono font-bold">{itemsCount}</td>
-                      <td className="px-4 py-2.5 text-right font-mono font-black text-slate-855 dark:text-white">
+                      <td className="px-4 py-2.5 text-right font-mono font-black text-slate-800 dark:text-white">
                         ₹{Number(order.grandTotal || order.totalSubtotal).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-2.5 text-center text-slate-500 font-semibold">
@@ -1364,22 +698,18 @@ export default function OrderListPage() {
                       <td className="px-4 py-2.5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => setSearchParams({ id: order.id })}
-                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-650 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors" title="View details">
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors" title="View details">
                             <Eye className="w-4 h-4" />
                           </button>
                           {canEdit && (
-                            <button onClick={() => navigate(`/orders/edit/${order.id}`)}
-                              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-650 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors" title="Edit">
+                            <button onClick={() => handleEditOrder(order)}
+                              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors" title="Edit">
                               <Edit className="w-4 h-4" />
                             </button>
                           )}
-                          <button onClick={() => handlePrint(order)}
-                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 rounded-lg transition-colors" title="Print Invoice">
-                            <Printer className="w-4 h-4" />
-                          </button>
                           {canEdit && (
                             <button onClick={() => handleDelete(order.id)}
-                              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-455 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 rounded-lg transition-colors" title="Delete">
+                              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 rounded-lg transition-colors" title="Delete">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}
@@ -1397,7 +727,7 @@ export default function OrderListPage() {
         {totalPages > 1 && (
           <div className="px-4 py-3 border-t border-slate-100 dark:border-slate-800 bg-slate-50/20 dark:bg-slate-900/20 flex flex-col sm:flex-row justify-between items-center gap-3">
             <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
-              Showing {(currentPage - 1) * PAGE_SIZE + 1} to {Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length} entries
+              Showing {(currentPage - 1) * PAGE_SIZE + 1} to {Math.min(currentPage * PAGE_SIZE, sortedAndFiltered.length)} of {sortedAndFiltered.length} entries
             </div>
 
             <div className="order-1 sm:order-2">
@@ -1409,135 +739,11 @@ export default function OrderListPage() {
             </div>
 
             <div className="text-xs text-slate-400 font-medium order-3">
-              Matched entries: {filtered.length} entries
+              Matched entries: {sortedAndFiltered.length} entries
             </div>
           </div>
         )}
       </div>
-
-      {showInvoiceModal && invoiceData && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 z-50 overflow-y-auto animate__animated animate__fadeIn">
-          <div className="bg-slate-900 border border-slate-800 text-slate-100 w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col h-[90vh]">
-            {/* Modal Header */}
-            <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950">
-              <div>
-                <h3 className="text-xs font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-indigo-500" /> Premium Tax Invoice Preview
-                </h3>
-                <p className="text-[9px] text-slate-500 mt-0.5">Reference: {invoiceData.referenceNo}</p>
-              </div>
-              <button
-                onClick={() => setShowInvoiceModal(false)}
-                className="text-slate-400 hover:text-white cursor-pointer p-1 rounded-lg hover:bg-slate-800 transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body / Iframe View */}
-            <div className="flex-1 bg-slate-950 p-5 flex flex-col md:flex-row gap-5 overflow-y-auto">
-              {/* Left Column: Interactive Actions */}
-              <div className="w-full md:w-64 space-y-4 shrink-0">
-                {/* Format layout choice */}
-                <div className="bg-slate-900 p-4 border border-slate-800 rounded-2xl space-y-2.5">
-                  <span className="text-[9px] font-black text-slate-405 uppercase block tracking-wider">Choose Layout</span>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPdfUrl(pdfUrlA4);
-                        setPreviewMode('invoice');
-                      }}
-                      className={`py-1.5 rounded-lg text-[10px] font-extrabold transition-all border cursor-pointer ${
-                        previewMode === 'invoice' 
-                          ? 'bg-indigo-650 border-indigo-500 text-white' 
-                          : 'bg-slate-950 border-slate-800 text-slate-400'
-                      }`}
-                    >
-                      A4 Invoice
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPdfUrl(pdfUrlBill);
-                        setPreviewMode('bill');
-                      }}
-                      className={`py-1.5 rounded-lg text-[10px] font-extrabold transition-all border cursor-pointer ${
-                        previewMode === 'bill' 
-                          ? 'bg-indigo-650 border-indigo-500 text-white' 
-                          : 'bg-slate-950 border-slate-800 text-slate-400'
-                      }`}
-                    >
-                      Thermal POS
-                    </button>
-                  </div>
-                </div>
-
-                <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-3">
-                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-wider block">Receipt Controls</span>
-                  
-                  <Button 
-                    onClick={() => {
-                      const iframe = document.getElementById('invoice-print-frame');
-                      if (iframe) {
-                        iframe.contentWindow.focus();
-                        iframe.contentWindow.print();
-                      }
-                    }} 
-                    className="w-full bg-indigo-650 hover:bg-indigo-755 text-white font-extrabold py-2.5 rounded-xl flex items-center justify-center gap-2 shadow-md cursor-pointer text-xs h-9"
-                  >
-                    <Printer className="w-4 h-4" /> Spool Print
-                  </Button>
-
-                  <Button 
-                    onClick={() => {
-                      const a = document.createElement('a');
-                      a.href = pdfUrl;
-                      a.download = `${previewMode === 'invoice' ? 'INVOICE' : 'BILL'}-${invoiceData.referenceNo}.pdf`;
-                      a.click();
-                    }} 
-                    variant="outline" 
-                    className="w-full border-slate-800 hover:border-slate-700 text-slate-350 hover:bg-slate-800 font-bold py-2.5 rounded-xl flex items-center justify-center gap-2 cursor-pointer text-xs h-9"
-                  >
-                    <Download className="w-4 h-4" /> Download PDF
-                  </Button>
-                </div>
-
-                <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-800 space-y-2 text-[10px] text-slate-400 leading-relaxed">
-                  <span className="font-extrabold text-slate-300 block uppercase tracking-wider text-[9px]">Terms & Instructions:</span>
-                  <p>1. Ensure your thermal or laser print spooler is active.</p>
-                  <p>2. Select <strong>A4 Invoice</strong> to include full terms and conditions on a dedicated page.</p>
-                  <p>3. Select <strong>Thermal POS</strong> for a compact bill receipt excluding terms to conserve paper.</p>
-                </div>
-              </div>
-
-              {/* Right Column: PDF Viewer */}
-              <div className="flex-1 min-h-[450px] border border-slate-800 rounded-2xl overflow-hidden bg-slate-900 relative">
-                {pdfUrl ? (
-                  <iframe
-                    id="invoice-print-frame"
-                    src={pdfUrl}
-                    className="w-full h-full border-none"
-                    title="PDF Preview"
-                  />
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-550 gap-3">
-                    <Loader2 className="w-7 h-7 animate-spin text-indigo-500" />
-                    <span className="text-xs font-semibold">Compiling jsPDF Vector Elements...</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-3 border-t border-slate-800 bg-slate-950 flex justify-end">
-              <Button onClick={() => setShowInvoiceModal(false)} variant="outline" className="border-slate-800 text-slate-350 px-6 py-2 rounded-xl text-xs font-bold cursor-pointer h-9">
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

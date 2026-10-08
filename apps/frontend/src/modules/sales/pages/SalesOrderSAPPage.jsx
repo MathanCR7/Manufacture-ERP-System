@@ -315,6 +315,7 @@ export default function SalesOrderPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editOrderId = searchParams.get('id') || searchParams.get('edit');
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
   const currentUser = useAuthStore(s => s.user);
   const storeCompany = useCompanyStore(s => s.company);
   const queryClient = useQueryClient();
@@ -1346,6 +1347,57 @@ export default function SalesOrderPage() {
         }));
       }
 
+      const rawLines = Array.isArray(ord.items) ? ord.items : [];
+      const snapLines = rawLines.map((it) => {
+        const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (it.product?.gstRate || 5));
+        const uPrice = Number(it.unitPrice || 0);
+        const lineDisc = Number(it.discount || 0);
+        const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
+        return {
+          productId: it.productId,
+          quantity: Number(it.quantity || 1),
+          unitPrice: uPrice,
+          discountPercent: discPct,
+          gstRate: itemGst
+        };
+      }).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''));
+
+      const calcDiscPct = Number(ord.discountPercent !== undefined && ord.discountPercent !== null && Number(ord.discountPercent) > 0
+        ? Number(ord.discountPercent)
+        : (discVal > 0 && grossItemsSubtotal > 0 ? Number(((discVal / grossItemsSubtotal) * 100).toFixed(2)) : 0));
+
+      const snap = JSON.stringify({
+        customerId: ord.customerId || '',
+        customerRefNo: ord.customerRefNo || ord.referenceNo || '',
+        contactPerson: ord.customer?.contactPerson || ord.customerPhone || '',
+        shipToAddress: ord.deliveryAddress || '',
+        billToAddress: ord.billToAddress || ord.customer?.billingAddress || '',
+        docSeries: ord.documentSeries || 'Primary',
+        orderMode: ord.orderMode || (ord.type === 'Invoice' ? 'INVOICE' : (ord.status === 'Waiting for Production' ? 'NEED_PLANNING' : (ord.type === 'Quotation' ? 'QUOTATION' : 'STANDARD'))),
+        docStatus: ord.status || 'Open',
+        postingDate: ord.createdAt ? ord.createdAt.split('T')[0] : '',
+        deliveryDate: ord.deliveryDate ? ord.deliveryDate.split('T')[0] : '',
+        documentDate: ord.createdAt ? ord.createdAt.split('T')[0] : '',
+        salesEmployee: ord.salesEmployee || '-No Sales Employee-',
+        remarks: cleanNote,
+        discountPercent: calcDiscPct,
+        freight: Number(ord.freight || 0),
+        loadingCharges: Number(ord.loadingCharges || 0),
+        packingCharges: Number(ord.packingCharges || 0),
+        otherCharges: Number(ord.otherCharges || 0),
+        shippingMethod: ord.shippingMethod || 'Road Transport',
+        transporterName: ord.transporterName || '',
+        vehicleNo: ord.vehicleNo || '',
+        lrNo: ord.lrNo || '',
+        ewayBillNo: ord.ewayBillNo || '',
+        paymentTerms: ord.paymentTerms || 'Not Paid',
+        paymentMethod: ord.paymentMode || 'Bank Transfer / NEFT',
+        advancePaid: Number(ord.amountPaid || 0),
+        placeOfSupply: ord.placeOfSupply || ord.buyerStateCode || '33',
+        lines: snapLines
+      });
+      setInitialSnapshot(snap);
+
       setStatusMessage({
         type: 'ready',
         text: `✔ Loaded Order #${ord.docNo || ord.referenceNo} for editing. Tax and logistics amounts calculated.`
@@ -1378,7 +1430,8 @@ export default function SalesOrderPage() {
           toast: true,
           position: 'top-end'
         });
-        navigate(`/sales/list?id=${editOrderId}`);
+        const fromUrl = searchParams.get('from') || '/orders/list';
+        navigate(fromUrl);
         return;
       }
 
@@ -1493,6 +1546,63 @@ export default function SalesOrderPage() {
         text: 'Please select at least one finished product into the table grid.'
       });
       return;
+    }
+
+    // Check whether any modifications were made when in edit mode
+    if (editOrderId && initialSnapshot) {
+      const currentSnap = JSON.stringify({
+        customerId: customerId || '',
+        customerRefNo: customerRefNo || '',
+        contactPerson: contactPerson || '',
+        shipToAddress: shipToAddress || '',
+        billToAddress: billToAddress || '',
+        docSeries: docSeries || 'Primary',
+        orderMode: orderMode || 'STANDARD',
+        docStatus: docStatus || 'Open',
+        postingDate: parseDMYtoYMD(postingDate) || '',
+        deliveryDate: parseDMYtoYMD(deliveryDate) || '',
+        documentDate: parseDMYtoYMD(documentDate) || '',
+        salesEmployee: salesEmployee || '-No Sales Employee-',
+        remarks: (remarks || '').replace(/\[\[ATTACHMENT:.*?\]\]/g, '').replace(/\[Fulfillment Mode:.*?\]/g, '').trim(),
+        discountPercent: Number(discountPercent || 0),
+        freight: Number(freight || 0),
+        loadingCharges: Number(loadingCharges || 0),
+        packingCharges: Number(packingCharges || 0),
+        otherCharges: Number(otherCharges || 0),
+        shippingMethod: shippingMethod || 'Road Transport',
+        transporterName: transporterName || '',
+        vehicleNo: vehicleNo || '',
+        lrNo: lrNo || '',
+        ewayBillNo: ewayBillNo || '',
+        paymentTerms: paymentTerms || 'Not Paid',
+        paymentMethod: paymentMethod || 'Bank Transfer / NEFT',
+        advancePaid: Number(advancePaid || 0),
+        placeOfSupply: placeOfSupply || '33',
+        lines: activeLines.map(l => ({
+          productId: l.productId,
+          quantity: Number(l.quantity || 1),
+          unitPrice: Number(l.unitPrice || 0),
+          discountPercent: Number(l.discountPercent || 0),
+          gstRate: Number(l.gstRate || 5)
+        })).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''))
+      });
+
+      if (currentSnap === initialSnapshot) {
+        setStatusMessage({
+          type: 'info',
+          text: 'ℹ Nothing changed - No modifications were made to this order.'
+        });
+        Swal.fire({
+          icon: 'info',
+          title: 'Nothing Changed',
+          text: 'No modifications were made to this order.',
+          timer: 2000,
+          showConfirmButton: false,
+          toast: true,
+          position: 'top-end'
+        });
+        return;
+      }
     }
 
     // Commercial Rule: In STANDARD mode, Customer can ONLY order if stock is available!
@@ -1816,13 +1926,23 @@ export default function SalesOrderPage() {
       <div className="w-full bg-[var(--sap-titlebar)] text-[var(--sap-titlebar-text)] px-4 py-2 flex items-center justify-between select-none border-b border-[var(--sap-border-inner)] shadow-sm">
         <div className="flex items-center gap-2.5 font-bold text-sm tracking-wide">
           <span className="text-amber-400 text-base">📋</span>
-          <span>Sales Order</span>
+          <span>{editOrderId ? `Edit Order #${docNo || editOrderId}` : 'Sales Order'}</span>
           <span className="text-xs font-normal text-slate-300 opacity-80 pl-2.5 border-l border-slate-600">
-            Enterprise Document Studio • Full View
+            Enterprise Document Studio • {editOrderId ? 'Update Mode' : 'Full View'}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
+          {editOrderId && (
+            <button
+              type="button"
+              onClick={() => navigate(searchParams.get('from') || '/orders/list')}
+              className="px-2.5 py-1 text-xs rounded-xs flex items-center gap-1 font-bold text-slate-200 hover:text-white bg-slate-700 hover:bg-slate-600 border border-slate-600 cursor-pointer shadow-xs mr-1"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Orders</span>
+            </button>
+          )}
           {/* Active Sync Stock Button with Animated Spinner & Status Feedback */}
           <button
             type="button"

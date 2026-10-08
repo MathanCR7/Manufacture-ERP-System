@@ -70,6 +70,9 @@ const formatLiveDateTime = (d) => {
 export default function SalesBillingPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const editOrderId = searchParams.get('edit') || (searchParams.get('mode') === 'edit' ? searchParams.get('id') : null);
+  const [initialSnapshot, setInitialSnapshot] = useState(null);
+  const [editingOrderDocNo, setEditingOrderDocNo] = useState('');
   const queryClient = useQueryClient();
 
   // Search & Catalog Filter
@@ -148,8 +151,94 @@ export default function SalesBillingPage() {
     return () => clearInterval(timer);
   }, [isClockRunning]);
 
-  // Sync Document Mode from Query Params
+  // Sync Document Mode or Edit Order from Query Params
   useEffect(() => {
+    if (editOrderId) {
+      api.get(`/orders/${editOrderId}`).then(res => {
+        const ord = res.data;
+        if (!ord) return;
+        setEditingOrderDocNo(ord.docNo || ord.referenceNo || '');
+        setOrderType(ord.type || 'POS');
+        setCustomerId(ord.customerId || '');
+        setSelectedCustomer(ord.customer || null);
+        if (ord.taxRegNo || ord.customer?.gstin) {
+          const g = ord.taxRegNo || ord.customer?.gstin;
+          setTaxRegNo(g);
+          const code = getStateCodeFromGstin(g) || (g.length >= 2 ? g.substring(0, 2) : null);
+          if (code && indianStates.some(s => s.code === code)) {
+            setPlaceOfSupply(code);
+          }
+        } else if (ord.placeOfSupply) {
+          setPlaceOfSupply(ord.placeOfSupply);
+        }
+        if (ord.deliveryAddress) setDeliveryAddress(ord.deliveryAddress);
+        if (ord.paymentTerms) setPaymentTerms(ord.paymentTerms);
+        if (ord.internalNote) setInternalNote(ord.internalNote);
+        if (ord.transporterName) setTransporterName(ord.transporterName);
+        if (ord.vehicleNo) setVehicleNo(ord.vehicleNo);
+        if (ord.lrNo) setLrNo(ord.lrNo);
+        if (ord.createdAt) {
+          setOrderDate(new Date(ord.createdAt));
+          setIsClockRunning(false);
+        }
+        if (ord.deliveryDate) {
+          setDeliveryDate(ord.deliveryDate.split('T')[0]);
+        }
+        setFreight(String(ord.freight || 0));
+        setFreightGst(ord.freightGst !== undefined ? Boolean(ord.freightGst) : true);
+        setLoadingCharges(String(ord.loadingCharges || 0));
+        setLoadingGst(ord.loadingGst !== undefined ? Boolean(ord.loadingGst) : true);
+        setPackingCharges(String(ord.packingCharges || 0));
+        setPackingGst(ord.packingGst !== undefined ? Boolean(ord.packingGst) : true);
+        setOtherCharges(String(ord.otherCharges || 0));
+        setOtherGst(ord.otherGst !== undefined ? Boolean(ord.otherGst) : true);
+        setDiscountValue(String(ord.discountValue || 0));
+        setDiscountType('Flat');
+
+        let loadedItems = [];
+        if (ord.items && ord.items.length > 0) {
+          loadedItems = ord.items.map((it, idx) => ({
+            id: it.id || idx + 1,
+            productId: it.productId,
+            productName: it.productName || it.product?.name || 'Item',
+            code: it.product?.code || '',
+            hsnCode: it.hsnCode || it.product?.hsnCode || '21050000',
+            uomName: it.uomName || it.product?.unit?.abbreviation || 'pcs',
+            quantity: Number(it.quantity || 1),
+            unitPrice: Number(it.unitPrice || 0),
+            discount: Number(it.discount || 0),
+            gstRate: Number(it.gstRate || 18),
+            batchId: it.batchId || null,
+            batchNo: it.batchNo || '',
+            expiryDate: it.expiryDate || null,
+            availableStock: it.product?.currentStock || 0
+          }));
+          setItems(loadedItems);
+        }
+
+        const snap = JSON.stringify({
+          customerId: ord.customerId || '',
+          taxRegNo: ord.taxRegNo || ord.customer?.gstin || '',
+          deliveryAddress: ord.deliveryAddress || '',
+          paymentTerms: ord.paymentTerms || '',
+          freight: String(Number(ord.freight || 0)),
+          loadingCharges: String(Number(ord.loadingCharges || 0)),
+          packingCharges: String(Number(ord.packingCharges || 0)),
+          otherCharges: String(Number(ord.otherCharges || 0)),
+          discountValue: String(Number(ord.discountValue || 0)),
+          deliveryDate: ord.deliveryDate ? ord.deliveryDate.split('T')[0] : '',
+          items: loadedItems.map(it => ({
+            productId: it.productId,
+            quantity: Number(it.quantity || 1),
+            unitPrice: Number(it.unitPrice || 0),
+            discount: Number(it.discount || 0)
+          })).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''))
+        });
+        setInitialSnapshot(snap);
+      }).catch(err => console.error('Failed to pre-fetch edit order:', err));
+      return;
+    }
+
     const mode = searchParams.get('mode');
     if (mode === 'quotation') setOrderType('Quotation');
     else if (mode === 'sales-order' || mode === 'order') setOrderType('Sales Order');
@@ -162,7 +251,7 @@ export default function SalesBillingPage() {
         if (res.data) handleLoadConvertedOrder(res.data);
       }).catch(err => console.error('Failed to pre-fetch source order:', err));
     }
-  }, [searchParams]);
+  }, [searchParams, editOrderId]);
 
   // Fetch Customers List
   const { data: customers = [], refetch: refetchCustomers } = useQuery({
@@ -413,6 +502,10 @@ export default function SalesBillingPage() {
   // Submit Order Mutation
   const createOrderMutation = useMutation({
     mutationFn: async (payload) => {
+      if (editOrderId) {
+        const res = await api.put(`/orders/${editOrderId}`, payload);
+        return res.data;
+      }
       let endpoint = '/orders/sales-order';
       if (orderType === 'Invoice') endpoint = '/orders/invoice';
       else if (orderType === 'Quotation') endpoint = '/orders/quotation';
@@ -425,6 +518,21 @@ export default function SalesBillingPage() {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['pos-products'] });
       queryClient.invalidateQueries({ queryKey: ['products-search-list'] });
+
+      if (editOrderId) {
+        Swal.fire({
+          icon: 'success',
+          title: 'Order Updated Successfully!',
+          text: `Document Reference ${savedOrder.docNo || savedOrder.referenceNo || 'Updated'} saved to database.`,
+          timer: 2000,
+          showConfirmButton: false,
+          toast: true,
+          position: 'top-end'
+        });
+        const fromUrl = searchParams.get('from') || '/orders/list';
+        navigate(fromUrl);
+        return;
+      }
 
       setCompletedOrder({ ...savedOrder, items });
 
@@ -475,6 +583,40 @@ export default function SalesBillingPage() {
     if (!customerId && orderType !== 'POS') {
       Swal.fire({ icon: 'warning', title: 'Customer Required', text: 'Please select a customer for this order.', timer: 2000 });
       return;
+    }
+
+    if (editOrderId && initialSnapshot) {
+      const currentSnap = JSON.stringify({
+        customerId: customerId || '',
+        taxRegNo: taxRegNo || '',
+        deliveryAddress: deliveryAddress || '',
+        paymentTerms: paymentTerms || '',
+        freight: String(Number(freight || 0)),
+        loadingCharges: String(Number(loadingCharges || 0)),
+        packingCharges: String(Number(packingCharges || 0)),
+        otherCharges: String(Number(otherCharges || 0)),
+        discountValue: String(Number(calculatedDiscount || 0)),
+        deliveryDate: deliveryDate || '',
+        items: items.map(it => ({
+          productId: it.productId,
+          quantity: Number(it.quantity || 1),
+          unitPrice: Number(it.unitPrice || 0),
+          discount: Number(it.discount || 0)
+        })).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''))
+      });
+
+      if (currentSnap === initialSnapshot) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Nothing Changed',
+          text: 'No modifications were made to this order.',
+          timer: 2000,
+          showConfirmButton: false,
+          toast: true,
+          position: 'top-end'
+        });
+        return;
+      }
     }
 
     const payload = {
@@ -540,13 +682,31 @@ export default function SalesBillingPage() {
   return (
     <div className="w-full max-w-full px-3 sm:px-5 py-3 space-y-3.5 mx-auto transition-all duration-300 text-slate-900 dark:text-slate-100">
       
+      {/* Edit Mode Notification Banner */}
+      {editOrderId && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-bold shadow-xs">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+            <span>Editing Order #{editingOrderDocNo || editOrderId}. Modify items, prices, or parameters and click "Update Order".</span>
+          </div>
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={() => navigate(searchParams.get('from') || '/orders/list')}
+            className="h-8 text-xs font-bold rounded-xl border-amber-500/40 hover:bg-amber-500/10 cursor-pointer text-amber-900 dark:text-amber-200"
+          >
+            Cancel & Back to Orders
+          </Button>
+        </div>
+      )}
+
       {/* 1. TOP EXECUTIVE HEADER BAR */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-3 sm:p-4 rounded-2xl flex flex-wrap justify-between items-center gap-3 shadow-xs dark:shadow-xl transition-all">
         <div className="flex items-center space-x-3">
           <Button
             type="button"
             variant="ghost"
-            onClick={() => navigate('/sales/orders')}
+            onClick={() => navigate(searchParams.get('from') || '/orders/list')}
             className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer h-9 w-9 shrink-0"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -585,24 +745,6 @@ export default function SalesBillingPage() {
             <span className="text-[10px] text-slate-400 uppercase font-bold">Total:</span>
             <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-sm">₹{grandTotal.toLocaleString('en-IN')}</span>
           </div>
-        </div>
-
-        {/* Quick Mode & Navigation */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={() => navigate('/sales/orders')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/60 transition-all cursor-pointer shadow-2xs"
-          >
-            <FileText className="w-3.5 h-3.5 text-indigo-500" /> Sales Orders
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/sales/order')}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 transition-all cursor-pointer shadow-xs"
-          >
-            <FileText className="w-3.5 h-3.5" /> Sales Order
-          </button>
         </div>
       </div>
 
@@ -1329,7 +1471,9 @@ export default function SalesBillingPage() {
                   <Check className="w-4 h-4" />
                 )}
                 {createOrderMutation.isPending 
-                  ? 'Submitting Order Specs...' 
+                  ? (editOrderId ? 'Updating Order...' : 'Submitting Order Specs...') 
+                  : editOrderId
+                  ? 'Update Order'
                   : orderType === 'POS'
                   ? 'Complete POS Sale & Print'
                   : `Create ${orderType} & Print Receipt`
