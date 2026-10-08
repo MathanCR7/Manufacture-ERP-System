@@ -300,7 +300,7 @@ async function checkOrderImmutability(orderId, tx = prisma) {
   // Rule 2: Sales Order converted to Tax Invoice
   if (order.type === 'Sales Order') {
     const invoiceChild = order.childOrders?.find(c => c.type === 'Invoice') || (order.childOrders && order.childOrders.length > 0 ? order.childOrders[0] : null);
-    if (invoiceChild || order.status === 'Delivered') {
+    if (invoiceChild || order.status === 'Delivered' || order.status === 'Invoiced') {
       return {
         order,
         isLocked: true,
@@ -393,6 +393,7 @@ function buildDocumentChainsHelper(orders) {
 
     const isInvoicedOrder = order.type === 'Sales Order' && (
       order.status === 'Delivered' || 
+      order.status === 'Invoiced' ||
       childDocs.some(c => c.type === 'Invoice') ||
       chainDocs.some(d => d.type === 'Invoice' && d.id !== order.id)
     );

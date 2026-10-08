@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/axios';
 import {
-  ShoppingCart, Search, RefreshCw, Plus, Edit, Trash2, Eye,
+  ShoppingCart, Search, RefreshCw, Plus, Edit, Trash2, Eye, Lock,
   ChevronLeft, Package, FileText,
   TrendingUp, Calendar, IndianRupee, Filter, ArrowUpDown, ArrowUp, ArrowDown, Info, Sparkles, AlertCircle, Loader2, AlertTriangle
 } from 'lucide-react';
@@ -125,6 +125,17 @@ export default function OrderListPage() {
   }, [orders, location.state]);
 
   const handleUpdateStatus = async (id, newStatus) => {
+    const targetOrder = orders.find(o => o.id === id);
+    if (targetOrder?.isLockedDocument) {
+      Swal.fire({
+        title: 'Document Locked (Immutable)',
+        text: targetOrder.lockReason || 'Converted orders cannot be updated. Only downstream documents can be modified.',
+        icon: 'error',
+        confirmButtonColor: '#6366f1'
+      });
+      return;
+    }
+
     try {
       await api.patch(`/orders/${id}/status`, { status: newStatus });
       Swal.fire({
@@ -151,6 +162,17 @@ export default function OrderListPage() {
   };
 
   const handleDelete = async (id) => {
+    const targetOrder = orders.find(o => o.id === id);
+    if (targetOrder?.isLockedDocument) {
+      Swal.fire({
+        title: 'Cannot Delete Locked Document',
+        text: targetOrder.lockReason || 'Converted orders cannot be deleted. Only the downstream invoice can be deleted.',
+        icon: 'error',
+        confirmButtonColor: '#e11d48'
+      });
+      return;
+    }
+
     Swal.fire({
       title: 'Delete Order?',
       text: 'Are you sure you want to delete this order? This action cannot be undone.',
@@ -680,9 +702,10 @@ export default function OrderListPage() {
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <select
-                          disabled={!canEdit}
+                          disabled={!canEdit || order.isLockedDocument}
                           value={order.status}
                           onChange={(e) => handleUpdateStatus(order.id, e.target.value)}
+                          title={order.isLockedDocument ? (order.lockReason || 'Document is permanently locked') : 'Update Status'}
                           className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-extrabold rounded-xl border bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all h-8 cursor-pointer font-sans disabled:opacity-75 disabled:cursor-not-allowed ${config.bg} ${config.text} ${config.border}`}
                           style={{ minWidth: '150px' }}
                         >
@@ -698,18 +721,28 @@ export default function OrderListPage() {
                       <td className="px-4 py-2.5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button onClick={() => setSearchParams({ id: order.id })}
-                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors" title="View details">
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors cursor-pointer" title="View details">
                             <Eye className="w-4 h-4" />
                           </button>
                           {canEdit && (
-                            <button onClick={() => handleEditOrder(order)}
-                              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors" title="Edit">
-                              <Edit className="w-4 h-4" />
-                            </button>
+                            order.isLockedDocument ? (
+                              <button
+                                disabled
+                                className="p-1.5 text-amber-500/70 dark:text-amber-400/70 cursor-not-allowed rounded-lg"
+                                title={order.lockReason || 'Document is permanently locked and cannot be edited'}
+                              >
+                                <Lock className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <button onClick={() => handleEditOrder(order)}
+                                className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 rounded-lg transition-colors cursor-pointer" title="Edit">
+                                <Edit className="w-4 h-4" />
+                              </button>
+                            )
                           )}
-                          {canEdit && (
+                          {canEdit && !order.isLockedDocument && (
                             <button onClick={() => handleDelete(order.id)}
-                              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 rounded-lg transition-colors" title="Delete">
+                              className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50/50 dark:hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer" title="Delete">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           )}

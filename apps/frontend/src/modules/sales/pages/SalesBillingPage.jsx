@@ -9,7 +9,7 @@ import {
   Sparkles, Layers, Receipt, Clock, CheckCircle2, Download, Tag, UserPlus, Eye,
   Compass, Package, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
   SlidersHorizontal, CheckSquare, Square, CornerDownLeft, Globe, MapPin,
-  QrCode, PauseCircle, PlayCircle, MessageCircle, Send
+  QrCode, PauseCircle, PlayCircle, MessageCircle, Send, Lock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -83,6 +83,8 @@ export default function SalesBillingPage() {
   const editOrderId = searchParams.get('edit') || (searchParams.get('mode') === 'edit' ? searchParams.get('id') : null);
   const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [editingOrderDocNo, setEditingOrderDocNo] = useState('');
+  const [isOrderLocked, setIsOrderLocked] = useState(false);
+  const [lockedReason, setLockedReason] = useState('');
   const queryClient = useQueryClient();
   const currentUser = useAuthStore(s => s.user);
 
@@ -212,6 +214,8 @@ export default function SalesBillingPage() {
         const ord = res.data;
         if (!ord) return;
         setEditingOrderDocNo(ord.docNo || ord.referenceNo || '');
+        setIsOrderLocked(Boolean(ord.isLockedDocument));
+        setLockedReason(ord.lockReason || '');
         setOrderType(ord.type || 'POS');
         setCustomerId(ord.customerId || '');
         setSelectedCustomer(ord.customer || null);
@@ -689,6 +693,16 @@ export default function SalesBillingPage() {
   });
 
   const handleSubmitOrder = () => {
+    if (isOrderLocked) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Document Locked (Immutable)',
+        text: lockedReason || 'This document cannot be modified because it has already been converted to a downstream document.',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
+    }
+
     if (items.length === 0) {
       Swal.fire({ icon: 'warning', title: 'Empty Order Lines', text: 'Please add products to the line items table.', timer: 2000 });
       return;
@@ -929,7 +943,23 @@ export default function SalesBillingPage() {
     <div className="w-full max-w-full px-3 sm:px-5 py-3 space-y-3.5 mx-auto transition-all duration-300 text-slate-900 dark:text-slate-100">
       
       {/* Edit Mode Notification Banner */}
-      {editOrderId && (
+      {editOrderId && isOrderLocked && (
+        <div className="bg-rose-500/10 border border-rose-500/30 text-rose-800 dark:text-rose-300 p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-bold shadow-xs">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span>DOCUMENT LOCKED (IMMUTABLE): {lockedReason || `Order #${editingOrderDocNo || editOrderId} has been converted and is permanently locked. Converted documents cannot be changed, edited, or deleted.`}</span>
+          </div>
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={() => navigate(searchParams.get('from') || '/orders/list')}
+            className="h-8 text-xs font-bold rounded-xl border-rose-500/40 hover:bg-rose-500/10 cursor-pointer text-rose-900 dark:text-rose-200"
+          >
+            Back to Orders List
+          </Button>
+        </div>
+      )}
+      {editOrderId && !isOrderLocked && (
         <div className="bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs font-bold shadow-xs">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
@@ -1753,26 +1783,37 @@ export default function SalesBillingPage() {
               </div>
 
               {/* Prominent Submit Action Button */}
-              <Button
-                type="button"
-                onClick={handleSubmitOrder}
-                disabled={createOrderMutation.isPending || items.length === 0}
-                className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-black py-3 h-12 rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center text-xs gap-2 border border-indigo-500/50"
-              >
-                {createOrderMutation.isPending ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Check className="w-4 h-4" />
-                )}
-                {createOrderMutation.isPending 
-                  ? (editOrderId ? 'Updating Order...' : 'Submitting Order Specs...') 
-                  : editOrderId
-                  ? 'Update Order'
-                  : orderType === 'POS'
-                  ? 'Complete POS Sale & Print'
-                  : `Create ${orderType} & Print Receipt`
-                }
-              </Button>
+              {isOrderLocked ? (
+                <Button
+                  type="button"
+                  disabled
+                  className="w-full bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-black py-3 h-12 rounded-xl transition-all cursor-not-allowed flex items-center justify-center text-xs gap-2 border border-slate-300 dark:border-slate-700"
+                >
+                  <Lock className="w-4 h-4 text-slate-500" />
+                  <span>Document Locked (Immutable)</span>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={handleSubmitOrder}
+                  disabled={createOrderMutation.isPending || items.length === 0}
+                  className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white font-black py-3 h-12 rounded-xl shadow-md transition-all cursor-pointer flex items-center justify-center text-xs gap-2 border border-indigo-500/50"
+                >
+                  {createOrderMutation.isPending ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  {createOrderMutation.isPending 
+                    ? (editOrderId ? 'Updating Order...' : 'Submitting Order Specs...') 
+                    : editOrderId
+                    ? 'Update Order'
+                    : orderType === 'POS'
+                    ? 'Complete POS Sale & Print'
+                    : `Create ${orderType} & Print Receipt`
+                  }
+                </Button>
+              )}
 
             </div>
           </div>
