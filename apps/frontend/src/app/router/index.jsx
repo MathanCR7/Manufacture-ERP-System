@@ -90,6 +90,7 @@ const InventoryUploadPage = lazy(() => import('@/modules/inventory/pages/Invento
 const ProductStockPage = lazy(() => import('@/modules/production/pages/ProductStockPage'));
 const LowStockAlertsPage = lazy(() => import('@/modules/production/pages/LowStockAlertsPage'));
 const ProductionsPage = lazy(() => import('@/modules/production/pages/ProductionsPage'));
+const ProductionRequirementPage = lazy(() => import('@/modules/production/pages/ProductionRequirementPage'));
 const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProductionPage'));
 
 // Sales Module Pages
@@ -433,6 +434,7 @@ const AppRouter = () => {
             {/* Production */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/production/batches" element={<ProductionsPage />} />
+              <Route path="/production/requirements" element={<ProductionRequirementPage />} />
               <Route path="/production/add" element={<AddProductionPage />} />
               <Route path="/production/loss" element={<ProductionLossPage />} />
               <Route path="/production/loss-report" element={<LossReportPage />} />

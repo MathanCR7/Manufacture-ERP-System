@@ -8,6 +8,7 @@ const { sendSalesInvoiceDual, resendDocument, generateInvoicePDFBuffer } = requi
 const { getTaxSettingsData } = require('../setup/tax.controller');
 const documentSeriesService = require('../../services/documentSeries.service');
 const batchAllocationService = require('../../services/batchAllocation.service');
+const stockReservationService = require('../../services/stockReservation.service');
 const gstEngine = require('../../utils/gstEngine');
 const multer = require('multer');
 const { saveOrderAttachmentToDisk, saveOrderAttachmentBufferToDisk, UPLOADS_DIR } = require('../../utils/paymentFileStorage');
@@ -96,13 +97,14 @@ router.get('/status/kanban', authenticateToken, async (req, res, next) => {
   }
 });
 
-// POST /api/orders/check-stock - Check stock for multiple items
+// POST /api/orders/check-stock - Live stock status (On-Hand, Free, Reserved, Shortfall)
 router.post('/check-stock', authenticateToken, async (req, res, next) => {
   try {
     const schema = z.object({
       items: z.array(z.object({
         productId: z.string().uuid(),
-        quantity: z.coerce.number().positive()
+        quantity: z.coerce.number().positive(),
+        sourceOrderItemId: z.string().optional().nullable()
       }))
     });
 
@@ -110,31 +112,21 @@ router.post('/check-stock', authenticateToken, async (req, res, next) => {
     const results = [];
 
     for (const item of data.items) {
-      const product = await prisma.finishedProduct.findUnique({
-        where: { id: item.productId }
-      });
+      const summary = await stockReservationService.getProductStockSummary(item.productId);
+      const availableCheck = await stockReservationService.getAvailableForInvoice(item.productId, item.sourceOrderItemId);
 
-      if (!product) {
-        continue;
-      }
-
-      const sumIn = await prisma.productStockMovement.aggregate({
-        where: { productId: item.productId, direction: 1 },
-        _sum: { quantity: true }
-      });
-      const sumOut = await prisma.productStockMovement.aggregate({
-        where: { productId: item.productId, direction: -1 },
-        _sum: { quantity: true }
-      });
-
-      const currentStock = Number(sumIn._sum.quantity || 0) - Number(sumOut._sum.quantity || 0);
-      const isSufficient = currentStock >= item.quantity;
-      const shortage = isSufficient ? 0 : item.quantity - currentStock;
+      const isSufficient = availableCheck.available >= item.quantity;
+      const shortage = isSufficient ? 0 : item.quantity - availableCheck.available;
 
       results.push({
         productId: item.productId,
-        productName: product.name,
-        currentStock,
+        productName: summary.productName,
+        productCode: summary.productCode,
+        onHand: summary.onHand,
+        totalReserved: summary.totalReserved,
+        freeStock: summary.freeStock,
+        reservedForLine: availableCheck.reservedForLine,
+        availableForInvoice: availableCheck.available,
         status: isSufficient ? 'Sufficient' : 'Insufficient',
         shortage
       });
@@ -143,6 +135,79 @@ router.post('/check-stock', authenticateToken, async (req, res, next) => {
     res.json(results);
   } catch (error) {
     next(error);
+  }
+});
+
+// GET /api/orders/production-requirements - Aggregated demand & shortfalls from open Standard Orders
+router.get('/production-requirements', authenticateToken, async (req, res, next) => {
+  try {
+    const openOrderItems = await prisma.customerOrderItem.findMany({
+      where: {
+        shortfallQty: { gt: 0 },
+        order: {
+          type: 'Sales Order',
+          status: { in: ['Shortage (Production Required)', 'In Production', 'Waiting for Production', 'Partly Invoiced'] },
+          deletedAt: null
+        }
+      },
+      include: {
+        product: { include: { unit: true, category: true } },
+        order: { select: { id: true, docNo: true, referenceNo: true, deliveryDate: true, customer: { select: { name: true } } } }
+      }
+    });
+
+    const grouped = {};
+    for (const it of openOrderItems) {
+      const pid = it.productId;
+      if (!grouped[pid]) {
+        grouped[pid] = {
+          productId: pid,
+          productCode: it.product?.code || 'NO-CODE',
+          productName: it.product?.name || 'Unnamed Product',
+          category: it.product?.category?.name || 'General',
+          unit: it.uomName || it.product?.unit?.abbreviation || 'pcs',
+          totalShortfall: 0,
+          earliestDeliveryDate: it.order?.deliveryDate || new Date(),
+          ordersInvolved: []
+        };
+      }
+      grouped[pid].totalShortfall += Number(it.shortfallQty);
+      if (new Date(it.order.deliveryDate) < new Date(grouped[pid].earliestDeliveryDate)) {
+        grouped[pid].earliestDeliveryDate = it.order.deliveryDate;
+      }
+      grouped[pid].ordersInvolved.push({
+        orderId: it.order.id,
+        docNo: it.order.docNo || it.order.referenceNo,
+        customerName: it.order.customer?.name,
+        shortfall: Number(it.shortfallQty),
+        deliveryDate: it.order.deliveryDate
+      });
+    }
+
+    const results = [];
+    for (const pid of Object.keys(grouped)) {
+      const itemData = grouped[pid];
+      const activeBatches = await prisma.productionBatchNew.findMany({
+        where: {
+          productId: pid,
+          status: { in: ['Planned', 'In Progress'] },
+          deletedAt: null
+        },
+        select: { quantity: true, partiallyDoneQty: true }
+      });
+      const inProduction = activeBatches.reduce((s, b) => s + (Number(b.quantity) - Number(b.partiallyDoneQty || 0)), 0);
+      const netToProduce = Math.max(0, itemData.totalShortfall - inProduction);
+
+      results.push({
+        ...itemData,
+        inProduction,
+        netToProduce
+      });
+    }
+
+    res.json(results);
+  } catch (err) {
+    next(err);
   }
 });
 
@@ -199,7 +264,171 @@ router.post('/estimate-cost-date', authenticateToken, async (req, res, next) => 
   }
 });
 
-// GET /api/orders - list all orders
+/**
+ * Strict Document Immutability Check:
+ * - Converted Quotation: CANNOT be changed, edited, updated, or deleted.
+ * - Invoiced Sales Order: CANNOT be changed, edited, updated, or deleted.
+ * - Only the downstream Tax Invoice (or draft un-converted records) can be edited, updated, or deleted.
+ */
+async function checkOrderImmutability(orderId, tx = prisma) {
+  const order = await tx.customerOrder.findUnique({
+    where: { id: orderId },
+    include: {
+      childOrders: {
+        where: { deletedAt: null },
+        select: { id: true, docNo: true, referenceNo: true, type: true, status: true }
+      }
+    }
+  });
+
+  if (!order) return { order: null, isLocked: false };
+
+  // Rule 1: Quotation converted to Sales Order
+  if (order.type === 'Quotation') {
+    const isConverted = order.status === 'Converted' || (order.childOrders && order.childOrders.length > 0);
+    if (isConverted) {
+      const child = order.childOrders?.[0];
+      return {
+        order,
+        isLocked: true,
+        reason: `Quotation #${order.docNo || order.referenceNo} has already been converted to Sales Order #${child?.docNo || 'SO'} and is permanently locked. Converted quotations cannot be changed, edited, or deleted.`,
+        convertedDocNo: child?.docNo
+      };
+    }
+  }
+
+  // Rule 2: Sales Order converted to Tax Invoice
+  if (order.type === 'Sales Order') {
+    const invoiceChild = order.childOrders?.find(c => c.type === 'Invoice') || (order.childOrders && order.childOrders.length > 0 ? order.childOrders[0] : null);
+    if (invoiceChild || order.status === 'Delivered') {
+      return {
+        order,
+        isLocked: true,
+        reason: `Sales Order #${order.docNo || order.referenceNo} has already been converted to Tax Invoice #${invoiceChild?.docNo || 'INV'} and is permanently locked. Converted sales orders cannot be changed, edited, or deleted. Only the downstream invoice can be edited or deleted.`,
+        convertedDocNo: invoiceChild?.docNo
+      };
+    }
+  }
+
+  return { order, isLocked: false };
+}
+
+/**
+ * Builds chronological linked document flow (Quotation -> Standard Order -> Tax Invoice)
+ * Groups connected transaction documents by shared rootOrderId and tracks conversion links.
+ */
+function buildDocumentChainsHelper(orders) {
+  const byId = new Map(orders.map(o => [o.id, o]));
+  const childrenMap = new Map();
+  orders.forEach(o => {
+    if (o.sourceOrderId) {
+      if (!childrenMap.has(o.sourceOrderId)) childrenMap.set(o.sourceOrderId, []);
+      childrenMap.get(o.sourceOrderId).push(o);
+    }
+  });
+
+  return orders.map(order => {
+    // 1. Follow sourceOrderId up to root document
+    let root = order;
+    const visitedUp = new Set([root.id]);
+    while (root.sourceOrderId && byId.has(root.sourceOrderId)) {
+      if (visitedUp.has(root.sourceOrderId)) break;
+      visitedUp.add(root.sourceOrderId);
+      root = byId.get(root.sourceOrderId);
+    }
+
+    // 2. Collect all connected documents in this group/chain
+    const chainDocs = [];
+    const queue = [root];
+    const visitedDown = new Set();
+    while (queue.length > 0) {
+      const curr = queue.shift();
+      if (!curr || visitedDown.has(curr.id)) continue;
+      visitedDown.add(curr.id);
+      chainDocs.push({
+        id: curr.id,
+        docNo: curr.docNo || curr.referenceNo,
+        referenceNo: curr.referenceNo,
+        type: curr.type,
+        orderMode: curr.orderMode,
+        status: curr.status,
+        grandTotal: Number(curr.grandTotal || curr.totalSubtotal || 0),
+        paymentStatus: curr.paymentStatus,
+        createdAt: curr.createdAt,
+        deliveryDate: curr.deliveryDate,
+        isCurrent: curr.id === order.id
+      });
+      const children = childrenMap.get(curr.id) || [];
+      queue.push(...children);
+    }
+
+    // Sort chain chronologically: Quotation -> Sales Order -> Invoice
+    chainDocs.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    // Resolve immediate parent
+    const parentDoc = order.sourceOrderId && byId.has(order.sourceOrderId) ? {
+      id: byId.get(order.sourceOrderId).id,
+      docNo: byId.get(order.sourceOrderId).docNo || byId.get(order.sourceOrderId).referenceNo,
+      referenceNo: byId.get(order.sourceOrderId).referenceNo,
+      type: byId.get(order.sourceOrderId).type,
+      status: byId.get(order.sourceOrderId).status,
+      grandTotal: Number(byId.get(order.sourceOrderId).grandTotal || 0),
+      createdAt: byId.get(order.sourceOrderId).createdAt
+    } : null;
+
+    // Resolve immediate children
+    const childDocs = (childrenMap.get(order.id) || []).map(c => ({
+      id: c.id,
+      docNo: c.docNo || c.referenceNo,
+      referenceNo: c.referenceNo,
+      type: c.type,
+      status: c.status,
+      grandTotal: Number(c.grandTotal || 0),
+      createdAt: c.createdAt
+    }));
+
+    // Status / Conversion helper flags
+    const isConvertedQuote = order.type === 'Quotation' && (order.status === 'Converted' || childDocs.length > 0);
+    const convertedToOrder = isConvertedQuote && childDocs.length > 0 ? childDocs[0] : null;
+
+    const isInvoicedOrder = order.type === 'Sales Order' && (
+      order.status === 'Delivered' || 
+      childDocs.some(c => c.type === 'Invoice') ||
+      chainDocs.some(d => d.type === 'Invoice' && d.id !== order.id)
+    );
+    const invoicedToOrder = isInvoicedOrder 
+      ? (childDocs.find(c => c.type === 'Invoice') || chainDocs.find(d => d.type === 'Invoice' && d.id !== order.id)) 
+      : null;
+
+    const isLockedDocument = isConvertedQuote || isInvoicedOrder;
+    const lockReason = isConvertedQuote
+      ? `Quotation #${order.docNo || order.referenceNo} has already been converted to Sales Order #${convertedToOrder?.docNo || 'SO'} and cannot be changed, edited, or deleted.`
+      : isInvoicedOrder
+      ? `Sales Order #${order.docNo || order.referenceNo} has already been converted to Tax Invoice #${invoicedToOrder?.docNo || 'INV'} and cannot be changed, edited, or deleted.`
+      : null;
+
+    const chainSummary = chainDocs.map(c => c.docNo).join(' → ');
+
+    return {
+      ...order,
+      rootOrderId: root.id,
+      documentChain: chainDocs,
+      chainSummary,
+      parentDoc,
+      childDocs,
+      sourceOrder: parentDoc,
+      childOrders: childDocs,
+      isConvertedQuote,
+      convertedToOrder,
+      isInvoicedOrder,
+      invoicedToOrder,
+      isLockedDocument,
+      lockReason
+    };
+  });
+}
+
+// GET /api/orders - list all orders with linked document chains
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
     const orders = await prisma.customerOrder.findMany({
@@ -211,7 +440,54 @@ router.get('/', authenticateToken, async (req, res, next) => {
       },
       orderBy: { createdAt: 'desc' }
     });
-    res.json(orders);
+    const enriched = buildDocumentChainsHelper(orders);
+    res.json(enriched);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/orders/next-invoice-number - Live next receipt number & daily serving queue token
+router.get('/next-invoice-number', authenticateToken, async (req, res, next) => {
+  try {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayCount = await prisma.customerOrder.count({
+      where: { createdAt: { gte: todayStart }, deletedAt: null }
+    });
+
+    const rawPrefix = (req.query.prefix || req.query.type || 'INV').toUpperCase();
+    const posResult = await documentSeriesService.peekNextNumber('POS');
+    const invResult = await documentSeriesService.peekNextNumber('INVOICE');
+    const soResult = await documentSeriesService.peekNextNumber('SALES_ORDER');
+    const qtResult = await documentSeriesService.peekNextNumber('QUOTATION');
+    const plResult = await documentSeriesService.peekNextNumber('PL');
+
+    // Live serving queue token: calculated dynamically from today's orders count + 1
+    const servingVal = Math.max(1, todayCount + 1);
+    const servingNumber = `A-${String(servingVal).padStart(3, '0')}`;
+
+    let chosenResult = invResult;
+    if (rawPrefix.includes('POS')) chosenResult = posResult;
+    else if (rawPrefix.includes('SO') || rawPrefix.includes('STANDARD')) chosenResult = soResult;
+    else if (rawPrefix.includes('QT') || rawPrefix.includes('QUOTATION')) chosenResult = qtResult;
+    else if (rawPrefix.includes('PL') || rawPrefix.includes('PLANNING')) chosenResult = plResult;
+    else if (rawPrefix.includes('INV') || rawPrefix.includes('INVOICE')) chosenResult = invResult;
+
+    res.json({
+      receiptNumber: chosenResult.docNo,
+      posReceiptNumber: posResult.docNo,
+      invoiceReceiptNumber: invResult.docNo,
+      soReceiptNumber: soResult.docNo,
+      qtReceiptNumber: qtResult.docNo,
+      plReceiptNumber: plResult.docNo,
+      servingNumber,
+      todayCount,
+      financialYear: chosenResult.financialYear,
+      month: chosenResult.month,
+      prefix: chosenResult.prefix,
+      sequenceNo: chosenResult.sequenceNo
+    });
   } catch (error) {
     next(error);
   }
@@ -309,7 +585,128 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    res.json(order);
+    // Attach document chain graph
+    const allOrders = await prisma.customerOrder.findMany({
+      where: { deletedAt: null },
+      select: {
+        id: true,
+        docNo: true,
+        referenceNo: true,
+        type: true,
+        status: true,
+        orderMode: true,
+        sourceOrderId: true,
+        grandTotal: true,
+        createdAt: true,
+        deliveryDate: true
+      }
+    });
+    const enriched = buildDocumentChainsHelper(allOrders);
+    const matched = enriched.find(o => o.id === order.id);
+
+    res.json({
+      ...order,
+      rootOrderId: matched?.rootOrderId || order.id,
+      documentChain: matched?.documentChain || [],
+      chainSummary: matched?.chainSummary || (order.docNo || order.referenceNo),
+      parentDoc: matched?.parentDoc || null,
+      childDocs: matched?.childDocs || [],
+      sourceOrder: matched?.sourceOrder || null,
+      childOrders: matched?.childOrders || [],
+      isConvertedQuote: matched?.isConvertedQuote || false,
+      convertedToOrder: matched?.convertedToOrder || null,
+      isInvoicedOrder: matched?.isInvoicedOrder || false,
+      invoicedToOrder: matched?.invoicedToOrder || null,
+      isLockedDocument: matched?.isLockedDocument || false,
+      lockReason: matched?.lockReason || null
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/orders/:id/document-flow - Comprehensive transaction lifecycle map (QT -> SO -> INV)
+router.get('/:id/document-flow', authenticateToken, async (req, res, next) => {
+  try {
+    const targetOrder = await prisma.customerOrder.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      include: {
+        customer: true,
+        items: { include: { product: true } },
+        deliveries: true
+      }
+    });
+
+    if (!targetOrder) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    const allOrders = await prisma.customerOrder.findMany({
+      where: { deletedAt: null },
+      include: {
+        customer: true,
+        items: { include: { product: true } }
+      }
+    });
+
+    const enriched = buildDocumentChainsHelper(allOrders);
+    const matched = enriched.find(o => o.id === targetOrder.id);
+
+    const timeline = [];
+    if (matched?.documentChain && matched.documentChain.length > 0) {
+      matched.documentChain.forEach((doc, idx) => {
+        let action = 'Document Created';
+        if (doc.type === 'Quotation') {
+          action = doc.status === 'Converted' ? 'Quotation Accepted & Converted' : 'Quotation Issued to Client';
+        } else if (doc.type === 'Sales Order') {
+          action = idx > 0 ? `Converted to Standard Sales Order from ${matched.documentChain[idx - 1]?.docNo}` : 'Direct Standard Sales Order Created';
+        } else if (doc.type === 'Invoice') {
+          action = `Tax Invoice Posted & Stock Deducted from ${matched.documentChain[idx - 1]?.docNo || 'Order'}`;
+        }
+
+        timeline.push({
+          step: idx + 1,
+          docId: doc.id,
+          docNo: doc.docNo,
+          referenceNo: doc.referenceNo,
+          type: doc.type,
+          status: doc.status,
+          date: doc.createdAt,
+          grandTotal: doc.grandTotal,
+          paymentStatus: doc.paymentStatus,
+          action,
+          isCurrent: doc.id === targetOrder.id
+        });
+      });
+    }
+
+    const documentsWithDetails = (matched?.documentChain || []).map(c => {
+      const fullDoc = allOrders.find(o => o.id === c.id);
+      return {
+        ...c,
+        customerName: fullDoc?.customer?.name || fullDoc?.customerName,
+        customerPhone: fullDoc?.customer?.phone || fullDoc?.customerPhone,
+        itemsCount: fullDoc?.items?.length || 0,
+        items: (fullDoc?.items || []).map(it => ({
+          productName: it.productName || it.product?.name,
+          quantity: Number(it.quantity),
+          unitPrice: Number(it.unitPrice),
+          subtotal: Number(it.subtotal),
+          reservedQty: Number(it.reservedQty || 0),
+          invoicedQty: Number(it.invoicedQty || 0),
+          shortfallQty: Number(it.shortfallQty || 0)
+        }))
+      };
+    });
+
+    res.json({
+      targetId: targetOrder.id,
+      rootOrderId: matched?.rootOrderId || targetOrder.id,
+      chainSummary: matched?.chainSummary || (targetOrder.docNo || targetOrder.referenceNo),
+      chain: matched?.documentChain || [],
+      timeline,
+      documents: documentsWithDetails
+    });
   } catch (error) {
     next(error);
   }
@@ -662,7 +1059,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       });
 
       return newOrder;
-    });
+    }, { maxWait: 15000, timeout: 60000 });
 
     if (order && order.type === 'Invoice') {
       prisma.customerOrder.findUnique({
@@ -687,11 +1084,37 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
  */
 async function processBillingOrder({ req, type, data, defaultStatus }) {
   return await prisma.$transaction(async (tx) => {
-    // 1. Generate Document Series & Legacy Reference
-    const seriesResult = await documentSeriesService.getNextNumber(type, tx);
-    const referenceNo = seriesResult.docNo;
-    const docNo = seriesResult.docNo;
-    const documentSeries = seriesResult.prefix;
+    // 0. Resolve canonical document mode & type
+    let docType = type;
+    if (data.orderMode === 'QUOTATION' || type === 'Quotation') {
+      docType = 'Quotation';
+    } else if (data.orderMode === 'INVOICE' || type === 'Invoice') {
+      docType = 'Invoice';
+    } else if (type === 'POS') {
+      docType = 'POS';
+    } else {
+      docType = 'Sales Order';
+    }
+
+    const seriesPrefix = docType === 'Quotation' ? 'QT' : (docType === 'Invoice' ? 'INV' : (docType === 'POS' ? 'POS' : 'SO'));
+
+    // 1. Resolve Document Number:
+    // IMPORTANT: For Invoices, do NOT issue sequence number here! Check stock availability first to prevent gaps.
+    let docNo = null;
+    let referenceNo = null;
+    let documentSeries = seriesPrefix;
+
+    if (docType !== 'Invoice') {
+      const isDocNoValid = data.docNo && data.docNo !== 'NaN' && !String(data.docNo).includes('NaN');
+      if (isDocNoValid) {
+        docNo = data.docNo;
+        referenceNo = data.docNo;
+      } else {
+        const seriesResult = await documentSeriesService.getNextNumber(seriesPrefix, tx);
+        docNo = seriesResult.docNo;
+        referenceNo = seriesResult.docNo;
+      }
+    }
 
     // 2. Resolve Customer (or Walk-In for Retail POS)
     let customer = null;
@@ -723,7 +1146,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     const isInterState = String(sellerStateCode) !== String(buyerStateCode);
 
     // 4. Validate Credit Limit for B2B Invoices
-    if (type === 'Invoice' && customer.customerType === 'DISTRIBUTOR') {
+    if (docType === 'Invoice' && customer.customerType === 'DISTRIBUTOR') {
       const activeInvoices = await tx.customerOrder.findMany({
         where: { customerId: customer.id, type: 'Invoice', deletedAt: null, paymentStatus: { not: 'PAID' } }
       });
@@ -736,7 +1159,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       }
     }
 
-    // 5. Pre-fetch Product Details & Calculate Subtotals
+    // 5. Pre-fetch Product Details, Stock Checks & Calculations
     let totalCost = 0;
     let totalProfit = 0;
     const itemsPrepared = [];
@@ -759,37 +1182,54 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       totalCost += cost;
       totalProfit += profit;
 
-      // Handle batch assignments (manual or FEFO)
+      let reservedQty = 0;
+      let shortfallQty = 0;
+      let isStockItem = prod.isStockItem !== false;
+
+      // ─── STRICT ATOMIC STOCK CHECK FOR INVOICES ───
+      if (docType === 'Invoice') {
+        if (isStockItem) {
+          let sourceItemId = item.sourceOrderItemId || null;
+          if (!sourceItemId && data.sourceOrderId) {
+            const matchedSourceItem = await tx.customerOrderItem.findFirst({
+              where: { orderId: data.sourceOrderId, productId: item.productId }
+            });
+            if (matchedSourceItem) sourceItemId = matchedSourceItem.id;
+          }
+          const check = await stockReservationService.getAvailableForInvoice(
+            item.productId,
+            sourceItemId,
+            tx
+          );
+          if (qty > check.available) {
+            const shortage = qty - check.available;
+            throw new Error(`Insufficient stock for "${prod.name}" (${prod.code}): Required ${qty}, Available ${check.available}, Short ${shortage}. Invoice cannot be posted without stock.`);
+          }
+        }
+      } else if (docType === 'Sales Order') {
+        // ─── STANDARD ORDER: NEVER BLOCK; RESERVE AVAILABLE FREE STOCK & TRACK SHORTAGE ───
+        if (isStockItem) {
+          const stockSummary = await stockReservationService.getProductStockSummary(item.productId, tx);
+          reservedQty = Math.min(qty, stockSummary.freeStock);
+          shortfallQty = Math.max(0, qty - reservedQty);
+        }
+      } else if (docType === 'POS') {
+        if (isStockItem) {
+          const stockSummary = await stockReservationService.getProductStockSummary(item.productId, tx);
+          if (qty > stockSummary.onHand || stockSummary.onHand <= 0) {
+            throw new Error(`Stock Unavailable: Cannot complete POS sale for "${prod.name}" (Required: ${qty}, In Stock: ${stockSummary.onHand}).`);
+          }
+        }
+      }
+
+      // Handle batch assignments (manual or FEFO) for Invoices and POS
       let allocations = [];
       let batchId = item.batchId || null;
       let batchNo = item.batchNo || null;
       let mfgDate = item.mfgDate ? new Date(item.mfgDate) : null;
       let expiryDate = item.expiryDate ? new Date(item.expiryDate) : null;
 
-      // Stock Validation for Standard Sales Order (Customer can ONLY order if stock is available)
-      const effectiveOrderMode = data.orderMode || (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : (type === 'Quotation' ? 'QUOTATION' : 'STANDARD'));
-      if (type === 'Sales Order' && effectiveOrderMode === 'STANDARD') {
-        const sumIn = await tx.productStockMovement.aggregate({
-          where: { productId: item.productId, direction: 1 },
-          _sum: { quantity: true }
-        });
-        const sumOut = await tx.productStockMovement.aggregate({
-          where: { productId: item.productId, direction: -1 },
-          _sum: { quantity: true }
-        });
-        const movementStock = Number(sumIn._sum.quantity || 0) - Number(sumOut._sum.quantity || 0);
-        const prodCurrentStock = prod.currentStock !== null && prod.currentStock !== undefined 
-          ? Number(prod.currentStock) 
-          : movementStock;
-        const availableStock = Math.max(0, Math.max(prodCurrentStock, movementStock));
-
-        if (qty > availableStock) {
-          const shortage = qty - availableStock;
-          throw new Error(`Cannot place Standard Sales Order: Stock unavailable for "${prod.name}" (Required: ${qty}, In Stock: ${availableStock}, Shortage: ${shortage}). Standard Sales Orders can ONLY be placed when stock is available. Please switch to "Need Planning" (Make-to-Order) mode to order deficit quantity and schedule manufacturing production.`);
-        }
-      }
-
-      if ((type === 'Invoice' || type === 'POS') && !data.skipStockDeduction && data.orderMode !== 'INVOICE') {
+      if ((docType === 'Invoice' || docType === 'POS') && isStockItem) {
         if (item.allocations && item.allocations.length > 0) {
           allocations = item.allocations;
           batchId = allocations[0].batchId;
@@ -833,8 +1273,20 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         batchNo,
         mfgDate,
         expiryDate,
-        allocations
+        allocations,
+        reservedQty,
+        shortfallQty,
+        isStockItem,
+        sourceOrderItemId: item.sourceOrderItemId || null
       });
+    }
+
+    // ─── PHASE 2: ATOMIC INVOICE NUMBER ISSUANCE (ONLY AFTER ALL STOCK CHECKS PASS) ───
+    if (docType === 'Invoice') {
+      const seriesResult = await documentSeriesService.getNextNumber('INV', tx);
+      docNo = seriesResult.docNo;
+      referenceNo = seriesResult.docNo;
+      documentSeries = seriesResult.prefix;
     }
 
     // 6. Precise GST Engine calculation
@@ -868,8 +1320,8 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       isInterState
     });
 
-    // 7. Payment status calculation
-    const amountPaid = Number(data.amountPaid || (type === 'POS' ? gstResult.grandTotal : 0));
+    // 7. Payment & Order Status calculation
+    const amountPaid = Number(data.amountPaid || (docType === 'POS' ? gstResult.grandTotal : 0));
     let paymentStatus = 'PENDING';
     if (amountPaid >= gstResult.grandTotal && gstResult.grandTotal > 0) {
       paymentStatus = 'PAID';
@@ -878,11 +1330,12 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     }
 
     let orderStatus = data.status || defaultStatus;
-    if (type === 'Sales Order' && (data.orderMode === 'NEED_PLANNING' || data.status === 'Waiting for Production')) {
-      orderStatus = 'Waiting for Production';
-    } else if (type === 'Invoice' || type === 'POS') {
+    if (docType === 'Sales Order') {
+      const anyShortage = itemsPrepared.some(it => Number(it.shortfallQty || 0) > 0);
+      orderStatus = anyShortage ? 'Shortage (Production Required)' : 'Ready to Invoice';
+    } else if (docType === 'Invoice' || docType === 'POS') {
       orderStatus = 'Delivered';
-    } else if (type === 'Quotation') {
+    } else if (docType === 'Quotation') {
       orderStatus = 'Quotation';
     } else if (!orderStatus) {
       orderStatus = 'Confirmed';
@@ -892,14 +1345,6 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       ? (data.internalNote ? `${data.internalNote}\n[Attachment]: ${data.attachmentUrl}` : `[Attachment]: ${data.attachmentUrl}`)
       : (data.internalNote || data.note || null);
 
-    if (type === 'Sales Order' && (data.orderMode === 'NEED_PLANNING' || orderStatus === 'Waiting for Production')) {
-      const planNote = `[Fulfillment Mode: Need Planning / Make-to-Order | Scheduled for Manufacturing Production]`;
-      finalInternalNote = finalInternalNote ? `${finalInternalNote}\n${planNote}` : planNote;
-    } else if (data.orderMode === 'INVOICE') {
-      const invNote = `[Commercial Mode: Direct Invoice (Financial Billing Only) | Inventory Stock Untouched]`;
-      finalInternalNote = finalInternalNote ? `${finalInternalNote}\n${invNote}` : invNote;
-    }
-
     // 8. Create CustomerOrder record
     const createdOrder = await tx.customerOrder.create({
       data: {
@@ -908,14 +1353,14 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         documentSeries,
         sourceOrderId: data.sourceOrderId || null,
         customerId: customer.id,
-        type,
+        type: docType,
         status: orderStatus,
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : new Date(),
         createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
-        deliveryAddress: data.deliveryAddress || (type === 'POS' ? 'Over the Counter POS' : customer.address || 'Standard Delivery'),
+        deliveryAddress: data.deliveryAddress || (docType === 'POS' ? 'Over the Counter POS' : customer.address || 'Standard Delivery'),
         quotationNote: data.quotationNote || null,
         internalNote: finalInternalNote,
-        paymentTerms: data.paymentTerms || (type === 'POS' ? (data.paymentMode || 'Cash') : 'Net 30'),
+        paymentTerms: data.paymentTerms || (docType === 'POS' ? (data.paymentMode || 'Cash') : 'Net 30'),
         paymentStatus,
         amountPaid,
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
@@ -948,7 +1393,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         grandTotal: gstResult.grandTotal || 0,
         counterId: data.counterId || 'COUNTER-1',
         cashierName: data.cashierName || req.user.name || 'Sales Staff',
-        customerName: data.customerName || (type === 'POS' ? (data.customerName || 'Walk-in Customer') : customer?.name || null),
+        customerName: data.customerName || (docType === 'POS' ? (data.customerName || 'Walk-in Customer') : customer?.name || null),
         customerPhone: data.customerPhone || customer?.phone || null,
         transporterName: data.transporterName || data.transportMode || null,
         vehicleNo: data.vehicleNo || data.vehicleNumber || null,
@@ -960,13 +1405,14 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         shippingMethod: data.shippingMethod || 'Road Transport',
         salesEmployee: data.salesEmployee || '-No Sales Employee-',
         paymentMode: data.paymentMethod || data.paymentMode || null,
-        orderMode: data.orderMode || (defaultStatus === 'Waiting for Production' ? 'NEED_PLANNING' : 'STANDARD'),
+        orderMode: docType === 'Quotation' ? 'QUOTATION' : (docType === 'Invoice' ? 'INVOICE' : 'STANDARD'),
+        allowPartialDelivery: Boolean(data.allowPartialDelivery),
         attachmentUrl: data.attachmentUrl || null,
         createdBy: req.user.id
       }
     });
 
-    // 9. Create Order Items with Snapshots
+    // 9. Create Order Items with Snapshots & Stock Balances
     for (const item of itemsPrepared) {
       const createdItem = await tx.customerOrderItem.create({
         data: {
@@ -987,16 +1433,50 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
           subtotal: item.subtotal,
           cost: item.cost,
           profit: item.profit,
-          deliveryDate: item.deliveryDate
+          deliveryDate: item.deliveryDate,
+          invoicedQty: 0,
+          reservedQty: item.reservedQty || 0,
+          shortfallQty: item.shortfallQty || 0,
+          isStockItem: item.isStockItem,
+          expectedDate: item.expectedDate ? new Date(item.expectedDate) : null
         }
       });
 
       item.orderItemId = createdItem.id;
     }
 
-    // 10. Commit Stock Decrements if Invoice or POS (Skipped if INVOICE mode or skipStockDeduction is true)
-    if ((type === 'Invoice' || type === 'POS') && !data.skipStockDeduction && data.orderMode !== 'INVOICE') {
-      await batchAllocationService.commitDecrements(itemsPrepared, createdOrder, req.user.id, tx);
+    // 10. Commit Stock Decrements IF AND ONLY IF Invoice or POS
+    if ((docType === 'Invoice' || docType === 'POS')) {
+      const stockItemsToDeduct = itemsPrepared.filter(it => it.isStockItem);
+      if (stockItemsToDeduct.length > 0) {
+        await batchAllocationService.commitDecrements(stockItemsToDeduct, createdOrder, req.user.id, tx);
+      }
+
+      // If converted from a source Standard Order: consume reservation, update invoicedQty & parent status
+      if (data.sourceOrderId) {
+        for (const item of itemsPrepared) {
+          const sourceItem = await tx.customerOrderItem.findFirst({
+            where: { orderId: data.sourceOrderId, productId: item.productId }
+          });
+          if (sourceItem) {
+            const consumedRes = Math.min(Number(item.quantity), Number(sourceItem.reservedQty || 0));
+            const newInvoiced = Number(sourceItem.invoicedQty || 0) + Number(item.quantity);
+            const remainingBalance = Math.max(0, Number(sourceItem.quantity) - newInvoiced);
+            const remainingReserved = Math.max(0, Number(sourceItem.reservedQty || 0) - consumedRes);
+            const newShortfall = Math.max(0, remainingBalance - remainingReserved);
+
+            await tx.customerOrderItem.update({
+              where: { id: sourceItem.id },
+              data: {
+                reservedQty: remainingReserved,
+                invoicedQty: newInvoiced,
+                shortfallQty: newShortfall
+              }
+            });
+          }
+        }
+        await stockReservationService.checkAndUpdateOrderStatus(data.sourceOrderId, tx);
+      }
     }
 
     // 11. Delivery log
@@ -1006,7 +1486,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         deliveryDate: createdOrder.deliveryDate,
         quantity: itemsPrepared.reduce((s, it) => s + it.quantity, 0),
         status: orderStatus === 'Delivered' ? 'Delivered' : 'Pending',
-        note: `${type} generated #${docNo}. Payment: ${paymentStatus}`
+        note: `${docType} generated #${docNo}. Payment: ${paymentStatus}`
       }
     });
 
@@ -1014,13 +1494,13 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     await tx.auditLog.create({
       data: {
         userId: req.user.id,
-        action: `CREATE_${type.toUpperCase().replace(/\s+/g, '_')}`,
+        action: `CREATE_${docType.toUpperCase().replace(/\s+/g, '_')}`,
         tableName: 'customer_orders',
         recordId: createdOrder.id,
         oldValue: null,
         newValue: {
           docNo,
-          type,
+          type: docType,
           customerName: customer.name,
           grandTotal: createdOrder.grandTotal,
           paymentStatus: createdOrder.paymentStatus
@@ -1030,11 +1510,26 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     });
 
     return createdOrder;
-  });
+  }, { maxWait: 15000, timeout: 60000 });
 }
 
 // POST /api/orders/pos - Fast counter retail billing
 router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
+  try {
+    const order = await processBillingOrder({
+      req,
+      type: 'POS',
+      data: req.body,
+      defaultStatus: 'Delivered'
+    });
+    res.status(201).json(order);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// POST /api/orders/pos-instant - Instant POS counter endpoint alias
+router.post('/pos-instant', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const order = await processBillingOrder({
       req,
@@ -1087,21 +1582,21 @@ router.post('/quotation', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUP
   }
 });
 
-// POST /api/orders/sales-order - Sales Order creation
+// POST /api/orders/sales-order - Commercial Order creation (Standard Order, Quotation, or Invoice)
 router.post('/sales-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const isQuotation = req.body.orderMode === 'QUOTATION' || req.body.type === 'Quotation';
-    const isNeedPlanning = req.body.orderMode === 'NEED_PLANNING' || req.body.status === 'Waiting for Production';
     const isInvoiceMode = req.body.orderMode === 'INVOICE' || req.body.type === 'Invoice';
+
+    let docType = 'Sales Order';
+    if (isInvoiceMode) docType = 'Invoice';
+    else if (isQuotation) docType = 'Quotation';
 
     const order = await processBillingOrder({
       req,
-      type: isInvoiceMode ? 'Invoice' : (isQuotation ? 'Quotation' : 'Sales Order'),
-      data: {
-        ...req.body,
-        skipStockDeduction: isInvoiceMode ? true : Boolean(req.body.skipStockDeduction)
-      },
-      defaultStatus: isInvoiceMode ? 'Delivered' : (isQuotation ? 'Quotation' : (isNeedPlanning ? 'Waiting for Production' : 'Confirmed'))
+      type: docType,
+      data: req.body,
+      defaultStatus: isInvoiceMode ? 'Delivered' : (isQuotation ? 'Quotation' : 'Confirmed')
     });
     res.status(201).json(order);
   } catch (error) {
@@ -1228,29 +1723,41 @@ router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_
       return res.status(404).json({ error: 'Source order not found' });
     }
 
-    if (sourceOrder.type === 'Invoice') {
-      return res.status(400).json({ error: 'Order is already an Invoice' });
+    if (sourceOrder.status === 'Invoiced' || sourceOrder.status === 'Delivered') {
+      return res.status(400).json({ error: 'Order has already been fully invoiced' });
     }
 
     const itemsToBill = req.body.items && req.body.items.length > 0 
-      ? req.body.items 
+      ? req.body.items.map(it => {
+          const matchSourceItem = sourceOrder.items.find(si => si.productId === it.productId);
+          return {
+            ...it,
+            sourceOrderItemId: it.sourceOrderItemId || matchSourceItem?.id || null
+          };
+        })
       : sourceOrder.items.map(it => ({
           productId: it.productId,
-          quantity: it.quantity,
+          sourceOrderItemId: it.id,
+          quantity: Number(it.quantity) - Number(it.invoicedQty || 0),
           unitPrice: it.unitPrice,
           discount: it.discount,
           discountPercent: it.discountPercent,
           gstRate: it.gstRate,
           hsnCode: it.hsnCode,
           uomName: it.uomName
-        }));
+        })).filter(it => it.quantity > 0);
+
+    if (itemsToBill.length === 0) {
+      return res.status(400).json({ error: 'All items on this order have already been invoiced' });
+    }
 
     const invoicePayload = {
       customerId: sourceOrder.customerId,
       sourceOrderId: sourceOrder.id,
       deliveryAddress: req.body.deliveryAddress || sourceOrder.deliveryAddress,
+      billToAddress: req.body.billToAddress || sourceOrder.billToAddress,
       paymentTerms: req.body.paymentTerms || sourceOrder.paymentTerms || 'Net 30',
-      paymentMode: req.body.paymentMode,
+      paymentMode: req.body.paymentMode || sourceOrder.paymentMode,
       amountPaid: req.body.amountPaid || 0,
       freight: req.body.freight !== undefined ? req.body.freight : sourceOrder.freight,
       freightGst: req.body.freightGst !== undefined ? req.body.freightGst : sourceOrder.freightGst,
@@ -1264,6 +1771,7 @@ router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_
       otherGst: req.body.otherGst !== undefined ? req.body.otherGst : sourceOrder.otherGst,
       discountValue: req.body.discountValue !== undefined ? req.body.discountValue : sourceOrder.discountValue,
       tdsDeduction: req.body.tdsDeduction !== undefined ? req.body.tdsDeduction : sourceOrder.tdsDeduction,
+      orderMode: 'INVOICE',
       items: itemsToBill
     };
 
@@ -1272,12 +1780,6 @@ router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_
       type: 'Invoice',
       data: invoicePayload,
       defaultStatus: 'Delivered'
-    });
-
-    // Update parent order status to Delivered
-    await prisma.customerOrder.update({
-      where: { id: sourceOrderId },
-      data: { status: 'Delivered' }
     });
 
     res.status(201).json(newInvoice);
@@ -1297,21 +1799,77 @@ router.post('/:id/resend', authenticateToken, async (req, res, next) => {
   }
 });
 
-// POST /api/orders/:id/convert-to-order - Convert Quotation to Confirmed Sales Order
+// POST /api/orders/:id/convert-to-order - Convert Quotation to Standard Sales Order
 router.post('/:id/convert-to-order', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
   try {
-    const order = await prisma.customerOrder.findUnique({ where: { id: req.params.id } });
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    
-    const updated = await prisma.customerOrder.update({
+    const quotation = await prisma.customerOrder.findUnique({
       where: { id: req.params.id },
-      data: {
-        type: 'Sales Order',
-        status: 'Confirmed'
-      },
       include: { customer: true, items: { include: { product: true } } }
     });
-    res.json(updated);
+    if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
+    if (quotation.status === 'Converted') {
+      const existingChild = await prisma.customerOrder.findFirst({
+        where: { sourceOrderId: quotation.id, deletedAt: null }
+      });
+      return res.status(400).json({
+        error: 'Quotation has already been converted to an order',
+        message: `Quotation ${quotation.docNo || quotation.referenceNo} has already been converted to Sales Order #${existingChild?.docNo || existingChild?.referenceNo || 'SO'}`,
+        alreadyConverted: true,
+        convertedOrderId: existingChild?.id,
+        convertedDocNo: existingChild?.docNo || existingChild?.referenceNo
+      });
+    }
+
+    // Build payload for new Standard Order linked to this quotation
+    const orderPayload = {
+      customerId: quotation.customerId,
+      sourceOrderId: quotation.id,
+      deliveryAddress: quotation.deliveryAddress,
+      billToAddress: quotation.billToAddress,
+      paymentTerms: quotation.paymentTerms || 'Net 30',
+      paymentMode: quotation.paymentMode,
+      amountPaid: 0,
+      freight: quotation.freight,
+      freightGst: quotation.freightGst,
+      loadingCharges: quotation.loadingCharges,
+      loadingGst: quotation.loadingGst,
+      packingCharges: quotation.packingCharges,
+      packingGst: quotation.packingGst,
+      insurance: quotation.insurance,
+      insuranceGst: quotation.insuranceGst,
+      otherCharges: quotation.otherCharges,
+      otherGst: quotation.otherGst,
+      discountValue: quotation.discountValue,
+      tdsDeduction: quotation.tdsDeduction,
+      orderMode: 'STANDARD',
+      customerRefNo: quotation.customerRefNo,
+      salesEmployee: quotation.salesEmployee,
+      items: quotation.items.map(it => ({
+        productId: it.productId,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        discount: it.discount,
+        discountPercent: it.discountPercent,
+        gstRate: it.gstRate,
+        hsnCode: it.hsnCode,
+        uomName: it.uomName
+      }))
+    };
+
+    const newOrder = await processBillingOrder({
+      req,
+      type: 'Sales Order',
+      data: orderPayload,
+      defaultStatus: 'Confirmed'
+    });
+
+    // Mark Quotation as Converted
+    await prisma.customerOrder.update({
+      where: { id: quotation.id },
+      data: { status: 'Converted' }
+    });
+
+    res.status(201).json(newOrder);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -1382,9 +1940,15 @@ router.post('/:id/payments', authenticateToken, roleMiddleware(['MAIN_MASTER', '
 // POST /api/orders/:id/cancel - Cancel order and restore stock
 router.post('/:id/cancel', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
   try {
+    const id = req.params.id;
+    const check = await checkOrderImmutability(id);
+    if (check.isLocked) {
+      return res.status(403).json({ error: check.reason, isLocked: true });
+    }
+
     const updated = await prisma.$transaction(async (tx) => {
       const order = await tx.customerOrder.findUnique({
-        where: { id: req.params.id },
+        where: { id },
         include: { items: true }
       });
       if (!order) throw new Error('Order not found');
@@ -1425,6 +1989,11 @@ router.post('/:id/cancel', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SU
 router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEAM', 'SUPERVISOR']), async (req, res, next) => {
   try {
     const id = req.params.id;
+    const check = await checkOrderImmutability(id);
+    if (check.isLocked) {
+      return res.status(403).json({ error: check.reason, isLocked: true });
+    }
+
     const schema = z.object({
       status: z.enum(['Quotation', 'Confirmed', 'Waiting for Production', 'In Production', 'Ready for Shipment', 'Delivered', 'Cancelled'])
     });
@@ -1538,6 +2107,11 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
 router.patch('/:id/update-details', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'SALES_TEAM', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'MATERIALS_RECEIVER', 'LAB_ASSISTANT']), async (req, res, next) => {
   try {
     const id = req.params.id;
+    const check = await checkOrderImmutability(id);
+    if (check.isLocked) {
+      return res.status(403).json({ error: check.reason, isLocked: true });
+    }
+
     const {
       deliveryAddress,
       billToAddress,
@@ -1612,6 +2186,11 @@ router.patch('/:id/update-details', authenticateToken, roleMiddleware(['MAIN_MAS
 router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']), async (req, res, next) => {
   try {
     const id = req.params.id;
+    const check = await checkOrderImmutability(id);
+    if (check.isLocked) {
+      return res.status(403).json({ error: check.reason, isLocked: true });
+    }
+
     const schema = z.object({
       customerId: z.string().optional().nullable(),
       type: z.enum(['Quotation', 'Sales Order', 'Invoice', 'POS']),
@@ -1645,6 +2224,10 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       totalSubtotal: z.coerce.number().optional(),
       invoiceDiscount: z.coerce.number().optional(),
       customerRefNo: z.string().optional().nullable(),
+      counterId: z.string().optional().nullable(),
+      cashierName: z.string().optional().nullable(),
+      customerName: z.string().optional().nullable(),
+      customerPhone: z.string().optional().nullable(),
       billToAddress: z.string().optional().nullable(),
       shippingMethod: z.string().optional().nullable(),
       salesEmployee: z.string().optional().nullable(),
@@ -1738,6 +2321,10 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           billToAddress: data.billToAddress || null,
           shippingMethod: data.shippingMethod || 'Road Transport',
           customerRefNo: data.customerRefNo || null,
+          counterId: data.counterId !== undefined ? data.counterId : existing.counterId,
+          cashierName: data.cashierName !== undefined ? data.cashierName : existing.cashierName,
+          customerName: data.customerName !== undefined ? data.customerName : existing.customerName,
+          customerPhone: data.customerPhone !== undefined ? data.customerPhone : existing.customerPhone,
           salesEmployee: data.salesEmployee || '-No Sales Employee-',
           paymentMode: data.paymentMode || null,
           orderMode: data.orderMode || (data.type === 'Invoice' || existing.type === 'Invoice' || existing.orderMode === 'INVOICE' ? 'INVOICE' : (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : (existing.orderMode || 'STANDARD'))),
@@ -1860,7 +2447,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       }
 
       return existing;
-    });
+    }, { maxWait: 15000, timeout: 60000 });
 
     if (updated && data.type === 'Invoice') {
       prisma.customerOrder.findUnique({
@@ -1884,6 +2471,10 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
 router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
   try {
     const id = req.params.id;
+    const check = await checkOrderImmutability(id);
+    if (check.isLocked) {
+      return res.status(403).json({ error: check.reason, isLocked: true });
+    }
 
     await prisma.$transaction(async (tx) => {
       // Find order

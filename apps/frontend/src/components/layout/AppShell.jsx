@@ -1331,6 +1331,17 @@ const AppShell = () => {
     localStorage.setItem('darkMode', isDarkMode);
   }, [isDarkMode]);
 
+  // Synchronize Dark Mode when triggered by child components like PosHeader
+  useEffect(() => {
+    const handleThemeToggle = (e) => {
+      if (e.detail?.isDark !== undefined && e.detail.isDark !== isDarkMode) {
+        setIsDarkMode(e.detail.isDark);
+      }
+    };
+    window.addEventListener('app-theme-toggle', handleThemeToggle);
+    return () => window.removeEventListener('app-theme-toggle', handleThemeToggle);
+  }, [isDarkMode]);
+
   // Sync Google Translate with Zustand store
   useEffect(() => {
     const applyLanguage = () => {

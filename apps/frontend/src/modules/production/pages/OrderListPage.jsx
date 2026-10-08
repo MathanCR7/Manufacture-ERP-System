@@ -40,7 +40,7 @@ export default function OrderListPage() {
 
   useEffect(() => {
     if (location.pathname === '/orders/add') {
-      navigate('/sales/billing?mode=sales-order', { replace: true, state: location.state });
+      navigate('/sales/order', { replace: true, state: location.state });
       return;
     }
     const editMatch = location.pathname.match(/^\/orders\/edit\/([^/]+)/);

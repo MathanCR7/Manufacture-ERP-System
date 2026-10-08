@@ -1,0 +1,1218 @@
+/* ==========================================================================
+   POS Header Component Styles - Variables, Light/Dark Modes & Responsive Grid
+   ========================================================================== */
+
+:root {
+  --pos-bg: #ffffff;
+  --pos-surface: #f8fafc;
+  --pos-surface-hover: #f1f5f9;
+  --pos-surface-active: #e2e8f0;
+  --pos-border: #e2e8f0;
+  --pos-border-strong: #cbd5e1;
+  
+  --pos-text: #0f172a;
+  --pos-text-muted: #64748b;
+  --pos-text-subtle: #94a3b8;
+
+  --pos-primary: #4f46e5;
+  --pos-primary-hover: #4338ca;
+  --pos-primary-light: #eef2ff;
+  --pos-primary-text: #3730a3;
+
+  --pos-success: #10b981;
+  --pos-success-light: #ecfdf5;
+  --pos-success-text: #065f46;
+
+  --pos-danger: #ef4444;
+  --pos-danger-light: #fef2f2;
+  --pos-danger-text: #991b1b;
+
+  --pos-warning: #f59e0b;
+  --pos-warning-light: #fffbeb;
+  --pos-warning-text: #92400e;
+
+  --pos-info: #0284c7;
+  --pos-info-light: #f0f9ff;
+  --pos-info-text: #075985;
+
+  --pos-accent-serving: #7c3aed;
+  --pos-accent-serving-bg: #f5f3ff;
+  --pos-accent-serving-border: #ddd6fe;
+
+  --pos-radius-sm: 6px;
+  --pos-radius: 10px;
+  --pos-radius-lg: 14px;
+  --pos-radius-full: 9999px;
+
+  --pos-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --pos-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --pos-shadow-dropdown: 0 10px 25px -3px rgba(0, 0, 0, 0.2), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+
+  --pos-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --pos-focus-ring: 2px solid #6366f1;
+}
+
+/* ==========================================================================
+   DARK CONSOLE THEME (Executive Cockpit Bar - Default in Counter Terminals)
+   ========================================================================== */
+.pos-header-wrapper.pos-header--dark,
+.pos-header--dark,
+:root.dark .pos-header-wrapper,
+.dark .pos-header-wrapper,
+html.dark .pos-header-wrapper,
+body.dark .pos-header-wrapper {
+  --pos-bg: #0b1329;
+  --pos-surface: #111a33;
+  --pos-surface-hover: #1e293b;
+  --pos-surface-active: #334155;
+  --pos-border: #1e293b;
+  --pos-border-strong: #334155;
+
+  --pos-text: #f8fafc;
+  --pos-text-muted: #94a3b8;
+  --pos-text-subtle: #64748b;
+
+  --pos-primary: #6366f1;
+  --pos-primary-hover: #818cf8;
+  --pos-primary-light: rgba(99, 102, 241, 0.2);
+  --pos-primary-text: #c7d2fe;
+
+  --pos-success: #10b981;
+  --pos-success-light: rgba(16, 185, 129, 0.18);
+  --pos-success-text: #6ee7b7;
+
+  --pos-danger: #f87171;
+  --pos-danger-light: rgba(239, 68, 68, 0.2);
+  --pos-danger-text: #fca5a5;
+
+  --pos-warning: #fbbf24;
+  --pos-warning-light: rgba(245, 158, 11, 0.18);
+  --pos-warning-text: #fde68a;
+
+  --pos-info: #38bdf8;
+  --pos-info-light: rgba(2, 132, 199, 0.2);
+  --pos-info-text: #bae6fd;
+
+  --pos-accent-serving: #a78bfa;
+  --pos-accent-serving-bg: rgba(124, 58, 237, 0.25);
+  --pos-accent-serving-border: rgba(167, 139, 250, 0.45);
+
+  --pos-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --pos-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+  --pos-shadow-dropdown: 0 12px 30px -4px rgba(0, 0, 0, 0.7);
+  --pos-focus-ring: 2px solid #818cf8;
+}
+
+/* ==========================================================================
+   LIGHT MODE SCOPED OVERRIDE (Only active when NOT in dark mode)
+   ========================================================================== */
+.pos-header-wrapper.pos-header--light:not(.pos-header--dark),
+html:not(.dark) .pos-header-wrapper.pos-header--light,
+html:not(.dark) .pos-header-wrapper:not(.pos-header--dark) {
+  --pos-bg: #ffffff;
+  --pos-surface: #f8fafc;
+  --pos-surface-hover: #f1f5f9;
+  --pos-surface-active: #e2e8f0;
+  --pos-border: #e2e8f0;
+  --pos-border-strong: #cbd5e1;
+  --pos-text: #0f172a;
+  --pos-text-muted: #64748b;
+  --pos-text-subtle: #94a3b8;
+
+  --pos-primary: #4f46e5;
+  --pos-primary-hover: #4338ca;
+  --pos-primary-light: #eef2ff;
+  --pos-primary-text: #3730a3;
+
+  --pos-success: #10b981;
+  --pos-success-light: #ecfdf5;
+  --pos-success-text: #065f46;
+
+  --pos-danger: #ef4444;
+  --pos-danger-light: #fef2f2;
+  --pos-danger-text: #991b1b;
+
+  --pos-warning: #f59e0b;
+  --pos-warning-light: #fffbeb;
+  --pos-warning-text: #92400e;
+
+  --pos-info: #0284c7;
+  --pos-info-light: #f0f9ff;
+  --pos-info-text: #075985;
+
+  --pos-accent-serving: #7c3aed;
+  --pos-accent-serving-bg: #f5f3ff;
+  --pos-accent-serving-border: #ddd6fe;
+
+  --pos-shadow-dropdown: 0 10px 25px -3px rgba(0, 0, 0, 0.15);
+}
+
+/* ==========================================================================
+   Main Header Container
+   ========================================================================== */
+.pos-header-wrapper {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  width: 100%;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.pos-header {
+  background: var(--pos-bg);
+  border-bottom: 1px solid var(--pos-border);
+  box-shadow: var(--pos-shadow-sm);
+  padding: 0.5rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  color: var(--pos-text);
+  box-sizing: border-box;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Top Primary Row */
+.pos-header__primary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: nowrap;
+}
+
+/* Left Group (Brand & Terminal) */
+.pos-header__left {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+/* Business Brand */
+.pos-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.pos-brand--interactive {
+  cursor: pointer;
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--pos-radius);
+  transition: background-color 0.15s ease;
+}
+
+.pos-brand--interactive:hover {
+  background: var(--pos-surface);
+}
+
+.pos-brand__logo {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--pos-radius);
+  object-fit: contain;
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  flex-shrink: 0;
+}
+
+.pos-brand__fallback {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--pos-radius);
+  background: linear-gradient(135deg, #4f46e5, #8b5cf6);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(79, 70, 229, 0.35);
+}
+
+.pos-brand__meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pos-brand__name {
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--pos-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+.pos-brand__branch {
+  font-size: 0.725rem;
+  font-weight: 600;
+  color: var(--pos-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+/* Terminal & Register Badge */
+.pos-terminal-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--pos-text-muted);
+  white-space: nowrap;
+}
+
+.pos-terminal-badge__id {
+  font-weight: 800;
+  color: var(--pos-text);
+  font-family: var(--pos-font-mono);
+}
+
+.pos-terminal-badge__icon {
+  width: 14px;
+  height: 14px;
+  color: var(--pos-primary);
+}
+
+/* Center Group (Live Numbers, Token, Mode) */
+.pos-header__center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Serving / Queue Number (Highlighted Purple Badge - No Wrap & Fixed Compact Height) */
+.pos-serving-tag {
+  display: inline-flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: var(--pos-accent-serving-bg) !important;
+  border: 1.5px solid var(--pos-accent-serving-border) !important;
+  border-radius: var(--pos-radius) !important;
+  padding: 0.15rem 0.65rem !important;
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  flex-shrink: 0 !important;
+  height: 38px !important;
+  box-sizing: border-box !important;
+  text-align: center !important;
+  box-shadow: 0 2px 4px rgba(124, 58, 237, 0.15);
+}
+
+.pos-serving-tag__label {
+  font-size: 0.58rem !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--pos-accent-serving) !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.pos-serving-tag__number {
+  font-size: 1.05rem !important;
+  font-weight: 900 !important;
+  font-family: var(--pos-font-mono) !important;
+  color: var(--pos-accent-serving) !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+}
+
+/* Receipt / Document Number */
+.pos-receipt-badge {
+  display: inline-flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  padding: 0.15rem 0.65rem !important;
+  background: var(--pos-surface) !important;
+  border: 1px solid var(--pos-border) !important;
+  border-radius: var(--pos-radius) !important;
+  font-family: var(--pos-font-mono) !important;
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+  height: 38px !important;
+  box-sizing: border-box !important;
+}
+
+.pos-receipt-badge__label {
+  font-size: 0.58rem !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  color: var(--pos-text-subtle) !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.pos-receipt-badge__number {
+  font-size: 0.85rem !important;
+  font-weight: 800 !important;
+  color: var(--pos-text) !important;
+  line-height: 1.15 !important;
+  white-space: nowrap !important;
+}
+
+/* Mode Switcher / Badge */
+.pos-mode-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.35rem !important;
+  padding: 0 0.65rem !important;
+  border-radius: var(--pos-radius) !important;
+  font-size: 0.75rem !important;
+  font-weight: 800 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  border: 1px solid transparent !important;
+  cursor: pointer !important;
+  height: 38px !important;
+  flex-shrink: 0 !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+  transition: all 0.15s ease;
+}
+
+.pos-mode-badge--sale {
+  background: var(--pos-success-light) !important;
+  color: var(--pos-success-text) !important;
+  border-color: var(--pos-success) !important;
+}
+
+.pos-mode-badge--refund {
+  background: var(--pos-danger-light) !important;
+  color: var(--pos-danger-text) !important;
+  border-color: var(--pos-danger) !important;
+  animation: pulse-border 2s infinite ease-in-out;
+}
+
+.pos-mode-badge--training {
+  background: var(--pos-warning-light) !important;
+  color: var(--pos-warning-text) !important;
+  border-color: var(--pos-warning) !important;
+}
+
+@keyframes pulse-border {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
+/* Customer Loyalty Attached Tag - Constrained to prevent colliding with Cashier */
+.pos-customer-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.35rem !important;
+  padding: 0 0.55rem !important;
+  background: var(--pos-primary-light) !important;
+  border: 1px solid var(--pos-primary) !important;
+  border-radius: var(--pos-radius) !important;
+  color: var(--pos-primary-text) !important;
+  font-size: 0.72rem !important;
+  font-weight: 700 !important;
+  white-space: nowrap !important;
+  max-width: 140px !important;
+  overflow: hidden !important;
+  flex-shrink: 1 !important;
+  height: 38px !important;
+  box-sizing: border-box !important;
+}
+
+.pos-customer-pill__name {
+  max-width: 75px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.pos-customer-pill__loyalty {
+  font-size: 0.65rem !important;
+  opacity: 0.85 !important;
+  font-family: var(--pos-font-mono) !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  max-width: 45px !important;
+}
+
+/* Right Group (Clock, Cashier, Action Buttons) */
+.pos-header__right {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.5rem !important;
+  flex-shrink: 0 !important;
+  position: relative !important;
+  z-index: 2 !important;
+}
+
+/* Cashier Identity */
+.pos-cashier {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0.6rem;
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius);
+  white-space: nowrap;
+}
+
+.pos-cashier__avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--pos-surface-active);
+  color: var(--pos-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.pos-cashier__info {
+  display: flex;
+  flex-direction: column;
+}
+
+.pos-cashier__name {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--pos-text);
+  line-height: 1.1;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pos-cashier__role {
+  font-size: 0.65rem;
+  color: var(--pos-text-muted);
+  line-height: 1.1;
+}
+
+/* Secondary Sub-Row: Order Type, Hardware Indicators, Diagnostics & Actions */
+.pos-header__secondary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--pos-border);
+  flex-wrap: wrap;
+}
+
+.pos-header__secondary-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pos-header__secondary-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   OrderTypeSelector Segmented Control
+   ========================================================================== */
+.pos-order-type-selector {
+  display: inline-flex;
+  align-items: center;
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  padding: 2px;
+  border-radius: var(--pos-radius);
+  box-sizing: border-box;
+}
+
+.pos-order-type-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--pos-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: var(--pos-radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.pos-order-type-btn:focus-visible {
+  outline: var(--pos-focus-ring);
+}
+
+.pos-order-type-btn:hover:not(:disabled) {
+  color: var(--pos-text);
+  background: var(--pos-surface-hover);
+}
+
+.pos-order-type-btn--active {
+  background: var(--pos-primary) !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.pos-order-type-btn__icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* ==========================================================================
+   Live Clock Component
+   ========================================================================== */
+.pos-live-clock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+  line-height: 1.1;
+}
+
+.pos-live-clock__main {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pos-live-clock__icon {
+  width: 13px;
+  height: 13px;
+  color: var(--pos-text-muted);
+}
+
+.pos-live-clock__time {
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-family: var(--pos-font-mono);
+  color: var(--pos-text);
+  letter-spacing: -0.02em;
+}
+
+.pos-live-clock__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  color: var(--pos-text-muted);
+}
+
+.pos-live-clock__date {
+  font-weight: 600;
+}
+
+.pos-live-clock__shift {
+  font-weight: 700;
+  color: var(--pos-primary);
+  background: var(--pos-surface);
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  border: 1px solid var(--pos-border);
+}
+
+/* ==========================================================================
+   Hardware & Network Status Pills
+   ========================================================================== */
+.pos-status-pills {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.pos-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius-full);
+  font-size: 0.725rem;
+  color: var(--pos-text-muted);
+  white-space: nowrap;
+  box-sizing: border-box;
+}
+
+.pos-status-pill--interactive {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pos-status-pill--interactive:hover {
+  background: var(--pos-surface-hover);
+  border-color: var(--pos-border-strong);
+}
+
+.pos-status-pill--interactive:focus-visible {
+  outline: var(--pos-focus-ring);
+}
+
+.pos-status-pill__icon {
+  display: flex;
+  align-items: center;
+  color: var(--pos-text-subtle);
+}
+
+.pos-status-pill__icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.pos-status-pill__dot-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pos-status-pill__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.pos-status-pill__dot--ok {
+  background-color: var(--pos-success);
+  box-shadow: 0 0 0 2px var(--pos-success-light);
+}
+
+.pos-status-pill__dot--err {
+  background-color: var(--pos-danger);
+  box-shadow: 0 0 0 2px var(--pos-danger-light);
+}
+
+.pos-status-pill__symbol {
+  display: none;
+  width: 10px;
+  height: 10px;
+}
+
+.pos-status-pill__label {
+  font-weight: 600;
+  color: var(--pos-text);
+}
+
+.pos-text-ok {
+  color: var(--pos-success);
+  font-weight: 700;
+}
+
+.pos-text-err {
+  color: var(--pos-danger);
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   Tool Action Buttons (Held Orders, Alerts, Lock, Logout, Sync, Battery)
+   ========================================================================== */
+.pos-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--pos-radius);
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  color: var(--pos-text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pos-icon-btn:hover {
+  background: var(--pos-surface-hover);
+  color: var(--pos-text);
+  border-color: var(--pos-border-strong);
+}
+
+.pos-icon-btn:focus-visible {
+  outline: var(--pos-focus-ring);
+}
+
+.pos-icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.pos-icon-btn__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: var(--pos-danger);
+  color: #ffffff;
+  font-size: 0.625rem;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  padding: 0 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Parked / Held Orders Pill Button */
+.pos-held-orders-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--pos-radius);
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  color: var(--pos-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.pos-held-orders-btn:hover {
+  background: var(--pos-surface-hover);
+}
+
+.pos-held-orders-badge {
+  background: var(--pos-warning);
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.1rem 0.35rem;
+  border-radius: 10px;
+}
+
+/* Device Battery Indicator */
+.pos-battery {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  border-radius: var(--pos-radius);
+  font-size: 0.7rem;
+  font-family: var(--pos-font-mono);
+  font-weight: 700;
+  color: var(--pos-text-muted);
+}
+
+.pos-battery--low {
+  color: var(--pos-danger);
+  border-color: var(--pos-danger);
+  background: var(--pos-danger-light);
+}
+
+/* Sync Indicator */
+.pos-sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--pos-radius);
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  font-size: 0.7rem;
+  color: var(--pos-text-muted);
+  cursor: pointer;
+}
+
+.pos-sync-badge {
+  background: var(--pos-info);
+  color: #ffffff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  padding: 0 0.3rem;
+  border-radius: 6px;
+}
+
+/* Currency & Tax Spec Pill */
+.pos-tax-pill {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--pos-text-muted);
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  padding: 0.25rem 0.55rem;
+  border-radius: var(--pos-radius);
+}
+
+/* ==========================================================================
+   Live PostgreSQL Business Profile Dropdown Popover
+   ========================================================================== */
+.pos-profile-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  width: 380px;
+  max-width: 90vw;
+  background: var(--pos-bg);
+  border: 1px solid var(--pos-border-strong);
+  border-radius: var(--pos-radius-lg);
+  box-shadow: var(--pos-shadow-dropdown);
+  padding: 0.875rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  color: var(--pos-text);
+}
+
+.pos-profile-dropdown__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pos-border);
+}
+
+.pos-live-db-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: var(--pos-success-light);
+  color: var(--pos-success);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--pos-radius-full);
+  border: 1px solid var(--pos-success);
+}
+
+.pos-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pos-success);
+  animation: pulse-dot 1.5s infinite ease-in-out;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+.pos-profile-dropdown__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pos-profile-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.pos-profile-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--pos-text-subtle);
+  letter-spacing: 0.04em;
+}
+
+.pos-profile-val {
+  font-size: 0.8rem;
+  color: var(--pos-text);
+}
+
+.pos-profile-dropdown__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--pos-border);
+}
+
+.pos-profile-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--pos-primary);
+  text-decoration: none;
+}
+
+.pos-profile-link:hover {
+  text-decoration: underline;
+}
+
+.pos-profile-close-btn {
+  padding: 0.25rem 0.6rem;
+  border-radius: var(--pos-radius-sm);
+  background: var(--pos-surface);
+  border: 1px solid var(--pos-border);
+  color: var(--pos-text);
+  font-size: 0.725rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Alerts Popover Dropdown
+   ========================================================================== */
+.pos-alerts-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0.5rem;
+  margin-top: 0.5rem;
+  width: 320px;
+  max-width: 90vw;
+  background: var(--pos-bg);
+  border: 1px solid var(--pos-border-strong);
+  border-radius: var(--pos-radius-lg);
+  box-shadow: var(--pos-shadow-dropdown);
+  padding: 0.75rem;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pos-alerts-dropdown__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--pos-border);
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--pos-text);
+}
+
+.pos-alerts-dropdown__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.pos-alert-item {
+  padding: 0.5rem;
+  border-radius: var(--pos-radius-sm);
+  font-size: 0.75rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.pos-alert-item--warning {
+  background: var(--pos-warning-light);
+  color: var(--pos-warning-text);
+  border: 1px solid var(--pos-warning);
+}
+
+.pos-alert-item--danger {
+  background: var(--pos-danger-light);
+  color: var(--pos-danger-text);
+  border: 1px solid var(--pos-danger);
+}
+
+.pos-alert-item--info {
+  background: var(--pos-info-light);
+  color: var(--pos-info-text);
+  border: 1px solid var(--pos-info);
+}
+
+/* ==========================================================================
+   Hardware Diagnostic Modal
+   ========================================================================== */
+.pos-diagnostic-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.pos-diagnostic-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--pos-bg);
+  border: 1px solid var(--pos-border-strong);
+  border-radius: var(--pos-radius-lg);
+  box-shadow: var(--pos-shadow-dropdown);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  color: var(--pos-text);
+}
+
+.pos-diagnostic-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pos-border);
+}
+
+.pos-diagnostic-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* ==========================================================================
+   Offline Alert Banner
+   ========================================================================== */
+.pos-offline-banner {
+  background: var(--pos-danger);
+  color: #ffffff;
+  padding: 0.45rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3);
+  letter-spacing: -0.01em;
+}
+
+.pos-offline-banner__icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  animation: bounce 1s infinite alternate ease-in-out;
+}
+
+@keyframes bounce {
+  from { transform: translateY(0); }
+  to { transform: translateY(-2px); }
+}
+
+/* ==========================================================================
+   Responsive Adaptations & Hardware Touch Displays (POS Tablets / Screens)
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .pos-header__primary-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .pos-header__center {
+    order: 3;
+    width: 100%;
+    justify-content: space-between;
+    padding-top: 0.25rem;
+    border-top: 1px dashed var(--pos-border);
+  }
+}
+
+/* Under 720px: Structured grid with logo on its own row */
+@media (max-width: 720px) {
+  .pos-header {
+    padding: 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .pos-header__primary-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .pos-header__left {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--pos-border);
+  }
+
+  .pos-header__center {
+    grid-column: 1;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 0.4rem;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .pos-header__right {
+    grid-column: 2;
+    justify-content: flex-end;
+  }
+
+  .pos-live-clock__time {
+    font-size: 1rem;
+  }
+
+  .pos-header__secondary-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.4rem;
+  }
+
+  .pos-header__secondary-left,
+  .pos-header__secondary-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .pos-order-type-selector {
+    width: 100%;
+    display: flex;
+  }
+
+  .pos-order-type-btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .pos-status-pills {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .pos-status-pill {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+  }
+
+  .pos-icon-btn,
+  .pos-order-type-btn {
+    min-height: 38px;
+  }
+}

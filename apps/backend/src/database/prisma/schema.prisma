@@ -1024,6 +1024,8 @@ model FinishedProduct {
   countryOfOrigin       String?                     @map("country_of_origin")
   warranty              String?                     @map("warranty")
   keyFeatures           String?                     @db.Text @map("key_features")
+  isStockItem           Boolean                     @default(true) @map("is_stock_item")
+  makeOrBuy             String                      @default("MAKE") @map("make_or_buy")
 
   // Relations
   creator             User                        @relation("FinishedProductCreator", fields: [createdBy], references: [id])
@@ -1402,6 +1404,7 @@ model CustomerOrder {
   salesEmployee   String?                  @default("-No Sales Employee-") @map("sales_employee")
   paymentMode     String?                  @map("payment_mode")
   orderMode       String?                  @default("STANDARD") @map("order_mode")
+  allowPartialDelivery Boolean                  @default(false) @map("allow_partial_delivery")
   attachmentUrl   String?                  @db.Text @map("attachment_url")
 
   customer       Customer                 @relation("CustomerOrders", fields: [customerId], references: [id])
@@ -1437,6 +1440,13 @@ model CustomerOrderItem {
   uomName         String?         @map("uom_name")
   discountPercent Decimal         @default(0) @map("discount_percent")
   productName     String?         @map("product_name")
+
+  // Stock Reservation & Order-to-Invoice Balance Tracking
+  invoicedQty     Decimal         @default(0) @map("invoiced_qty")
+  reservedQty     Decimal         @default(0) @map("reserved_qty")
+  shortfallQty    Decimal         @default(0) @map("shortfall_qty")
+  isStockItem     Boolean         @default(true) @map("is_stock_item")
+  expectedDate    DateTime?       @map("expected_date")
 
   order           CustomerOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product         FinishedProduct @relation(fields: [productId], references: [id])

@@ -348,7 +348,7 @@ router.post('/pos', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES_TEA
         balance: Math.max(0, data.amountPaid - totalSubtotal),
         paymentMode: data.paymentMode
       };
-    });
+    }, { maxWait: 15000, timeout: 60000 });
 
     res.status(201).json(result);
   } catch (error) {
@@ -563,7 +563,7 @@ router.post('/returns', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SALES
       });
 
       return salesReturn;
-    });
+    }, { maxWait: 15000, timeout: 60000 });
 
     res.status(201).json(result);
   } catch (error) {

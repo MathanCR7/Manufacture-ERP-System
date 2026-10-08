@@ -7,7 +7,7 @@ import {
   MessageSquare, Mail, Play, Building2, Send, Share2,
   ArrowUp, ArrowDown, ArrowUpDown, Filter, Save, Camera, ImageIcon, Paperclip,
   Package, Truck, Check, ExternalLink, Maximize2, Trash2, Calendar, Phone,
-  FileCheck, ShieldCheck, MapPin, Edit3
+  FileCheck, ShieldCheck, MapPin, Edit3, GitFork, CheckCheck, Network, Lock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,7 @@ import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
 import { generateA4TaxInvoice, generateThermalReceipt } from '@/utils/salesPdfGenerator';
 import { numberToWordsINR, getIndianStates } from '@/utils/gstEngine';
+import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 
 // Official WhatsApp SVG Logo Icon
 const WhatsAppIcon = ({ className = "w-3.5 h-3.5" }) => (
@@ -44,6 +45,11 @@ export default function SalesListPage() {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Document Flow & Grouping State
+  const [flowModalState, setFlowModalState] = useState({ isOpen: false, orderId: null, docNo: '' });
+  const [groupByChain, setGroupByChain] = useState(false);
+  const openDocumentFlowModal = (order) => setFlowModalState({ isOpen: true, orderId: order?.id, docNo: order?.docNo || order?.referenceNo });
   
   // Dynamic settings & Tab view
   const [companySettings, setCompanySettings] = useState(null);
@@ -280,7 +286,13 @@ export default function SalesListPage() {
       const paymentMatch = (order.paymentStatus || '').toLowerCase().includes(q) || (order.paymentTerms || '').toLowerCase().includes(q);
       const typeMatch = (order.type || '').toLowerCase().includes(q);
       const totalMatch = String(order.grandTotal || order.totalSubtotal || '').includes(q);
-      return refMatch || nameMatch || phoneMatch || gstinMatch || counterMatch || cashierMatch || statusMatch || paymentMatch || typeMatch || totalMatch;
+      
+      // Match any document in the connected chain (QT, SO, INV)
+      const chainMatch = order.documentChain && order.documentChain.some(d => 
+        (d.docNo || '').toLowerCase().includes(q) || (d.referenceNo || '').toLowerCase().includes(q)
+      );
+
+      return refMatch || nameMatch || phoneMatch || gstinMatch || counterMatch || cashierMatch || statusMatch || paymentMatch || typeMatch || totalMatch || chainMatch;
     }).sort((a, b) => {
       if (sortBy === 'date_desc') return new Date(b.createdAt) - new Date(a.createdAt);
       if (sortBy === 'date_asc') return new Date(a.createdAt) - new Date(b.createdAt);
@@ -294,6 +306,40 @@ export default function SalesListPage() {
       return 0;
     });
   }, [orders, typeFilter, paymentStatusFilter, searchTerm, sortBy]);
+
+  // Grouped chains by shared rootOrderId
+  const groupedChains = useMemo(() => {
+    if (!groupByChain) return [];
+    const groupsMap = new Map();
+    filteredOrders.forEach(order => {
+      const groupKey = order.rootOrderId || order.id;
+      if (!groupsMap.has(groupKey)) {
+        groupsMap.set(groupKey, {
+          rootOrderId: groupKey,
+          chainSummary: order.chainSummary || order.docNo || order.referenceNo,
+          customerName: order.customerName || order.customer?.name,
+          customerType: order.customer?.customerType || 'B2B',
+          orders: [],
+          totalAmount: 0,
+          latestDate: order.createdAt
+        });
+      }
+      const grp = groupsMap.get(groupKey);
+      grp.orders.push(order);
+      if (new Date(order.createdAt) > new Date(grp.latestDate)) {
+        grp.latestDate = order.createdAt;
+      }
+    });
+
+    // Sort documents within each group chronologically (Quotation -> Order -> Invoice)
+    return Array.from(groupsMap.values()).map(grp => {
+      grp.orders.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+      const latestDoc = grp.orders[grp.orders.length - 1];
+      grp.totalAmount = Number(latestDoc.grandTotal || latestDoc.totalSubtotal || 0);
+      grp.latestStatus = latestDoc.status;
+      return grp;
+    });
+  }, [filteredOrders, groupByChain]);
 
   const handleToggleSort = (field) => {
     setSortBy(prev => {
@@ -633,6 +679,32 @@ Thank you for choosing ${company}!`;
 
   // Convert Quotation to Confirmed Sales Order
   const handleConvertToOrder = async (order) => {
+    // If quotation is already converted, don't attempt to re-convert; prompt to view the converted order!
+    if (order.status === 'Converted' || order.isConvertedQuote || (order.childOrders && order.childOrders.length > 0)) {
+      const child = order.childOrders?.[0] || order.convertedToOrder || order.documentChain?.find(d => d.type === 'Sales Order');
+      Swal.fire({
+        icon: 'info',
+        title: 'Already Converted',
+        html: `<div class="text-xs text-slate-600 dark:text-slate-300">
+          Quotation <b class="font-mono text-purple-700 dark:text-purple-300">${order.docNo || order.referenceNo}</b> has already been converted to Sales Order <b class="font-mono text-blue-700 dark:text-blue-300">#${child?.docNo || 'SO'}</b>.
+        </div>`,
+        showCancelButton: true,
+        confirmButtonText: child ? `Open Sales Order #${child.docNo}` : 'View Document Flow',
+        confirmButtonColor: '#2563eb',
+        cancelButtonText: 'Close'
+      }).then(res => {
+        if (res.isConfirmed) {
+          if (child) {
+            setSelectedOrder(child);
+            setSearchParams({ id: child.id });
+          } else {
+            openDocumentFlowModal(order);
+          }
+        }
+      });
+      return;
+    }
+
     const confirm = await Swal.fire({
       title: 'Convert to Sales Order?',
       html: `<div class="text-xs text-slate-500">
@@ -647,11 +719,11 @@ Thank you for choosing ${company}!`;
     if (!confirm.isConfirmed) return;
 
     try {
-      await api.post(`/orders/${order.id}/convert-to-order`);
+      const res = await api.post(`/orders/${order.id}/convert-to-order`);
       Swal.fire({
         icon: 'success',
         title: 'Order Confirmed',
-        text: 'Quotation has been successfully converted to a Sales Order.',
+        text: `Quotation converted to Sales Order #${res.data?.docNo || res.data?.referenceNo}`,
         timer: 1500,
         showConfirmButton: false,
         toast: true,
@@ -659,16 +731,34 @@ Thank you for choosing ${company}!`;
       });
       fetchSales();
       if (selectedOrder?.id === order.id) {
-        setSelectedOrder(prev => ({ ...prev, type: 'Sales Order', status: 'Confirmed' }));
+        setSelectedOrder(res.data);
       }
     } catch (err) {
       console.error(err);
-      Swal.fire({
-        icon: 'error',
-        title: 'Conversion Failed',
-        text: err?.response?.data?.error || err.message,
-        confirmButtonColor: '#4f46e5'
-      });
+      if (err?.response?.data?.alreadyConverted) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Already Converted',
+          html: `<div class="text-xs text-slate-600 dark:text-slate-300">
+            ${err.response.data.message || 'This quotation has already been converted to an order.'}
+          </div>`,
+          showCancelButton: true,
+          confirmButtonText: err.response.data.convertedDocNo ? `Open Sales Order #${err.response.data.convertedDocNo}` : 'View Flow',
+          confirmButtonColor: '#2563eb'
+        }).then(dlg => {
+          if (dlg.isConfirmed && err.response.data.convertedOrderId) {
+            setSelectedOrder({ id: err.response.data.convertedOrderId });
+            setSearchParams({ id: err.response.data.convertedOrderId });
+          }
+        });
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Conversion Failed',
+          text: err?.response?.data?.error || err.message,
+          confirmButtonColor: '#4f46e5'
+        });
+      }
     }
   };
 
@@ -847,6 +937,18 @@ Thank you for choosing ${company}!`;
     const isInvoice = selectedOrder.type === 'Invoice';
     const isPaid = (editForm.paymentStatus || selectedOrder.paymentStatus) === 'PAID';
 
+    const isConvertedQuote = isQuote && (
+      selectedOrder.status === 'Converted' ||
+      selectedOrder.isConvertedQuote ||
+      (selectedOrder.childOrders && selectedOrder.childOrders.length > 0)
+    );
+    const isInvoicedOrder = isSO && (
+      selectedOrder.status === 'Delivered' ||
+      selectedOrder.isInvoicedOrder ||
+      (selectedOrder.childOrders && selectedOrder.childOrders.some(c => c.type === 'Invoice' || c.orderType === 'Invoice'))
+    );
+    const isOrderLocked = isConvertedQuote || isInvoicedOrder;
+
     const clientCustName = selectedOrder.customer?.name || selectedOrder.customerName || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client');
     const clientCustPhone = selectedOrder.customer?.phone || selectedOrder.customerPhone || 'N/A';
     const clientContactPerson = selectedOrder.customer?.contactPerson || 'N/A';
@@ -906,13 +1008,23 @@ Thank you for choosing ${company}!`;
                 </span>
               )}
               {isSO && !isNeedPlanning && (
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-blue-100 text-blue-900 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
-                  🛒 Sales Order (Direct In-Stock)
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                  isInvoicedOrder
+                    ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                    : 'bg-blue-100 text-blue-900 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
+                }`}>
+                  {isInvoicedOrder ? <Lock className="w-3 h-3 text-emerald-600" /> : null}
+                  {isInvoicedOrder ? '🛒 Sales Order (Invoiced & Locked)' : '🛒 Sales Order (Direct In-Stock)'}
                 </span>
               )}
               {isQuote && (
-                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-purple-100 text-purple-900 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300 dark:border-purple-800">
-                  📄 Price Quotation (Bid)
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                  isConvertedQuote
+                    ? 'bg-purple-100 text-purple-900 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-300 dark:border-purple-800'
+                    : 'bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                }`}>
+                  {isConvertedQuote ? <Lock className="w-3 h-3 text-purple-600" /> : null}
+                  {isConvertedQuote ? '📄 Quotation (Converted & Locked)' : '📄 Price Quotation (Bid)'}
                 </span>
               )}
               {isInvoice && (
@@ -1020,37 +1132,47 @@ Thank you for choosing ${company}!`;
 
             {/* Conditional Action: View Mode (Edit buttons) vs Edit Mode (Save & Cancel buttons) */}
             {!isEditing ? (
-              <>
-                {/* Edit Order in SAP Studio / POS */}
-                <Button
-                  type="button"
-                  onClick={() => {
-                    if (selectedOrder.type === 'POS') {
-                      navigate(`/pos?edit=${selectedOrder.id}`);
-                    } else {
-                      navigate(`/sales/order?edit=${selectedOrder.id}`);
-                    }
-                  }}
-                  className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
-                  title="Edit line items and full parameters in SAP Studio"
+              isOrderLocked ? (
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-500 dark:text-slate-400 text-xs font-bold shadow-xs"
+                  title={isConvertedQuote ? "Quotation converted to Sales Order cannot be changed, edited, or deleted" : "Sales Order converted to Tax Invoice cannot be changed, edited, or deleted"}
                 >
-                  <FileText className="w-3.5 h-3.5" /> Edit in Studio
-                </Button>
+                  <Lock className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Document Locked (Immutable)</span>
+                </div>
+              ) : (
+                <>
+                  {/* Edit Order in SAP Studio / POS */}
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      if (selectedOrder.type === 'POS') {
+                        navigate(`/pos?edit=${selectedOrder.id}`);
+                      } else {
+                        navigate(`/sales/order?edit=${selectedOrder.id}`);
+                      }
+                    }}
+                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Edit line items and full parameters in SAP Studio"
+                  >
+                    <FileText className="w-3.5 h-3.5" /> Edit in Studio
+                  </Button>
 
-                {/* Change Logistics Button */}
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setActiveStudioTab('logistics');
-                    setIsEditing(true);
-                  }}
-                  variant="outline"
-                  className="border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
-                  title="Update delivery addresses, transporter, vehicle, and dispatch logistics"
-                >
-                  <Truck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Change Logistics
-                </Button>
-              </>
+                  {/* Change Logistics Button */}
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setActiveStudioTab('logistics');
+                      setIsEditing(true);
+                    }}
+                    variant="outline"
+                    className="border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Update delivery addresses, transporter, vehicle, and dispatch logistics"
+                  >
+                    <Truck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Change Logistics
+                  </Button>
+                </>
+              )
             ) : (
               <>
                 {/* Save Logistics button - ONLY displayed when editing */}
@@ -1102,8 +1224,35 @@ Thank you for choosing ${company}!`;
               </Button>
             ) : null}
 
-            {/* Convert Quotation to Order */}
-            {isQuote && (
+            {/* View Document Flow & History Button */}
+            <Button
+              type="button"
+              onClick={() => openDocumentFlowModal(selectedOrder)}
+              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3 flex items-center gap-1.5"
+              title="View Document Flow & Lifecycle History"
+            >
+              <GitFork className="w-3.5 h-3.5" /> Document Flow
+            </Button>
+
+            {/* Convert Quotation to Order OR View Converted Order */}
+            {isQuote && (selectedOrder.status === 'Converted' || selectedOrder.isConvertedQuote || (selectedOrder.childOrders && selectedOrder.childOrders.length > 0)) ? (
+              <Button
+                type="button"
+                onClick={() => {
+                  const child = selectedOrder.childOrders?.[0] || selectedOrder.convertedToOrder || selectedOrder.documentChain?.find(d => d.type === 'Sales Order');
+                  if (child) {
+                    setSelectedOrder(child);
+                    setSearchParams({ id: child.id });
+                  } else {
+                    openDocumentFlowModal(selectedOrder);
+                  }
+                }}
+                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3 flex items-center gap-1.5"
+                title="View Converted Sales Order"
+              >
+                <CheckCheck className="w-3.5 h-3.5" /> View Sales Order #{selectedOrder.childOrders?.[0]?.docNo || 'SO'}
+              </Button>
+            ) : isQuote ? (
               <Button
                 type="button"
                 onClick={() => handleConvertToOrder(selectedOrder)}
@@ -1112,13 +1261,30 @@ Thank you for choosing ${company}!`;
               >
                 <CheckCircle2 className="w-3.5 h-3.5" /> Convert to Order
               </Button>
-            )}
+            ) : null}
 
-            {/* Convert to Tax Invoice */}
-            {(isQuote || isSO) && (
+            {/* Convert to Tax Invoice OR View Converted Tax Invoice */}
+            {isSO && isInvoicedOrder ? (
               <Button
                 type="button"
-                onClick={() => navigate(`/sales/billing?convertFrom=${selectedOrder.id}`)}
+                onClick={() => {
+                  const child = selectedOrder.childOrders?.find(c => c.type === 'Invoice' || c.orderType === 'Invoice') || selectedOrder.invoicedToOrder || selectedOrder.documentChain?.find(d => d.type === 'Invoice');
+                  if (child) {
+                    setSelectedOrder(child);
+                    setSearchParams({ id: child.id });
+                  } else {
+                    openDocumentFlowModal(selectedOrder);
+                  }
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5"
+                title="View Converted Tax Invoice"
+              >
+                <CheckCheck className="w-3.5 h-3.5" /> View Tax Invoice #{selectedOrder.childOrders?.find(c => c.type === 'Invoice' || c.orderType === 'Invoice')?.docNo || 'INV'}
+              </Button>
+            ) : ((isQuote && !isConvertedQuote) || isSO) && selectedOrder.status !== 'Delivered' && (
+              <Button
+                type="button"
+                onClick={() => navigate(`/sales/order?convertFrom=${selectedOrder.id}&mode=INVOICE`)}
                 className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3.5 flex items-center gap-1.5"
                 title="Convert to Tax Invoice"
               >
@@ -1127,6 +1293,50 @@ Thank you for choosing ${company}!`;
             )}
           </div>
         </div>
+
+        {/* ── LINKED DOCUMENT FLOW BANNER (IF CONNECTED CHAIN) ── */}
+        {selectedOrder.documentChain && selectedOrder.documentChain.length > 1 && (
+          <div className="bg-gradient-to-r from-indigo-50/80 via-purple-50/60 to-blue-50/80 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-blue-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-black uppercase text-indigo-950 dark:text-indigo-200 flex items-center gap-1.5">
+                <GitFork className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" /> Linked Flow:
+              </span>
+              {selectedOrder.documentChain.map((doc, dIdx) => (
+                <span key={doc.id} className="flex items-center gap-1">
+                  {dIdx > 0 && <span className="text-slate-400 dark:text-slate-500 text-xs">→</span>}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (doc.id !== selectedOrder.id) {
+                        setSearchParams({ id: doc.id });
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                      doc.id === selectedOrder.id
+                        ? 'bg-indigo-600 text-white shadow-xs'
+                        : doc.type === 'Quotation'
+                        ? 'bg-purple-100 dark:bg-purple-900/60 text-purple-800 dark:text-purple-300 hover:bg-purple-200 border border-purple-200 dark:border-purple-800'
+                        : doc.type === 'Sales Order'
+                        ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-800 dark:text-blue-300 hover:bg-blue-200 border border-blue-200 dark:border-blue-800'
+                        : 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300 hover:bg-indigo-200 border border-indigo-200 dark:border-indigo-800'
+                    }`}
+                  >
+                    <span>{doc.docNo || doc.referenceNo}</span>
+                    <span className="text-[9px] font-sans font-semibold opacity-80">({doc.type})</span>
+                  </button>
+                </span>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => openDocumentFlowModal(selectedOrder)}
+              className="px-3.5 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-indigo-700 dark:text-indigo-300 text-xs font-bold rounded-xl border border-indigo-300 dark:border-indigo-700 shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <GitFork className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>View Flow & History Map</span>
+            </button>
+          </div>
+        )}
 
         {/* ── TOP SAP DOCUMENT HEADER CARD (CUSTOMER * & DOCUMENT DETAILS) ── */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-xs space-y-4">
@@ -2157,6 +2367,17 @@ Thank you for choosing ${company}!`;
           </div>
         )}
 
+        {/* SAP Document Flow & Lifecycle Audit History Modal */}
+        <DocumentFlowModal
+          isOpen={flowModalState.isOpen}
+          onClose={() => setFlowModalState({ isOpen: false, order: null })}
+          orderId={flowModalState.order?.id}
+          initialOrder={flowModalState.order}
+          onNavigateOrder={(targetId) => {
+            setSearchParams({ id: targetId });
+          }}
+        />
+
       </div>
     );
   }
@@ -2298,6 +2519,28 @@ Thank you for choosing ${company}!`;
                 <option value="50">50</option>
               </select>
             </div>
+
+            {/* Group by Document Flow Toggle */}
+            <button
+              type="button"
+              onClick={() => setGroupByChain(prev => !prev)}
+              className={`px-3 py-1 text-xs font-bold rounded-xl border transition-all h-9 flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                groupByChain
+                  ? 'bg-indigo-600 text-white border-indigo-700 shadow-indigo-600/20'
+                  : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:border-indigo-400'
+              }`}
+              title="Group connected transaction documents (Quotation → Order → Invoice) together"
+            >
+              <GitFork className="w-3.5 h-3.5" />
+              <span>Group by Flow</span>
+              {groupByChain ? (
+                <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+              ) : (
+                <span className="text-[10px] font-mono text-slate-400">
+                  ({filteredOrders.filter(o => o.documentChain && o.documentChain.length > 1).length})
+                </span>
+              )}
+            </button>
           </div>
         </div>
       </div>
@@ -2347,10 +2590,395 @@ Thank you for choosing ${company}!`;
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-slate-400">Loading sales records...</td>
                 </tr>
-              ) : paginatedOrders.length === 0 ? (
+              ) : filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-12 text-center text-slate-400">No records found matching criteria.</td>
                 </tr>
+              ) : groupByChain ? (
+                groupedChains.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-slate-400">No linked flow groups found matching criteria.</td>
+                  </tr>
+                ) : (
+                  groupedChains.map((grp) => (
+                    <React.Fragment key={grp.rootOrderId}>
+                      {/* Flow Group Banner Header */}
+                      <tr className="bg-gradient-to-r from-indigo-50/90 via-purple-50/70 to-slate-100/90 dark:from-indigo-950/60 dark:via-purple-950/40 dark:to-slate-900 border-t-2 border-b border-indigo-200 dark:border-indigo-800">
+                        <td colSpan={7} className="px-3.5 py-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black bg-indigo-600 text-white shadow-xs">
+                                <GitFork className="w-3 h-3" />
+                                Linked Flow
+                              </span>
+                              <span className="font-mono font-bold text-xs text-indigo-950 dark:text-indigo-200">
+                                {grp.chainSummary}
+                              </span>
+                              <span className="text-[11px] text-slate-600 dark:text-slate-400 font-semibold">
+                                • {grp.customerName}
+                              </span>
+                              <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300">
+                                {grp.orders.length} Document{grp.orders.length > 1 ? 's' : ''} in Chain
+                              </span>
+                              <span className="font-mono font-black text-xs text-slate-900 dark:text-white">
+                                Total: ₹{grp.totalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openDocumentFlowModal(grp.orders[0])}
+                              className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1 shadow-xs cursor-pointer transition-colors"
+                            >
+                              <GitFork className="w-3 h-3" />
+                              <span>View Lifecycle History</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {/* Group's Document Rows */}
+                      {grp.orders.map(order => {
+                        const isPos = order.type === 'POS';
+                        const isInvoice = order.type === 'Invoice';
+                        const isQuote = order.type === 'Quotation';
+                        const isNeedPlanning = order.status === 'Waiting for Production' || order.orderMode === 'NEED_PLANNING';
+                        const isSO = order.type === 'Sales Order';
+                        const isConvertedQuote = isQuote && (order.status === 'Converted' || order.isConvertedQuote || (order.childOrders && order.childOrders.length > 0));
+                        const convertedTarget = order.convertedToOrder || (order.childOrders && order.childOrders[0]) || order.documentChain?.find(d => d.type === 'Sales Order');
+                        const isInvoicedOrder = isSO && (
+                          order.status === 'Delivered' ||
+                          order.isInvoicedOrder ||
+                          (order.childOrders && order.childOrders.some(c => c.type === 'Invoice' || c.orderType === 'Invoice'))
+                        );
+                        const invoicedTarget = order.invoicedToOrder || (order.childOrders && order.childOrders.find(c => c.type === 'Invoice' || c.orderType === 'Invoice')) || order.documentChain?.find(d => d.type === 'Invoice');
+                        const isDocLocked = isConvertedQuote || isInvoicedOrder;
+                        const grandTotalVal = Number(order.grandTotal || order.totalSubtotal || 0);
+
+                        return (
+                          <tr key={order.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none pl-4">
+                            {/* Document Ref & Specific Commercial Badge & Flow Links */}
+                            <td className="px-3.5 py-3 align-middle">
+                              <div className="font-mono font-bold text-slate-900 dark:text-white text-xs truncate max-w-[150px]">
+                                {(order.docNo && order.docNo !== 'NaN' && !order.docNo.includes('NaN')) ? order.docNo : (order.referenceNo || 'INV-000000')}
+                              </div>
+                              <div className="mt-1 flex items-center gap-1 flex-wrap">
+                                {isPos && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs whitespace-nowrap">
+                                    <ShoppingBag className="w-2.5 h-2.5" /> ⚡ Retail POS
+                                  </span>
+                                )}
+                                {isNeedPlanning && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shadow-xs whitespace-nowrap">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" /> ⚙️ Need Planning
+                                  </span>
+                                )}
+                                {isSO && !isNeedPlanning && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-blue-100 dark:bg-blue-950/60 text-blue-900 dark:text-blue-300 border border-blue-300 dark:border-blue-800 shadow-xs whitespace-nowrap">
+                                    <CheckCircle2 className="w-2.5 h-2.5" /> 🛒 Sales Order
+                                  </span>
+                                )}
+                                {isQuote && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-100 dark:bg-purple-950/60 text-purple-900 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shadow-xs whitespace-nowrap">
+                                    <Sparkles className="w-2.5 h-2.5" /> 📄 Quotation
+                                  </span>
+                                )}
+                                {isInvoice && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-indigo-100 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800 shadow-xs whitespace-nowrap">
+                                    <FileText className="w-2.5 h-2.5" /> 💼 Tax Invoice
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Party & POS Counter Info */}
+                            <td className="px-3.5 py-3 align-middle">
+                              <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                <span className="truncate max-w-[180px]" title={order.customerName || order.customer?.name || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client')}>
+                                  {order.customerName || order.customer?.name || (isPos ? 'Walk-in Cash Customer' : 'Unregistered Client')}
+                                </span>
+                                {(order.customer?.customerType === 'B2B' || order.customer?.customerType === 'DISTRIBUTOR' || order.customer?.customerType === 'WHOLESALE') ? (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-black bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0">
+                                    <Building2 className="w-2.5 h-2.5" /> B2B
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
+                                    <User className="w-2.5 h-2.5" /> Retail
+                                  </span>
+                                )}
+                              </div>
+                              
+                              {isPos ? (
+                                <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500 font-mono truncate max-w-[220px]">
+                                  <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded font-bold">
+                                    {order.counterId || 'COUNTER-01'}
+                                  </span>
+                                  <span>•</span>
+                                  <span>{order.cashierName || 'Staff'}</span>
+                                  {order.customerPhone && <span>• {order.customerPhone}</span>}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-500 font-mono truncate max-w-[220px]">
+                                  {(order.customer?.gstin || order.taxRegNo) && (
+                                    <span className="font-bold text-indigo-600 dark:text-indigo-400">
+                                      GSTIN: {order.customer?.gstin || order.taxRegNo}
+                                    </span>
+                                  )}
+                                  {order.customer?.phone && <span>Ph: {order.customer.phone}</span>}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Date & Time */}
+                            <td className="px-3 py-3 text-center align-middle text-slate-500 font-semibold font-mono text-[11px]">
+                              <div>{new Date(order.createdAt).toLocaleDateString('en-GB')}</div>
+                              <div className="text-[10px] text-slate-400">
+                                {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                            </td>
+
+                            {/* Payment Info */}
+                            <td className="px-3 py-3 text-center align-middle">
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                                  order.paymentStatus === 'PAID'
+                                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+                                    : order.paymentStatus === 'PARTIAL'
+                                    ? 'bg-amber-500/10 text-amber-600 border-amber-500/30'
+                                    : 'bg-rose-500/10 text-rose-600 border-rose-500/30'
+                                }`}>
+                                  {order.paymentStatus || (isPos ? 'PAID' : 'PENDING')}
+                                </span>
+                                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate max-w-[90px]">
+                                  {order.paymentTerms || (isPos ? 'Cash' : 'Net 30')}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Grand Total */}
+                            <td className="px-3.5 py-3 text-right align-middle">
+                              <div className="font-black text-slate-900 dark:text-white font-mono text-xs sm:text-sm">
+                                ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                              {order.cgst > 0 && (
+                                <div className="text-[10px] text-slate-400 font-mono">
+                                  Tax: ₹{(Number(order.cgst) + Number(order.sgst) + Number(order.igst)).toFixed(2)}
+                                </div>
+                              )}
+                            </td>
+
+                            {/* Fulfillment Status */}
+                            <td className="px-3 py-3 text-center align-middle">
+                              {isConvertedQuote ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openDocumentFlowModal(order)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-black rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shadow-xs hover:bg-purple-200 cursor-pointer transition-colors"
+                                  title="Quotation converted to Sales Order (Locked)! Click to inspect flow & history."
+                                >
+                                  <Lock className="w-2.5 h-2.5 text-purple-600" />
+                                  Converted
+                                </button>
+                              ) : isInvoicedOrder ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openDocumentFlowModal(order)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-black rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs hover:bg-emerald-200 cursor-pointer transition-colors"
+                                  title="Sales Order converted to Tax Invoice (Locked)! Click to inspect flow & history."
+                                >
+                                  <Lock className="w-2.5 h-2.5 text-emerald-600" />
+                                  Invoiced
+                                </button>
+                              ) : isNeedPlanning ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                                  Need Planning
+                                </span>
+                              ) : (
+                                <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                                  order.status === 'Delivered'
+                                    ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
+                                    : order.status === 'Ready for Shipment' || order.status === 'Confirmed'
+                                    ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
+                                    : order.status === 'Converted'
+                                    ? 'bg-purple-500/10 text-purple-700 border-purple-500/20'
+                                    : 'bg-amber-500/10 text-amber-700 border-amber-500/20'
+                                }`}>
+                                  {order.status || 'Confirmed'}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Actions Column */}
+                            <td className="px-3 py-2.5 text-center align-middle">
+                              <div className="flex items-center justify-center gap-1 flex-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => setSearchParams({ id: order.id })}
+                                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                                  title="View Details (SAP Document Studio)"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => openDocumentFlowModal(order)}
+                                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                                  title="View Document Flow (Quotation → Order → Invoice)"
+                                >
+                                  <GitFork className="w-3.5 h-3.5" />
+                                </button>
+
+                                {isDocLocked ? (
+                                  <button
+                                    type="button"
+                                    disabled
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shrink-0"
+                                    title={isConvertedQuote ? "Locked: Converted Quotation is permanent and immutable" : "Locked: Converted Sales Order is permanent and immutable. Only downstream Tax Invoice can be edited."}
+                                  >
+                                    <Lock className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (isPos) {
+                                        navigate(`/pos?edit=${order.id}`);
+                                      } else {
+                                        navigate(`/sales/order?edit=${order.id}`);
+                                      }
+                                    }}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title={isPos ? "Edit in POS" : "Edit in Order Studio"}
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                                {isPos ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLayoutMode('POS');
+                                      setSearchParams({ id: order.id });
+                                    }}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title="Print 80mm POS Slip"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLayoutMode('A4');
+                                      setSearchParams({ id: order.id });
+                                    }}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title="Print A4 Tax Invoice"
+                                  >
+                                    <Printer className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleShareWhatsApp(order)}
+                                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-500 hover:bg-emerald-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                                  title="Share on WhatsApp"
+                                >
+                                  <WhatsAppIcon className="w-3.5 h-3.5" />
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleResendEmail(order)}
+                                  className="w-7 h-7 rounded-lg flex items-center justify-center bg-blue-50 hover:bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                  title="Send Invoice to Email"
+                                >
+                                  <Mail className="w-3.5 h-3.5" />
+                                </button>
+
+                                {isNeedPlanning && (
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/production/new?orderId=${order.id}`, { state: { orderId: order.id, triggerType: 'Order-Based' } })}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-slate-950 shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title="Plan Production Work Order"
+                                  >
+                                    <Play className="w-3.5 h-3.5 fill-slate-950" />
+                                  </button>
+                                )}
+
+                                {order.status === 'Confirmed' && !isNeedPlanning && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleStartProduction(order)}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-50 hover:bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:hover:bg-amber-900/60 dark:text-amber-400 border border-amber-300 dark:border-amber-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title="Start Production Queue"
+                                  >
+                                    <Play className="w-3.5 h-3.5 fill-amber-500" />
+                                  </button>
+                                )}
+
+                                {isConvertedQuote ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (convertedTarget) {
+                                        setSearchParams({ id: convertedTarget.id });
+                                      } else {
+                                        openDocumentFlowModal(order);
+                                      }
+                                    }}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-purple-100 hover:bg-purple-200 text-purple-700 dark:bg-purple-950/80 dark:hover:bg-purple-900 dark:text-purple-300 border border-purple-300 dark:border-purple-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title={`Already Converted: View Sales Order #${convertedTarget?.docNo || ''}`}
+                                  >
+                                    <CheckCheck className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : isQuote ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConvertToOrder(order)}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title="Convert Quotation to Confirmed Order"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : null}
+
+                                {isInvoicedOrder ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (invoicedTarget) {
+                                        setSearchParams({ id: invoicedTarget.id });
+                                      } else {
+                                        openDocumentFlowModal(order);
+                                      }
+                                    }}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-700 dark:bg-emerald-950/80 dark:hover:bg-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title={`Already Invoiced: View Tax Invoice #${invoicedTarget?.docNo || ''}`}
+                                  >
+                                    <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" />
+                                  </button>
+                                ) : (isSO || (isQuote && !isConvertedQuote)) && order.status !== 'Delivered' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => navigate(`/sales/order?convertFrom=${order.id}&mode=INVOICE`)}
+                                    className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 transition-transform active:scale-95 cursor-pointer shrink-0"
+                                    title="Convert to Tax Invoice"
+                                  >
+                                    <ArrowRight className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))
+                )
               ) : (
                 paginatedOrders.map(order => {
                   const isPos = order.type === 'POS';
@@ -2358,17 +2986,26 @@ Thank you for choosing ${company}!`;
                   const isQuote = order.type === 'Quotation';
                   const isNeedPlanning = order.status === 'Waiting for Production' || order.orderMode === 'NEED_PLANNING';
                   const isSO = order.type === 'Sales Order';
+                  const isConvertedQuote = isQuote && (order.status === 'Converted' || order.isConvertedQuote || (order.childOrders && order.childOrders.length > 0));
+                  const convertedTarget = order.convertedToOrder || (order.childOrders && order.childOrders[0]) || order.documentChain?.find(d => d.type === 'Sales Order');
+                  const isInvoicedOrder = isSO && (
+                    order.status === 'Delivered' ||
+                    order.isInvoicedOrder ||
+                    (order.childOrders && order.childOrders.some(c => c.type === 'Invoice' || c.orderType === 'Invoice'))
+                  );
+                  const invoicedTarget = order.invoicedToOrder || (order.childOrders && order.childOrders.find(c => c.type === 'Invoice' || c.orderType === 'Invoice')) || order.documentChain?.find(d => d.type === 'Invoice');
+                  const isDocLocked = isConvertedQuote || isInvoicedOrder;
 
                   const grandTotalVal = Number(order.grandTotal || order.totalSubtotal || 0);
 
                   return (
                     <tr key={order.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-none">
-                      {/* Document Ref & Specific Commercial Badge */}
+                      {/* Document Ref & Specific Commercial Badge & Flow Links */}
                       <td className="px-3.5 py-3 align-middle">
                         <div className="font-mono font-bold text-slate-900 dark:text-white text-xs truncate max-w-[150px]">
-                          {order.docNo || order.referenceNo}
+                          {(order.docNo && order.docNo !== 'NaN' && !order.docNo.includes('NaN')) ? order.docNo : (order.referenceNo || 'INV-000000')}
                         </div>
-                        <div className="mt-1 flex items-center gap-1">
+                        <div className="mt-1 flex items-center gap-1 flex-wrap">
                           {isPos && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs whitespace-nowrap">
                               <ShoppingBag className="w-2.5 h-2.5" /> ⚡ Retail POS
@@ -2395,6 +3032,43 @@ Thank you for choosing ${company}!`;
                             </span>
                           )}
                         </div>
+
+                        {/* Interactive Connected Document Flow Breadcrumbs */}
+                        {order.documentChain && order.documentChain.length > 1 && (
+                          <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDocumentFlowModal(order);
+                              }}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900 cursor-pointer transition-colors"
+                              title="Click to view full Document Flow & History Map"
+                            >
+                              <GitFork className="w-2.5 h-2.5 text-indigo-600 dark:text-indigo-400" />
+                              <span>Flow ({order.documentChain.length})</span>
+                            </button>
+                            {order.documentChain.map((chainDoc, cIdx) => (
+                              <span key={chainDoc.id} className="flex items-center text-[9px] font-mono">
+                                {cIdx > 0 && <span className="text-slate-300 dark:text-slate-600 px-0.5 font-bold">→</span>}
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSearchParams({ id: chainDoc.id });
+                                  }}
+                                  className={`px-1 py-0.2 rounded cursor-pointer transition-colors ${
+                                    chainDoc.id === order.id
+                                      ? 'font-black bg-indigo-100 dark:bg-indigo-900/60 text-indigo-900 dark:text-indigo-200 underline'
+                                      : 'text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400'
+                                  }`}
+                                  title={`Open ${chainDoc.docNo || chainDoc.referenceNo} (${chainDoc.type})`}
+                                >
+                                  {chainDoc.docNo || chainDoc.referenceNo}
+                                </span>
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </td>
 
                       {/* Party & POS Counter Info */}
@@ -2475,7 +3149,27 @@ Thank you for choosing ${company}!`;
 
                       {/* Fulfillment Status */}
                       <td className="px-3 py-3 text-center align-middle">
-                        {isNeedPlanning ? (
+                        {isConvertedQuote ? (
+                          <button
+                            type="button"
+                            onClick={() => openDocumentFlowModal(order)}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-black rounded-full bg-purple-100 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-300 dark:border-purple-800 shadow-xs hover:bg-purple-200 cursor-pointer transition-colors"
+                            title="Quotation converted to Sales Order (Locked)! Click to inspect flow & history."
+                          >
+                            <Lock className="w-2.5 h-2.5 text-purple-600" />
+                            Converted
+                          </button>
+                        ) : isInvoicedOrder ? (
+                          <button
+                            type="button"
+                            onClick={() => openDocumentFlowModal(order)}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 text-[10px] font-black rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-xs hover:bg-emerald-200 cursor-pointer transition-colors"
+                            title="Sales Order converted to Tax Invoice (Locked)! Click to inspect flow & history."
+                          >
+                            <Lock className="w-2.5 h-2.5 text-emerald-600" />
+                            Invoiced
+                          </button>
+                        ) : isNeedPlanning ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/40">
                             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
                             Need Planning
@@ -2486,6 +3180,8 @@ Thank you for choosing ${company}!`;
                               ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20'
                               : order.status === 'Ready for Shipment' || order.status === 'Confirmed'
                               ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
+                              : order.status === 'Converted'
+                              ? 'bg-purple-500/10 text-purple-700 border-purple-500/20'
                               : 'bg-amber-500/10 text-amber-700 border-amber-500/20'
                           }`}>
                             {order.status || 'Confirmed'}
@@ -2507,23 +3203,44 @@ Thank you for choosing ${company}!`;
                             <Eye className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* 2. Edit Order in Studio / POS */}
+                          {/* 2. Document Flow & Lifecycle History */}
                           <button
                             type="button"
-                            onClick={() => {
-                              if (isPos) {
-                                navigate(`/pos?edit=${order.id}`);
-                              } else {
-                                navigate(`/sales/order?edit=${order.id}`);
-                              }
-                            }}
-                            className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
-                            title={isPos ? "Edit in POS" : "Edit in Order Studio"}
+                            onClick={() => openDocumentFlowModal(order)}
+                            className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:hover:bg-indigo-900/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                            title="View Document Flow (Quotation → Order → Invoice)"
                           >
-                            <FileText className="w-3.5 h-3.5" />
+                            <GitFork className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* 3. Print Slip / Invoice */}
+                          {/* 3. Edit Order in Studio / POS */}
+                          {isDocLocked ? (
+                            <button
+                              type="button"
+                              disabled
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed shrink-0"
+                              title={isConvertedQuote ? "Locked: Converted Quotation is permanent and immutable" : "Locked: Converted Sales Order is permanent and immutable. Only downstream Tax Invoice can be edited."}
+                            >
+                              <Lock className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isPos) {
+                                  navigate(`/pos?edit=${order.id}`);
+                                } else {
+                                  navigate(`/sales/order?edit=${order.id}`);
+                                }
+                              }}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
+                              title={isPos ? "Edit in POS" : "Edit in Order Studio"}
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* 4. Print Slip / Invoice */}
                           {isPos ? (
                             <button
                               type="button"
@@ -2550,7 +3267,7 @@ Thank you for choosing ${company}!`;
                             </button>
                           )}
 
-                          {/* 4. WhatsApp (Official WhatsApp SVG Logo) */}
+                          {/* 5. WhatsApp (Official WhatsApp SVG Logo) */}
                           <button
                             type="button"
                             onClick={() => handleShareWhatsApp(order)}
@@ -2560,7 +3277,7 @@ Thank you for choosing ${company}!`;
                             <WhatsAppIcon className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* 5. Resend to Email */}
+                          {/* 6. Resend to Email */}
                           <button
                             type="button"
                             onClick={() => handleResendEmail(order)}
@@ -2570,7 +3287,7 @@ Thank you for choosing ${company}!`;
                             <Mail className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* 6. Plan Work Order (for Need Planning orders) */}
+                          {/* 7. Plan Work Order (for Need Planning orders) */}
                           {isNeedPlanning && (
                             <button
                               type="button"
@@ -2582,7 +3299,7 @@ Thank you for choosing ${company}!`;
                             </button>
                           )}
 
-                          {/* 7. Start Production (for Confirmed orders) */}
+                          {/* 8. Start Production (for Confirmed orders) */}
                           {order.status === 'Confirmed' && !isNeedPlanning && (
                             <button
                               type="button"
@@ -2594,8 +3311,23 @@ Thank you for choosing ${company}!`;
                             </button>
                           )}
 
-                          {/* 8. Convert Quotation to Order */}
-                          {isQuote && (
+                          {/* 9. Convert Quotation to Order OR View Converted Order */}
+                          {isConvertedQuote ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (convertedTarget) {
+                                  setSearchParams({ id: convertedTarget.id });
+                                } else {
+                                  openDocumentFlowModal(order);
+                                }
+                              }}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-purple-100 hover:bg-purple-200 text-purple-700 dark:bg-purple-950/80 dark:hover:bg-purple-900 dark:text-purple-300 border border-purple-300 dark:border-purple-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                              title={`Already Converted: View Sales Order #${convertedTarget?.docNo || ''}`}
+                            >
+                              <CheckCheck className="w-3.5 h-3.5" />
+                            </button>
+                          ) : isQuote ? (
                             <button
                               type="button"
                               onClick={() => handleConvertToOrder(order)}
@@ -2604,13 +3336,28 @@ Thank you for choosing ${company}!`;
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
                             </button>
-                          )}
+                          ) : null}
 
-                          {/* 9. Convert to Tax Invoice */}
-                          {(isQuote || isSO) && order.status !== 'Delivered' && (
+                          {/* 10. Convert to Tax Invoice OR View Converted Tax Invoice */}
+                          {isInvoicedOrder ? (
                             <button
                               type="button"
-                              onClick={() => navigate(`/sales/billing?convertFrom=${order.id}`)}
+                              onClick={() => {
+                                if (invoicedTarget) {
+                                  setSearchParams({ id: invoicedTarget.id });
+                                } else {
+                                  openDocumentFlowModal(order);
+                                }
+                              }}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center bg-emerald-100 hover:bg-emerald-200 text-emerald-700 dark:bg-emerald-950/80 dark:hover:bg-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-700 transition-transform active:scale-95 cursor-pointer shrink-0"
+                              title={`Already Invoiced: View Tax Invoice #${invoicedTarget?.docNo || ''}`}
+                            >
+                              <CheckCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" />
+                            </button>
+                          ) : (isSO || (isQuote && !isConvertedQuote)) && order.status !== 'Delivered' && (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/sales/order?convertFrom=${order.id}&mode=INVOICE`)}
                               className="w-7 h-7 rounded-lg flex items-center justify-center bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 transition-transform active:scale-95 cursor-pointer shrink-0"
                               title="Convert to Tax Invoice"
                             >
@@ -2652,6 +3399,17 @@ Thank you for choosing ${company}!`;
           </div>
         </div>
       </div>
+
+      {/* SAP Document Flow & Lifecycle Audit History Modal */}
+      <DocumentFlowModal
+        isOpen={flowModalState.isOpen}
+        onClose={() => setFlowModalState({ isOpen: false, order: null })}
+        orderId={flowModalState.order?.id}
+        initialOrder={flowModalState.order}
+        onNavigateOrder={(targetId) => {
+          setSearchParams({ id: targetId });
+        }}
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ const prisma = require('../../database/prisma');
 const authenticateToken = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
 const notificationService = require('../notifications/notifications.service');
+const stockReservationService = require('../../services/stockReservation.service');
 
 const router = express.Router();
 
@@ -230,13 +231,8 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
         data: { currentStock: { increment: stockQty } }
       });
 
-      // 5. If there is a linked sales order, auto-fulfill it
-      if (batch.orderId) {
-        await tx.customerOrder.update({
-          where: { id: batch.orderId },
-          data: { status: 'Ready for Shipment' }
-        });
-      }
+      // 5. Auto-allocate newly produced finished stock to waiting sales orders (linked order first, then FIFO backlog)
+      await stockReservationService.allocateStockToWaitingOrders(batch.productId, stockQty, batch.orderId, tx);
 
       // Run stock levels check
       await notificationService.checkProductStockAlerts(batch.productId, tx);

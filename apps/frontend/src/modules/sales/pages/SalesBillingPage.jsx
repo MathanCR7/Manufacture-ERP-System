@@ -9,7 +9,7 @@ import {
   Sparkles, Layers, Receipt, Clock, CheckCircle2, Download, Tag, UserPlus, Eye,
   Compass, Package, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
   SlidersHorizontal, CheckSquare, Square, CornerDownLeft, Globe, MapPin,
-  QrCode, PauseCircle, PlayCircle
+  QrCode, PauseCircle, PlayCircle, MessageCircle, Send
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,10 +20,13 @@ import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
 import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin } from '@/utils/gstEngine';
 import { generateA4TaxInvoice, generateThermalReceipt } from '@/utils/salesPdfGenerator';
+import PosHeader from '@/modules/sales/components/pos/PosHeader';
+import usePosHeaderData from '@/modules/sales/components/pos/usePosHeaderData';
+import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
 
-// Theme-adaptive Quantity Selector component
-const QuantitySelector = ({ value, onChange }) => {
+// Theme-adaptive Quantity Selector component with stock capacity limit
+const QuantitySelector = ({ value, onChange, max = Infinity }) => {
   return (
     <div className="flex items-center bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden w-full max-w-[105px] h-8 transition-colors">
       <button
@@ -40,14 +43,21 @@ const QuantitySelector = ({ value, onChange }) => {
         value={value}
         onChange={(e) => {
           const cleanVal = e.target.value.replace(/[^0-9]/g, '');
-          onChange(Math.max(1, parseInt(cleanVal, 10) || 1));
+          const parsed = parseInt(cleanVal, 10) || 1;
+          onChange(Math.min(max, Math.max(1, parsed)));
         }}
         className="w-full text-center bg-transparent border-0 font-mono font-bold text-xs focus:ring-0 text-slate-900 dark:text-white select-all focus:outline-none"
       />
       <button
         type="button"
-        onClick={() => onChange(value + 1)}
-        className="px-2.5 bg-slate-200/70 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold text-xs h-full flex items-center justify-center cursor-pointer transition-colors border-l border-slate-200 dark:border-slate-800 shrink-0"
+        disabled={value >= max}
+        onClick={() => {
+          if (value < max) onChange(value + 1);
+        }}
+        className={`px-2.5 bg-slate-200/70 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold text-xs h-full flex items-center justify-center cursor-pointer transition-colors border-l border-slate-200 dark:border-slate-800 shrink-0 ${
+          value >= max ? 'opacity-30 cursor-not-allowed' : ''
+        }`}
+        title={value >= max ? `Reached stock limit (${max})` : 'Add quantity'}
       >
         +
       </button>
@@ -74,6 +84,50 @@ export default function SalesBillingPage() {
   const [initialSnapshot, setInitialSnapshot] = useState(null);
   const [editingOrderDocNo, setEditingOrderDocNo] = useState('');
   const queryClient = useQueryClient();
+  const currentUser = useAuthStore(s => s.user);
+
+  // POS Operational Modes & Token State
+  const [fulfillmentType, setFulfillmentType] = useState('takeaway'); // 'takeaway' | 'dine-in' | 'delivery'
+  const [posMode, setPosMode] = useState('sale'); // 'sale' | 'refund' | 'training'
+  // POS Header Hardware & Network Telemetry Hook (Live latency ping, scanner & printer detection)
+  const {
+    isOnline,
+    pingMs,
+    hardwareStatus,
+    toggleHardwareStatus,
+    batteryLevel
+  } = usePosHeaderData();
+
+  // Fetch Next Live Invoice Sequence and Today's Serving Queue Token from PostgreSQL
+  const { data: nextInvoiceData, refetch: refetchNextInvoice } = useQuery({
+    queryKey: ['next-pos-invoice-sequence', fulfillmentType],
+    queryFn: () => api.get('/orders/next-invoice-number', {
+      params: { prefix: fulfillmentType === 'pos' ? 'POS' : 'INV' }
+    }).then(r => r.data || {}),
+    refetchInterval: 12000,
+    staleTime: 4000
+  });
+
+  // Serving Queue Token state (synced with PostgreSQL)
+  const [servingNumber, setServingNumber] = useState('');
+
+  const liveReceiptNumber = editOrderId 
+    ? editingOrderDocNo 
+    : (nextInvoiceData?.receiptNumber || '');
+
+  const liveServingNumber = editOrderId 
+    ? (servingNumber || '') 
+    : (nextInvoiceData?.servingNumber || servingNumber || '');
+
+  const [shiftStartTime] = useState(() => new Date().toISOString());
+
+  // Fetch Held Orders count
+  const { data: ordersList = [] } = useQuery({
+    queryKey: ['held-pos-orders'],
+    queryFn: () => api.get('/orders').then(r => r.data || []),
+    staleTime: 30000
+  });
+  const heldOrdersCount = ordersList.filter(o => o.status === 'Quotation' || o.type === 'Quotation').length;
 
   // Search & Catalog Filter
   const [searchQuery, setSearchQuery] = useState('');
@@ -216,11 +270,21 @@ export default function SalesBillingPage() {
           setItems(loadedItems);
         }
 
+        if (ord.orderMode) {
+          const m = ord.orderMode.toLowerCase();
+          if (m === 'dine_in' || m === 'dine-in') setFulfillmentType('dine-in');
+          else if (m === 'delivery') setFulfillmentType('delivery');
+          else setFulfillmentType('takeaway');
+        }
+        if (ord.customerRefNo) setServingNumber(ord.customerRefNo);
+
         const snap = JSON.stringify({
           customerId: ord.customerId || '',
           taxRegNo: ord.taxRegNo || ord.customer?.gstin || '',
           deliveryAddress: ord.deliveryAddress || '',
           paymentTerms: ord.paymentTerms || '',
+          customerRefNo: ord.customerRefNo || '',
+          orderMode: ord.orderMode || 'TAKEAWAY',
           freight: String(Number(ord.freight || 0)),
           loadingCharges: String(Number(ord.loadingCharges || 0)),
           packingCharges: String(Number(ord.packingCharges || 0)),
@@ -247,11 +311,11 @@ export default function SalesBillingPage() {
 
     const sourceOrderId = searchParams.get('sourceId') || searchParams.get('convertFrom');
     if (sourceOrderId) {
-      api.get(`/orders/${sourceOrderId}/details`).then(res => {
-        if (res.data) handleLoadConvertedOrder(res.data);
-      }).catch(err => console.error('Failed to pre-fetch source order:', err));
+      // Invoices converting from Standard Orders must use the Enterprise Studio (/sales/order), never POS
+      navigate(`/sales/order?convertFrom=${sourceOrderId}&mode=INVOICE`, { replace: true });
+      return;
     }
-  }, [searchParams, editOrderId]);
+  }, [searchParams, editOrderId, navigate]);
 
   // Fetch Customers List
   const { data: customers = [], refetch: refetchCustomers } = useQuery({
@@ -364,11 +428,40 @@ export default function SalesBillingPage() {
     }
   };
 
-  // Add Product to Selected Item Lines (Auto-FEFO Batch Allocation)
+  // Add Product to Selected Item Lines (Auto-FEFO Batch Allocation with Strict Stock Check)
   const handleAddProduct = (prod) => {
+    const stockAvailable = Number(prod.currentStock || 0);
+
+    // Strict POS Stock Validation: Cannot add to cart if out of stock
+    if (orderType === 'POS' && stockAvailable <= 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Out of Stock',
+        text: `Cannot add "${prod.name}" to POS cart: Available stock is 0.`,
+        timer: 2500,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
+      return;
+    }
+
     setItems(prev => {
       const existingIdx = prev.findIndex(item => item.productId === prod.id);
       if (existingIdx >= 0) {
+        const currentQty = prev[existingIdx].quantity;
+        if (orderType === 'POS' && currentQty + 1 > stockAvailable) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Stock Limit Reached',
+            text: `Cannot add more: Only ${stockAvailable} in stock for "${prod.name}".`,
+            timer: 2500,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+          });
+          return prev;
+        }
         const updated = [...prev];
         updated[existingIdx].quantity += 1;
         return updated;
@@ -404,10 +497,28 @@ export default function SalesBillingPage() {
     setItems(prev => prev.map(item => ({ ...item, gstRate: rate })));
   };
 
-  // Item Change handler
+  // Item Change handler with Stock Validation
   const handleItemChange = (idx, field, val) => {
     setItems(prev => {
       const updated = [...prev];
+      const targetItem = updated[idx];
+      if (orderType === 'POS' && field === 'quantity') {
+        const maxStock = Number(targetItem.availableStock || 0);
+        const desiredQty = Math.max(1, Number(val) || 1);
+        if (desiredQty > maxStock) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Exceeds Stock',
+            text: `Cannot set quantity to ${desiredQty}. Available stock is only ${maxStock} for "${targetItem.productName}".`,
+            timer: 2500,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+          });
+          updated[idx] = { ...targetItem, quantity: Math.max(1, maxStock) };
+          return updated;
+        }
+      }
       updated[idx] = { ...updated[idx], [field]: val };
       return updated;
     });
@@ -518,6 +629,8 @@ export default function SalesBillingPage() {
       queryClient.invalidateQueries({ queryKey: ['orders'] });
       queryClient.invalidateQueries({ queryKey: ['pos-products'] });
       queryClient.invalidateQueries({ queryKey: ['products-search-list'] });
+      queryClient.invalidateQueries({ queryKey: ['next-pos-invoice-sequence'] });
+      refetchNextInvoice();
 
       if (editOrderId) {
         Swal.fire({
@@ -580,6 +693,32 @@ export default function SalesBillingPage() {
       Swal.fire({ icon: 'warning', title: 'Empty Order Lines', text: 'Please add products to the line items table.', timer: 2000 });
       return;
     }
+
+    // Strict POS Stock Verification: Cannot bill if item is out of stock or exceeds physical count
+    if (orderType === 'POS') {
+      for (const it of items) {
+        const available = Number(it.availableStock || 0);
+        if (available <= 0) {
+          Swal.fire({
+            icon: 'error',
+            title: 'Cannot Bill: Item Out of Stock',
+            text: `"${it.productName}" is out of stock (Stock: 0). Remove from cart to proceed.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+        if (Number(it.quantity) > available) {
+          Swal.fire({
+            icon: 'error',
+            title: 'Cannot Bill: Insufficient Stock',
+            text: `"${it.productName}" quantity (${it.quantity}) exceeds available stock (${available}).`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+      }
+    }
+
     if (!customerId && orderType !== 'POS') {
       Swal.fire({ icon: 'warning', title: 'Customer Required', text: 'Please select a customer for this order.', timer: 2000 });
       return;
@@ -591,6 +730,8 @@ export default function SalesBillingPage() {
         taxRegNo: taxRegNo || '',
         deliveryAddress: deliveryAddress || '',
         paymentTerms: paymentTerms || '',
+        customerRefNo: servingNumber || '',
+        orderMode: fulfillmentType.toUpperCase(),
         freight: String(Number(freight || 0)),
         loadingCharges: String(Number(loadingCharges || 0)),
         packingCharges: String(Number(packingCharges || 0)),
@@ -652,7 +793,11 @@ export default function SalesBillingPage() {
       igst: igstVal,
       roundOff,
       grandTotal,
-      counterId: orderType === 'POS' ? 'COUNTER-01' : undefined,
+      counterId: 'POS-01',
+      cashierName: currentUser?.name || 'Mathan',
+      docNo: editOrderId ? editingOrderDocNo : liveReceiptNumber,
+      customerRefNo: liveServingNumber,
+      orderMode: fulfillmentType.toUpperCase(),
       items: items.map(it => ({
         productId: it.productId,
         quantity: Number(it.quantity || 1),
@@ -673,10 +818,111 @@ export default function SalesBillingPage() {
 
   const handlePrintCurrentPdf = () => {
     const iframe = document.getElementById('sales-billing-pdf-frame');
-    if (iframe) {
-      iframe.contentWindow.focus();
-      iframe.contentWindow.print();
+    if (iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        return;
+      } catch (e) {
+        console.warn('Iframe print failed:', e);
+      }
     }
+    if (pdfPreviewUrl) {
+      const w = window.open(pdfPreviewUrl, '_blank');
+      if (w) {
+        w.focus();
+        setTimeout(() => w.print(), 500);
+        return;
+      }
+    }
+    window.print();
+  };
+
+  // Thermal 80mm Print action
+  const handlePrintThermal = () => {
+    setPreviewMode('POS');
+    setPdfPreviewUrl(pdfPreviewUrlPOS);
+    setTimeout(() => {
+      handlePrintCurrentPdf();
+    }, 200);
+  };
+
+  // Standard A4 Tax Invoice Print action
+  const handlePrintA4 = () => {
+    setPreviewMode('A4');
+    setPdfPreviewUrl(pdfPreviewUrlA4);
+    setTimeout(() => {
+      handlePrintCurrentPdf();
+    }, 200);
+  };
+
+  // WhatsApp Digital Receipt Dispatch
+  const handleSendWhatsApp = () => {
+    const custPhone = completedOrder?.customerPhone || selectedCustomer?.phone || selectedCustomer?.mobile || '';
+    const cleanDigits = custPhone.replace(/\D/g, '');
+    const docNo = completedOrder?.docNo || completedOrder?.referenceNo || liveReceiptNumber;
+    const compName = companyDetails?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED';
+    const dateStr = new Date().toLocaleDateString('en-GB');
+    const grandTotStr = `₹${Number(completedOrder?.grandTotal || grandTotal).toLocaleString('en-IN')}`;
+
+    let itemsLines = '';
+    const orderItems = completedOrder?.items || items;
+    orderItems.forEach((it, idx) => {
+      const name = it.productName || it.product?.name || 'Item';
+      const qty = it.quantity || 1;
+      const rate = (Number(it.unitPrice || 0) - Number(it.discount || 0)) * Number(qty);
+      itemsLines += `${idx + 1}. *${name}* × ${qty} = ₹${rate.toFixed(2)}\n`;
+    });
+
+    const msg = `🧾 *Tax Invoice / POS Receipt*\n` +
+      `🏢 *${compName}*\n` +
+      `📄 *Invoice No:* ${docNo}\n` +
+      `📅 *Date:* ${dateStr}\n` +
+      `👤 *Customer:* ${completedOrder?.customerName || selectedCustomer?.name || 'Walk-in Customer'}\n\n` +
+      `📦 *Items Billed:*\n${itemsLines}\n` +
+      `💰 *Grand Total: ${grandTotStr}*\n` +
+      `✅ *Payment Status:* PAID / COMPLETED\n\n` +
+      `Thank you for your business!`;
+
+    const openWhatsApp = (num) => {
+      const formatted = num.startsWith('91') || num.length > 10 ? num : `91${num}`;
+      window.open(`https://wa.me/${formatted}?text=${encodeURIComponent(msg)}`, '_blank');
+    };
+
+    if (!cleanDigits || cleanDigits.length < 10) {
+      Swal.fire({
+        title: 'Send via WhatsApp',
+        text: 'Enter customer WhatsApp mobile number (with country code):',
+        input: 'text',
+        inputValue: '91',
+        showCancelButton: true,
+        confirmButtonText: 'Send Receipt',
+        confirmButtonColor: '#25D366'
+      }).then((res) => {
+        if (res.isConfirmed && res.value) {
+          const typed = res.value.replace(/\D/g, '');
+          if (typed) openWhatsApp(typed);
+        }
+      });
+      return;
+    }
+
+    openWhatsApp(cleanDigits);
+  };
+
+  // Next Sale / Reset Terminal (+1 continuation)
+  const handleNewSale = () => {
+    setShowReceiptModal(false);
+    setItems([]);
+    setSelectedCustomer(null);
+    setCustomerId('');
+    setTaxRegNo('');
+    setDiscountValue('0');
+    setFreight('0');
+    setLoadingCharges('0');
+    setPackingCharges('0');
+    setOtherCharges('0');
+    refetchNextInvoice();
   };
 
   return (
@@ -700,53 +946,83 @@ export default function SalesBillingPage() {
         </div>
       )}
 
-      {/* 1. TOP EXECUTIVE HEADER BAR */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 p-3 sm:p-4 rounded-2xl flex flex-wrap justify-between items-center gap-3 shadow-xs dark:shadow-xl transition-all">
-        <div className="flex items-center space-x-3">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => navigate(searchParams.get('from') || '/orders/list')}
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer h-9 w-9 shrink-0"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-base sm:text-lg font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-                <ShoppingCart className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                Walk-in POS Counter
-              </h1>
-              <span className="text-[9px] bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 px-2.5 py-0.5 rounded-full font-black border border-emerald-200 dark:border-emerald-800 uppercase tracking-wide">
-                Live POS Counter
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Intelligent GST Engine • Seller: {sellerStateObj.name} ({sellerStateObj.code}) • Auto Intra/Inter State Detection
-            </p>
-          </div>
-        </div>
-
-        {/* Live Order Metric Summary Pill Bar */}
-        <div className="hidden lg:flex items-center gap-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 px-3.5 py-1.5 rounded-xl text-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">Party:</span>
-            <span className="font-extrabold text-slate-800 dark:text-slate-200 line-clamp-1 max-w-[120px]">
-              {selectedCustomer?.name || (orderType === 'POS' ? 'Walk-in Cash' : 'Select Customer')}
-            </span>
-          </div>
-          <span className="text-slate-300 dark:text-slate-700">|</span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">Cart:</span>
-            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{items.length} lines</span>
-          </div>
-          <span className="text-slate-300 dark:text-slate-700">|</span>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-slate-400 uppercase font-bold">Total:</span>
-            <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-sm">₹{grandTotal.toLocaleString('en-IN')}</span>
-          </div>
-        </div>
-      </div>
+      {/* 1. COMPACT MISSION-CRITICAL POS SCREEN HEADER */}
+      <PosHeader
+        business={{
+          name: companyDetails?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
+          branch: sellerStateObj?.name || 'Tamil Nadu',
+          logoUrl: companyDetails?.logoUrl || '',
+          companyName: companyDetails?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
+          companyAddress: companyDetails?.companyAddress || 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
+          companyGstin: companyDetails?.companyGstin || '33AABCA1234F1Z8',
+          companyPan: companyDetails?.companyPan || 'AABCA1234F',
+          companyMobile: companyDetails?.companyMobile || '+91 94433 12345'
+        }}
+        register={{
+          id: 'POS-01',
+          label: 'Front Counter'
+        }}
+        cashier={{
+          name: currentUser?.name || 'Mathan',
+          id: currentUser?.role || 'MAIN_MASTER'
+        }}
+        shiftStart={shiftStartTime}
+        receiptNumber={liveReceiptNumber}
+        servingNumber={liveServingNumber}
+        status={{
+          network: isOnline,
+          pingMs: pingMs,
+          printer: hardwareStatus.printer,
+          scanner: hardwareStatus.scanner,
+          drawer: hardwareStatus.drawer
+        }}
+        orderType={fulfillmentType}
+        onOrderTypeChange={(type) => setFulfillmentType(type)}
+        heldOrdersCount={heldOrdersCount}
+        mode={posMode}
+        onModeChange={(newMode) => {
+          setPosMode(newMode);
+          if (newMode === 'refund') {
+            Swal.fire({
+              title: 'Refund & Returns Mode Active',
+              text: 'Switch to Sales Returns Registry for processing customer credit notes or returns?',
+              icon: 'info',
+              showCancelButton: true,
+              confirmButtonText: 'Go to Sales Returns',
+              cancelButtonText: 'Stay Here',
+              confirmButtonColor: '#e11d48'
+            }).then((res) => {
+              if (res.isConfirmed) navigate('/sales/returns');
+            });
+          }
+        }}
+        customer={selectedCustomer ? { name: selectedCustomer.name, loyaltyId: selectedCustomer.id?.slice(0, 8) } : null}
+        pendingSyncCount={0}
+        batteryLevel={batteryLevel}
+        alerts={[
+          { id: '1', type: 'info', message: `GST Engine active: Seller Tamil Nadu (33)` },
+          { id: '2', type: 'info', message: 'Thermal Roll: 80mm ESC/POS hardware ready' }
+        ]}
+        currency="₹"
+        taxMode={isInterState ? 'IGST Inter-State' : 'CGST+SGST Intra-State'}
+        onStatusClick={(action) => {
+          if (action === 'togglePrinter') {
+            toggleHardwareStatus('printer');
+          }
+        }}
+        onLogout={() => navigate('/orders/list')}
+        onLock={() => {
+          Swal.fire({
+            title: 'Terminal Locked',
+            text: 'Enter Cashier PIN to resume terminal',
+            input: 'password',
+            inputPlaceholder: 'Enter PIN...',
+            confirmButtonText: 'Unlock',
+            confirmButtonColor: '#4f46e5'
+          });
+        }}
+        onHeldOrdersClick={() => navigate('/orders/list')}
+      />
 
       {/* 2. MAIN TWO-COLUMN WORKFLOW DESK (Left 7 Cols: Catalog & FEFO Stock, Right 5 Cols: Setup & Charges) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
@@ -810,22 +1086,32 @@ export default function SalesBillingPage() {
                     const hasBatch = Boolean(nextBatch && nextBatch.batchNo);
                     const isExpDate = nextBatch?.expiryDate ? new Date(nextBatch.expiryDate).toLocaleDateString('en-GB') : null;
 
+                    const stockQty = Number(p.currentStock || 0);
+                    const isOutOfStock = stockQty <= 0;
+
                     return (
                       <div
                         key={p.id}
                         onClick={() => handleAddProduct(p)}
-                        className="bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 rounded-xl p-3 cursor-pointer transition-all shadow-2xs hover:shadow-md flex flex-col justify-between group active:scale-[0.99]"
+                        className={`border rounded-xl p-3 transition-all shadow-2xs flex flex-col justify-between group active:scale-[0.99] ${
+                          isOutOfStock && orderType === 'POS'
+                            ? 'bg-slate-100/80 dark:bg-slate-950/40 border-dashed border-rose-300 dark:border-rose-900/60 opacity-60 cursor-not-allowed'
+                            : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md cursor-pointer'
+                        }`}
+                        title={isOutOfStock && orderType === 'POS' ? 'Out of Stock: Cannot add to POS cart' : p.name}
                       >
                         <div className="space-y-1.5">
                           <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
                             <span className="font-bold">{p.code}</span>
                             <div className="flex items-center gap-1.5">
-                              <span className={`px-1.5 py-0.2 rounded font-bold ${
-                                (p.currentStock || 0) > 10
+                              <span className={`px-1.5 py-0.2 rounded font-bold text-[9px] ${
+                                isOutOfStock
+                                  ? 'bg-rose-600 text-white'
+                                  : stockQty > 10
                                   ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
-                                  : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'
+                                  : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
                               }`}>
-                                Stock: {p.currentStock || 0}
+                                {isOutOfStock ? 'OUT OF STOCK (0)' : `Stock: ${stockQty}`}
                               </span>
                               <button
                                 type="button"
@@ -1238,10 +1524,18 @@ export default function SalesBillingPage() {
 
                         <div className="grid grid-cols-3 gap-2 items-end">
                           <div className="space-y-0.5">
-                            <label className="text-[8px] font-bold text-slate-400 uppercase block">Qty</label>
+                            <label className="text-[8px] font-bold text-slate-400 uppercase block flex items-center justify-between">
+                              <span>Qty</span>
+                              {orderType === 'POS' && (
+                                <span className="text-[8px] text-emerald-600 dark:text-emerald-400 font-mono">
+                                  Max: {item.availableStock || 0}
+                                </span>
+                              )}
+                            </label>
                             <QuantitySelector
                               value={item.quantity}
                               onChange={(val) => handleItemChange(idx, 'quantity', val)}
+                              max={orderType === 'POS' ? Math.max(1, item.availableStock || 0) : Infinity}
                             />
                           </div>
                           <div className="space-y-0.5">
@@ -1525,7 +1819,8 @@ export default function SalesBillingPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Format Toggle */}
                 <div className="inline-flex bg-slate-800 p-0.5 rounded-lg border border-slate-700">
                   <button
                     type="button"
@@ -1534,7 +1829,7 @@ export default function SalesBillingPage() {
                       setPdfPreviewUrl(pdfPreviewUrlA4);
                     }}
                     className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                      previewMode === 'A4' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                      previewMode === 'A4' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     A4 Invoice
@@ -1546,23 +1841,46 @@ export default function SalesBillingPage() {
                       setPdfPreviewUrl(pdfPreviewUrlPOS);
                     }}
                     className={`px-2.5 py-1 rounded text-[10px] font-bold transition-all cursor-pointer ${
-                      previewMode === 'POS' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                      previewMode === 'POS' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     80mm Thermal
                   </button>
                 </div>
 
+                {/* Print PDF / Current Button */}
                 <Button
                   onClick={handlePrintCurrentPdf}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 px-3 rounded-lg"
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs h-8 px-3 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  title="Print current preview"
                 >
-                  <Printer className="w-3.5 h-3.5 mr-1" /> Print
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print PDF</span>
+                </Button>
+
+                {/* Direct Thermal Print to Printer Button */}
+                <Button
+                  onClick={handlePrintThermal}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-8 px-3 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  title="Send 80mm ESC/POS slip to connected thermal printer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Thermal Print</span>
+                </Button>
+
+                {/* Send WhatsApp Button */}
+                <Button
+                  onClick={handleSendWhatsApp}
+                  className="bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs h-8 px-3 rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  title="Send tax receipt slip directly to customer WhatsApp"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Send WhatsApp</span>
                 </Button>
 
                 <button
                   onClick={() => setShowReceiptModal(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+                  className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
                 >
                   <X className="w-5 h-5" />
                 </button>
@@ -1584,17 +1902,51 @@ export default function SalesBillingPage() {
               )}
             </div>
 
-            <div className="p-3 border-t border-slate-800 bg-slate-950 flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowReceiptModal(false);
-                  navigate('/sales/orders');
-                }}
-                className="text-xs border-slate-800 text-slate-300 hover:bg-slate-800 rounded-xl h-8 px-4"
-              >
-                Close & View Sales Log
-              </Button>
+            {/* Modal Action Bar */}
+            <div className="p-3 border-t border-slate-800 bg-slate-950 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleSendWhatsApp}
+                  className="bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs h-8 px-3 rounded-xl flex items-center gap-1.5 cursor-pointer"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  <span>Send WhatsApp</span>
+                </Button>
+                <Button
+                  onClick={handlePrintThermal}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs h-8 px-3 rounded-xl flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print in Printer (80mm)</span>
+                </Button>
+                <Button
+                  onClick={handlePrintA4}
+                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs h-8 px-3 rounded-xl flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Print A4 PDF</span>
+                </Button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={handleNewSale}
+                  className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-xs h-8 px-4 rounded-xl flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Next Sale (+1)</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowReceiptModal(false);
+                    navigate('/orders/list');
+                  }}
+                  className="text-xs border-slate-800 text-slate-300 hover:bg-slate-800 rounded-xl h-8 px-3 cursor-pointer"
+                >
+                  Close & View Orders
+                </Button>
+              </div>
             </div>
           </div>
         </div>

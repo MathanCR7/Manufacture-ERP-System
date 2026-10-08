@@ -2,14 +2,15 @@ const prisma = require('../../database/prisma');
 const crypto = require('crypto');
 
 const DEFAULT_SETTINGS = {
-  companyName: '',
-  companyAddress: '',
-  companyGstin: '',
-  companyPan: '',
-  companyMobile: '',
+  companyName: 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
+  companyAddress: 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
+  companyGstin: '33AABCA1234F1Z8',
+  companyPan: 'AABCA1234F',
+  companyMobile: '+91 94433 12345',
   collectTax: 'Yes',
-  taxRegNo: '',
+  taxRegNo: '33AABCA1234F1Z8',
   taxType: 'Exclusive Tax',
+  stateCode: '33',
   taxes: [
     { name: 'CGST', rate: '9.00' },
     { name: 'SGST', rate: '9.00' },
@@ -27,13 +28,16 @@ const getTaxSettingsData = async () => {
         });
         if (details) {
           return {
-            companyName: details.companyName || '',
-            companyAddress: details.companyAddress || '',
-            companyGstin: details.companyGstin || '',
-            companyPan: details.companyPan || '',
-            companyMobile: details.companyMobile || '',
+            companyName: details.companyName || DEFAULT_SETTINGS.companyName,
+            companyAddress: details.companyAddress || DEFAULT_SETTINGS.companyAddress,
+            companyGstin: details.companyGstin || DEFAULT_SETTINGS.companyGstin,
+            companyPan: details.companyPan || DEFAULT_SETTINGS.companyPan,
+            companyMobile: details.companyMobile || DEFAULT_SETTINGS.companyMobile,
+            stateCode: details.stateCode || DEFAULT_SETTINGS.stateCode,
+            email: details.email || '',
+            logoUrl: details.logoUrl || '',
             collectTax: 'Yes',
-            taxRegNo: details.companyGstin || '',
+            taxRegNo: details.companyGstin || DEFAULT_SETTINGS.taxRegNo,
             taxType: 'Exclusive Tax',
             taxes: [
               { name: 'CGST', rate: '9.00' },
@@ -54,13 +58,14 @@ const getTaxSettingsData = async () => {
     if (rows && rows.length > 0) {
       const r = rows[0];
       return {
-        companyName: r.company_name || '',
-        companyAddress: r.company_address || '',
-        companyGstin: r.company_gstin || '',
-        companyPan: r.company_pan || '',
-        companyMobile: r.company_mobile || '',
+        companyName: r.company_name || DEFAULT_SETTINGS.companyName,
+        companyAddress: r.company_address || DEFAULT_SETTINGS.companyAddress,
+        companyGstin: r.company_gstin || DEFAULT_SETTINGS.companyGstin,
+        companyPan: r.company_pan || DEFAULT_SETTINGS.companyPan,
+        companyMobile: r.company_mobile || DEFAULT_SETTINGS.companyMobile,
+        stateCode: DEFAULT_SETTINGS.stateCode,
         collectTax: 'Yes',
-        taxRegNo: r.company_gstin || '',
+        taxRegNo: r.company_gstin || DEFAULT_SETTINGS.taxRegNo,
         taxType: 'Exclusive Tax',
         taxes: [
           { name: 'CGST', rate: '9.00' },

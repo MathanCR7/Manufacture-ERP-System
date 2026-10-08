@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
@@ -7,6 +7,7 @@ import {
   AlertTriangle, ArrowRight, Building2, Calendar, Truck, DollarSign, Percent,
   ChevronDown, ChevronUp, RefreshCw, Search, ArrowLeft, ShieldAlert,
   Sparkles, Layers, Receipt, Clock, CheckCircle2, Download, Tag, UserPlus, Eye,
+  GitFork, CheckCheck, Lock,
   Package, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
   SlidersHorizontal, CheckSquare, Square, MapPin, Globe, Moon, Sun,
   ExternalLink, ChevronRight, Minimize2, Maximize2, LayoutGrid, Table,
@@ -15,6 +16,7 @@ import {
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
+import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin, round2 } from '@/utils/gstEngine';
 import { generateA4TaxInvoice } from '@/utils/salesPdfGenerator';
 import useAuthStore from '@/app/store/authStore';
@@ -315,16 +317,53 @@ export default function SalesOrderPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editOrderId = searchParams.get('id') || searchParams.get('edit');
+  const convertFromId = searchParams.get('convertFrom') || searchParams.get('sourceId');
+  const modeParam = searchParams.get('mode')?.toUpperCase();
   const [initialSnapshot, setInitialSnapshot] = useState(null);
+  const [loadedOrderData, setLoadedOrderData] = useState(null);
+  const [showDocFlowModal, setShowDocFlowModal] = useState(false);
   const currentUser = useAuthStore(s => s.user);
   const storeCompany = useCompanyStore(s => s.company);
   const queryClient = useQueryClient();
 
+  // Converted Source Order Tracking
+  const [sourceOrderId, setSourceOrderId] = useState(convertFromId || null);
+  const [sourceDocNo, setSourceDocNo] = useState('');
+
   // Active Tab: 'contents' | 'logistics' | 'accounting' | 'tax' | 'attachments'
   const [activeTab, setActiveTab] = useState('contents');
 
-  // Commercial Order Fulfillment Mode: 'STANDARD' (In-Stock Only) | 'NEED_PLANNING' (Make-to-Order) | 'QUOTATION' (Quotation) | 'INVOICE' (Direct Invoice - No Stock Deduction)
-  const [orderMode, setOrderMode] = useState('STANDARD');
+  // Enterprise Sales Fulfillment Modes: 'QUOTATION' (Price Quote, 0 Stock Effect) | 'STANDARD' (Commitment & Stock Reservation, Back-Orders Allowed) | 'INVOICE' (Atomic Stock Deduction at Posting)
+  const [orderMode, setOrderMode] = useState(
+    modeParam === 'INVOICE' || convertFromId ? 'INVOICE' : (modeParam === 'QUOTATION' ? 'QUOTATION' : 'STANDARD')
+  );
+
+  // Converted Quotation lifecycle detection
+  const isConvertedQuote = orderMode === 'QUOTATION' && (
+    loadedOrderData?.status === 'Converted' ||
+    loadedOrderData?.isConvertedQuote ||
+    (loadedOrderData?.childOrders && loadedOrderData.childOrders.length > 0)
+  );
+  const convertedChildOrder = loadedOrderData?.childOrders?.[0] || loadedOrderData?.convertedToOrder || loadedOrderData?.documentChain?.find(d => d.type === 'Sales Order');
+
+  // Converted Sales Order lifecycle detection (Sales Order converted into Tax Invoice)
+  const isInvoicedOrder = orderMode === 'STANDARD' && (
+    loadedOrderData?.status === 'Delivered' ||
+    loadedOrderData?.isInvoicedOrder ||
+    (loadedOrderData?.childOrders && loadedOrderData.childOrders.some(c => c.type === 'Invoice' || c.orderType === 'Invoice')) ||
+    (loadedOrderData?.documentChain && loadedOrderData.documentChain.some(d => d.type === 'Invoice' && d.id !== editOrderId))
+  );
+  const invoiceChildOrder = loadedOrderData?.childOrders?.find(c => c.type === 'Invoice' || c.orderType === 'Invoice') ||
+    loadedOrderData?.invoicedToOrder ||
+    loadedOrderData?.documentChain?.find(d => d.type === 'Invoice' && d.id !== editOrderId);
+
+  // Overall Document Immutability Guard: Converted Quotations and Invoiced Sales Orders are 100% locked
+  const isDocumentLocked = isConvertedQuote || isInvoicedOrder;
+  const lockedReason = isConvertedQuote
+    ? `Quotation #${docNo || loadedOrderData?.docNo || ''} has already been converted to Sales Order #${convertedChildOrder?.docNo || 'SO'} and cannot be edited, changed, or deleted.`
+    : isInvoicedOrder
+      ? `Sales Order #${docNo || loadedOrderData?.docNo || ''} has already been converted to Tax Invoice #${invoiceChildOrder?.docNo || 'INV'} and cannot be edited, changed, or deleted. Only downstream Tax Invoices can be modified.`
+      : '';
 
   // Customer & Header Details
   const [customerId, setCustomerId] = useState('');
@@ -552,14 +591,47 @@ export default function SalesOrderPage() {
     staleTime: 60000
   });
 
-  // Initialize Next Document Number
-  useEffect(() => {
-    if (!docNo) {
-      const count = ordersData?.total || (Array.isArray(ordersData?.data) ? ordersData.data.length : 0);
-      const nextNum = 100100000 + count + 1;
-      setDocNo(String(nextNum));
+  // Prefix mapper based on Commercial Order Fulfillment Mode:
+  // 'STANDARD' -> SO, 'INVOICE' -> INV, 'QUOTATION' -> QT
+  const getPrefixForMode = useCallback((mode) => {
+    switch (mode) {
+      case 'INVOICE': return 'INV';
+      case 'QUOTATION': return 'QT';
+      case 'STANDARD':
+      default: return 'SO';
     }
-  }, [ordersData, docNo]);
+  }, []);
+
+  // Fetch Next Document Number dynamically based on active order mode
+  // Note: For Invoices, consecutive GST series is assigned strictly at posting to prevent gaps.
+  const fetchNextDocNo = useCallback((mode) => {
+    if (editOrderId) return;
+    if (mode === 'INVOICE') {
+      setDocNo('Assigned on posting');
+      return;
+    }
+    const prefix = getPrefixForMode(mode);
+    api.get('/orders/next-invoice-number', { params: { prefix } })
+      .then(res => {
+        if (res.data?.receiptNumber) {
+          setDocNo(res.data.receiptNumber);
+        }
+      })
+      .catch(() => {
+        const now = new Date();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const count = ordersData?.total || (Array.isArray(ordersData?.data) ? ordersData.data.length : 0);
+        const seq = String(count + 1).padStart(4, '0');
+        setDocNo(`${prefix}/26-27/${month}/${seq}`);
+      });
+  }, [editOrderId, getPrefixForMode, ordersData]);
+
+  // Synchronize Document Number whenever order mode changes
+  useEffect(() => {
+    if (!editOrderId) {
+      fetchNextDocNo(orderMode);
+    }
+  }, [orderMode, fetchNextDocNo, editOrderId]);
 
   // Click outside or press Escape to close in-grid search popup
   useEffect(() => {
@@ -778,6 +850,7 @@ export default function SalesOrderPage() {
 
   // Handle Customer Selection
   const handleCustomerChange = (cid) => {
+    if (isDocumentLocked) return;
     setCustomerId(cid);
     const cust = customers.find(c => c.id === cid);
     if (cust) {
@@ -831,16 +904,44 @@ export default function SalesOrderPage() {
       const lineTotal = Math.max(0, gross - discAmt);
       
       const matchedProd = line.productId ? productMap.get(line.productId) : null;
-      const liveStock = matchedProd 
+      const onHand = matchedProd 
         ? getProductLiveStock(matchedProd) 
         : Number(line.stock !== undefined ? line.stock : (line.rawProduct ? getProductLiveStock(line.rawProduct) : 0));
-      const isSufficient = line.productId ? liveStock >= qty : true;
-      const deficit = line.productId ? Math.max(0, qty - liveStock) : 0;
-      const allocatedFromStock = line.productId ? Math.min(qty, Math.max(0, liveStock)) : 0;
+      const freeStock = Math.max(0, onHand - Number(matchedProd?.totalReserved || 0));
+      
+      const lineReserved = Number(line.sourceReservedQty || 0);
+      const availableForInvoice = freeStock + lineReserved;
+
+      let reservedQty = 0;
+      let shortfallQty = 0;
+      let isSufficient = true;
+
+      if (orderMode === 'QUOTATION') {
+        reservedQty = 0;
+        shortfallQty = 0;
+        isSufficient = true;
+      } else if (orderMode === 'INVOICE') {
+        // If converted from an order, order's own reservation is available for this invoice
+        reservedQty = Math.min(qty, availableForInvoice);
+        shortfallQty = Math.max(0, qty - availableForInvoice);
+        isSufficient = availableForInvoice >= qty;
+      } else {
+        // Standard Order
+        reservedQty = Math.min(qty, freeStock);
+        shortfallQty = Math.max(0, qty - reservedQty);
+        isSufficient = freeStock >= qty;
+      }
+
+      const deficit = shortfallQty;
+      const allocatedFromStock = reservedQty;
 
       return {
         ...line,
-        stock: liveStock,
+        stock: onHand,
+        onHand,
+        freeStock,
+        reservedQty,
+        shortfallQty,
         isSufficient,
         deficit,
         allocatedFromStock,
@@ -849,7 +950,7 @@ export default function SalesOrderPage() {
         lineTotal: lineTotal
       };
     });
-  }, [lines, productMap]);
+  }, [lines, productMap, orderMode]);
 
   // Active (Non-Empty) Lines
   const activeLines = useMemo(() => {
@@ -961,6 +1062,7 @@ export default function SalesOrderPage() {
 
   // Update specific line field
   const handleLineChange = (lineId, field, value) => {
+    if (isDocumentLocked) return;
     setLines(prev => prev.map(l => {
       if (l.id !== lineId) return l;
       return { ...l, [field]: value };
@@ -969,7 +1071,7 @@ export default function SalesOrderPage() {
 
   // Select product for a line
   const handleSelectProductForLine = (lineId, product) => {
-    if (!product) return;
+    if (isDocumentLocked || !product) return;
     const price = getProductSalePrice(product);
     const gstPct = (Number(product.cgst || 0) + Number(product.sgst || 0)) || Number(product.igst || 0) || 5;
     let taxCd;
@@ -1033,6 +1135,7 @@ export default function SalesOrderPage() {
 
   // Remove Line
   const handleRemoveLine = (lineId) => {
+    if (isDocumentLocked) return;
     setLines(prev => {
       if (prev.length <= 1) {
         return [createEmptyLine(1)];
@@ -1044,11 +1147,13 @@ export default function SalesOrderPage() {
 
   // Add empty line
   const handleAddLine = () => {
+    if (isDocumentLocked) return;
     setLines(prev => [...prev, createEmptyLine(prev.length + 1)]);
   };
 
   // Clear all empty lines
   const handleClearEmptyLines = () => {
+    if (isDocumentLocked) return;
     const filled = lines.filter(l => l.productId);
     if (filled.length === 0) {
       setLines([createEmptyLine(1)]);
@@ -1230,10 +1335,11 @@ export default function SalesOrderPage() {
     api.get(`/orders/${editOrderId}`).then(res => {
       const ord = res.data;
       if (!ord) return;
+      setLoadedOrderData(ord);
       setDocNo(ord.docNo || ord.referenceNo || '');
       setDocSeries(ord.documentSeries || 'Primary');
       setDocStatus(ord.status || 'Open');
-      setOrderMode(ord.orderMode || (ord.type === 'Invoice' ? 'INVOICE' : (ord.status === 'Waiting for Production' ? 'NEED_PLANNING' : (ord.type === 'Quotation' ? 'QUOTATION' : 'STANDARD'))));
+      setOrderMode(ord.orderMode === 'NEED_PLANNING' ? 'STANDARD' : (ord.orderMode || (ord.type === 'Invoice' ? 'INVOICE' : (ord.type === 'Quotation' ? 'QUOTATION' : 'STANDARD'))));
       setCustomerId(ord.customerId || '');
       setSelectedCustomer(ord.customer || null);
       setCustomerRefNo(ord.customerRefNo || ord.referenceNo || '');
@@ -1373,7 +1479,7 @@ export default function SalesOrderPage() {
         shipToAddress: ord.deliveryAddress || '',
         billToAddress: ord.billToAddress || ord.customer?.billingAddress || '',
         docSeries: ord.documentSeries || 'Primary',
-        orderMode: ord.orderMode || (ord.type === 'Invoice' ? 'INVOICE' : (ord.status === 'Waiting for Production' ? 'NEED_PLANNING' : (ord.type === 'Quotation' ? 'QUOTATION' : 'STANDARD'))),
+        orderMode: (ord.orderMode === 'NEED_PLANNING' ? 'STANDARD' : (ord.orderMode || (ord.type === 'Invoice' ? 'INVOICE' : (ord.type === 'Quotation' ? 'QUOTATION' : 'STANDARD')))),
         docStatus: ord.status || 'Open',
         postingDate: ord.createdAt ? ord.createdAt.split('T')[0] : '',
         deliveryDate: ord.deliveryDate ? ord.deliveryDate.split('T')[0] : '',
@@ -1404,6 +1510,108 @@ export default function SalesOrderPage() {
       });
     }).catch(err => console.error('Failed to load edit order', err));
   }, [editOrderId]);
+
+  // Load source order for conversion to Tax Invoice when convertFromId is present
+  useEffect(() => {
+    if (!convertFromId || editOrderId) return;
+    api.get(`/orders/${convertFromId}`).then(res => {
+      const ord = res.data;
+      if (!ord) return;
+      setSourceOrderId(ord.id);
+      setSourceDocNo(ord.docNo || ord.referenceNo || '');
+      setOrderMode('INVOICE');
+      setDocNo('Assigned on posting');
+      setDocSeries('Primary');
+      setDocStatus('Open');
+      setCustomerId(ord.customerId || '');
+      setSelectedCustomer(ord.customer || null);
+      setCustomerRefNo(ord.customerRefNo || ord.referenceNo || '');
+      setContactPerson(ord.customer?.contactPerson || ord.customerPhone || '');
+      setShipToAddress(ord.deliveryAddress || '');
+      setBillToAddress(ord.billToAddress || ord.customer?.billingAddress || '');
+      setShippingMethod(ord.shippingMethod || 'Road Transport');
+      setTransporterName(ord.transporterName || '');
+      setVehicleNo(ord.vehicleNo || '');
+      setLrNo(ord.lrNo || '');
+      setEwayBillNo(ord.ewayBillNo || '');
+      setPaymentTerms(ord.paymentTerms || 'Not Paid');
+      setPaymentMethod(ord.paymentMode || 'Bank Transfer / NEFT');
+      setAdvancePaid(Number(ord.amountPaid || 0));
+      setTaxRegNo(ord.taxRegNo || ord.customer?.gstin || '');
+      setPlaceOfSupply(ord.placeOfSupply || ord.buyerStateCode || '33');
+      setSalesEmployee(ord.salesEmployee || '-No Sales Employee-');
+      setOwner(currentUser?.name || ord.creator?.name || 'Administrator');
+
+      setFreight(Number(ord.freight || 0));
+      setFreightGst(ord.freightGst !== undefined ? Boolean(ord.freightGst) : true);
+      setLoadingCharges(Number(ord.loadingCharges || 0));
+      setLoadingGst(ord.loadingGst !== undefined ? Boolean(ord.loadingGst) : true);
+      setPackingCharges(Number(ord.packingCharges || 0));
+      setPackingGst(ord.packingGst !== undefined ? Boolean(ord.packingGst) : true);
+      setOtherCharges(Number(ord.otherCharges || 0));
+      setOtherGst(ord.otherGst !== undefined ? Boolean(ord.otherGst) : true);
+      setIsRoundingEnabled(true);
+
+      const cleanNote = (ord.internalNote || ord.quotationNote || '')
+        .replace(/\[\[ATTACHMENT:.*?\]\]/gs, '')
+        .replace(/\[Fulfillment Mode:.*?\]/g, '')
+        .trim();
+      setRemarks(`Converted from Order #${ord.docNo || ord.referenceNo}${cleanNote ? ' • ' + cleanNote : ''}`);
+
+      setPostingDate(new Date().toISOString().split('T')[0]);
+      setDocumentDate(new Date().toISOString().split('T')[0]);
+      if (ord.deliveryDate) {
+        setDeliveryDate(ord.deliveryDate.split('T')[0]);
+      }
+
+      if (Array.isArray(ord.items) && ord.items.length > 0) {
+        setLines(ord.items.map((it, idx) => {
+          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (it.product?.gstRate || 5));
+          const taxCd = itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : 'SCG5'));
+          const liveStock = it.product ? getProductLiveStock(it.product) : 0;
+          const uPrice = Number(it.unitPrice || 0);
+          const lineDisc = Number(it.discount || 0);
+          const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
+          const invoicedAlready = Number(it.invoicedQty || 0);
+          const totalOrderQty = Number(it.quantity || 1);
+          const remainingToBill = Math.max(0, totalOrderQty - invoicedAlready);
+
+          return {
+            id: `line_${it.id || idx}`,
+            sourceOrderItemId: it.id,
+            rowNo: idx + 1,
+            productId: it.productId,
+            systemCode: it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`,
+            itemDescription: it.productName || it.product?.productName || it.product?.name || '',
+            category: it.product?.category?.name || it.product?.category || 'Ice Cream',
+            baseCategory: it.product?.baseCategory || it.product?.category?.name || 'General',
+            subcategory: it.product?.subcategory?.name || it.product?.subcategory || '-',
+            unitOfSale: it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs',
+            quantity: remainingToBill > 0 ? remainingToBill : totalOrderQty,
+            unitPrice: uPrice,
+            discountPercent: discPct,
+            taxCode: taxCd,
+            gstRate: itemGst,
+            rawProduct: it.product,
+            sourceReservedQty: Number(it.reservedQty || 0),
+            sourceShortfallQty: Number(it.shortfallQty || 0),
+            stock: liveStock
+          };
+        }));
+      }
+
+      setStatusMessage({
+        type: 'ready',
+        text: `✔ Converting Order #${ord.docNo || ord.referenceNo} to Tax Invoice. Reserved stock carried over.`
+      });
+    }).catch(err => {
+      console.error('Failed to load convertFrom order:', err);
+      setStatusMessage({
+        type: 'error',
+        text: `✖ Could not load source order for conversion: ${err.message}`
+      });
+    });
+  }, [convertFromId, editOrderId, currentUser]);
 
   // Submit Sales Order Mutation
   const createOrderMutation = useMutation({
@@ -1436,15 +1644,15 @@ export default function SalesOrderPage() {
       }
 
       const isInvoice = variables?.orderMode === 'INVOICE' || variables?.type === 'Invoice';
-      const isNeedPlanning = variables?.orderMode === 'NEED_PLANNING';
       const isQuotation = variables?.orderMode === 'QUOTATION' || variables?.type === 'Quotation';
+      const hasShortages = stockDeficitSummary.hasShortages;
 
       Swal.fire({
         title: isInvoice
           ? 'Tax Invoice Generated!'
-          : (isNeedPlanning 
-            ? 'Order Queued for Production!' 
-            : (isQuotation ? 'Quotation Created!' : 'Sales Order Confirmed!')),
+          : (isQuotation 
+            ? 'Quotation Created!' 
+            : (hasShortages ? 'Standard Order Saved (Back-Order)' : 'Standard Order Confirmed!')),
         html: `
           <div class="text-left font-sans text-sm space-y-2 p-2">
             <div class="flex justify-between border-b pb-1">
@@ -1452,9 +1660,9 @@ export default function SalesOrderPage() {
               <span class="font-bold text-slate-800">${data.docNo || docNo}</span>
             </div>
             <div class="flex justify-between border-b pb-1">
-              <span class="text-slate-500">Fulfillment Mode:</span>
-              <span class="font-bold ${isInvoice ? 'text-blue-600' : isNeedPlanning ? 'text-amber-600' : isQuotation ? 'text-purple-600' : 'text-emerald-600'}">
-                ${isInvoice ? '🔵 Invoice (No Stock Deduction)' : isNeedPlanning ? '🟠 Need Planning (Make-to-Order)' : isQuotation ? '🟣 Quotation' : '🟢 Standard Order (In-Stock Only)'}
+              <span class="text-slate-500">Document Mode:</span>
+              <span class="font-bold ${isInvoice ? 'text-blue-600' : isQuotation ? 'text-purple-600' : 'text-emerald-600'}">
+                ${isInvoice ? '🔵 Invoice (Stock Deducted)' : isQuotation ? '🟣 Quotation (No Stock Effect)' : (hasShortages ? '⚠️ Standard Order (Shortage Queued)' : '🟢 Standard Order (100% In-Stock Reserved)')}
               </span>
             </div>
             <div class="flex justify-between border-b pb-1">
@@ -1467,12 +1675,17 @@ export default function SalesOrderPage() {
             </div>
             ${isInvoice ? `
               <div class="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded p-2 text-xs text-blue-800 dark:text-blue-200 font-medium">
-                📄 Official Tax Invoice generated with complete GST & financial details. <strong>Warehouse inventory is not deducted.</strong>
+                📄 Official GST Tax Invoice posted. Warehouse stock ledger has been atomically updated.
               </div>
             ` : ''}
-            ${isNeedPlanning ? `
+            ${!isInvoice && !isQuotation && hasShortages ? `
               <div class="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded p-2 text-xs text-amber-800 dark:text-amber-200 font-medium">
-                ⚙️ Status: <strong>Waiting for Production</strong>. Deficit items scheduled for manufacturing work order.
+                ⚙️ Status: <strong>Shortage (Production Required)</strong>. Deficit items have been queued in the Centralized Production Requirement list.
+              </div>
+            ` : ''}
+            ${!isInvoice && !isQuotation && !hasShortages ? `
+              <div class="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded p-2 text-xs text-emerald-800 dark:text-emerald-200 font-medium">
+                ✓ Free stock has been reserved for this customer order. Ready to invoice and dispatch.
               </div>
             ` : ''}
             <div class="flex justify-between pt-1">
@@ -1483,25 +1696,17 @@ export default function SalesOrderPage() {
         `,
         icon: 'success',
         showCancelButton: true,
-        showDenyButton: isNeedPlanning,
+        showDenyButton: !isInvoice && !isQuotation && hasShortages,
         confirmButtonText: '🖨️ Print Document PDF',
-        denyButtonText: '⚙️ Plan Production Batch Now',
+        denyButtonText: '📋 View Production Requirements',
         cancelButtonText: 'Create Another Order',
         confirmButtonColor: isInvoice ? '#2563eb' : '#f0b429',
         denyButtonColor: '#4f46e5'
       }).then((result) => {
         if (result.isConfirmed) {
           handlePrintPDF(data);
-        } else if (result.isDenied && isNeedPlanning) {
-          const firstDeficit = activeLines.find(l => !l.isSufficient) || activeLines[0];
-          navigate(`/production/new?orderId=${data.id}&productId=${firstDeficit?.productId || ''}&quantity=${firstDeficit?.deficit || firstDeficit?.quantity || ''}`, {
-            state: {
-              orderId: data.id,
-              productId: firstDeficit?.productId,
-              quantity: firstDeficit?.deficit || firstDeficit?.quantity,
-              triggerType: 'Order-Based'
-            }
-          });
+        } else if (result.isDenied) {
+          navigate('/production/requirements');
         }
         handleResetForm();
       });
@@ -1522,6 +1727,16 @@ export default function SalesOrderPage() {
 
   // Handle Form Submit
   const handleSaveOrder = () => {
+    if (isDocumentLocked) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Document Locked (Immutable)',
+        text: lockedReason || 'This document has already been converted and cannot be changed, edited, or updated.',
+        confirmButtonColor: '#2563eb'
+      });
+      return;
+    }
+
     if (!customerId) {
       setStatusMessage({
         type: 'error',
@@ -1605,56 +1820,48 @@ export default function SalesOrderPage() {
       }
     }
 
-    // Commercial Rule: In STANDARD mode, Customer can ONLY order if stock is available!
-    if (orderMode === 'STANDARD' && stockDeficitSummary.hasShortages) {
+    // Commercial Rule: INVOICE Mode requires 100% available warehouse stock!
+    // Standard Orders accept customer commitments with back-orders and never block.
+    if (orderMode === 'INVOICE' && stockDeficitSummary.hasShortages) {
       setStatusMessage({
         type: 'error',
-        text: `✖ Cannot save Standard Order: Stock unavailable for ${stockDeficitSummary.shortageLines.map(l => l.itemDescription).join(', ')}.`
+        text: `✖ Cannot post Invoice: Insufficient stock for ${stockDeficitSummary.shortageLines.map(l => l.itemDescription).join(', ')}.`
       });
       Swal.fire({
-        icon: 'warning',
-        title: 'Stock Unavailable for Standard Order',
+        icon: 'error',
+        title: 'Invoice Posting Blocked: Insufficient Stock',
         html: `
           <div class="text-left text-xs space-y-2">
             <p class="text-slate-600 dark:text-slate-300">
-              In <strong>Standard Sales Order</strong> mode, you can <strong>ONLY place an order if warehouse stock is available</strong>.
+              Tax Invoices require physical goods in warehouse stock before posting and dispatch. <strong>Stock cannot be deducted twice or go negative.</strong>
             </p>
             <div class="bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded p-2.5 text-rose-900 dark:text-rose-200 font-mono text-[11px] space-y-1">
-              ${stockDeficitSummary.shortageLines.map(l => `<div>• <strong>${l.itemDescription}</strong> (${l.systemCode}): Ordered <strong>${l.quantity}</strong>, Available <strong>${l.stock}</strong> (Deficit: <span class="text-rose-600 font-bold">-${l.deficit} ${l.unitOfSale}</span>)</div>`).join('')}
+              ${stockDeficitSummary.shortageLines.map(l => `<div>• <strong>${l.itemDescription}</strong> (${l.systemCode}): Required <strong>${l.quantity}</strong>, Available <strong>${l.stock}</strong> (Short: <span class="text-rose-600 font-bold">-${l.deficit} ${l.unitOfSale}</span>)</div>`).join('')}
             </div>
             <p class="text-slate-700 dark:text-slate-300 font-semibold pt-1">
-              Would you like to switch to <strong>Need Planning (Make-to-Order)</strong> mode to order this deficit and schedule manufacturing production?
+              Please adjust quantities to match available stock, or save as a Standard Order to route shortages to the Production Requirement list.
             </p>
           </div>
         `,
-        showCancelButton: true,
-        confirmButtonText: '⚙️ Switch to "Need Planning" Mode',
-        cancelButtonText: 'Cancel & Adjust Quantities',
-        confirmButtonColor: '#f59e0b',
-        cancelButtonColor: '#64748b'
-      }).then(result => {
-        if (result.isConfirmed) {
-          setOrderMode('NEED_PLANNING');
-          setStatusMessage({
-            type: 'ready',
-            text: '⚙ Switched to "Need Planning" (Make-to-Order) mode. You can now place this order to schedule production.'
-          });
-        }
+        confirmButtonText: 'Review Line Items',
+        confirmButtonColor: '#2563eb'
       });
       return;
     }
 
     const isInvoice = orderMode === 'INVOICE';
     const isQuotation = orderMode === 'QUOTATION';
-    const isNeedPlanning = orderMode === 'NEED_PLANNING';
+
+    const cleanDocNo = (docNo && docNo !== 'NaN' && !String(docNo).includes('NaN') && docNo !== 'Assigned on posting') ? docNo : undefined;
 
     const payload = {
-      docNo: docNo,
+      docNo: cleanDocNo,
       documentSeries: docSeries,
+      sourceOrderId: sourceOrderId || convertFromId || undefined,
       type: isInvoice ? 'Invoice' : (isQuotation ? 'Quotation' : 'Sales Order'),
       orderMode: orderMode,
-      status: isInvoice ? 'Delivered' : (isNeedPlanning ? 'Waiting for Production' : (isQuotation ? 'Quotation' : (docStatus === 'Open' ? 'Confirmed' : 'Quotation'))),
-      skipStockDeduction: isInvoice,
+      status: isInvoice ? 'Delivered' : (isQuotation ? 'Quotation' : (stockDeficitSummary.hasShortages ? 'Shortage (Production Required)' : 'Ready to Invoice')),
+      skipStockDeduction: false,
       customerId: customerId,
       customerName: selectedCustomer?.name,
       customerPhone: selectedCustomer?.phone,
@@ -1707,6 +1914,7 @@ export default function SalesOrderPage() {
       grandTotal: financials.grandTotal,
       items: activeLines.map(l => ({
         productId: l.productId,
+        sourceOrderItemId: l.sourceOrderItemId || undefined,
         productName: l.itemDescription,
         hsnCode: l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
         quantity: Number(l.quantity),
@@ -1734,6 +1942,144 @@ export default function SalesOrderPage() {
     createOrderMutation.mutate(payload);
   };
 
+  // Workflow Conversion: Quotation -> Standard Order
+  const handleConvertToOrderFromStudio = async () => {
+    if (!editOrderId) return;
+    if (isConvertedQuote) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Already Converted',
+        text: `Quotation #${docNo} has already been converted to Sales Order #${convertedChildOrder?.docNo || 'SO'}.`,
+        showCancelButton: true,
+        confirmButtonText: convertedChildOrder ? `Open #${convertedChildOrder.docNo}` : 'View Flow',
+        confirmButtonColor: '#2563eb'
+      }).then(res => {
+        if (res.isConfirmed) {
+          if (convertedChildOrder) {
+            navigate(`/sales/order?id=${convertedChildOrder.id}`);
+          } else {
+            setShowDocFlowModal(true);
+          }
+        }
+      });
+      return;
+    }
+
+    const confirm = await Swal.fire({
+      title: 'Convert to Standard Order?',
+      text: `Convert Quotation #${docNo} into a binding Standard Order and reserve warehouse stock.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Convert Now',
+      confirmButtonColor: '#2563eb'
+    });
+    if (!confirm.isConfirmed) return;
+    try {
+      const res = await api.post(`/orders/${editOrderId}/convert-to-order`);
+      Swal.fire({
+        icon: 'success',
+        title: 'Quotation Converted!',
+        text: `Created Standard Order #${res.data?.docNo || res.data?.referenceNo}`,
+        confirmButtonColor: '#2563eb'
+      }).then(() => {
+        navigate(`/sales/order?id=${res.data?.id}`);
+      });
+    } catch (err) {
+      if (err?.response?.data?.alreadyConverted) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Already Converted',
+          text: err.response.data.message || 'Quotation has already been converted to an order.',
+          showCancelButton: true,
+          confirmButtonText: err.response.data.convertedDocNo ? `Open Sales Order #${err.response.data.convertedDocNo}` : 'View Flow',
+          confirmButtonColor: '#2563eb'
+        }).then(res => {
+          if (res.isConfirmed && err.response.data.convertedOrderId) {
+            navigate(`/sales/order?id=${err.response.data.convertedOrderId}`);
+          }
+        });
+      } else {
+        Swal.fire({
+          icon: 'error',
+          title: 'Conversion Failed',
+          text: err?.response?.data?.error || err.message
+        });
+      }
+    }
+  };
+
+  // Workflow Conversion: Standard Order -> Tax Invoice
+  const handleConvertToInvoiceFromStudio = async () => {
+    if (!editOrderId) return;
+    if (isInvoicedOrder) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Already Converted to Tax Invoice',
+        text: `Sales Order #${docNo} has already been converted to Tax Invoice #${invoiceChildOrder?.docNo || invoiceChildOrder?.orderNumber || 'INV'}. Converted sales orders cannot be changed or edited.`,
+        showCancelButton: true,
+        confirmButtonText: invoiceChildOrder ? `Open #${invoiceChildOrder.docNo || invoiceChildOrder.orderNumber}` : 'View Flow',
+        confirmButtonColor: '#2563eb'
+      }).then(res => {
+        if (res.isConfirmed) {
+          if (invoiceChildOrder) {
+            navigate(`/sales/order?id=${invoiceChildOrder.id}`);
+          } else {
+            setShowDocFlowModal(true);
+          }
+        }
+      });
+      return;
+    }
+    if (stockDeficitSummary.hasShortages) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Cannot Convert to Invoice: Stock Deficit',
+        text: `There is a shortage on ${stockDeficitSummary.shortageLines.length} item(s). Invoices strictly require 100% available stock. Please fulfill stock via production first.`,
+        confirmButtonColor: '#2563eb'
+      });
+      return;
+    }
+    const confirm = await Swal.fire({
+      title: 'Post Tax Invoice?',
+      text: `Posting invoice will assign an official GST Tax Invoice Number and permanently deduct stock.`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Post Invoice',
+      confirmButtonColor: '#2563eb'
+    });
+    if (!confirm.isConfirmed) return;
+    try {
+      const res = await api.post(`/orders/${editOrderId}/convert-to-invoice`, {
+        items: activeLines.map(l => ({
+          productId: l.productId,
+          productName: l.itemDescription,
+          quantity: Number(l.quantity),
+          unitPrice: Number(l.unitPrice),
+          discountPercent: Number(l.discountPercent) || 0,
+          discount: Number(l.lineDiscount) || 0,
+          gstRate: Number(l.gstRate) || 5,
+          subtotal: Number(l.lineTotal),
+          uomName: l.unitOfSale
+        }))
+      });
+      Swal.fire({
+        icon: 'success',
+        title: 'Tax Invoice Posted!',
+        text: `Invoice #${res.data?.docNo || res.data?.invoiceNo} created. Stock deducted successfully.`,
+        confirmButtonColor: '#2563eb'
+      }).then(() => {
+        handlePrintPDF(res.data);
+        navigate('/orders/list');
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Invoice Conversion Failed',
+        text: err?.response?.data?.error || err.message
+      });
+    }
+  };
+
   // Reset Form
   const handleResetForm = () => {
     setCustomerId('');
@@ -1758,8 +2104,7 @@ export default function SalesOrderPage() {
     setPackingCharges(0);
     setOtherCharges(0);
     setAdvancePaid(0);
-    const nextNum = Number(docNo || 100100000) + 1;
-    setDocNo(String(nextNum));
+    fetchNextDocNo(orderMode);
     setStatusMessage({
       type: 'ready',
       text: '✔ Form reset - ready for new document'
@@ -2004,72 +2349,17 @@ export default function SalesOrderPage() {
           </span>
         </div>
 
-        {/* Right: 4 Mode Buttons */}
+        {/* Right: 3 Mode Buttons (Quotation / Standard Order / Invoice) */}
         <div className="flex items-center gap-2">
-          {/* Mode 1: Standard Order (In-Stock Only) */}
-          <button
-            type="button"
-            onClick={() => {
-              setOrderMode('STANDARD');
-              setStatusMessage({
-                type: 'ready',
-                text: '🟢 Standard Sales Order Mode: Customer can ONLY order goods that are in-stock.'
-              });
-            }}
-            className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-              orderMode === 'STANDARD'
-                ? 'bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-300'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
-            }`}
-            title="Standard Sales Order: Only in-stock goods can be ordered for dispatch"
-          >
-            <CheckCircle2 className={`w-3.5 h-3.5 ${orderMode === 'STANDARD' ? 'text-slate-950 font-black' : 'text-emerald-400'}`} />
-            <span>Standard Order</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
-              orderMode === 'STANDARD'
-                ? 'bg-slate-950/20 text-slate-950'
-                : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'
-            }`}>
-              In-Stock Only
-            </span>
-          </button>
-
-          {/* Mode 2: Need Planning (Make-to-Order) */}
-          <button
-            type="button"
-            onClick={() => {
-              setOrderMode('NEED_PLANNING');
-              setStatusMessage({
-                type: 'ready',
-                text: '🟠 Need Planning (Make-to-Order) Mode: Shortages will route to Production Planning Work Orders.'
-              });
-            }}
-            className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
-              orderMode === 'NEED_PLANNING'
-                ? 'bg-amber-500 text-slate-950 shadow-md ring-2 ring-amber-300'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
-            }`}
-            title="Need Planning: Order deficit items and schedule manufacturing production work order"
-          >
-            <Clock className={`w-3.5 h-3.5 ${orderMode === 'NEED_PLANNING' ? 'text-slate-950 font-black' : 'text-amber-400'}`} />
-            <span>Need Planning</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
-              orderMode === 'NEED_PLANNING'
-                ? 'bg-slate-950/20 text-slate-950'
-                : 'bg-amber-950/60 text-amber-300 border border-amber-800'
-            }`}>
-              Make-to-Order
-            </span>
-          </button>
-
-          {/* Mode 3: Quotation */}
+          {/* Mode 1: Quotation (Price Quote) */}
           <button
             type="button"
             onClick={() => {
               setOrderMode('QUOTATION');
+              fetchNextDocNo('QUOTATION');
               setStatusMessage({
                 type: 'ready',
-                text: '🟣 Quotation Mode: Commercial quotation without inventory check or stock lock.'
+                text: '🟣 Quotation Mode: Commercial price quotation without inventory reservation or stock deduction.'
               });
             }}
             className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
@@ -2077,7 +2367,7 @@ export default function SalesOrderPage() {
                 ? 'bg-purple-500 text-white shadow-md ring-2 ring-purple-300'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
             }`}
-            title="Quotation: Commercial price estimate for customer approval"
+            title="Quotation: Commercial price offer for customer approval. Zero stock effect."
           >
             <Sparkles className={`w-3.5 h-3.5 ${orderMode === 'QUOTATION' ? 'text-white font-black' : 'text-purple-400'}`} />
             <span>Quotation</span>
@@ -2086,18 +2376,48 @@ export default function SalesOrderPage() {
                 ? 'bg-white/20 text-white'
                 : 'bg-purple-950/60 text-purple-300 border border-purple-800'
             }`}>
-              Price Quote
+              No Stock Effect
             </span>
           </button>
 
-          {/* Mode 4: Invoice (No Stock Deduction) */}
+          {/* Mode 2: Standard Order (Reserves Stock, Shortage Allowed) */}
+          <button
+            type="button"
+            onClick={() => {
+              setOrderMode('STANDARD');
+              fetchNextDocNo('STANDARD');
+              setStatusMessage({
+                type: 'ready',
+                text: '🟢 Standard Order Mode: Customer commitment accepted. Reserves available free stock; shortages route to Production.'
+              });
+            }}
+            className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
+              orderMode === 'STANDARD'
+                ? 'bg-emerald-500 text-slate-950 shadow-md ring-2 ring-emerald-300'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
+            }`}
+            title="Standard Order: Accept customer order. Free stock is reserved, deficits shown in red and sent to production."
+          >
+            <CheckCircle2 className={`w-3.5 h-3.5 ${orderMode === 'STANDARD' ? 'text-slate-950 font-black' : 'text-emerald-400'}`} />
+            <span>Standard Order</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded font-extrabold ${
+              orderMode === 'STANDARD'
+                ? 'bg-slate-950/20 text-slate-950'
+                : 'bg-emerald-950/60 text-emerald-300 border border-emerald-800'
+            }`}>
+              Reserves Stock, Shortage Allowed
+            </span>
+          </button>
+
+          {/* Mode 3: Invoice (Deducts Stock, Must Be In Stock) */}
           <button
             type="button"
             onClick={() => {
               setOrderMode('INVOICE');
+              fetchNextDocNo('INVOICE');
               setStatusMessage({
                 type: 'ready',
-                text: '🔵 Invoice Mode: Generate legal Tax Invoice with complete billing details without deducting inventory stock.'
+                text: '🔵 Tax Invoice Mode: Physical billing & dispatch. Deducts warehouse stock. Blocked if items are short.'
               });
             }}
             className={`px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shrink-0 ${
@@ -2105,7 +2425,7 @@ export default function SalesOrderPage() {
                 ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-300'
                 : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700'
             }`}
-            title="Invoice: Direct commercial Tax Invoice without inventory deduction"
+            title="Invoice: Legal Tax Invoice. Reduces warehouse stock upon posting. Blocked if any stock item is short."
           >
             <FileText className={`w-3.5 h-3.5 ${orderMode === 'INVOICE' ? 'text-white font-black' : 'text-blue-400'}`} />
             <span>Invoice</span>
@@ -2114,11 +2434,130 @@ export default function SalesOrderPage() {
                 ? 'bg-white/20 text-white'
                 : 'bg-blue-950/60 text-blue-300 border border-blue-800'
             }`}>
-              No Stock Deduction
+              Deducts Stock, Must Be In Stock
             </span>
           </button>
         </div>
       </div>
+
+      {/* ── LINKED DOCUMENT FLOW BANNER (IF CONNECTED CHAIN) ── */}
+      {loadedOrderData?.documentChain && loadedOrderData.documentChain.length > 1 && (
+        <div className="w-full bg-gradient-to-r from-indigo-900/90 via-purple-900/80 to-slate-900 text-white px-4 py-2 flex items-center justify-between gap-3 border-b border-indigo-700/50 shadow-sm text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-extrabold uppercase text-amber-300 flex items-center gap-1">
+              <GitFork className="w-3.5 h-3.5" /> Linked Flow:
+            </span>
+            {loadedOrderData.documentChain.map((doc, dIdx) => (
+              <span key={doc.id} className="flex items-center gap-1">
+                {dIdx > 0 && <span className="text-slate-400 font-bold">→</span>}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (doc.id !== editOrderId) {
+                      navigate(`/sales/order?id=${doc.id}`);
+                    }
+                  }}
+                  className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold cursor-pointer transition-colors ${
+                    doc.id === editOrderId
+                      ? 'bg-amber-400 text-slate-950 shadow-xs'
+                      : 'bg-slate-800 text-slate-200 hover:bg-slate-700 border border-slate-600'
+                  }`}
+                  title={`Open ${doc.docNo || doc.referenceNo} (${doc.type})`}
+                >
+                  {doc.docNo || doc.referenceNo} ({doc.type})
+                </button>
+              </span>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowDocFlowModal(true)}
+            className="px-2.5 py-1 bg-indigo-500 hover:bg-indigo-600 text-white font-bold rounded text-xs flex items-center gap-1 shadow-xs cursor-pointer transition-colors shrink-0"
+          >
+            <GitFork className="w-3 h-3" />
+            <span>Document Flow Map</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── ALERT BANNER: QUOTATION ALREADY CONVERTED TO ORDER (PERMANENTLY LOCKED) ── */}
+      {orderMode === 'QUOTATION' && isConvertedQuote && (
+        <div className="w-full bg-purple-950/95 border-b border-purple-700/80 px-4 py-2.5 flex items-center justify-between gap-3 text-purple-200 text-xs shadow-inner">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0" />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-extrabold text-white text-[11px] bg-purple-800 px-2 py-0.5 rounded border border-purple-600 flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-amber-300" />
+                QUOTATION LOCKED (IMMUTABLE)
+              </span>
+              <span>
+                Converted to Sales Order <b className="font-mono text-amber-300">#{convertedChildOrder?.docNo || convertedChildOrder?.orderNumber || 'SO'}</b>. Converted quotations cannot be changed, edited, or deleted.
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {convertedChildOrder && (
+              <button
+                type="button"
+                onClick={() => navigate(`/sales/order?id=${convertedChildOrder.id}`)}
+                className="px-3 py-1 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>Open Sales Order #{convertedChildOrder.docNo || convertedChildOrder.orderNumber}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowDocFlowModal(true)}
+              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-purple-500 text-purple-200 font-bold rounded text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+            >
+              <GitFork className="w-3.5 h-3.5" />
+              <span>Document Flow</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── ALERT BANNER: SALES ORDER ALREADY INVOICED (PERMANENTLY LOCKED) ── */}
+      {orderMode === 'STANDARD' && isInvoicedOrder && (
+        <div className="w-full bg-emerald-950/95 border-b border-emerald-700/80 px-4 py-2.5 flex items-center justify-between gap-3 text-emerald-200 text-xs shadow-inner">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-extrabold text-white text-[11px] bg-emerald-800 px-2 py-0.5 rounded border border-emerald-600 flex items-center gap-1">
+                <Lock className="w-3.5 h-3.5 text-amber-300" />
+                SALES ORDER LOCKED (IMMUTABLE)
+              </span>
+              <span>
+                Converted to Tax Invoice <b className="font-mono text-emerald-300">#{invoiceChildOrder?.docNo || invoiceChildOrder?.orderNumber || 'INV'}</b>. Converted sales orders cannot be changed, edited, or deleted. Only downstream Tax Invoices can be modified.
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {invoiceChildOrder && (
+              <button
+                type="button"
+                onClick={() => navigate(`/sales/order?id=${invoiceChildOrder.id}`)}
+                className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>Open Tax Invoice #{invoiceChildOrder.docNo || invoiceChildOrder.orderNumber}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowDocFlowModal(true)}
+              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 border border-emerald-500 text-emerald-200 font-bold rounded text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+            >
+              <GitFork className="w-3.5 h-3.5" />
+              <span>Document Flow</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* FULL SCREEN DOCUMENT HEADER SECTION (Two Columns) */}
       <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-4 p-3 bg-[var(--sap-bg-window)] border-b border-[var(--sap-border-inner)] shadow-xs">
@@ -2139,22 +2578,26 @@ export default function SalesOrderPage() {
                 placeholder="Choose Customer..."
                 className="w-32 h-[23px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] font-mono font-bold outline-none"
               />
-              <button
-                type="button"
-                onClick={() => setShowQuickAddModal(true)}
-                className="w-[23px] h-[23px] bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs flex items-center justify-center rounded-xs shrink-0 cursor-pointer shadow-xs"
-                title="Quick Add Customer (+91)"
-              >
-                ➔
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowQuickAddModal(true)}
-                className="px-2 h-[23px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] font-semibold text-[var(--sap-text)] flex items-center gap-1 rounded-xs"
-              >
-                <UserPlus className="w-3 h-3 text-amber-600" />
-                <span>+ Quick Add (+91)</span>
-              </button>
+              {!isDocumentLocked && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAddModal(true)}
+                    className="w-[23px] h-[23px] bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs flex items-center justify-center rounded-xs shrink-0 cursor-pointer shadow-xs"
+                    title="Quick Add Customer (+91)"
+                  >
+                    ➔
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowQuickAddModal(true)}
+                    className="px-2 h-[23px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] font-semibold text-[var(--sap-text)] flex items-center gap-1 rounded-xs"
+                  >
+                    <UserPlus className="w-3 h-3 text-amber-600" />
+                    <span>+ Quick Add (+91)</span>
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -2172,6 +2615,7 @@ export default function SalesOrderPage() {
                 }))}
                 value={customerId}
                 onChange={handleCustomerChange}
+                disabled={isDocumentLocked}
                 placeholder="Search and Select Customer / Business Partner..."
                 size="sm"
                 className="h-[24px] text-[11.5px]"
@@ -2340,7 +2784,7 @@ export default function SalesOrderPage() {
                 type="text"
                 value={docNo}
                 onChange={(e) => setDocNo(e.target.value)}
-                className="w-28 h-[23px] px-2 text-[11.5px] font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] text-right outline-none"
+                className="min-w-[170px] w-44 h-[23px] px-2 text-[11.5px] font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] text-right outline-none"
               />
               <span className="text-[var(--sap-text-muted)] text-xs font-mono">- | 0</span>
             </div>
@@ -2364,13 +2808,11 @@ export default function SalesOrderPage() {
               <span className={`inline-flex items-center px-2 py-0.5 rounded-xs text-[10.5px] font-bold ${
                 orderMode === 'STANDARD'
                   ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-300'
-                  : orderMode === 'NEED_PLANNING'
-                  ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-300'
                   : orderMode === 'INVOICE'
                   ? 'bg-blue-100 text-blue-900 dark:bg-blue-900/40 dark:text-blue-300'
                   : 'bg-purple-100 text-purple-900 dark:bg-purple-900/40 dark:text-purple-300'
               }`}>
-                {orderMode === 'STANDARD' ? 'Standard Order' : (orderMode === 'NEED_PLANNING' ? 'Need Planning' : (orderMode === 'INVOICE' ? 'Invoice' : 'Quotation'))}
+                {orderMode === 'STANDARD' ? 'Standard Order' : (orderMode === 'INVOICE' ? 'Tax Invoice' : 'Quotation')}
               </span>
             </div>
           </div>
@@ -2475,137 +2917,195 @@ export default function SalesOrderPage() {
                 )}
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCatalogModal(true)}
-                  className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-                  title="Open full catalog browser modal"
-                >
-                  <Package className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Catalog Browser ({products.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAddLine}
-                  className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>+ Add Row</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClearEmptyLines}
-                  className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
-                >
-                  <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                  <span>Clear Empty Rows</span>
-                </button>
-              </div>
+              {!isDocumentLocked ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCatalogModal(true)}
+                    className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    title="Open full catalog browser modal"
+                  >
+                    <Package className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Catalog Browser ({products.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddLine}
+                    className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>+ Add Row</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClearEmptyLines}
+                    className="px-3 py-1 bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] border border-[var(--sap-border-inner)] text-[11px] text-[var(--sap-text)] font-bold rounded-xs flex items-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    <span>Clear Empty Rows</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-xs text-[11px] font-bold text-amber-700 dark:text-amber-400">
+                  <Lock className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Document Locked: Item rows cannot be added, edited, or cleared</span>
+                </div>
+              )}
             </div>
 
             {/* STOCK FEASIBILITY & COMMERCIAL ORDER STATUS BANNER */}
             {activeLines.length > 0 && (
               <div className="w-full mb-2">
-                {orderMode === 'STANDARD' && stockDeficitSummary.hasShortages && (
-                  <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-md p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
+                {/* CONVERTED FROM SOURCE ORDER BANNER */}
+                {sourceDocNo && orderMode === 'INVOICE' && (
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/60 dark:to-indigo-950/60 border border-blue-400 dark:border-blue-700 rounded-md p-2.5 flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-6 h-6 rounded-md bg-blue-600 text-white flex items-center justify-center font-bold text-[11px] shrink-0">
+                        INV
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs text-blue-950 dark:text-blue-100 flex items-center gap-2">
+                          <span>Converting Standard Order #{sourceDocNo} → Tax Invoice</span>
+                          <span className="text-[10px] font-mono bg-blue-200 dark:bg-blue-900 text-blue-900 dark:text-blue-200 px-1.5 py-0.2 rounded font-bold">
+                            Order Conversion
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-blue-800 dark:text-blue-300">
+                          Reserved inventory from order #{sourceDocNo} is allocated to this invoice. Posting will deduct physical stock and mark order as invoiced.
+                        </div>
+                      </div>
+                    </div>
+                    {sourceOrderId && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/sales/order?id=${sourceOrderId}`)}
+                        className="px-2.5 py-1 text-xs font-bold text-blue-700 dark:text-blue-300 bg-white dark:bg-slate-800 border border-blue-300 dark:border-blue-700 rounded shadow-xs hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer shrink-0"
+                      >
+                        View Source Order #{sourceDocNo}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* QUOTATION MODE */}
+                {orderMode === 'QUOTATION' && (
+                  <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-800 rounded-md p-2.5 flex items-center justify-between text-purple-900 dark:text-purple-200">
                     <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 animate-bounce" />
+                      <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
+                      <span className="font-bold text-xs">
+                        🟣 Commercial Quotation Mode: Non-binding price quote. Zero warehouse stock effect (neither reserved nor deducted).
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded text-purple-800 dark:text-purple-300">
+                      Quotation (No Stock Effect)
+                    </span>
+                  </div>
+                )}
+
+                {/* STANDARD ORDER WITH SHORTAGES (BACK-ORDER ALLOWED) */}
+                {orderMode === 'STANDARD' && stockDeficitSummary.hasShortages && (
+                  <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-md p-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-amber-900 dark:text-amber-200">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
                       <div>
                         <div className="font-bold text-xs flex items-center gap-1.5 flex-wrap">
-                          <span>Standard Order Blocked: Stock Deficit in {stockDeficitSummary.shortageLines.length} item(s)</span>
-                          <span className="bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 px-1.5 py-0.2 rounded font-mono text-[10px]">
-                            Deficit: -{stockDeficitSummary.totalDeficitQty} units
+                          <span>⚠️ Shortage on {stockDeficitSummary.shortageLines.length} item(s) — Back-Order Allowed</span>
+                          <span className="bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 px-1.5 py-0.2 rounded font-mono text-[10px] font-bold">
+                            Shortfall: -{stockDeficitSummary.totalDeficitQty} units
+                          </span>
+                          <span className="bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.2 rounded font-mono text-[10px]">
+                            Stock Reserved: {stockDeficitSummary.totalStockAllocated} units
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-amber-800 dark:text-amber-300">
+                          Order can be saved immediately! Shortfall will automatically appear in the <strong>Production Requirement List</strong> for batch scheduling.
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/production/requirements')}
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-md shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>View Production Requirements →</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* STANDARD ORDER 100% IN-STOCK */}
+                {orderMode === 'STANDARD' && !stockDeficitSummary.hasShortages && (
+                  <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-md p-2.5 flex items-center justify-between text-emerald-900 dark:text-emerald-200">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <div>
+                        <div className="font-bold text-xs flex items-center gap-1.5">
+                          <span>✓ 100% In-Stock Reserved: All {activeLines.length} line items have sufficient free warehouse stock.</span>
+                        </div>
+                        <div className="text-[11px] text-emerald-700 dark:text-emerald-300">
+                          Saving this order reserves stock. Once saved, it is <strong>Ready to Invoice</strong>.
+                        </div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-300">
+                      Ready to Invoice
+                    </span>
+                  </div>
+                )}
+
+                {/* INVOICE MODE WITH SHORTAGE (BLOCKED) */}
+                {orderMode === 'INVOICE' && stockDeficitSummary.hasShortages && (
+                  <div className="bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 rounded-md p-2.5 flex items-center justify-between gap-3 text-rose-900 dark:text-rose-200">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+                      <div>
+                        <div className="font-bold text-xs flex items-center gap-1.5 flex-wrap">
+                          <span>⛔ Invoice Blocked: Stock Deficit in {stockDeficitSummary.shortageLines.length} item(s)</span>
+                          <span className="bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 px-1.5 py-0.2 rounded font-mono text-[10px] font-bold">
+                            Short: -{stockDeficitSummary.totalDeficitQty} units
                           </span>
                         </div>
                         <div className="text-[11px] text-rose-700 dark:text-rose-300">
-                          In Standard Mode, customer can <strong>only order if stock is available</strong>. Please reduce ordered quantities or switch to <strong>Need Planning</strong> mode to schedule production.
+                          Tax Invoices strictly reduce warehouse stock and cannot post with negative inventory. Switch to <strong>Standard Order</strong> to place a back-order, or produce stock first.
                         </div>
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
-                        setOrderMode('NEED_PLANNING');
+                        setOrderMode('STANDARD');
                         setStatusMessage({
                           type: 'ready',
-                          text: '⚙ Switched to "Need Planning" mode. You can now order the deficit and schedule production.'
+                          text: 'Switched to Standard Order mode. You can commit the order and queue production.'
                         });
                       }}
-                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-md shadow-sm shrink-0 flex items-center gap-1.5 cursor-pointer self-start sm:self-center"
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-md shadow-xs shrink-0 flex items-center gap-1 cursor-pointer"
                     >
-                      <Clock className="w-3.5 h-3.5" />
-                      <span>Switch to "Need Planning" Mode</span>
+                      <span>Switch to Standard Order</span>
                     </button>
                   </div>
                 )}
 
-                {orderMode === 'STANDARD' && !stockDeficitSummary.hasShortages && (
-                  <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 rounded-md p-2 flex items-center justify-between text-emerald-900 dark:text-emerald-200">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span className="font-bold text-xs">
-                        ✓ 100% In-Stock Available: All {activeLines.length} line items have sufficient warehouse inventory. Ready for immediate confirmation and delivery note dispatch.
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-900/60 px-2 py-0.5 rounded text-emerald-800 dark:text-emerald-300">
-                      In-Stock Verified
-                    </span>
-                  </div>
-                )}
-
-                {orderMode === 'NEED_PLANNING' && (
-                  <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-md p-2.5 flex items-center justify-between gap-3 text-amber-900 dark:text-amber-200">
-                    <div className="flex items-center gap-2">
-                      <Layers className="w-5 h-5 text-amber-600 shrink-0" />
-                      <div>
-                        <div className="font-bold text-xs flex items-center gap-2 flex-wrap">
-                          <span>Make-to-Order Production Planning Mode Active</span>
-                          <span className="bg-amber-200 dark:bg-amber-900 text-amber-900 dark:text-amber-200 px-1.5 py-0.2 rounded font-mono text-[10px]">
-                            Deficit to Manufacture: {stockDeficitSummary.totalDeficitQty} units
-                          </span>
-                          <span className="bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 px-1.5 py-0.2 rounded font-mono text-[10px]">
-                            Warehouse Available: {stockDeficitSummary.totalStockAllocated} units
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-amber-800 dark:text-amber-300">
-                          Items with shortage will be saved with status <strong>"Waiting for Production"</strong>. You can immediately launch a Production Batch Work Order upon saving.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {orderMode === 'QUOTATION' && (
-                  <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-300 dark:border-purple-800 rounded-md p-2 flex items-center justify-between text-purple-900 dark:text-purple-200">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
-                      <span className="font-bold text-xs">
-                        🟣 Commercial Quotation / Proforma Mode: This document creates a non-binding price quotation. Warehouse inventory is not locked.
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-mono font-bold bg-purple-100 dark:bg-purple-900/60 px-2 py-0.5 rounded text-purple-800 dark:text-purple-300">
-                      Quotation Only
-                    </span>
-                  </div>
-                )}
-
-                {orderMode === 'INVOICE' && (
+                {/* INVOICE MODE 100% IN-STOCK */}
+                {orderMode === 'INVOICE' && !stockDeficitSummary.hasShortages && (
                   <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-300 dark:border-blue-800 rounded-md p-2.5 flex items-center justify-between gap-3 text-blue-900 dark:text-blue-200">
                     <div className="flex items-center gap-2">
                       <FileText className="w-5 h-5 text-blue-600 shrink-0" />
                       <div>
                         <div className="font-bold text-xs flex items-center gap-2">
-                          <span>Direct Invoice Mode Active (Financial Billing Only)</span>
-                          <span className="bg-blue-200 dark:bg-blue-900 text-blue-900 dark:text-blue-200 px-1.5 py-0.2 rounded font-mono text-[10px]">
-                            Stock Untouched
+                          <span>Tax Invoice Mode: Atomic Stock Deduction at Posting</span>
+                          <span className="bg-blue-200 dark:bg-blue-900 text-blue-900 dark:text-blue-200 px-1.5 py-0.2 rounded font-mono text-[10px] font-bold">
+                            Stock Reduces on Save
                           </span>
                         </div>
                         <div className="text-[11px] text-blue-800 dark:text-blue-300">
-                          Generates an official Tax Invoice with complete financial and GST details. <strong>Warehouse inventory values and stock levels will NOT be deducted or changed.</strong>
+                          All items verified in-stock. Posting this invoice assigns consecutive GST series <strong>INV</strong> and updates the stock ledger.
                         </div>
                       </div>
                     </div>
+                    <span className="text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-900/60 px-2 py-0.5 rounded text-blue-800 dark:text-blue-300">
+                      Ready to Post
+                    </span>
                   </div>
                 )}
               </div>
@@ -2613,21 +3113,26 @@ export default function SalesOrderPage() {
 
             {/* FULL SCREEN DOCUMENT LINE TABLE GRID WITH LIVE STOCK */}
             <div className="w-full flex-1 border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] overflow-x-auto max-h-[500px] shadow-sm relative">
-              <table className="w-full min-w-[1240px] border-collapse text-[11.5px] select-text">
+              <table className="w-full min-w-[1360px] border-collapse text-[11.5px] select-text">
                 <thead>
                   <tr className="bg-[var(--sap-header-bg)] text-[var(--sap-text)] border-b border-[var(--sap-border-inner)] sticky top-0 z-10 font-bold select-none text-[11px]">
                     <th className="w-10 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">#</th>
                     <th className="w-36 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">System Code *</th>
                     <th className="w-64 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Product Name *</th>
                     <th className="w-36 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Category *</th>
-                    <th className="w-48 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Base / Subcategory</th>
+                    <th className="w-44 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Base / Subcategory</th>
                     <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">Unit of Sale *</th>
                     <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Quantity</th>
                     <th className="w-28 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Sale Price (INR) *</th>
                     <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Discount %</th>
                     <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Tax Code</th>
                     <th className="w-32 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Total (LC)</th>
-                    <th className="w-32 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">Stock Feasibility</th>
+                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">On-Hand</th>
+                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Free Stock</th>
+                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Reserved</th>
+                    <th className="w-28 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">
+                      {orderMode === 'INVOICE' ? 'Stock Check' : 'Shortfall'}
+                    </th>
                     <th className="w-10 py-1.5 px-1 text-center">✕</th>
                   </tr>
                 </thead>
@@ -2636,9 +3141,9 @@ export default function SalesOrderPage() {
                     <tr
                       key={line.id}
                       className={`h-[26px] border-b border-[var(--sap-border-inner)] transition-colors ${
-                        line.productId && !line.isSufficient && orderMode === 'STANDARD'
+                        line.productId && !line.isSufficient && orderMode === 'INVOICE'
                           ? 'bg-rose-50/80 dark:bg-rose-950/40'
-                          : line.productId && !line.isSufficient && orderMode === 'NEED_PLANNING'
+                          : line.productId && line.shortfallQty > 0 && orderMode === 'STANDARD'
                           ? 'bg-amber-50/70 dark:bg-amber-950/40'
                           : idx % 2 === 1 ? 'bg-[var(--sap-grid-alt)]' : 'bg-[var(--sap-input-bg)]'
                       } hover:bg-amber-50/40 dark:hover:bg-blue-950/20`}
@@ -2655,25 +3160,30 @@ export default function SalesOrderPage() {
                             type="text"
                             value={line.systemCode}
                             placeholder="BFD101..."
+                            readOnly={isDocumentLocked}
                             onChange={(e) => {
-                              handleLineChange(line.id, 'systemCode', e.target.value);
-                              handleOpenGridSearch(line.id, e.target, e.target.value);
+                              if (!isDocumentLocked) {
+                                handleLineChange(line.id, 'systemCode', e.target.value);
+                                handleOpenGridSearch(line.id, e.target, e.target.value);
+                              }
                             }}
-                            onClick={(e) => handleOpenGridSearch(line.id, e.target, line.systemCode || '')}
-                            onFocus={(e) => handleOpenGridSearch(line.id, e.target, line.systemCode || '')}
-                            className="flex-1 h-full px-1 bg-transparent border-0 outline-none font-mono font-bold text-[11px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal"
+                            onClick={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.systemCode || ''); }}
+                            onFocus={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.systemCode || ''); }}
+                            className={`flex-1 h-full px-1 bg-transparent border-0 outline-none font-mono font-bold text-[11px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                           />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.systemCode || '');
-                            }}
-                            className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
-                            title="Search and select product in grid"
-                          >
-                            🔍
-                          </button>
+                          {!isDocumentLocked && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.systemCode || '');
+                              }}
+                              className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
+                              title="Search and select product in grid"
+                            >
+                              🔍
+                            </button>
+                          )}
                           {line.productId && (
                             <button
                               type="button"
@@ -2698,25 +3208,30 @@ export default function SalesOrderPage() {
                             type="text"
                             value={line.itemDescription}
                             placeholder="Product Name..."
+                            readOnly={isDocumentLocked}
                             onChange={(e) => {
-                              handleLineChange(line.id, 'itemDescription', e.target.value);
-                              handleOpenGridSearch(line.id, e.target, e.target.value);
+                              if (!isDocumentLocked) {
+                                handleLineChange(line.id, 'itemDescription', e.target.value);
+                                handleOpenGridSearch(line.id, e.target, e.target.value);
+                              }
                             }}
-                            onClick={(e) => handleOpenGridSearch(line.id, e.target, line.itemDescription || '')}
-                            onFocus={(e) => handleOpenGridSearch(line.id, e.target, line.itemDescription || '')}
-                            className="flex-1 h-full px-1 bg-transparent border-0 outline-none font-semibold text-[11.5px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal"
+                            onClick={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.itemDescription || ''); }}
+                            onFocus={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.itemDescription || ''); }}
+                            className={`flex-1 h-full px-1 bg-transparent border-0 outline-none font-semibold text-[11.5px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                           />
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.itemDescription || '');
-                            }}
-                            className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
-                            title="Search and select product in grid"
-                          >
-                            ▾
-                          </button>
+                          {!isDocumentLocked && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.itemDescription || '');
+                              }}
+                              className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
+                              title="Search and select product in grid"
+                            >
+                              ▾
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -2741,8 +3256,9 @@ export default function SalesOrderPage() {
                           type="number"
                           min="1"
                           value={line.quantity}
+                          readOnly={isDocumentLocked}
                           onChange={(e) => handleLineChange(line.id, 'quantity', Math.max(1, parseInt(e.target.value, 10) || 1))}
-                          className="w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono font-bold text-[11.5px] text-[var(--sap-text)]"
+                          className={`w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono font-bold text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                         />
                       </td>
 
@@ -2752,8 +3268,9 @@ export default function SalesOrderPage() {
                           type="number"
                           step="0.01"
                           value={line.unitPrice}
+                          readOnly={isDocumentLocked}
                           onChange={(e) => handleLineChange(line.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                          className="w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono font-semibold text-[11.5px] text-[var(--sap-text)]"
+                          className={`w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono font-semibold text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                         />
                       </td>
 
@@ -2765,8 +3282,9 @@ export default function SalesOrderPage() {
                           min="0"
                           max="100"
                           value={line.discountPercent}
+                          readOnly={isDocumentLocked}
                           onChange={(e) => handleLineChange(line.id, 'discountPercent', parseFloat(e.target.value) || 0)}
-                          className="w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono text-[11.5px] text-[var(--sap-text)]"
+                          className={`w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                         />
                       </td>
 
@@ -2774,6 +3292,7 @@ export default function SalesOrderPage() {
                       <td className="border-r border-[var(--sap-border-inner)] p-0">
                         <select
                           value={line.taxCode}
+                          disabled={isDocumentLocked}
                           onChange={(e) => {
                             const val = e.target.value;
                             let rate = 5;
@@ -2784,7 +3303,7 @@ export default function SalesOrderPage() {
                             handleLineChange(line.id, 'taxCode', val);
                             handleLineChange(line.id, 'gstRate', rate);
                           }}
-                          className="w-full h-full px-1.5 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)] cursor-pointer"
+                          className={`w-full h-full px-1.5 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                         >
                           {!isInterState ? (
                             <>
@@ -2811,33 +3330,50 @@ export default function SalesOrderPage() {
                         {line.lineTotal ? `${line.lineTotal.toFixed(2)} INR` : '0.00 INR'}
                       </td>
 
-                      {/* Stock Feasibility & Status Display */}
+                      {/* On-Hand */}
+                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
+                        {line.productId ? line.onHand : '-'}
+                      </td>
+
+                      {/* Free Stock */}
+                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
+                        {line.productId ? line.freeStock : '-'}
+                      </td>
+
+                      {/* Reserved */}
+                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono font-semibold text-[11px] text-emerald-700 dark:text-emerald-400 bg-[var(--sap-input-readonly)]">
+                        {line.productId ? (orderMode === 'QUOTATION' ? 0 : line.reservedQty) : '-'}
+                      </td>
+
+                      {/* Shortfall or Stock Check */}
                       <td className="border-r border-[var(--sap-border-inner)] text-center px-1 text-[10.5px]">
                         {line.productId ? (
-                          <div className="flex flex-col items-center justify-center gap-0.5">
-                            {line.isSufficient ? (
-                              <span className="px-2 py-0.5 rounded-xs font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 flex items-center gap-1">
+                          orderMode === 'INVOICE' ? (
+                            line.isSufficient ? (
+                              <span className="px-2 py-0.5 rounded-xs font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 inline-flex items-center gap-1">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                <span>✓ {line.stock} in stock</span>
+                                <span>🟢 Available</span>
                               </span>
                             ) : (
-                              <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center gap-1 ${
-                                orderMode === 'STANDARD'
-                                  ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700'
-                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-700'
-                              }`}>
-                                <span>⚠️ -{line.deficit} Deficit</span>
-                                <span className="opacity-75 font-normal text-[9.5px]">({line.stock})</span>
+                              <span className="px-2 py-0.5 rounded-xs font-mono font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700 inline-flex items-center gap-1">
+                                <span>🔴 Short -{line.deficit}</span>
                               </span>
-                            )}
-                            {orderMode === 'NEED_PLANNING' && !line.isSufficient && (
-                              <span className="text-[9px] text-amber-600 dark:text-amber-400 font-semibold">
-                                Produce: {line.deficit} {line.unitOfSale}
+                            )
+                          ) : orderMode === 'STANDARD' ? (
+                            line.shortfallQty > 0 ? (
+                              <span className="px-2 py-0.5 rounded-xs font-mono font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-300 dark:border-rose-700 inline-flex items-center gap-1" title="Back-order requirement queued for production">
+                                <span>⚠️ -{line.shortfallQty}</span>
                               </span>
-                            )}
-                          </div>
+                            ) : (
+                              <span className="text-emerald-700 dark:text-emerald-400 font-mono font-bold text-[11px]">
+                                0 (Covered)
+                              </span>
+                            )
+                          ) : (
+                            <span className="text-slate-400 font-mono text-[11px]">-</span>
+                          )
                         ) : (
-                          <span className="text-slate-400">-</span>
+                          <span className="text-slate-400 font-mono">-</span>
                         )}
                       </td>
 
@@ -2845,9 +3381,14 @@ export default function SalesOrderPage() {
                       <td className="text-center p-0">
                         <button
                           type="button"
+                          disabled={isDocumentLocked}
                           onClick={() => handleRemoveLine(line.id)}
-                          className="w-full h-full text-slate-400 hover:text-red-600 font-bold flex items-center justify-center cursor-pointer"
-                          title="Delete Line"
+                          className={`w-full h-full font-bold flex items-center justify-center ${
+                            isDocumentLocked
+                              ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                              : 'text-slate-400 hover:text-red-600 cursor-pointer'
+                          }`}
+                          title={isDocumentLocked ? "Document is locked and cannot be edited" : "Delete Line"}
                         >
                           ✕
                         </button>
@@ -3940,30 +4481,123 @@ export default function SalesOrderPage() {
       <div className="w-full px-4 py-2.5 bg-[var(--sap-bg-window)] border-t border-[var(--sap-border-inner)] flex flex-wrap items-center justify-between gap-3 shadow-md">
         
         {/* Left Actions */}
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            disabled={createOrderMutation.isPending}
-            onClick={handleSaveOrder}
-            className="px-8 h-[28px] bg-[var(--sap-btn-gold)] hover:bg-[var(--sap-btn-gold-hover)] text-[var(--sap-btn-gold-text)] font-bold text-xs border border-amber-600 rounded-xs shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50"
-          >
-            {createOrderMutation.isPending ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                <span>{editOrderId ? 'Updating Order...' : 'Adding Order...'}</span>
-              </>
-            ) : editOrderId ? (
-              <span>Update Order</span>
-            ) : orderMode === 'INVOICE' ? (
-              <span>Generate Tax Invoice</span>
-            ) : orderMode === 'STANDARD' ? (
-              <span>Add Standard Order</span>
-            ) : orderMode === 'NEED_PLANNING' ? (
-              <span>Submit for Production Planning</span>
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {isDocumentLocked ? (
+            <button
+              type="button"
+              disabled
+              className="px-6 h-[28px] bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 font-bold text-xs border border-slate-300 dark:border-slate-700 rounded-xs flex items-center gap-2 cursor-not-allowed shadow-inner"
+              title={lockedReason || "This document has already been converted and cannot be changed, edited, or deleted."}
+            >
+              <Lock className="w-3.5 h-3.5 text-amber-500" />
+              <span>Document Locked (Immutable)</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={createOrderMutation.isPending}
+              onClick={handleSaveOrder}
+              className="px-8 h-[28px] bg-[var(--sap-btn-gold)] hover:bg-[var(--sap-btn-gold-hover)] text-[var(--sap-btn-gold-text)] font-bold text-xs border border-amber-600 rounded-xs shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50"
+            >
+              {createOrderMutation.isPending ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>{editOrderId ? 'Updating Document...' : 'Saving Document...'}</span>
+                </>
+              ) : editOrderId ? (
+                <span>Update Document</span>
+              ) : orderMode === 'INVOICE' ? (
+                <span>Post Tax Invoice (Deducts Stock)</span>
+              ) : orderMode === 'STANDARD' ? (
+                <span>Save Standard Order</span>
+              ) : (
+                <span>Create Quotation</span>
+              )}
+            </button>
+          )}
+
+          {/* Workflow Conversion Action (When Viewing/Editing) */}
+          {editOrderId && orderMode === 'QUOTATION' && (
+            isConvertedQuote ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (convertedChildOrder) {
+                      navigate(`/sales/order?id=${convertedChildOrder.id}`);
+                    } else {
+                      setShowDocFlowModal(true);
+                    }
+                  }}
+                  className="px-3 h-[28px] bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs border border-purple-700 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  title="Quotation has been converted! Click to open Sales Order."
+                >
+                  <CheckCheck className="w-3.5 h-3.5 text-purple-200" />
+                  <span>View Converted Order (#{convertedChildOrder?.docNo || convertedChildOrder?.orderNumber || 'SO'})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDocFlowModal(true)}
+                  className="px-3 h-[28px] bg-slate-800 hover:bg-slate-700 text-purple-300 font-bold text-xs border border-purple-600 rounded-xs transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                  title="View complete SAP Document Flow and history"
+                >
+                  <GitFork className="w-3.5 h-3.5" />
+                  <span>Document Flow</span>
+                </button>
+              </div>
             ) : (
-              <span>Create Quotation</span>
-            )}
-          </button>
+              <button
+                type="button"
+                onClick={handleConvertToOrderFromStudio}
+                className="px-4 h-[28px] bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs border border-blue-700 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                title="Convert this quotation into a Standard Sales Order"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-blue-200" />
+                <span>Convert to Standard Order</span>
+              </button>
+            )
+          )}
+
+          {editOrderId && orderMode === 'STANDARD' && (
+            isInvoicedOrder ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (invoiceChildOrder) {
+                      navigate(`/sales/order?id=${invoiceChildOrder.id}`);
+                    } else {
+                      setShowDocFlowModal(true);
+                    }
+                  }}
+                  className="px-3 h-[28px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs border border-emerald-700 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  title="Sales Order has been invoiced! Click to open Tax Invoice."
+                >
+                  <CheckCheck className="w-3.5 h-3.5 text-emerald-200" />
+                  <span>View Converted Invoice (#{invoiceChildOrder?.docNo || invoiceChildOrder?.orderNumber || 'INV'})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDocFlowModal(true)}
+                  className="px-3 h-[28px] bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-xs border border-emerald-600 rounded-xs transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                  title="View complete SAP Document Flow and history"
+                >
+                  <GitFork className="w-3.5 h-3.5" />
+                  <span>Document Flow</span>
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleConvertToInvoiceFromStudio}
+                className="px-4 h-[28px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs border border-emerald-700 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                title="Convert this Standard Order into a Tax Invoice"
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-200" />
+                <span>Convert to Tax Invoice</span>
+              </button>
+            )
+          )}
 
           <button
             type="button"
@@ -3976,12 +4610,24 @@ export default function SalesOrderPage() {
           <button
             type="button"
             onClick={() => handlePrintPDF()}
-            className="px-4 h-[28px] bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-2 shadow-xs"
+            className="px-4 h-[28px] bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-1 shadow-xs"
             title="Print Tax Invoice / Order PDF"
           >
             <Printer className="w-3.5 h-3.5 text-amber-300" />
-            <span>Print Order / Tax Invoice</span>
+            <span>Print PDF</span>
           </button>
+
+          {editOrderId && (
+            <button
+              type="button"
+              onClick={() => setShowDocFlowModal(true)}
+              className="px-3 h-[28px] bg-indigo-700 hover:bg-indigo-600 text-white font-bold text-xs border border-indigo-600 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-1 shadow-xs"
+              title="View Complete SAP Document Flow & Lifecycle History"
+            >
+              <GitFork className="w-3.5 h-3.5 text-indigo-200" />
+              <span>Document Flow</span>
+            </button>
+          )}
         </div>
 
         {/* Right Workflow Actions (Copy From / Copy To) */}
@@ -4005,12 +4651,18 @@ export default function SalesOrderPage() {
           <button
             type="button"
             onClick={() => {
-              Swal.fire({
-                title: 'Copy To',
-                text: 'Copy this Sales Order into Delivery Note or A/R Tax Invoice.',
-                icon: 'info',
-                confirmButtonColor: '#f0b429'
-              });
+              if (orderMode === 'QUOTATION' && editOrderId) {
+                handleConvertToOrderFromStudio();
+              } else if (orderMode === 'STANDARD' && editOrderId) {
+                handleConvertToInvoiceFromStudio();
+              } else {
+                Swal.fire({
+                  title: 'Copy To',
+                  text: 'Save this document first before copying to downstream documents.',
+                  icon: 'info',
+                  confirmButtonColor: '#f0b429'
+                });
+              }
             }}
             className="px-3.5 h-[28px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] text-[var(--sap-text)] font-bold text-xs border border-[var(--sap-border-inner)] rounded-xs transition-colors cursor-pointer flex items-center gap-1"
           >
@@ -4478,6 +5130,15 @@ export default function SalesOrderPage() {
           }}
         />
       )}
+
+      {/* SAP DOCUMENT FLOW & LIFECYCLE HISTORY MODAL */}
+      <DocumentFlowModal
+        isOpen={showDocFlowModal}
+        onClose={() => setShowDocFlowModal(false)}
+        orderId={editOrderId}
+        initialOrder={loadedOrderData}
+        onNavigateOrder={(targetId) => navigate(`/sales/order?id=${targetId}`)}
+      />
     </div>
   );
 }
