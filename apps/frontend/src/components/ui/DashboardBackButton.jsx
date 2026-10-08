@@ -51,8 +51,8 @@ export default function DashboardBackButton({ defaultLabel, className = '' }) {
     targetPath = '/dashboard/lab';
     label = 'Back to Lab Dashboard';
   } else if (from === 'status') {
-    targetPath = '/orders/status';
-    label = 'Back to Order Status Board';
+    targetPath = '/sales/list';
+    label = 'Back to Sales Records';
   } else if (from === 'dashboard' || from === 'main') {
     targetPath = '/dashboard';
     label = 'Back to Dashboard';

@@ -91,8 +91,8 @@ export default function AddOrderPage() {
         <AlertTriangle className="w-12 h-12 text-rose-500 mx-auto animate-bounce" />
         <h2 className="text-xl font-bold text-slate-800 dark:text-white">View-Only Access</h2>
         <p className="text-xs text-slate-500 dark:text-slate-400">As a Supervisor, you have read-only access and cannot place or modify sales orders.</p>
-        <Button onClick={() => navigate('/orders/list')} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl cursor-pointer font-bold text-xs">
-          Back to Order List
+        <Button onClick={() => navigate('/sales/list')} className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl cursor-pointer font-bold text-xs">
+          Back to Sales Records
         </Button>
       </div>
     );
@@ -1236,7 +1236,7 @@ export default function AddOrderPage() {
 
   const handleModalClose = () => {
     setShowInvoiceModal(false);
-    navigate('/orders/list');
+    navigate('/sales/list');
   };
 
   const selectedCustomerObj = customers.find(c => c.id === customerId);
@@ -1250,7 +1250,7 @@ export default function AddOrderPage() {
           <Button
             type="button"
             variant="ghost"
-            onClick={() => navigate('/orders/list')}
+            onClick={() => navigate('/sales/list')}
             className="p-2 rounded-xl text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer h-9 w-9 shrink-0"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -1301,10 +1301,10 @@ export default function AddOrderPage() {
 
           <button
             type="button"
-            onClick={() => navigate('/orders/list')}
+            onClick={() => navigate('/sales/list')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-700/60 transition-all cursor-pointer shadow-2xs"
           >
-            <Receipt className="w-3.5 h-3.5 text-indigo-500" /> Orders
+            <Receipt className="w-3.5 h-3.5 text-indigo-500" /> Sales Records
           </button>
 
           <button

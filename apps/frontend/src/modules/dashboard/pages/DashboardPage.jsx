@@ -372,7 +372,7 @@ export default function DashboardPage() {
 
         {/* Orders to Dispatch */}
         <div 
-          onClick={() => navigate('/orders/status?from=dashboard')}
+          onClick={() => navigate('/sales/list?from=dashboard')}
           className="bg-white dark:bg-slate-900 p-3.5 sm:p-5 rounded-2xl shadow-sm border border-indigo-50/50 dark:border-slate-800 flex flex-col justify-between hover:shadow-md cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-900/60 hover:-translate-y-0.5 active:translate-y-0 transition-all group"
         >
           <div className="flex justify-between items-start">
@@ -1261,7 +1261,7 @@ export default function DashboardPage() {
                       <td className="p-4 text-right">
                         <button 
                           type="button"
-                          onClick={() => navigate('/orders/list')}
+                          onClick={() => navigate('/sales/list')}
                           className="p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:scale-105 active:scale-95 transition-all"
                         >
                           <ChevronRight className="w-4 h-4" />
@@ -1303,7 +1303,7 @@ export default function DashboardPage() {
                     return (
                       <div 
                         key={o.id} 
-                        onClick={() => navigate(`/orders/list?id=${o.id}&from=dashboard`)}
+                        onClick={() => navigate(`/sales/list?id=${o.id}&from=dashboard`)}
                         className="bg-slate-50 dark:bg-slate-950/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-850 flex flex-col gap-2 cursor-pointer hover:border-indigo-200 transition-colors"
                       >
                         <div className="flex justify-between items-center">

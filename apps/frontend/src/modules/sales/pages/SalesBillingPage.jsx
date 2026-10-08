@@ -218,7 +218,15 @@ export default function SalesBillingPage() {
         setLockedReason(ord.lockReason || '');
         setOrderType(ord.type || 'POS');
         setCustomerId(ord.customerId || '');
-        setSelectedCustomer(ord.customer || null);
+        setSelectedCustomer(ord.customer || (ord.customerName ? {
+          id: ord.customerId,
+          name: ord.customerName,
+          phone: ord.customerPhone || '',
+          address: ord.deliveryAddress || '',
+          gstin: ord.taxRegNo || ''
+        } : null));
+        if (ord.collectTax !== undefined) setCollectTax(Boolean(ord.collectTax));
+        if (ord.taxType) setTaxMode(ord.taxType === 'Inter-State' ? 'Inter-State' : 'Intra-State');
         if (ord.taxRegNo || ord.customer?.gstin) {
           const g = ord.taxRegNo || ord.customer?.gstin;
           setTaxRegNo(g);
@@ -646,7 +654,7 @@ export default function SalesBillingPage() {
           toast: true,
           position: 'top-end'
         });
-        const fromUrl = searchParams.get('from') || '/orders/list';
+        const fromUrl = searchParams.get('from') || '/sales/list';
         navigate(fromUrl);
         return;
       }
@@ -952,10 +960,10 @@ export default function SalesBillingPage() {
           <Button 
             type="button" 
             variant="outline" 
-            onClick={() => navigate(searchParams.get('from') || '/orders/list')}
+            onClick={() => navigate(searchParams.get('from') || '/sales/list')}
             className="h-8 text-xs font-bold rounded-xl border-rose-500/40 hover:bg-rose-500/10 cursor-pointer text-rose-900 dark:text-rose-200"
           >
-            Back to Orders List
+            Back to Sales List
           </Button>
         </div>
       )}
@@ -968,10 +976,10 @@ export default function SalesBillingPage() {
           <Button 
             type="button" 
             variant="outline" 
-            onClick={() => navigate(searchParams.get('from') || '/orders/list')}
+            onClick={() => navigate(searchParams.get('from') || '/sales/list')}
             className="h-8 text-xs font-bold rounded-xl border-amber-500/40 hover:bg-amber-500/10 cursor-pointer text-amber-900 dark:text-amber-200"
           >
-            Cancel & Back to Orders
+            Cancel & Back to Sales
           </Button>
         </div>
       )}
@@ -1040,7 +1048,7 @@ export default function SalesBillingPage() {
             toggleHardwareStatus('printer');
           }
         }}
-        onLogout={() => navigate('/orders/list')}
+        onLogout={() => navigate('/sales/list')}
         onLock={() => {
           Swal.fire({
             title: 'Terminal Locked',
@@ -1051,7 +1059,7 @@ export default function SalesBillingPage() {
             confirmButtonColor: '#4f46e5'
           });
         }}
-        onHeldOrdersClick={() => navigate('/orders/list')}
+        onHeldOrdersClick={() => navigate('/sales/list')}
       />
 
       {/* 2. MAIN TWO-COLUMN WORKFLOW DESK (Left 7 Cols: Catalog & FEFO Stock, Right 5 Cols: Setup & Charges) */}
@@ -1981,11 +1989,11 @@ export default function SalesBillingPage() {
                   variant="outline"
                   onClick={() => {
                     setShowReceiptModal(false);
-                    navigate('/orders/list');
+                    navigate('/sales/list');
                   }}
                   className="text-xs border-slate-800 text-slate-300 hover:bg-slate-800 rounded-xl h-8 px-3 cursor-pointer"
                 >
-                  Close & View Orders
+                  Close & View Records
                 </Button>
               </div>
             </div>

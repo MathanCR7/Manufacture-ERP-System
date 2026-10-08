@@ -1638,7 +1638,7 @@ export default function SalesOrderPage() {
           toast: true,
           position: 'top-end'
         });
-        const fromUrl = searchParams.get('from') || '/orders/list';
+        const fromUrl = searchParams.get('from') || '/sales/list';
         navigate(fromUrl);
         return;
       }
@@ -2069,7 +2069,7 @@ export default function SalesOrderPage() {
         confirmButtonColor: '#2563eb'
       }).then(() => {
         handlePrintPDF(res.data);
-        navigate('/orders/list');
+        navigate('/sales/list');
       });
     } catch (err) {
       Swal.fire({
@@ -2281,11 +2281,11 @@ export default function SalesOrderPage() {
           {editOrderId && (
             <button
               type="button"
-              onClick={() => navigate(searchParams.get('from') || '/orders/list')}
+              onClick={() => navigate(searchParams.get('from') || '/sales/list')}
               className="px-2.5 py-1 text-xs rounded-xs flex items-center gap-1 font-bold text-slate-200 hover:text-white bg-slate-700 hover:bg-slate-600 border border-slate-600 cursor-pointer shadow-xs mr-1"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Orders</span>
+              <span>Back to Sales Records</span>
             </button>
           )}
           {/* Active Sync Stock Button with Animated Spinner & Status Feedback */}

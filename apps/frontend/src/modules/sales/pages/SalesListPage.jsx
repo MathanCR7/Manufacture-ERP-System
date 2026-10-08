@@ -47,9 +47,9 @@ export default function SalesListPage() {
   const [isSaving, setIsSaving] = useState(false);
   
   // Document Flow & Grouping State
-  const [flowModalState, setFlowModalState] = useState({ isOpen: false, orderId: null, docNo: '' });
-  const [groupByChain, setGroupByChain] = useState(false);
-  const openDocumentFlowModal = (order) => setFlowModalState({ isOpen: true, orderId: order?.id, docNo: order?.docNo || order?.referenceNo });
+  const [flowModalState, setFlowModalState] = useState({ isOpen: false, orderId: null, docNo: '', order: null });
+  const [groupByChain, setGroupByChain] = useState(true); // Default enabled
+  const openDocumentFlowModal = (order) => setFlowModalState({ isOpen: true, orderId: order?.id, docNo: order?.docNo || order?.referenceNo, order });
   
   // Dynamic settings & Tab view
   const [companySettings, setCompanySettings] = useState(null);
@@ -1143,20 +1143,25 @@ Thank you for choosing ${company}!`;
               ) : (
                 <>
                   {/* Edit Order in SAP Studio / POS */}
-                  <Button
-                    type="button"
-                    onClick={() => {
-                      if (selectedOrder.type === 'POS') {
-                        navigate(`/pos?edit=${selectedOrder.id}`);
-                      } else {
-                        navigate(`/sales/order?edit=${selectedOrder.id}`);
-                      }
-                    }}
-                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
-                    title="Edit line items and full parameters in SAP Studio"
-                  >
-                    <FileText className="w-3.5 h-3.5" /> Edit in Studio
-                  </Button>
+                  {selectedOrder.type === 'POS' ? (
+                    <Button
+                      type="button"
+                      onClick={() => navigate(`/sales/billing?edit=${selectedOrder.id}&from=/sales/list`)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                      title="Edit this POS transaction in Billing / POS Desk"
+                    >
+                      <ShoppingBag className="w-3.5 h-3.5" /> Edit with POS
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      onClick={() => navigate(`/sales/order?edit=${selectedOrder.id}&from=/sales/list`)}
+                      className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-xs flex items-center gap-1.5 cursor-pointer"
+                      title="Edit line items and full parameters in SAP Studio"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Edit in Studio
+                    </Button>
+                  )}
 
                   {/* Change Logistics Button */}
                   <Button
@@ -2370,8 +2375,9 @@ Thank you for choosing ${company}!`;
         {/* SAP Document Flow & Lifecycle Audit History Modal */}
         <DocumentFlowModal
           isOpen={flowModalState.isOpen}
-          onClose={() => setFlowModalState({ isOpen: false, order: null })}
-          orderId={flowModalState.order?.id}
+          onClose={() => setFlowModalState({ isOpen: false, orderId: null, docNo: '', order: null })}
+          orderId={flowModalState.orderId || flowModalState.order?.id}
+          initialDocNo={flowModalState.docNo || flowModalState.order?.docNo || flowModalState.order?.referenceNo}
           initialOrder={flowModalState.order}
           onNavigateOrder={(targetId) => {
             setSearchParams({ id: targetId });
@@ -2419,18 +2425,18 @@ Thank you for choosing ${company}!`;
             onClick={() => navigate('/sales/billing')}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5" /> New B2B Invoice
+            <ShoppingBag className="w-3.5 h-3.5" /> Retail POS
           </Button>
           <Button
             onClick={() => navigate('/sales/order')}
             className="bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-sm flex items-center gap-1.5 cursor-pointer"
           >
-            <FileText className="w-3.5 h-3.5" /> Sales Order Studio
+            <FileText className="w-3.5 h-3.5" /> Sales Order
           </Button>
         </div>
       </div>
 
-      {/* ── 6 CLEAN COMMERCIAL CATEGORY TABS (NO OVERFLOW, FULL DISPLAY) ── */}
+      {/* ── COMMERCIAL CATEGORY TABS (RETAIL POS, TAX INVOICES, SALES ORDERS, QUOTATIONS) ── */}
       <div className="flex flex-col gap-3 text-xs">
         <div className="flex items-center gap-1.5 flex-wrap text-xs">
           {[
@@ -2438,7 +2444,6 @@ Thank you for choosing ${company}!`;
             { id: 'POS', label: '⚡ Retail POS', count: tabCounts.pos, icon: ShoppingBag, color: 'text-emerald-600' },
             { id: 'Invoice', label: '💼 Tax Invoices', count: tabCounts.invoices, icon: FileText, color: 'text-indigo-600' },
             { id: 'Sales Order', label: '🛒 Sales Orders', count: tabCounts.salesOrders, icon: CheckCircle2, color: 'text-blue-600' },
-            { id: 'Waiting for Production', label: '⚙️ Need Planning', count: tabCounts.needProduction, icon: Clock, color: 'text-amber-500' },
             { id: 'Quotation', label: '📄 Quotations', count: tabCounts.quotations, icon: Sparkles, color: 'text-purple-600' }
           ].map(tab => (
             <button
@@ -2842,15 +2847,15 @@ Thank you for choosing ${company}!`;
                                     type="button"
                                     onClick={() => {
                                       if (isPos) {
-                                        navigate(`/pos?edit=${order.id}`);
+                                        navigate(`/sales/billing?edit=${order.id}&from=/sales/list`);
                                       } else {
-                                        navigate(`/sales/order?edit=${order.id}`);
+                                        navigate(`/sales/order?edit=${order.id}&from=/sales/list`);
                                       }
                                     }}
                                     className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
-                                    title={isPos ? "Edit in POS" : "Edit in Order Studio"}
+                                    title={isPos ? "Edit with POS" : "Edit in Order Studio"}
                                   >
-                                    <FileText className="w-3.5 h-3.5" />
+                                    {isPos ? <ShoppingBag className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
                                   </button>
                                 )}
 
@@ -3228,15 +3233,15 @@ Thank you for choosing ${company}!`;
                               type="button"
                               onClick={() => {
                                 if (isPos) {
-                                  navigate(`/pos?edit=${order.id}`);
+                                  navigate(`/sales/billing?edit=${order.id}&from=/sales/list`);
                                 } else {
-                                  navigate(`/sales/order?edit=${order.id}`);
+                                  navigate(`/sales/order?edit=${order.id}&from=/sales/list`);
                                 }
                               }}
                               className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-transform active:scale-95 cursor-pointer shrink-0"
-                              title={isPos ? "Edit in POS" : "Edit in Order Studio"}
+                              title={isPos ? "Edit with POS" : "Edit in Order Studio"}
                             >
-                              <FileText className="w-3.5 h-3.5" />
+                              {isPos ? <ShoppingBag className="w-3.5 h-3.5" /> : <FileText className="w-3.5 h-3.5" />}
                             </button>
                           )}
 
@@ -3403,8 +3408,9 @@ Thank you for choosing ${company}!`;
       {/* SAP Document Flow & Lifecycle Audit History Modal */}
       <DocumentFlowModal
         isOpen={flowModalState.isOpen}
-        onClose={() => setFlowModalState({ isOpen: false, order: null })}
-        orderId={flowModalState.order?.id}
+        onClose={() => setFlowModalState({ isOpen: false, orderId: null, docNo: '', order: null })}
+        orderId={flowModalState.orderId || flowModalState.order?.id}
+        initialDocNo={flowModalState.docNo || flowModalState.order?.docNo || flowModalState.order?.referenceNo}
         initialOrder={flowModalState.order}
         onNavigateOrder={(targetId) => {
           setSearchParams({ id: targetId });

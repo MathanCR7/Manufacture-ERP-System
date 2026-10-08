@@ -748,16 +748,6 @@ const MENU_GROUPS = [
         ]
       },
       {
-        id: 'ordersSubmenu',
-        name: '🛒 Orders',
-        isNested: true,
-        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'],
-        children: [
-          { name: '📋 Order List', path: '/orders/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] },
-          { name: '🚦 Order Status', path: '/orders/status', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'] }
-        ]
-      },
-      {
         id: 'salesSubmenu',
         name: '💰 Sales & Billing',
         isNested: true,
@@ -799,6 +789,7 @@ const MENU_GROUPS = [
     icon: Factory,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
     items: [
+      { name: '⚡ Production Requirements', path: '/production/requirements', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'], badgeKey: 'productionRequirements' },
       { name: '⚙️ Production Batches', path: '/production/batches', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'], badgeKey: 'inProgressBatches' },
       { name: '📉 Production Loss', path: '/production/loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
       { name: '📋 Loss Report', path: '/production/loss-report', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
@@ -941,6 +932,7 @@ const AppShell = () => {
   const [upcomingDeliveriesCount, setUpcomingDeliveriesCount] = useState(0);
   const [pendingRmLabCount, setPendingRmLabCount] = useState(0);
   const [inProgressBatchesCount, setInProgressBatchesCount] = useState(0);
+  const [productionRequirementsCount, setProductionRequirementsCount] = useState(0);
   const [customToasts, setCustomToasts] = useState([]);
   const toastedPOsRef = useRef(new Set());
   const toastedLabTestsRef = useRef(new Set());
@@ -1297,6 +1289,19 @@ const AppShell = () => {
           console.error('Failed to fetch in progress batches count', e);
         }
       }
+
+      // 6. Production Requirements Deficits Count
+      if (['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF', 'PURCHASE_ACCOUNTANT', 'SALES_TEAM'].includes(user.role)) {
+        try {
+          if (!useAuthStore.getState().token) return;
+          const reqRes = await api.get('/orders/production-requirements');
+          const requirements = Array.isArray(reqRes.data) ? reqRes.data : [];
+          setProductionRequirementsCount(requirements.length);
+        } catch (e) {
+          if (e?.response?.status === 401 || e?.response?.status === 403) return;
+          console.error('Failed to fetch production requirements count', e);
+        }
+      }
     };
     
     fetchBadges();
@@ -1498,7 +1503,7 @@ const AppShell = () => {
     if (groupId === 'lab') return qcPendingCount + pendingRmLabCount;
     if (groupId === 'products') return lowStockCount;
     if (groupId === 'rmStock') return rmLowStockCount;
-    if (groupId === 'production') return inProgressBatchesCount;
+    if (groupId === 'production') return inProgressBatchesCount + productionRequirementsCount;
     return 0;
   };
 
@@ -1509,6 +1514,7 @@ const AppShell = () => {
     if (badgeKey === 'upcomingDeliveries') return upcomingDeliveriesCount;
     if (badgeKey === 'pendingRmLab') return pendingRmLabCount;
     if (badgeKey === 'inProgressBatches') return inProgressBatchesCount;
+    if (badgeKey === 'productionRequirements') return productionRequirementsCount;
     return 0;
   };
 
@@ -1517,8 +1523,9 @@ const AppShell = () => {
     if (badgeKey === 'rmLowStock') return 'bg-rose-500 text-white dark:bg-rose-500/20 dark:text-rose-400';
     if (badgeKey === 'upcomingDeliveries') return 'bg-indigo-600 text-white dark:bg-indigo-500/20 dark:text-indigo-400';
     if (badgeKey === 'pendingRmLab') return 'bg-amber-500 text-white dark:bg-amber-500/20 dark:text-amber-400';
-    if (badgeKey === 'inProgressBatches') return 'bg-amber-550 text-white dark:bg-amber-500/20 dark:text-amber-400 animate-pulse';
-    return 'bg-amber-550 text-white dark:bg-amber-500/20 dark:text-amber-404';
+    if (badgeKey === 'inProgressBatches') return 'bg-amber-500 text-white dark:bg-amber-500/20 dark:text-amber-400 animate-pulse';
+    if (badgeKey === 'productionRequirements') return 'bg-amber-500 text-slate-950 font-black dark:bg-amber-400 dark:text-slate-950 shadow-xs';
+    return 'bg-amber-500 text-white dark:bg-amber-500/20 dark:text-amber-400';
   };
 
   return (

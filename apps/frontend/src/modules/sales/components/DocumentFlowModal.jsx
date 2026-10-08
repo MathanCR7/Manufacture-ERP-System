@@ -7,18 +7,25 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 
-export default function DocumentFlowModal({ isOpen, onClose, orderId, initialDocNo, onNavigateOrder }) {
+export default function DocumentFlowModal({ isOpen, onClose, orderId, initialDocNo, initialOrder, onNavigateOrder }) {
   const navigate = useNavigate();
+  const effectiveOrderId = orderId || initialOrder?.id;
+  const effectiveDocNo = initialDocNo || initialOrder?.docNo || initialOrder?.referenceNo;
   const [loading, setLoading] = useState(true);
   const [flowData, setFlowData] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!isOpen || !orderId) return;
+    if (!isOpen) return;
+    if (!effectiveOrderId) {
+      setLoading(false);
+      setError('No document identifier provided to trace flow.');
+      return;
+    }
 
     setLoading(true);
     setError(null);
-    api.get(`/orders/${orderId}/document-flow`)
+    api.get(`/orders/${effectiveOrderId}/document-flow`)
       .then(res => {
         setFlowData(res.data);
       })
@@ -29,7 +36,7 @@ export default function DocumentFlowModal({ isOpen, onClose, orderId, initialDoc
       .finally(() => {
         setLoading(false);
       });
-  }, [isOpen, orderId]);
+  }, [isOpen, effectiveOrderId]);
 
   if (!isOpen) return null;
 
@@ -122,7 +129,7 @@ export default function DocumentFlowModal({ isOpen, onClose, orderId, initialDoc
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                {flowData?.chainSummary ? `Linked Flow: ${flowData.chainSummary}` : `Document Reference: ${initialDocNo || orderId}`}
+                {flowData?.chainSummary ? `Linked Flow: ${flowData.chainSummary}` : `Document Reference: ${effectiveDocNo || effectiveOrderId || 'Document'}`}
               </p>
             </div>
           </div>

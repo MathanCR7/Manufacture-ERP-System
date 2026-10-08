@@ -106,8 +106,6 @@ const ProductWastagePage = lazy(() => import('@/modules/production/pages/Product
 
 // Customer Order Module Pages
 const AddOrderPage = lazy(() => import('@/modules/production/pages/AddOrderPage'));
-const OrderListPage = lazy(() => import('@/modules/production/pages/OrderListPage'));
-const OrderStatusPage = lazy(() => import('@/modules/production/pages/OrderStatusPage'));
 
 // Forecasting Module Pages
 const StockForecastingPage = lazy(() => import('@/modules/forecasting/pages/StockForecastingPage'));
@@ -447,11 +445,12 @@ const AppRouter = () => {
 
             {/* Customer Orders */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
-              <Route path="/orders/add" element={<SalesOrderSAPPage />} />
-              <Route path="/orders/create" element={<SalesOrderSAPPage />} />
-              <Route path="/orders/list" element={<OrderListPage />} />
-              <Route path="/orders/edit/:id" element={<OrderListPage />} />
-              <Route path="/orders/status" element={<OrderStatusPage />} />
+              <Route path="/orders" element={<Navigate to="/sales/list" replace />} />
+              <Route path="/orders/add" element={<Navigate to="/sales/order" replace />} />
+              <Route path="/orders/create" element={<Navigate to="/sales/order" replace />} />
+              <Route path="/orders/list" element={<Navigate to="/sales/list" replace />} />
+              <Route path="/orders/edit/:id" element={<Navigate to="/sales/list" replace />} />
+              <Route path="/orders/status" element={<Navigate to="/sales/list" replace />} />
             </Route>
 
             {/* Operations Calendar */}
