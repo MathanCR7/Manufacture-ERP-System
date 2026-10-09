@@ -126,11 +126,29 @@ export function InvoiceFilePreviewModal({ src, title = 'Supplier Invoice', poRef
         <div className="flex-1 overflow-auto bg-slate-950/10 dark:bg-black/60 flex items-center justify-center p-2 sm:p-4 min-h-[420px] max-h-[78vh]">
           {isPdf ? (
             <div className="w-full h-full flex flex-col items-center justify-center min-h-[500px]">
-              <iframe
-                src={`${resolvedSrc}#toolbar=1`}
+              <object
+                data={`${resolvedSrc}#toolbar=1`}
+                type="application/pdf"
                 className="w-full h-[72vh] rounded-xl border border-slate-200 dark:border-slate-800 bg-white shadow-md"
-                title="Supplier Invoice PDF Preview"
-              />
+              >
+                <iframe
+                  src={`${resolvedSrc}#toolbar=1`}
+                  className="w-full h-[72vh] rounded-xl border border-slate-200 dark:border-slate-800 bg-white shadow-md"
+                  title="Supplier Invoice PDF Preview"
+                >
+                  <div className="p-6 text-center text-slate-500">
+                    <p className="mb-3">PDF preview not supported directly by this browser.</p>
+                    <a
+                      href={resolvedSrc}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold inline-block"
+                    >
+                      Open PDF in New Window
+                    </a>
+                  </div>
+                </iframe>
+              </object>
             </div>
           ) : (
             <img 

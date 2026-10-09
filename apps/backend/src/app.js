@@ -23,7 +23,9 @@ app.use(compression({
   }
 }));
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false,
+  frameguard: false
 }));
 
 const configuredOrigins = process.env.FRONTEND_URL 
@@ -60,10 +62,18 @@ app.get('/', (req, res) => {
 });
 
 // Static file serving for uploads (receipts, proof images, documents)
-app.use('/uploads', express.static(path.join(__dirname, '../uploads'), {
+app.use('/uploads', (req, res, next) => {
+  res.removeHeader('X-Frame-Options');
+  res.removeHeader('Content-Security-Policy');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  next();
+}, express.static(path.join(__dirname, '../uploads'), {
   setHeaders: (res) => {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.removeHeader('X-Frame-Options');
+    res.removeHeader('Content-Security-Policy');
   }
 }));
 

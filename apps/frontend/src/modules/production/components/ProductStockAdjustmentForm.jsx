@@ -45,20 +45,21 @@ export default function ProductStockAdjustmentForm({ editData = null, onBack }) 
 
   const [error, setError] = useState(null);
 
-  // Fetch available finished products stock
+  // Fetch available finished products stock (matching Sales Order SAP catalog query with 207 items & full metadata)
   const { data: products = [], isLoading: isProdLoading } = useQuery({
-    queryKey: ['products-stock'],
+    queryKey: ['products-catalog-sap'],
     queryFn: async () => {
-      const res = await api.get('/products/stock');
-      return res.data || [];
+      const res = await api.get('/products/search?limit=1000');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
     },
-    staleTime: 5000,
+    staleTime: 30000,
+    refetchOnWindowFocus: true
   });
 
   // Currently selected finished product object
   const selectedProduct = useMemo(() => {
     if (!form.productId || !products.length) return null;
-    return products.find(p => p.id === form.productId || p.code === form.productId) || null;
+    return products.find(p => p.id === form.productId || p.code === form.productId || p.systemCode === form.productId) || null;
   }, [form.productId, products]);
 
   // Filter adjustment reasons based on current adjustment type (ADDITION vs SUBTRACTION)
@@ -77,7 +78,7 @@ export default function ProductStockAdjustmentForm({ editData = null, onBack }) 
   // Projected stock calculation
   const currentAvailableStock = useMemo(() => {
     if (!selectedProduct) return 0;
-    let base = Number(selectedProduct.currentStock ?? selectedProduct.availableQuantity ?? 0);
+    let base = Number(selectedProduct.currentStock ?? selectedProduct.stock ?? selectedProduct.availableQuantity ?? 0);
     if (isEdit && (editData.productId === selectedProduct.id || editData.product?.id === selectedProduct.id)) {
       // Revert previous adjustment effect to show accurate base
       if (editData.type === 'SUBTRACTION') {
@@ -110,6 +111,7 @@ export default function ProductStockAdjustmentForm({ editData = null, onBack }) 
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['product-stock-adjustment'] });
       queryClient.invalidateQueries({ queryKey: ['products-stock'] });
+      queryClient.invalidateQueries({ queryKey: ['products-catalog-sap'] });
 
       Swal.fire({
         icon: 'success',
@@ -242,7 +244,12 @@ export default function ProductStockAdjustmentForm({ editData = null, onBack }) 
             </Label>
             {selectedProduct && (
               <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                Code: <strong className="font-mono text-indigo-600">{selectedProduct.code}</strong>
+                Code: <strong className="font-mono text-amber-600 dark:text-amber-400">{selectedProduct.systemCode || selectedProduct.code}</strong>
+                {(selectedProduct.baseCategory || selectedProduct.category) && (
+                  <span className="ml-2 font-normal text-slate-600 dark:text-slate-300">
+                    ({selectedProduct.baseCategory || selectedProduct.category}{selectedProduct.subcategory && selectedProduct.subcategory !== '-' ? ` • ${selectedProduct.subcategory}` : ''})
+                  </span>
+                )}
               </span>
             )}
           </div>

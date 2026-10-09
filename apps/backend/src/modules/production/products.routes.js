@@ -625,6 +625,7 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
         p.alert_level AS "alertLevel",
         p.unit_id AS "unitId",
         c.name AS "categoryName",
+        sc.name AS "subcategoryName",
         u.abbreviation AS "unitAbbr", 
         u.name AS "unitName",
         psl.min_level AS "minLevel", 
@@ -633,6 +634,7 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
         COALESCE(sm.net_movement, 0)::float AS "netMovement"
       FROM products p
       LEFT JOIN "ProductCategory" c ON p.category_id = c.id
+      LEFT JOIN "ProductSubcategory" sc ON p.subcategory_id = sc.id
       LEFT JOIN "UOM" u ON p.unit_id = u.id
       LEFT JOIN product_stock_levels psl ON p.id = psl.product_id
       LEFT JOIN (
@@ -661,10 +663,16 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
       result.push({
         id: row.id,
         code: row.code,
+        systemCode: row.code,
         name: row.name,
-        category: row.categoryName || 'N/A',
+        productName: row.name,
+        category: row.categoryName || 'General',
+        baseCategory: row.categoryName || 'General',
+        subcategory: row.subcategoryName || '-',
         unit: row.unitAbbr || row.unitName || row.unitId || 'pcs',
+        unitOfSale: row.unitAbbr || row.unitName || row.unitId || 'pcs',
         currentStock,
+        stock: currentStock,
         minLevel,
         maxLevel,
         reorderPoint,
