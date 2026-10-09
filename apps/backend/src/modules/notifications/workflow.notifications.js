@@ -395,6 +395,61 @@ const triggerRMLowStockAlert = async ({ rmId, rmName, currentStock, reorderLevel
   });
 };
 
+// Phase 6c: RM Waste Logged Alert
+const triggerRMWasteLogged = async ({ wasteId, referenceNo, rmName, quantity, uom, lossAmount, batchNumber, actorName, actorId, actorRole }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+  const formattedLoss = Number(lossAmount || 0).toFixed(2);
+  const batchInfo = batchNumber ? ` · Batch: ${batchNumber}` : '';
+
+  await notificationService.createNotification({
+    type: 'RM_WASTE_LOGGED',
+    recipient_roles: NOTIFICATION_ROLE_MAP.RM_WASTE_LOGGED,
+    sender_role: actorRole || 'SUPERVISOR',
+    sender_id: actorId || 'system',
+    reference_type: 'RM_WASTE',
+    reference_id: wasteId,
+    event_at,
+    message: `🗑️ RM Waste Recorded — ${referenceNo || wasteId} · ${rmName} · Wasted: ${quantity} ${uom}${batchInfo} · Est. Loss: ₹${formattedLoss} · Logged by ${actorName || 'Staff'} at ${event_at_local}`,
+    metadata: {
+      waste_id: wasteId,
+      reference_no: referenceNo,
+      rm_name: rmName,
+      quantity,
+      uom,
+      loss_amount: Number(formattedLoss),
+      batch_number: batchNumber,
+      actor_name: actorName
+    }
+  });
+};
+
+// Phase 6d: RM Expiry Alert
+const triggerRMExpiryAlert = async ({ rmId, rmName, batchNumber, expiryDate, netQty, uom, daysLeft }) => {
+  const event_at = new Date();
+  const event_at_local = formatLocalTime(event_at);
+
+  await notificationService.createNotification({
+    type: 'RM_EXPIRY_ALERT',
+    recipient_roles: NOTIFICATION_ROLE_MAP.RM_EXPIRY_ALERT,
+    sender_role: 'SYSTEM',
+    sender_id: 'system',
+    reference_type: 'RM_BATCH',
+    reference_id: batchNumber,
+    event_at,
+    message: `⏳ RM Batch Expiring / Expired — ${rmName} · Batch: ${batchNumber} · Qty: ${netQty} ${uom} · Expiry: ${expiryDate} (${daysLeft <= 0 ? 'EXPIRED' : `${daysLeft} days left`}) · ${event_at_local}`,
+    metadata: {
+      rm_id: rmId,
+      rm_name: rmName,
+      batch_number: batchNumber,
+      expiry_date: expiryDate,
+      net_qty: netQty,
+      uom,
+      days_left: daysLeft
+    }
+  });
+};
+
 // Phase 6: Stock Expiry Alert
 const triggerStockExpiryAlert = async ({ batchId, productName, approvedQty, expiryDate, daysToExpiry }) => {
   const event_at = new Date();
@@ -684,6 +739,8 @@ module.exports = {
   triggerProductionQCFailed,
   triggerStockLowAlert,
   triggerRMLowStockAlert,
+  triggerRMWasteLogged,
+  triggerRMExpiryAlert,
   triggerStockExpiryAlert,
   triggerPOUpdated,
   triggerPOStatusChanged,

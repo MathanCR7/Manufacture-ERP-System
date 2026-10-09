@@ -723,9 +723,10 @@ const MENU_GROUPS = [
     id: 'rmStock',
     title: 'RM Stock',
     icon: Factory,
-    roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'],
     items: [
       { name: '🏬 RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
+      { name: '⏳ Upcoming & Expired RM', path: '/rm/stock/expiry', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'] },
       { name: '⚠️ Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'], badgeKey: 'rmLowStock' },
       { name: '🔄 Stock Adjustment', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
       { name: '🗑️ RM Waste', path: '/waste/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },

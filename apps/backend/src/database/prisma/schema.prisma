@@ -696,6 +696,13 @@ model RMWasteItem {
   quantity        Decimal
   uomId           String
   lossAmount      Decimal
+  batchId         String?
+  batchNumber     String?
+  mfgBatchNo      String?
+  mfgDate         DateTime?
+  expiryDate      DateTime?
+  weight          String?
+  remarks         String?  @db.Text
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -755,6 +762,8 @@ model GRNReceiveItem {
   returnQty         Decimal  @default(0)
   batchNumber       String?
   batchQuantity     Decimal? @map("batch_quantity")
+  weight            String?
+  mfgBatchNo        String?
   mfgDate           DateTime?
   expiryDate        DateTime?
   inspectionStatus  String?  @default("ACCEPTED")
@@ -867,12 +876,15 @@ model InventoryBatch {
   supplierId      String?
   receivedQty     Decimal  // from GRN
   sampleQty       Decimal  @default(0) // consumed in lab testing
-  netQty          Decimal  // receivedQty - sampleQty
+  netQty          Decimal  // receivedQty - sampleQty - wastedQty
+  wastedQty       Decimal  @default(0) // tracked wasted quantity
   uomId           String
   storageLocation String?
   expiryDate      DateTime?
   mfgDate         DateTime?
-  status          String   @default("AVAILABLE") // AVAILABLE / DEPLETED / RETURNED
+  weight          String?
+  mfgBatchNo      String?
+  status          String   @default("AVAILABLE") // AVAILABLE / DEPLETED / RETURNED / WASTED
   addedBy         String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

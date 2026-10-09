@@ -353,15 +353,19 @@ export default function RMHistoryDrawer({
                   </div>
 
                   {/* Wastage */}
-                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 space-y-1">
+                  <div className={`p-3 rounded-2xl transition-all space-y-1 ${
+                    (summary?.totalWastedQty || 0) > 0
+                      ? 'bg-rose-50/90 dark:bg-rose-950/40 border-2 border-rose-300 dark:border-rose-800 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800'
+                  }`}>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1">
-                      <Trash2 className="w-3 h-3" /> Wasted
+                      <Trash2 className="w-3 h-3 text-rose-600" /> Wasted
                     </span>
-                    <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1">
+                    <div className="text-base sm:text-lg font-black text-rose-600 dark:text-rose-400 flex items-baseline gap-1">
                       {summary?.totalWastedQty?.toLocaleString() || 0}
-                      <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
+                      <span className="text-xs font-semibold text-rose-500 uppercase">{material?.unit}</span>
                     </div>
-                    <div className="text-[10px] text-rose-600 dark:text-rose-400 font-medium truncate">
+                    <div className="text-[10px] text-rose-600 dark:text-rose-400 font-bold truncate">
                       Loss: {formatCurrency(summary?.totalWastedLoss)}
                     </div>
                   </div>
@@ -1170,6 +1174,7 @@ export default function RMHistoryDrawer({
                                 <tr>
                                   <th className="p-3 w-10 text-center">#</th>
                                   <th className="p-3">Waste Ref</th>
+                                  <th className="p-3">Batch & Traceability</th>
                                   <th className="p-3">Date</th>
                                   <th className="p-3 text-right">Wasted Qty</th>
                                   <th className="p-3 text-right">Estimated Loss</th>
@@ -1192,6 +1197,32 @@ export default function RMHistoryDrawer({
                                         <ArrowUpRight className="w-3 h-3 opacity-70" />
                                       </button>
                                     </td>
+                                    <td className="p-3 text-slate-700 dark:text-slate-300">
+                                      {waste.batchNumber ? (
+                                        <div className="space-y-0.5">
+                                          <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs">
+                                            {waste.batchNumber}
+                                          </div>
+                                          {waste.weight && (
+                                            <div className="text-[10px] text-slate-500 font-medium">
+                                              Wt: {waste.weight}
+                                            </div>
+                                          )}
+                                          {waste.mfgBatchNo && (
+                                            <div className="text-[10px] text-slate-500 font-medium">
+                                              MFG: {waste.mfgBatchNo}
+                                            </div>
+                                          )}
+                                          {waste.expiryDate && (
+                                            <div className="text-[10px] text-rose-500 font-semibold">
+                                              Exp: {formatShortDate(waste.expiryDate)}
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-400 italic text-[11px]">General Stock</span>
+                                      )}
+                                    </td>
                                     <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap">
                                       {formatShortDate(waste.date)}
                                     </td>
@@ -1213,7 +1244,7 @@ export default function RMHistoryDrawer({
                               </tbody>
                               <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
                                 <tr>
-                                  <td colSpan={3} className="p-3 text-right text-slate-600 dark:text-slate-300">
+                                  <td colSpan={4} className="p-3 text-right text-slate-600 dark:text-slate-300">
                                     Total Wastage ({wasteRecords.length} records):
                                   </td>
                                   <td className="p-3 text-right font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">

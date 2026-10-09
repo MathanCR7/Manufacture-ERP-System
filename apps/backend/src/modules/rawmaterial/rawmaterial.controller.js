@@ -1369,6 +1369,13 @@ const createRMWasteSchema = z.object({
     quantity: z.coerce.number().positive(),
     uomId: z.string().min(1),
     lossAmount: z.coerce.number().nonnegative(),
+    batchId: z.string().nullable().optional(),
+    batchNumber: z.string().nullable().optional(),
+    mfgBatchNo: z.string().nullable().optional(),
+    mfgDate: z.string().nullable().optional(),
+    expiryDate: z.string().nullable().optional(),
+    weight: z.string().nullable().optional(),
+    remarks: z.string().nullable().optional(),
   })).min(1)
 });
 
@@ -1383,6 +1390,8 @@ exports.createWaste = async (req, res, next) => {
       }
       return { ...item, uomId: resolvedUomId };
     }));
+
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '127.0.0.1';
 
     const waste = await prisma.$transaction(async (tx) => {
       const referenceNo = await generateReferenceNo(tx, 'RMWaste', 'RMW');
@@ -1400,21 +1409,55 @@ exports.createWaste = async (req, res, next) => {
               rawMaterialId: item.rawMaterialId,
               quantity: item.quantity,
               uomId: item.uomId,
-              lossAmount: item.lossAmount
+              lossAmount: item.lossAmount,
+              batchId: item.batchId || null,
+              batchNumber: item.batchNumber ? item.batchNumber.trim() : null,
+              mfgBatchNo: item.mfgBatchNo ? item.mfgBatchNo.trim() : null,
+              mfgDate: parseDateSafe(item.mfgDate),
+              expiryDate: parseDateSafe(item.expiryDate),
+              weight: item.weight ? item.weight.trim() : null,
+              remarks: item.remarks ? item.remarks.trim() : null,
             }))
           }
         },
-        include: { items: true }
+        include: { items: { include: { rawMaterial: true, uom: true } } }
       });
 
-      for (const item of parsedData.items) {
+      // Update RawMaterial currentStock & InventoryBatch for each item
+      for (const item of itemsWithResolvedUoms) {
         const rm = await tx.rawMaterial.update({
           where: { id: item.rawMaterialId },
           data: { currentStock: { decrement: item.quantity } }
         });
 
+        // If batch is specified, update InventoryBatch netQty & wastedQty
+        if (item.batchId || item.batchNumber) {
+          const batchWhere = item.batchId 
+            ? { id: item.batchId }
+            : { batchNumber: item.batchNumber.trim() };
+
+          const batch = await tx.inventoryBatch.findFirst({ where: batchWhere });
+          if (batch) {
+            const currentNet = Number(batch.netQty || 0);
+            const currentWasted = Number(batch.wastedQty || 0);
+            const newWasted = currentWasted + Number(item.quantity);
+            const newNet = Math.max(0, currentNet - Number(item.quantity));
+            const newStatus = newNet <= 0 ? 'WASTED' : batch.status;
+
+            await tx.inventoryBatch.update({
+              where: { id: batch.id },
+              data: {
+                netQty: newNet,
+                wastedQty: newWasted,
+                status: newStatus,
+              }
+            });
+          }
+        }
+
+        // Trigger RM low stock alert if threshold crossed
         if (Number(rm.currentStock) <= Number(rm.alertLevel)) {
-          await workflowNotifications.triggerRMLowStockAlert({
+          await workflowNotifications.triggerRMLowStockAlert?.({
             rmId: rm.id,
             rmName: rm.name,
             currentStock: rm.currentStock,
@@ -1423,8 +1466,51 @@ exports.createWaste = async (req, res, next) => {
         }
       }
 
+      // Insert Audit Log entry
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'RM_WASTE_CREATED',
+          tableName: 'RMWaste',
+          recordId: newWaste.id,
+          oldValue: null,
+          newValue: {
+            referenceNo,
+            totalLoss: parsedData.totalLoss,
+            note: parsedData.note,
+            items: itemsWithResolvedUoms.map(i => ({
+              rawMaterialId: i.rawMaterialId,
+              quantity: i.quantity,
+              batchNumber: i.batchNumber,
+              lossAmount: i.lossAmount
+            }))
+          },
+          ip: typeof clientIp === 'string' ? clientIp.slice(0, 45) : '127.0.0.1',
+        }
+      });
+
       return newWaste;
     });
+
+    // Workflow Notification Dispatch
+    try {
+      for (const item of waste.items) {
+        await workflowNotifications.triggerRMWasteLogged?.({
+          wasteId: waste.id,
+          referenceNo: waste.referenceNo,
+          rmName: item.rawMaterial?.name || 'Raw Material',
+          quantity: Number(item.quantity),
+          uom: item.uom?.abbreviation || item.uom?.name || 'Units',
+          lossAmount: Number(item.lossAmount),
+          batchNumber: item.batchNumber,
+          actorName: req.user.name || 'Supervisor',
+          actorId: req.user.id,
+          actorRole: req.user.role,
+        });
+      }
+    } catch (notifErr) {
+      console.error('[NOTIF WARNING] Failed to send waste notification:', notifErr.message);
+    }
 
     res.status(201).json(waste);
   } catch (error) {
@@ -1477,14 +1563,39 @@ exports.updateWaste = async (req, res, next) => {
       return { ...item, uomId: resolvedUomId };
     }));
 
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '127.0.0.1';
+
     const updatedWaste = await prisma.$transaction(async (tx) => {
+      // 1. Revert previous deductions on RawMaterial and InventoryBatch
       for (const oldItem of existing.items) {
         await tx.rawMaterial.update({
           where: { id: oldItem.rawMaterialId },
           data: { currentStock: { increment: oldItem.quantity } }
         });
+
+        if (oldItem.batchId || oldItem.batchNumber) {
+          const batchWhere = oldItem.batchId 
+            ? { id: oldItem.batchId }
+            : { batchNumber: oldItem.batchNumber };
+          const batch = await tx.inventoryBatch.findFirst({ where: batchWhere });
+          if (batch) {
+            const currentNet = Number(batch.netQty || 0);
+            const currentWasted = Number(batch.wastedQty || 0);
+            const restoredNet = currentNet + Number(oldItem.quantity);
+            const restoredWasted = Math.max(0, currentWasted - Number(oldItem.quantity));
+            await tx.inventoryBatch.update({
+              where: { id: batch.id },
+              data: {
+                netQty: restoredNet,
+                wastedQty: restoredWasted,
+                status: 'AVAILABLE'
+              }
+            });
+          }
+        }
       }
 
+      // 2. Update waste docket and items
       const waste = await tx.rMWaste.update({
         where: { id },
         data: {
@@ -1498,18 +1609,49 @@ exports.updateWaste = async (req, res, next) => {
               rawMaterialId: item.rawMaterialId,
               quantity: item.quantity,
               uomId: item.uomId,
-              lossAmount: item.lossAmount
+              lossAmount: item.lossAmount,
+              batchId: item.batchId || null,
+              batchNumber: item.batchNumber ? item.batchNumber.trim() : null,
+              mfgBatchNo: item.mfgBatchNo ? item.mfgBatchNo.trim() : null,
+              mfgDate: parseDateSafe(item.mfgDate),
+              expiryDate: parseDateSafe(item.expiryDate),
+              weight: item.weight ? item.weight.trim() : null,
+              remarks: item.remarks ? item.remarks.trim() : null,
             }))
           }
         },
-        include: { items: true }
+        include: { items: { include: { rawMaterial: true, uom: true } } }
       });
 
-      for (const item of parsedData.items) {
+      // 3. Apply new deductions
+      for (const item of itemsWithResolvedUoms) {
         const rm = await tx.rawMaterial.update({
           where: { id: item.rawMaterialId },
           data: { currentStock: { decrement: item.quantity } }
         });
+
+        if (item.batchId || item.batchNumber) {
+          const batchWhere = item.batchId 
+            ? { id: item.batchId }
+            : { batchNumber: item.batchNumber.trim() };
+          const batch = await tx.inventoryBatch.findFirst({ where: batchWhere });
+          if (batch) {
+            const currentNet = Number(batch.netQty || 0);
+            const currentWasted = Number(batch.wastedQty || 0);
+            const newWasted = currentWasted + Number(item.quantity);
+            const newNet = Math.max(0, currentNet - Number(item.quantity));
+            const newStatus = newNet <= 0 ? 'WASTED' : batch.status;
+
+            await tx.inventoryBatch.update({
+              where: { id: batch.id },
+              data: {
+                netQty: newNet,
+                wastedQty: newWasted,
+                status: newStatus,
+              }
+            });
+          }
+        }
         
         if (Number(rm.currentStock) <= Number(rm.alertLevel)) {
           await workflowNotifications.triggerRMLowStockAlert?.({
@@ -1520,6 +1662,27 @@ exports.updateWaste = async (req, res, next) => {
           });
         }
       }
+
+      // 4. Audit Log
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'RM_WASTE_UPDATED',
+          tableName: 'RMWaste',
+          recordId: waste.id,
+          oldValue: {
+            totalLoss: existing.totalLoss,
+            note: existing.note,
+            items: existing.items
+          },
+          newValue: {
+            totalLoss: parsedData.totalLoss,
+            note: parsedData.note,
+            items: itemsWithResolvedUoms
+          },
+          ip: typeof clientIp === 'string' ? clientIp.slice(0, 45) : '127.0.0.1',
+        }
+      });
 
       return waste;
     });
@@ -1543,6 +1706,8 @@ exports.deleteWaste = async (req, res, next) => {
     if (!existing) {
       return res.status(404).json({ error: 'RM Waste not found' });
     }
+
+    const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '127.0.0.1';
     
     await prisma.$transaction(async (tx) => {
       for (const item of existing.items) {
@@ -1550,14 +1715,463 @@ exports.deleteWaste = async (req, res, next) => {
           where: { id: item.rawMaterialId },
           data: { currentStock: { increment: item.quantity } }
         });
+
+        if (item.batchId || item.batchNumber) {
+          const batchWhere = item.batchId 
+            ? { id: item.batchId }
+            : { batchNumber: item.batchNumber };
+          const batch = await tx.inventoryBatch.findFirst({ where: batchWhere });
+          if (batch) {
+            const currentNet = Number(batch.netQty || 0);
+            const currentWasted = Number(batch.wastedQty || 0);
+            const restoredNet = currentNet + Number(item.quantity);
+            const restoredWasted = Math.max(0, currentWasted - Number(item.quantity));
+            await tx.inventoryBatch.update({
+              where: { id: batch.id },
+              data: {
+                netQty: restoredNet,
+                wastedQty: restoredWasted,
+                status: 'AVAILABLE'
+              }
+            });
+          }
+        }
       }
       
       await tx.rMWaste.delete({
         where: { id: req.params.id }
       });
+
+      await tx.auditLog.create({
+        data: {
+          userId: req.user.id,
+          action: 'RM_WASTE_DELETED',
+          tableName: 'RMWaste',
+          recordId: existing.id,
+          oldValue: {
+            referenceNo: existing.referenceNo,
+            totalLoss: existing.totalLoss,
+            items: existing.items
+          },
+          newValue: null,
+          ip: typeof clientIp === 'string' ? clientIp.slice(0, 45) : '127.0.0.1',
+        }
+      });
     });
     
-    res.json({ message: 'RM Waste deleted successfully' });
+    res.json({ message: 'RM Waste deleted successfully and stock restored' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get active inventory batches for a specific Raw Material.
+ * Used in RM Waste form to allow selecting batch number with auto-populated details.
+ */
+exports.getRMBatches = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const rm = await prisma.rawMaterial.findFirst({
+      where: { OR: [{ id }, { code: id }] }
+    });
+    if (!rm) return res.status(404).json({ error: 'Raw Material not found' });
+
+    const batches = await prisma.inventoryBatch.findMany({
+      where: {
+        OR: [
+          { rawMaterialId: rm.id },
+          { rawMaterialId: rm.code },
+          { rawMaterialName: { equals: rm.name, mode: 'insensitive' } }
+        ],
+        netQty: { gt: 0 }
+      },
+      include: {
+        uom: true,
+        po: { select: { id: true, referenceNo: true, mfgBatchNo: true, weight: true, supplier: { select: { name: true } } } },
+        grn: { select: { id: true, referenceNo: true, receivedDate: true, items: true } }
+      },
+      orderBy: { expiryDate: 'asc' }
+    });
+
+    const formatted = batches.map(b => {
+      const grnItem = b.grn?.items?.find(gi => gi.batchNumber === b.batchNumber);
+      return {
+        id: b.id,
+        batchNumber: b.batchNumber,
+        netQty: Number(b.netQty || 0),
+        receivedQty: Number(b.receivedQty || 0),
+        wastedQty: Number(b.wastedQty || 0),
+        uom: b.uom ? (b.uom.abbreviation || b.uom.name) : rm.unitId,
+        uomId: b.uomId,
+        storageLocation: b.storageLocation || 'Main RM Store',
+        mfgDate: b.mfgDate || grnItem?.mfgDate || null,
+        expiryDate: b.expiryDate || grnItem?.expiryDate || null,
+        weight: b.weight || grnItem?.weight || b.po?.weight || '',
+        mfgBatchNo: b.mfgBatchNo || grnItem?.mfgBatchNo || b.po?.mfgBatchNo || '',
+        supplierName: b.po?.supplier?.name || 'N/A',
+        poReferenceNo: b.po?.referenceNo || 'N/A',
+        grnReferenceNo: b.grn?.referenceNo || 'N/A',
+        ratePerUnit: Number(rm.ratePerUnit || 0),
+      };
+    });
+
+    res.json(formatted);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * FEFO (First Expired, First Out) & Expiry Engine
+ * Returns all Raw Material batches ordered by expiry date with full traceability:
+ * - Internal autogenerated batch numbers & split batches (#1, #2, A, B, C)
+ * - Weights, Supplier MFG batch numbers, MFG dates, Expiry dates
+ * - Lab tested expiry vs Lab exempt PO/GRN expiry resolution
+ * - Expiry categorization: EXPIRED (Red), EXPIRING_SOON (Yellow), SAFE (Green)
+ * - Summary KPI statistics and Loss value at risk
+ */
+exports.getFefoStock = async (req, res, next) => {
+  try {
+    const { search = '', category = 'ALL', status = 'ALL', daysWindow = 'ALL' } = req.query;
+
+    // 1. Fetch all RawMaterials
+    const rawMaterials = await prisma.rawMaterial.findMany({
+      include: {
+        category: true,
+        uoms: true,
+      }
+    });
+
+    const rmById = new Map();
+    const rmByCode = new Map();
+    const rmByName = new Map();
+    for (const rm of rawMaterials) {
+      rmById.set(rm.id, rm);
+      if (rm.code) rmByCode.set(rm.code.toUpperCase(), rm);
+      if (rm.name) rmByName.set(rm.name.trim().toLowerCase(), rm);
+    }
+
+    // 2. Fetch all InventoryBatches
+    const inventoryBatches = await prisma.inventoryBatch.findMany({
+      include: {
+        po: {
+          include: {
+            supplier: true,
+            uom: true
+          }
+        },
+        grn: {
+          include: {
+            items: true,
+            labTest: {
+              include: {
+                testResults: true,
+                tester: { select: { id: true, name: true } }
+              }
+            },
+            receiver: { select: { id: true, name: true } }
+          }
+        },
+        uom: true,
+        adder: { select: { id: true, name: true } }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const now = new Date();
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    const processedBatches = [];
+
+    for (const b of inventoryBatches) {
+      let rm = rmById.get(b.rawMaterialId) ||
+               (b.rawMaterialId ? rmByCode.get(b.rawMaterialId.toUpperCase()) : null) ||
+               (b.rawMaterialName ? rmByName.get(b.rawMaterialName.trim().toLowerCase()) : null);
+
+      if (!rm && b.rawMaterialId) {
+        rm = await prisma.rawMaterial.findFirst({
+          where: { OR: [{ id: b.rawMaterialId }, { code: b.rawMaterialId }] },
+          include: { category: true, uoms: true }
+        });
+      }
+
+      const grn = b.grn;
+      const lab = grn?.labTest;
+      const grnItems = grn?.items || [];
+      const po = b.po;
+
+      // Find matching GRN item
+      const matchingGrnItem = grnItems.find(gi => 
+        (gi.batchNumber && gi.batchNumber.trim().toUpperCase() === b.batchNumber.trim().toUpperCase()) ||
+        (rm && (gi.rmId === rm.id || gi.rmId === rm.code)) ||
+        (b.rawMaterialName && gi.rmName && gi.rmName.trim().toLowerCase() === b.rawMaterialName.trim().toLowerCase())
+      );
+
+      // Find matching Lab Test result
+      let matchingLabResult = null;
+      if (lab && Array.isArray(lab.testResults)) {
+        if (matchingGrnItem) {
+          matchingLabResult = lab.testResults.find(tr => tr.grnItemId === matchingGrnItem.id);
+        }
+        if (!matchingLabResult && rm) {
+          matchingLabResult = lab.testResults.find(tr => tr.rmId === rm.id || tr.rmId === rm.code);
+        }
+      }
+
+      // Check PO items JSON for batch split metadata
+      let matchingPoItem = null;
+      let matchingPoBatch = null;
+      if (po && Array.isArray(po.items)) {
+        for (const it of po.items) {
+          if (Array.isArray(it.batches)) {
+            const foundB = it.batches.find(ib => ib.batchNumber && ib.batchNumber.trim().toUpperCase() === b.batchNumber.trim().toUpperCase());
+            if (foundB) {
+              matchingPoItem = it;
+              matchingPoBatch = foundB;
+              break;
+            }
+          }
+          if (rm && (it.id === rm.id || it.rmId === rm.code || it.code === rm.code)) {
+            matchingPoItem = it;
+          }
+        }
+      }
+
+      // Determine Lab Status & Expiry Date:
+      let effectiveExpiry = null;
+      let expirySource = 'BATCH';
+      let isLabRequired = false;
+      let isLabExempt = false;
+
+      if (matchingGrnItem) {
+        isLabRequired = matchingGrnItem.labTestRequired !== false;
+        isLabExempt = matchingGrnItem.labTestRequired === false;
+      } else if (matchingPoItem) {
+        isLabRequired = matchingPoItem.labTestRequired !== false;
+        isLabExempt = matchingPoItem.labTestRequired === false;
+      } else if (grn?.isExempt) {
+        isLabExempt = true;
+      }
+
+      // Expiry priority: Lab result > Batch date > GRN item date > PO batch date > PO item date
+      if (matchingLabResult && matchingLabResult.expiryDate) {
+        effectiveExpiry = new Date(matchingLabResult.expiryDate);
+        expirySource = 'LAB_TEST';
+      } else if (b.expiryDate) {
+        effectiveExpiry = new Date(b.expiryDate);
+        expirySource = 'BATCH';
+      } else if (matchingGrnItem?.expiryDate) {
+        effectiveExpiry = new Date(matchingGrnItem.expiryDate);
+        expirySource = 'GRN';
+      } else if (matchingPoBatch?.expDate) {
+        effectiveExpiry = parseDateSafe(matchingPoBatch.expDate);
+        expirySource = 'PO_BATCH';
+      } else if (matchingPoItem?.expiryDate || matchingPoItem?.expDate) {
+        effectiveExpiry = parseDateSafe(matchingPoItem.expiryDate || matchingPoItem.expDate);
+        expirySource = 'PO_ITEM';
+      }
+
+      // Resolve MFG Date
+      let effectiveMfgDate = b.mfgDate ? new Date(b.mfgDate) : null;
+      if (!effectiveMfgDate && matchingGrnItem?.mfgDate) {
+        effectiveMfgDate = new Date(matchingGrnItem.mfgDate);
+      } else if (!effectiveMfgDate && matchingPoBatch?.mfgDate) {
+        effectiveMfgDate = parseDateSafe(matchingPoBatch.mfgDate);
+      } else if (!effectiveMfgDate && matchingPoItem?.mfgDate) {
+        effectiveMfgDate = parseDateSafe(matchingPoItem.mfgDate);
+      }
+
+      // Resolve Weight
+      const effectiveWeight = b.weight || matchingGrnItem?.weight || matchingPoBatch?.weight || matchingPoItem?.weight || null;
+
+      // Resolve MFG Batch No
+      const effectiveMfgBatch = b.mfgBatchNo || matchingGrnItem?.mfgBatchNo || matchingPoBatch?.mfgBatchNo || matchingPoItem?.mfgBatchNo || po?.mfgBatchNo || null;
+
+      // Calculate Days to Expiry and Status
+      let daysRemaining = null;
+      let healthStatus = 'NO_EXPIRY';
+      let statusColor = 'slate';
+
+      if (effectiveExpiry && !isNaN(effectiveExpiry.getTime())) {
+        const expMidnight = new Date(effectiveExpiry.getFullYear(), effectiveExpiry.getMonth(), effectiveExpiry.getDate());
+        daysRemaining = Math.round((expMidnight - todayMidnight) / (1000 * 60 * 60 * 24));
+
+        if (daysRemaining <= 0) {
+          healthStatus = 'EXPIRED';
+          statusColor = 'red';
+        } else if (daysRemaining <= 30) {
+          healthStatus = 'EXPIRING_SOON';
+          statusColor = 'yellow';
+        } else {
+          healthStatus = 'SAFE';
+          statusColor = 'green';
+        }
+      }
+
+      // Valuation & Loss Risk
+      const netQty = Number(b.netQty || 0);
+      const rate = Number(rm?.ratePerUnit || (matchingPoItem?.unitPrice ? matchingPoItem.unitPrice : 0));
+      const batchValue = Math.round((netQty * rate) * 100) / 100;
+
+      // Collect all sibling split batches from PO items for the "View" popup
+      const allItemBatches = [];
+      if (matchingPoItem && Array.isArray(matchingPoItem.batches)) {
+        matchingPoItem.batches.forEach((sb, sIdx) => {
+          allItemBatches.push({
+            splitIndex: sIdx + 1,
+            batchNumber: sb.batchNumber || `${b.batchNumber}-${String.fromCharCode(65 + sIdx)}`,
+            quantity: Number(sb.quantity ?? sb.batchQuantity ?? 0),
+            weight: sb.weight || effectiveWeight || '—',
+            mfgBatchNo: sb.mfgBatchNo || effectiveMfgBatch || '—',
+            mfgDate: sb.mfgDate ? (typeof sb.mfgDate === 'string' ? sb.mfgDate : sb.mfgDate) : (effectiveMfgDate ? effectiveMfgDate.toISOString().slice(0, 10) : null),
+            expDate: sb.expDate ? (typeof sb.expDate === 'string' ? sb.expDate : sb.expDate) : (effectiveExpiry ? effectiveExpiry.toISOString().slice(0, 10) : null),
+          });
+        });
+      }
+
+      // Also extract split batches from GRN items if PO didn't have splits
+      if (allItemBatches.length === 0 && grnItems.length > 1) {
+        const matchingGrnSplits = grnItems.filter(gi => 
+          (rm && (gi.rmId === rm.id || gi.rmId === rm.code)) ||
+          (gi.rmName && gi.rmName.trim().toLowerCase() === (rm?.name || b.rawMaterialName || '').trim().toLowerCase())
+        );
+        if (matchingGrnSplits.length > 1) {
+          matchingGrnSplits.forEach((gi, giIdx) => {
+            allItemBatches.push({
+              splitIndex: giIdx + 1,
+              batchNumber: gi.batchNumber || `${b.batchNumber}-${String.fromCharCode(65 + giIdx)}`,
+              quantity: Number(gi.actualReceivedQty || 0),
+              weight: gi.weight || effectiveWeight || '—',
+              mfgBatchNo: gi.mfgBatchNo || effectiveMfgBatch || '—',
+              mfgDate: gi.mfgDate ? new Date(gi.mfgDate).toISOString().slice(0, 10) : null,
+              expDate: gi.expiryDate ? new Date(gi.expiryDate).toISOString().slice(0, 10) : null,
+            });
+          });
+        }
+      }
+
+      processedBatches.push({
+        id: b.id,
+        batchNumber: b.batchNumber,
+        rawMaterialId: rm?.id || b.rawMaterialId,
+        rawMaterialName: rm?.name || b.rawMaterialName,
+        rawMaterialCode: rm?.code || 'RM-N/A',
+        category: rm?.category?.name || b.rmCategory || 'General',
+        uom: b.uom?.abbreviation || b.uom?.name || rm?.unitId || 'Units',
+        totalRmStock: Number(rm?.currentStock || 0),
+        receivedQty: Number(b.receivedQty || 0),
+        netQty,
+        wastedQty: Number(b.wastedQty || 0),
+        ratePerUnit: rate,
+        batchValue,
+        weight: effectiveWeight,
+        mfgBatchNo: effectiveMfgBatch,
+        mfgDate: effectiveMfgDate,
+        expiryDate: effectiveExpiry,
+        expirySource,
+        isLabRequired,
+        isLabExempt,
+        labDecision: lab?.overallDecision || (isLabExempt ? 'EXEMPT' : (lab ? 'PENDING' : 'N/A')),
+        daysRemaining,
+        healthStatus,
+        statusColor,
+        storageLocation: b.storageLocation || 'Main RM Store',
+        poId: po?.id,
+        poReferenceNo: po?.referenceNo || 'N/A',
+        grnId: grn?.id,
+        grnReferenceNo: grn?.referenceNo || 'N/A',
+        supplierName: po?.supplier?.name || 'N/A',
+        receivedDate: grn?.receivedDate || b.createdAt,
+        allSplitBatches: allItemBatches.length > 0 ? allItemBatches : [{
+          splitIndex: 1,
+          batchNumber: b.batchNumber,
+          quantity: netQty,
+          weight: effectiveWeight || '—',
+          mfgBatchNo: effectiveMfgBatch || '—',
+          mfgDate: effectiveMfgDate ? effectiveMfgDate.toISOString().slice(0, 10) : '—',
+          expDate: effectiveExpiry ? effectiveExpiry.toISOString().slice(0, 10) : '—',
+        }],
+        status: b.status,
+      });
+    }
+
+    // 4. Sort in Strict FEFO order:
+    // (a) EXPIRED first (most overdue first: expiryDate ascending)
+    // (b) EXPIRING_SOON (nearest expiry first: expiryDate ascending)
+    // (c) SAFE (expiryDate ascending)
+    // (d) NO_EXPIRY at the end
+    processedBatches.sort((a, b) => {
+      const orderMap = { EXPIRED: 1, EXPIRING_SOON: 2, SAFE: 3, NO_EXPIRY: 4 };
+      const orderDiff = orderMap[a.healthStatus] - orderMap[b.healthStatus];
+      if (orderDiff !== 0) return orderDiff;
+
+      if (a.expiryDate && b.expiryDate) {
+        return new Date(a.expiryDate) - new Date(b.expiryDate);
+      }
+      return 0;
+    });
+
+    // 5. Apply filters
+    let filtered = processedBatches;
+    if (search && search.trim()) {
+      const s = search.trim().toLowerCase();
+      filtered = filtered.filter(item => 
+        item.rawMaterialName.toLowerCase().includes(s) ||
+        item.rawMaterialCode.toLowerCase().includes(s) ||
+        item.batchNumber.toLowerCase().includes(s) ||
+        (item.mfgBatchNo && item.mfgBatchNo.toLowerCase().includes(s)) ||
+        item.category.toLowerCase().includes(s) ||
+        item.poReferenceNo.toLowerCase().includes(s) ||
+        item.grnReferenceNo.toLowerCase().includes(s) ||
+        item.supplierName.toLowerCase().includes(s)
+      );
+    }
+
+    if (category && category !== 'ALL') {
+      filtered = filtered.filter(item => item.category.toLowerCase() === category.toLowerCase());
+    }
+
+    if (status && status !== 'ALL') {
+      filtered = filtered.filter(item => item.healthStatus === status);
+    }
+
+    if (daysWindow && daysWindow !== 'ALL') {
+      const days = parseInt(daysWindow, 10);
+      if (!isNaN(days)) {
+        filtered = filtered.filter(item => item.daysRemaining !== null && item.daysRemaining <= days);
+      }
+    }
+
+    // 6. Compute KPI aggregates
+    const totalExpiredBatches = processedBatches.filter(b => b.healthStatus === 'EXPIRED').length;
+    const totalExpiredQty = processedBatches.filter(b => b.healthStatus === 'EXPIRED').reduce((s, b) => s + b.netQty, 0);
+    const totalExpiredValue = processedBatches.filter(b => b.healthStatus === 'EXPIRED').reduce((s, b) => s + b.batchValue, 0);
+
+    const totalExpiringSoonBatches = processedBatches.filter(b => b.healthStatus === 'EXPIRING_SOON').length;
+    const totalExpiringSoonQty = processedBatches.filter(b => b.healthStatus === 'EXPIRING_SOON').reduce((s, b) => s + b.netQty, 0);
+    const totalExpiringSoonValue = processedBatches.filter(b => b.healthStatus === 'EXPIRING_SOON').reduce((s, b) => s + b.batchValue, 0);
+
+    const totalSafeBatches = processedBatches.filter(b => b.healthStatus === 'SAFE').length;
+    const totalSafeQty = processedBatches.filter(b => b.healthStatus === 'SAFE').reduce((s, b) => s + b.netQty, 0);
+
+    const totalLossAtRisk = totalExpiredValue + totalExpiringSoonValue;
+
+    res.json({
+      summary: {
+        totalBatches: processedBatches.length,
+        totalExpiredBatches,
+        totalExpiredQty,
+        totalExpiredValue,
+        totalExpiringSoonBatches,
+        totalExpiringSoonQty,
+        totalExpiringSoonValue,
+        totalSafeBatches,
+        totalSafeQty,
+        totalLossAtRisk,
+      },
+      batches: filtered,
+    });
   } catch (error) {
     next(error);
   }
@@ -2082,7 +2696,14 @@ exports.getMaterialHistory = async (req, res, next) => {
       quantity: Number(wi.quantity || 0),
       uom: wi.uom ? (wi.uom.abbreviation || wi.uom.name) : rm.unitId,
       lossAmount: Number(wi.lossAmount || 0),
-      notes: wi.waste?.note || 'No reason specified',
+      batchId: wi.batchId || null,
+      batchNumber: wi.batchNumber || null,
+      mfgBatchNo: wi.mfgBatchNo || null,
+      mfgDate: wi.mfgDate || null,
+      expiryDate: wi.expiryDate || null,
+      weight: wi.weight || null,
+      remarks: wi.remarks || null,
+      notes: wi.remarks || wi.waste?.note || 'No reason specified',
       responsiblePerson: wi.waste?.responsibleUser?.name || 'N/A',
       createdBy: wi.waste?.creatorUser?.name || 'Staff',
       createdAt: wi.createdAt

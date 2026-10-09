@@ -468,6 +468,16 @@ export default function RMStockPage() {
           <Button
             variant="outline"
             size="sm"
+            onClick={() => navigate('/rm/stock/expiry')}
+            className="h-8 px-2.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/80 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/60 shadow-3xs cursor-pointer inline-flex items-center gap-1.5"
+            title="FEFO Upcoming & Expired RM"
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+            <span className="hidden sm:inline">FEFO Expiry Tracker</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleExportAllStockExcel}
             className="h-8 px-2.5 text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/80 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/60 shadow-3xs cursor-pointer inline-flex items-center gap-1.5"
           >
