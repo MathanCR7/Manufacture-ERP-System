@@ -3,7 +3,7 @@ const prisma = require('../../database/prisma');
 const { generateRmId } = require('../../utils/rmIdGenerator');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 const workflowNotifications = require('../notifications/workflow.notifications');
-const { receivePOAndProcess, cleanupPOReceiptsAndBatches } = require('../grn/grn.helper');
+const { receivePOAndProcess, cleanupPOReceiptsAndBatches, autoHealMultiItemGrnBatches } = require('../grn/grn.helper');
 const { savePaymentImageToDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
 
 const isUuid = (value) => {
@@ -466,6 +466,22 @@ exports.getPOById = async (req, res, next) => {
         po.totalReceivedQty = 0;
       } catch (err) {
         console.error(`[GET PO BY ID] Cleanup error for ${po.referenceNo}:`, err);
+      }
+    }
+
+    // Auto-heal multi-item GRN batches if any GRN has been received
+    if (Array.isArray(po.grnReceives) && po.grnReceives.length > 0) {
+      let anyHealed = false;
+      for (const g of po.grnReceives) {
+        const healed = await autoHealMultiItemGrnBatches(g, prisma, po);
+        if (healed) anyHealed = true;
+      }
+      if (anyHealed) {
+        po.inventoryBatches = await prisma.inventoryBatch.findMany({
+          where: { poId: po.id },
+          include: { uom: true },
+          orderBy: { createdAt: 'desc' }
+        });
       }
     }
 

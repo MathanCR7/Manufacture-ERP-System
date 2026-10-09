@@ -548,9 +548,137 @@ async function cleanupPOReceiptsAndBatches({ poId, tx = prisma }) {
   };
 }
 
+/**
+ * Auto-heals and reconciles missing InventoryBatches or lumped quantities for multi-item GRNs.
+ */
+async function autoHealMultiItemGrnBatches(grn, tx = prisma, parentPo = null) {
+  if (!grn || !Array.isArray(grn.items) || grn.items.length === 0) return false;
+
+  const isCleared = grn.status === 'LAB_APPROVED' || grn.isExempt === true || grn.inventoryStatus === 'UPLOADED' || grn.labTest?.overallDecision === 'APPROVED';
+  if (!isCleared) return false;
+
+  const acceptedItems = grn.items.filter(it => 
+    (it.inspectionStatus === 'ACCEPTED' || !it.inspectionStatus) &&
+    (Number(it.actualReceivedQty) - Number(it.returnQty || it.rejectedQty || 0)) > 0
+  );
+  if (acceptedItems.length === 0) return false;
+
+  let existingBatches = await tx.inventoryBatch.findMany({
+    where: { grnId: grn.id },
+    include: { uom: true },
+    orderBy: { createdAt: 'desc' }
+  });
+
+  let modified = false;
+
+  for (const it of acceptedItems) {
+    const acceptedQty = Math.max(0, Number(it.actualReceivedQty) - Number(it.returnQty || it.rejectedQty || 0));
+    if (acceptedQty <= 0) continue;
+
+    const matchingBatch = existingBatches.find(b =>
+      (b.rawMaterialId && (b.rawMaterialId === it.rmId || b.rawMaterialId === it.id)) ||
+      (b.rawMaterialName && it.rmName && b.rawMaterialName.trim().toLowerCase() === it.rmName.trim().toLowerCase())
+    );
+
+    if (!matchingBatch) {
+      let rm = await tx.rawMaterial.findFirst({
+        where: { OR: [{ code: it.rmId }, { id: it.rmId }] }
+      });
+      if (!rm && it.rmName) {
+        rm = await tx.rawMaterial.findFirst({
+          where: { name: { equals: it.rmName, mode: 'insensitive' } }
+        });
+      }
+
+      // Check if another batch in this GRN was lumped with this item's quantity
+      const lumpedBatch = existingBatches.find(b => Number(b.netQty) > acceptedQty);
+      if (lumpedBatch) {
+        const matchingItemForLumped = acceptedItems.find(ai =>
+          (ai.rmId === lumpedBatch.rawMaterialId) ||
+          (ai.rmName && lumpedBatch.rawMaterialName && ai.rmName.trim().toLowerCase() === lumpedBatch.rawMaterialName.trim().toLowerCase())
+        );
+        if (matchingItemForLumped) {
+          const properLumpedQty = Math.max(0, Number(matchingItemForLumped.actualReceivedQty) - Number(matchingItemForLumped.returnQty || matchingItemForLumped.rejectedQty || 0));
+          if (Number(lumpedBatch.netQty) > properLumpedQty) {
+            await tx.inventoryBatch.update({
+              where: { id: lumpedBatch.id },
+              data: {
+                receivedQty: properLumpedQty,
+                netQty: properLumpedQty
+              }
+            });
+            lumpedBatch.netQty = properLumpedQty;
+            lumpedBatch.receivedQty = properLumpedQty;
+            modified = true;
+          }
+        }
+      }
+
+      // Generate unique batch number for this missing item
+      let uniqueBatchNum = it.batchNumber?.trim();
+      if (!uniqueBatchNum || (await tx.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } }))) {
+        const auto = await getNextBatchForRM(it.rmId, it.rmName, tx);
+        uniqueBatchNum = auto.batchNumber;
+        while (await tx.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } })) {
+          uniqueBatchNum = `BATCH-${(it.rmName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}-${Date.now().toString().slice(-4)}`;
+        }
+      }
+
+      const category = rm ? await tx.rMCategory.findUnique({ where: { id: rm.categoryId } }) : null;
+      const poObj = parentPo || grn.po || (grn.poId ? await tx.rawMaterialPO.findUnique({ where: { id: grn.poId } }) : null);
+      const batchUomId = await resolveBatchUomId(it, rm, poObj, tx);
+
+      const newBatch = await tx.inventoryBatch.create({
+        data: {
+          batchNumber: uniqueBatchNum,
+          poId: grn.poId,
+          grnId: grn.id,
+          rawMaterialId: rm?.id || it.rmId,
+          rawMaterialName: it.rmName || rm?.name || 'Raw Material',
+          rmCategory: category?.name || null,
+          supplierId: poObj?.supplierId || grn.supplierId || null,
+          receivedQty: it.actualReceivedQty,
+          sampleQty: 0,
+          netQty: acceptedQty,
+          uomId: batchUomId,
+          storageLocation: null,
+          mfgDate: it.mfgDate ? new Date(it.mfgDate) : null,
+          expiryDate: it.expiryDate ? new Date(it.expiryDate) : null,
+          status: 'AVAILABLE',
+          addedBy: grn.receivedBy || poObj?.createdBy,
+        },
+        include: { uom: true }
+      });
+
+      existingBatches.push(newBatch);
+
+      // Reconcile RM currentStock
+      if (rm) {
+        const currentInvSum = await tx.inventoryBatch.aggregate({
+          where: { rawMaterialId: rm.id, status: 'AVAILABLE' },
+          _sum: { netQty: true }
+        });
+        if (currentInvSum._sum.netQty != null) {
+          await tx.rawMaterial.update({
+            where: { id: rm.id },
+            data: { currentStock: currentInvSum._sum.netQty }
+          });
+        }
+      }
+      modified = true;
+    }
+  }
+
+  if (modified) {
+    grn.inventoryBatches = existingBatches;
+  }
+  return modified;
+}
+
 module.exports = {
   getNextBatchForRM,
   receivePOAndProcess,
   resolveBatchUomId,
   cleanupPOReceiptsAndBatches,
+  autoHealMultiItemGrnBatches,
 };
