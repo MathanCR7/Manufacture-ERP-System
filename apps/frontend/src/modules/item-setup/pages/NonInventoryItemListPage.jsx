@@ -349,7 +349,7 @@ function NonInventoryItemForm({ editId, onBack }) {
               </span>
             </div>
             <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
-              This non-inventory item has already been purchased in Purchase Orders. Core fields (Item Name, Code, Primary Unit, Standard Rate, Opening Stock) are locked to maintain procurement history. <strong>Only Alternate Unit of Measure (UOM) & Conversion Rate and notes can be edited.</strong>
+              This non-inventory item has already been purchased in Purchase Orders. Core fields (Code, Primary Unit, Standard Rate, Opening Stock) are locked to maintain ledger history. <strong>Item Name is editable and updating it will automatically sync across existing purchase orders.</strong>
             </p>
           </div>
         </div>
@@ -361,7 +361,7 @@ function NonInventoryItemForm({ editId, onBack }) {
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
               Item Configuration
-              {isPurchased && <span className="ml-auto text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">🔒 Core Specs Locked</span>}
+              {isPurchased && <span className="ml-auto text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">✓ Item Name Editable (Syncs with POs)</span>}
             </div>
           </CardHeader>
           <CardContent className="p-3.5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -380,7 +380,9 @@ function NonInventoryItemForm({ editId, onBack }) {
             <div className="space-y-1 relative sm:col-span-2">
               <div className="flex items-center justify-between">
                 <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Item Name *</label>
-                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Capital A-Z & Spaces only</span>
+                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">
+                  {isPurchased ? 'Syncs with POs' : 'Capital A-Z & Spaces only'}
+                </span>
               </div>
               <input
                 {...register('name', { 
@@ -395,7 +397,7 @@ function NonInventoryItemForm({ editId, onBack }) {
                     return true;
                   }
                 })}
-                disabled={isPurchased}
+                className="w-full px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs"
                 onChange={(e) => {
                   const upper = e.target.value.toUpperCase().replace(/[^A-Z ]/g, '');
                   setValue('name', upper, { shouldValidate: true });

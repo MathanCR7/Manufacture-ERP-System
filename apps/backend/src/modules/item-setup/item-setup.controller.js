@@ -154,6 +154,224 @@ const sanitizeNonInventoryData = (raw) => {
   return data;
 };
 
+const cascadeRawMaterialNameSync = async (existing, newName) => {
+  try {
+    // 1. All Purchase Orders (both active and soft-deleted/archived)
+    const allPOs = await prisma.rawMaterialPO.findMany({
+      select: { id: true, rmId: true, name: true, items: true }
+    });
+
+    for (const po of allPOs) {
+      let poNeedsUpdate = false;
+      let poUpdatedName = po.name;
+      if (
+        po.rmId === existing.id || 
+        po.rmId === existing.code || 
+        (po.name && po.name.trim().toUpperCase() === existing.name.trim().toUpperCase())
+      ) {
+        poUpdatedName = newName;
+        poNeedsUpdate = true;
+      }
+
+      let poUpdatedItems = po.items;
+      if (Array.isArray(po.items)) {
+        let itemsModified = false;
+        poUpdatedItems = po.items.map(it => {
+          if (it && (
+            it.id === existing.id || 
+            it.rmId === existing.id || 
+            it.rmId === existing.code || 
+            it.code === existing.code ||
+            (it.name && it.name.trim().toUpperCase() === existing.name.trim().toUpperCase()) ||
+            (it.materialName && it.materialName.trim().toUpperCase() === existing.name.trim().toUpperCase())
+          )) {
+            itemsModified = true;
+            return {
+              ...it,
+              name: newName,
+              materialName: newName
+            };
+          }
+          return it;
+        });
+        if (itemsModified) {
+          poNeedsUpdate = true;
+        }
+      }
+
+      if (poNeedsUpdate) {
+        await prisma.rawMaterialPO.update({
+          where: { id: po.id },
+          data: {
+            name: poUpdatedName,
+            items: poUpdatedItems
+          }
+        });
+      }
+    }
+
+    // 2. Inventory Batches
+    await prisma.$executeRawUnsafe(
+      `UPDATE "InventoryBatch" 
+       SET "rawMaterialName" = $1, "updatedAt" = NOW() 
+       WHERE "rawMaterialId" = $2 OR "rawMaterialId" = $3 OR UPPER("rawMaterialName") = UPPER($4)`,
+      newName, existing.id, existing.code, existing.name
+    ).catch(() => null);
+
+    // 3. GRN Receive Items
+    await prisma.$executeRawUnsafe(
+      `UPDATE "GRNReceiveItem" 
+       SET "rmName" = $1 
+       WHERE "rmId" = $2 OR "rmId" = $3 OR UPPER("rmName") = UPPER($4)`,
+      newName, existing.id, existing.code, existing.name
+    ).catch(() => null);
+
+    // 4. GRN Lab Test Results
+    await prisma.$executeRawUnsafe(
+      `UPDATE "GRNLabTestResult" 
+       SET "rmName" = $1 
+       WHERE "rmId" = $2 OR "rmId" = $3 OR UPPER("rmName") = UPPER($4)`,
+      newName, existing.id, existing.code, existing.name
+    ).catch(() => null);
+
+    // 5. RM Quotation Items (rm_quotation_items)
+    await prisma.$executeRawUnsafe(
+      `UPDATE "rm_quotation_items" 
+       SET "material_name" = $1 
+       WHERE "material_id" = $2 OR "material_code" = $3 OR UPPER("material_name") = UPPER($4)`,
+      newName, existing.id, existing.code, existing.name
+    ).catch(() => null);
+
+    // 6. Purchase Returns (items JSON array)
+    const returnsWithItems = await prisma.purchaseReturn.findMany({
+      where: { items: { not: null } },
+      select: { id: true, items: true }
+    }).catch(() => []);
+
+    for (const pr of returnsWithItems) {
+      if (Array.isArray(pr.items)) {
+        let returnModified = false;
+        const updatedReturnItems = pr.items.map(it => {
+          if (it && (
+            it.rmId === existing.id || 
+            it.rmId === existing.code || 
+            (it.rmName && it.rmName.trim().toUpperCase() === existing.name.trim().toUpperCase())
+          )) {
+            returnModified = true;
+            return { ...it, rmName: newName };
+          }
+          return it;
+        });
+
+        if (returnModified) {
+          await prisma.purchaseReturn.update({
+            where: { id: pr.id },
+            data: { items: updatedReturnItems }
+          }).catch(() => null);
+        }
+      }
+    }
+
+    // 7. Production Batches RM Variance (rmVariance JSON)
+    const batchesWithVariance = await prisma.productionBatchNew.findMany({
+      where: { rmVariance: { not: null } },
+      select: { id: true, rmVariance: true }
+    }).catch(() => []);
+
+    for (const pb of batchesWithVariance) {
+      if (Array.isArray(pb.rmVariance)) {
+        let varianceModified = false;
+        const updatedVariance = pb.rmVariance.map(v => {
+          if (v && (
+            v.rmId === existing.id || 
+            v.rmId === existing.code || 
+            (v.rawMaterialName && v.rawMaterialName.trim().toUpperCase() === existing.name.trim().toUpperCase())
+          )) {
+            varianceModified = true;
+            return { ...v, rawMaterialName: newName };
+          }
+          return v;
+        });
+
+        if (varianceModified) {
+          await prisma.productionBatchNew.update({
+            where: { id: pb.id },
+            data: { rmVariance: updatedVariance }
+          }).catch(() => null);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Cascade RM name update warning:', err.message);
+  }
+};
+
+const cascadeNonInventoryItemNameSync = async (existing, newName) => {
+  try {
+    // 1. All POs
+    const allPOs = await prisma.rawMaterialPO.findMany({
+      select: { id: true, rmId: true, name: true, items: true }
+    });
+
+    for (const po of allPOs) {
+      let poNeedsUpdate = false;
+      let poUpdatedName = po.name;
+      if (
+        po.rmId === existing.id || 
+        po.rmId === existing.code || 
+        (po.name && po.name.trim().toUpperCase() === existing.name.trim().toUpperCase())
+      ) {
+        poUpdatedName = newName;
+        poNeedsUpdate = true;
+      }
+
+      let poUpdatedItems = po.items;
+      if (Array.isArray(po.items)) {
+        let itemsModified = false;
+        poUpdatedItems = po.items.map(it => {
+          if (it && (
+            it.id === existing.id || 
+            it.rmId === existing.id || 
+            it.rmId === existing.code || 
+            it.code === existing.code ||
+            (it.name && it.name.trim().toUpperCase() === existing.name.trim().toUpperCase()) ||
+            (it.materialName && it.materialName.trim().toUpperCase() === existing.name.trim().toUpperCase())
+          )) {
+            itemsModified = true;
+            return {
+              ...it,
+              name: newName,
+              materialName: newName
+            };
+          }
+          return it;
+        });
+        if (itemsModified) poNeedsUpdate = true;
+      }
+
+      if (poNeedsUpdate) {
+        await prisma.rawMaterialPO.update({
+          where: { id: po.id },
+          data: {
+            name: poUpdatedName,
+            items: poUpdatedItems
+          }
+        });
+      }
+    }
+
+    // 2. RM Quotation Items
+    await prisma.$executeRawUnsafe(
+      `UPDATE "rm_quotation_items" 
+       SET "material_name" = $1 
+       WHERE "material_id" = $2 OR "material_code" = $3 OR UPPER("material_name") = UPPER($4)`,
+      newName, existing.id, existing.code, existing.name
+    ).catch(() => null);
+  } catch (err) {
+    console.warn('Cascade Non-inventory item name update warning:', err.message);
+  }
+};
+
 const createCrudController = (methodPrefix, pluralPrefix) => ({
   create: async (req, res, next) => {
     try {
@@ -322,13 +540,18 @@ class ItemSetupController {
           const hasPurchases = poRefs.length > 0;
           const sanitized = sanitizeRawMaterialData(req.body);
 
+          const rawNewName = (sanitized.name || '').trim();
+          const newName = rawNewName ? rawNewName.toUpperCase() : existing.name;
+          const isNameChanged = newName && newName !== existing.name;
+
           let updatePayload = { ...sanitized };
 
           if (hasPurchases) {
-            // Lock core fields! ONLY allow Alternate UOM, alertLevel and description modifications
+            // Lock core financial & accounting fields (code, category, unit, rate, opening stock, hsn),
+            // BUT allow RM Name, Alternate UOM, Alert Level and Description to be updated!
             updatePayload = {
               ...sanitized,
-              name: existing.name,
+              name: newName,
               code: existing.code,
               categoryId: existing.categoryId,
               unitId: existing.unitId,
@@ -336,9 +559,18 @@ class ItemSetupController {
               openingStock: existing.openingStock,
               hsnCode: existing.hsnCode
             };
+          } else if (newName) {
+            updatePayload.name = newName;
           }
 
           const result = await ItemSetupRepository.updateRawMaterial(id, updatePayload);
+
+          // If the Raw Material Name changed, cascade the updated name across existing Purchase Orders,
+          // Inventory Batches, GRN receives, Lab Results, Quotations, Returns, and Production Variances!
+          if (isNameChanged) {
+            await cascadeRawMaterialNameSync(existing, newName);
+          }
+
           res.json({
             ...result,
             hasPurchases,
@@ -505,22 +737,33 @@ class ItemSetupController {
           const hasPurchases = poRefs.length > 0;
           const sanitized = sanitizeNonInventoryData(req.body);
 
+          const rawNewName = (sanitized.name || '').trim();
+          const newName = rawNewName ? rawNewName.toUpperCase() : existing.name;
+          const isNameChanged = newName && newName !== existing.name;
+
           let updatePayload = { ...sanitized };
 
           if (hasPurchases) {
-            // Lock core fields! ONLY allow Alternate UOM & description modifications
             updatePayload = {
               ...sanitized,
-              name: existing.name,
+              name: newName,
               code: existing.code,
               category: existing.category,
               unitId: existing.unitId,
               ratePerUnit: existing.ratePerUnit,
               hsnCode: existing.hsnCode
             };
+          } else if (newName) {
+            updatePayload.name = newName;
           }
 
           const result = await ItemSetupRepository.updateNonInventoryItem(id, updatePayload);
+
+          // If the item name changed, cascade across POs and Quotations
+          if (isNameChanged) {
+            await cascadeNonInventoryItemNameSync(existing, newName);
+          }
+
           res.json({
             ...result,
             hasPurchases,

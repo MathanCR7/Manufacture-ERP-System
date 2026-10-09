@@ -382,7 +382,7 @@ function RawMaterialForm({ editId, onBack }) {
               </span>
             </div>
             <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
-              This raw material has already been purchased in Purchase Orders. Core fields (Name, Code, Category, Primary Unit, Standard Rate, Opening Stock, HSN) are locked to maintain procurement and ledger integrity. <strong>Only Alternate Unit of Measure (UOM) & Conversion Rate and notes can be edited.</strong>
+              This raw material has purchase history in Purchase Order(s). Core ledger fields (Code, Primary Unit, Standard Rate, Opening Stock, HSN) are locked to maintain ledger balance. <strong>You can update the RM Name, Alternate UOM, Alert Level, and Description</strong>—the updated name will automatically sync across existing purchase orders and inventory records.
             </p>
           </div>
         </div>
@@ -394,7 +394,7 @@ function RawMaterialForm({ editId, onBack }) {
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
               Material Specifications & Pricing
-              {isPurchased && <span className="ml-auto text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">🔒 Core Specs Locked</span>}
+              {isPurchased && <span className="ml-auto text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">✓ RM Name Editable (Syncs with POs)</span>}
             </div>
           </CardHeader>
           <CardContent className="p-3.5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -425,9 +425,16 @@ function RawMaterialForm({ editId, onBack }) {
               {errors.categoryId && <span className="text-[11px] text-rose-500 font-medium block">{errors.categoryId.message}</span>}
             </div>
 
-            {/* Name Field */}
+            {/* Name Field - Editable even if POs exist! */}
             <div className="space-y-1 relative">
-              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">RM Name *</label>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">RM Name *</label>
+                {isPurchased && (
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                    Syncs with POs
+                  </span>
+                )}
+              </div>
               <input
                 {...register('name', { 
                   required: 'Name is required',
@@ -435,9 +442,8 @@ function RawMaterialForm({ editId, onBack }) {
                     e.target.value = e.target.value.toUpperCase();
                   }
                 })}
-                disabled={isPurchased}
                 style={{ textTransform: 'uppercase' }}
-                className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs ${isPurchased ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
+                className="w-full px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs"
                 placeholder="E.G. REFINED SUGAR, WHEAT FLOUR"
               />
               {errors.name && <span className="text-[11px] text-rose-500 font-medium block">{errors.name.message}</span>}

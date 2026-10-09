@@ -19,6 +19,7 @@ class ItemSetupRepository {
   async updateRawMaterial(id, data) { 
     const { 
       category, 
+      categoryId,
       uoms, 
       createdAt, 
       updatedAt, 
@@ -28,8 +29,17 @@ class ItemSetupRepository {
       productBOMs, 
       productionBatchRMUsages, 
       productionLossMaterials,
+      baseTemplateItems,
+      learnedRecipeItems,
+      hasPurchases,
+      purchaseOrders,
       ...updateData 
     } = data;
+
+    if (categoryId) {
+      updateData.category = { connect: { id: categoryId } };
+    }
+
     return prisma.rawMaterial.update({ where: { id }, data: updateData }); 
   }
   async deleteRawMaterial(id) { return prisma.rawMaterial.delete({ where: { id } }); }
