@@ -204,10 +204,63 @@ function saveOrderAttachmentBufferToDisk(buffer, originalname = 'photo.jpg', ord
   }
 }
 
+/**
+ * Saves a supplier invoice file (PDF or image) to apps/backend/uploads/payments/
+ * Automatically deletes oldFilePath if replaced to prevent server disk bloat.
+ *
+ * @param {string} fileData - Base64 Data URL (data:application/pdf;base64,... or data:image/...;base64,...)
+ * @param {string} poRefOrId - PO reference number or ID
+ * @param {string|null} [oldFilePath=null] - Previous invoice file to delete on replacement
+ * @returns {string|null} - URL path with timestamp query parameter
+ */
+function saveSupplierInvoiceToDisk(fileData, poRefOrId = 'PO', oldFilePath = null) {
+  if (!fileData || typeof fileData !== 'string') return null;
+
+  const trimmed = fileData.trim();
+  if (trimmed.startsWith('/uploads/') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  const matches = trimmed.match(/^data:([A-Za-z0-9-+/]+);base64,(.+)$/);
+  if (!matches || matches.length !== 3) {
+    return trimmed;
+  }
+
+  // If replacing an old file, delete it from disk immediately
+  if (oldFilePath) {
+    deletePaymentImageFromDisk(oldFilePath);
+  }
+
+  const mimeType = matches[1].toLowerCase();
+  const base64Data = matches[2];
+
+  let ext = 'pdf';
+  if (mimeType.includes('pdf')) ext = 'pdf';
+  else if (mimeType.includes('png')) ext = 'png';
+  else if (mimeType.includes('webp')) ext = 'webp';
+  else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
+
+  const cleanRef = String(poRefOrId || 'PO').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `invoice_${cleanRef}_${Date.now()}.${ext}`;
+  const targetPath = path.join(UPLOADS_DIR, filename);
+
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
+    fs.writeFileSync(targetPath, buffer);
+    console.log(`[Storage] Saved supplier invoice to UPLOADS_DIR: ${filename}`);
+
+    return `/uploads/payments/${filename}?t=${Date.now()}`;
+  } catch (err) {
+    console.error('Error writing supplier invoice file to disk:', err);
+    return null;
+  }
+}
+
 module.exports = {
   savePaymentImageToDisk,
   saveOrderAttachmentToDisk,
   saveOrderAttachmentBufferToDisk,
+  saveSupplierInvoiceToDisk,
   deletePaymentImageFromDisk,
   UPLOADS_DIR,
 };

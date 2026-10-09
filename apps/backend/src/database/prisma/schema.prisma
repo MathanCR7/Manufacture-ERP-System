@@ -195,6 +195,7 @@ model RawMaterialPO {
   // Supplier Invoice & Transport / E-Way Bill Details
   supplierInvoiceNo   String?             @map("supplier_invoice_no")
   supplierInvoiceDate DateTime?           @map("supplier_invoice_date")
+  supplierInvoiceFile String?             @map("supplier_invoice_file") @db.Text
   transportMode       String?             @default("ROAD") @map("transport_mode")
   transporterName     String?             @map("transporter_name")
   vehicleNumber       String?             @map("vehicle_number")

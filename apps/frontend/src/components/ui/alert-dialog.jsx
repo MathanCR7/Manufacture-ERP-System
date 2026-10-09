@@ -11,9 +11,29 @@ function AlertDialog({
 }
 
 function AlertDialogTrigger({
+  asChild,
+  children,
+  render,
   ...props
 }) {
-  return (<AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />);
+  if (asChild && React.isValidElement(children)) {
+    return (
+      <AlertDialogPrimitive.Trigger
+        data-slot="alert-dialog-trigger"
+        render={children}
+        {...props}
+      />
+    );
+  }
+  return (
+    <AlertDialogPrimitive.Trigger
+      data-slot="alert-dialog-trigger"
+      render={render}
+      {...props}
+    >
+      {children}
+    </AlertDialogPrimitive.Trigger>
+  );
 }
 
 function AlertDialogPortal({
@@ -134,23 +154,53 @@ function AlertDialogDescription({
 
 function AlertDialogAction({
   className,
+  asChild,
+  children,
   ...props
 }) {
-  return (<Button data-slot="alert-dialog-action" className={cn(className)} {...props} />);
+  if (asChild && React.isValidElement(children)) {
+    return React.cloneElement(children, {
+      "data-slot": "alert-dialog-action",
+      className: cn(className, children.props.className),
+      ...props,
+    });
+  }
+  return (
+    <Button
+      data-slot="alert-dialog-action"
+      className={cn(className)}
+      {...props}
+    >
+      {children}
+    </Button>
+  );
 }
 
 function AlertDialogCancel({
   className,
   variant = "outline",
   size = "default",
+  asChild,
+  children,
   ...props
 }) {
+  if (asChild && React.isValidElement(children)) {
+    return (
+      <AlertDialogPrimitive.Close
+        data-slot="alert-dialog-cancel"
+        className={cn(className)}
+        render={children}
+        {...props}
+      />
+    );
+  }
   return (
     <AlertDialogPrimitive.Close
       data-slot="alert-dialog-cancel"
       className={cn(className)}
-      render={<Button variant={variant} size={size} />}
-      {...props} />
+      render={<Button variant={variant} size={size}>{children}</Button>}
+      {...props}
+    />
   );
 }
 

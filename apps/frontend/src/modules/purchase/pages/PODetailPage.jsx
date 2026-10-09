@@ -9,13 +9,20 @@ import {
   Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck, PackageCheck,
   Copy, Check, ExternalLink, Boxes, RefreshCw, Scale,
   CreditCard, Wallet, Image as ImageIcon, ZoomIn, UploadCloud, Eye, X, Loader2, AlertCircle,
-  RotateCcw, Undo2, Download, Phone, Mail, MapPin, Building, Building2
+  RotateCcw, Undo2, Download, Phone, Mail, MapPin, Building, Building2,
+  Paperclip, FileCheck
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { 
   UpdatePaymentSettlementModal, 
   PaymentSettlementCardView 
 } from '../components/PaymentSettlementManager';
+import { 
+  SupplierInvoiceModal, 
+  InvoiceFilePreviewModal, 
+  resolveInvoiceFileUrl, 
+  isPdfDocument 
+} from '../components/SupplierInvoiceManager';
 import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
@@ -262,6 +269,8 @@ export default function PODetailPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedInstallmentIndex, setSelectedInstallmentIndex] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [previewInvoiceModal, setPreviewInvoiceModal] = useState(null);
   const fetchCompany = useCompanyStore((s) => s.fetchCompany);
 
   useEffect(() => {
@@ -654,14 +663,11 @@ export default function PODetailPage() {
               </AlertDialog>
 
               <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="text-amber-600 border-amber-200 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 gap-1.5"
-                    disabled={statusMutation.isPending}
-                  >
-                    <RotateCcw className="w-4 h-4" /> Revert to Draft
-                  </Button>
+                <AlertDialogTrigger
+                  className="inline-flex items-center justify-center rounded-lg border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 px-3 py-1.5 text-xs font-semibold gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  disabled={statusMutation.isPending}
+                >
+                  <RotateCcw className="w-4 h-4" /> Revert to Draft
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -687,14 +693,11 @@ export default function PODetailPage() {
           {(po.status === 'RECEIVED' || po.status === 'APPROVED') && (
             <>
               <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="text-amber-600 border-amber-200 hover:bg-amber-50 dark:border-amber-800 dark:text-amber-400 gap-1.5 font-medium"
-                    disabled={statusMutation.isPending}
-                  >
-                    <Undo2 className="w-4 h-4" /> Undo Receive
-                  </Button>
+                <AlertDialogTrigger
+                  className="inline-flex items-center justify-center rounded-lg border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 px-3 py-1.5 text-xs font-medium gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  disabled={statusMutation.isPending}
+                >
+                  <Undo2 className="w-4 h-4" /> Undo Receive
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -716,14 +719,11 @@ export default function PODetailPage() {
               </AlertDialog>
 
               <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 gap-1.5 font-medium"
-                    disabled={statusMutation.isPending}
-                  >
-                    <RotateCcw className="w-4 h-4" /> Revert to Draft
-                  </Button>
+                <AlertDialogTrigger
+                  className="inline-flex items-center justify-center rounded-lg border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 px-3 py-1.5 text-xs font-medium gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  disabled={statusMutation.isPending}
+                >
+                  <RotateCcw className="w-4 h-4" /> Revert to Draft
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -1339,6 +1339,123 @@ export default function PODetailPage() {
                 ) : '—'} 
               />
             </div>
+
+            {/* Supplier Invoice Document Section */}
+            <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center gap-2">
+                  <Paperclip className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider">
+                    Supplier Tax Invoice Document
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setInvoiceModalOpen(true)}
+                  className="h-7 text-[11px] font-semibold px-2 rounded-lg border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 gap-1.5 cursor-pointer shadow-3xs"
+                >
+                  {po.supplierInvoiceFile ? (
+                    <>
+                      <Edit className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      Manage / Update File
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      Attach Invoice PDF/Image
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {po.supplierInvoiceFile ? (
+                <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-gradient-to-r from-emerald-50/60 to-white dark:from-emerald-950/20 dark:to-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-3xs">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                      isPdfDocument(po.supplierInvoiceFile) 
+                        ? 'bg-rose-500 text-white' 
+                        : 'bg-indigo-600 text-white'
+                    }`}>
+                      {isPdfDocument(po.supplierInvoiceFile) ? (
+                        <FileText className="w-5 h-5" />
+                      ) : (
+                        <ImageIcon className="w-5 h-5" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                          {po.supplierInvoiceNo ? `Invoice #${po.supplierInvoiceNo}` : 'Supplier Invoice Document'}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider ${
+                          isPdfDocument(po.supplierInvoiceFile)
+                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                            : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                        }`}>
+                          {isPdfDocument(po.supplierInvoiceFile) ? 'PDF' : 'IMAGE'}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 className="w-3 h-3" />
+                          Attached
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                        {po.supplierInvoiceDate ? `Dated ${format(new Date(po.supplierInvoiceDate), 'dd MMM yyyy')}` : 'Document uploaded on server'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPreviewInvoiceModal(po.supplierInvoiceFile)}
+                      className="h-8 text-xs font-semibold px-2.5 rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 gap-1.5 cursor-pointer shadow-3xs"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      Preview
+                    </Button>
+                    <a
+                      href={resolveInvoiceFileUrl(po.supplierInvoiceFile)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={`Supplier_Invoice_${po.referenceNo || 'PO'}.${isPdfDocument(po.supplierInvoiceFile) ? 'pdf' : 'jpg'}`}
+                      className="h-8 text-xs font-semibold px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-3xs"
+                      title="Download Invoice"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      Download
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div 
+                  onClick={() => setInvoiceModalOpen(true)}
+                  className="p-3.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex items-center justify-between gap-3 cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-indigo-500 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-950/50 transition-colors">
+                      <Paperclip className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        No supplier invoice file attached
+                      </p>
+                      <p className="text-[10px] text-slate-400">
+                        Click to upload original supplier tax invoice (PDF, JPG, PNG, WEBP)
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 group-hover:underline flex items-center gap-1 shrink-0">
+                    <UploadCloud className="w-3 h-3" />
+                    Upload Now
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Financial Breakdown */}
@@ -1781,6 +1898,29 @@ export default function PODetailPage() {
           src={previewImage}
           title={`Payment Proof — ${po.referenceNo || po.rmId}`}
           onClose={() => setPreviewImage(null)}
+        />
+      )}
+
+      {/* Supplier Invoice Document Fullscreen Preview Modal */}
+      {previewInvoiceModal && (
+        <InvoiceFilePreviewModal
+          src={previewInvoiceModal}
+          title="Supplier Tax Invoice Document"
+          poReference={po.referenceNo || po.rmId}
+          invoiceNo={po.supplierInvoiceNo}
+          onClose={() => setPreviewInvoiceModal(null)}
+        />
+      )}
+
+      {/* Supplier Invoice Upload / Replace / Delete Modal */}
+      {invoiceModalOpen && (
+        <SupplierInvoiceModal
+          po={po}
+          onClose={() => setInvoiceModalOpen(false)}
+          onUpdated={() => {
+            queryClient.invalidateQueries({ queryKey: ['po', id] });
+            queryClient.invalidateQueries({ queryKey: ['pos'] });
+          }}
         />
       )}
     </div>

@@ -9,12 +9,13 @@ import {
   Plus, Search, Eye, Edit, Trash2, ChevronRight, ChevronDown,
   CheckCircle2, Clock, Package, TrendingUp, AlertCircle, FileText,
   RotateCcw, X, CreditCard, Loader2, ArrowUpDown, ArrowUp, ArrowDown,
-  Image as ImageIcon, Lock, Printer, Download
+  Image as ImageIcon, Lock, Printer, Download, Paperclip, FileCheck
 } from 'lucide-react';
 import { 
   UpdatePaymentSettlementModal, 
   PaymentSettlementDetailsModal 
 } from '../components/PaymentSettlementManager';
+import { SupplierInvoiceModal } from '../components/SupplierInvoiceManager';
 import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
 import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
 import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
@@ -427,6 +428,7 @@ export default function POListPage() {
   const [paymentModalPO, setPaymentModalPO] = useState(null);
   const [summaryModalPO, setSummaryModalPO] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
+  const [invoiceModalPO, setInvoiceModalPO] = useState(null);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -1136,6 +1138,26 @@ export default function POListPage() {
                             >
                               <Download className="w-3.5 h-3.5" />
                             </Button>
+                            <Button
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => setInvoiceModalPO(po)}
+                              className={`h-7 w-7 rounded-lg transition-colors cursor-pointer shrink-0 relative ${
+                                po.supplierInvoiceFile
+                                  ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
+                                  : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50'
+                              }`}
+                              title={po.supplierInvoiceFile ? `Supplier Invoice Attached (${po.supplierInvoiceNo || 'File'}) - Click to View/Update` : 'Attach Supplier Invoice (PDF/Image)'}
+                            >
+                              {po.supplierInvoiceFile ? (
+                                <>
+                                  <FileCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                  <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                                </>
+                              ) : (
+                                <Paperclip className="w-3.5 h-3.5" />
+                              )}
+                            </Button>
                             {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT' || po.status?.toUpperCase() === 'ORDERED') && (
                               <Button
                                 variant="ghost" 
@@ -1149,15 +1171,11 @@ export default function POListPage() {
                             )}
                             {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT') && (
                               <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost" 
-                                    size="icon"
-                                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer shrink-0"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </Button>
+                                <AlertDialogTrigger
+                                  className="h-7 w-7 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center border-0 bg-transparent"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
                                 </AlertDialogTrigger>
                                 <AlertDialogContent className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl">
                                   <AlertDialogHeader>
@@ -1181,15 +1199,11 @@ export default function POListPage() {
 
                             {canAddPurchase && (po.status === 'ORDERED' || po.status === 'RECEIVED' || po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED') && (
                               <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost" 
-                                    size="icon"
-                                    className="h-7 w-7 rounded-lg text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors cursor-pointer shrink-0"
-                                    title={po.status === 'ORDERED' ? "Revert Order to Draft" : "Undo Receive / Revert PO"}
-                                  >
-                                    <RotateCcw className="w-3.5 h-3.5" />
-                                  </Button>
+                                <AlertDialogTrigger
+                                  className="h-7 w-7 rounded-lg text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center border-0 bg-transparent"
+                                  title={po.status === 'ORDERED' ? "Revert Order to Draft" : "Undo Receive / Revert PO"}
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
                                 </AlertDialogTrigger>
                                 <AlertDialogContent className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl max-w-md">
                                   <AlertDialogHeader>
@@ -1334,6 +1348,18 @@ export default function POListPage() {
           src={previewImage.src}
           title={previewImage.title}
           onClose={() => setPreviewImage(null)}
+        />
+      )}
+
+      {/* Supplier Invoice Upload / View / Update Modal */}
+      {invoiceModalPO && (
+        <SupplierInvoiceModal
+          po={augmentedPos.find(p => p.id === invoiceModalPO.id) || invoiceModalPO}
+          onClose={() => setInvoiceModalPO(null)}
+          onUpdated={() => {
+            refetch();
+            queryClient.invalidateQueries({ queryKey: ['pos'] });
+          }}
         />
       )}
     </div>

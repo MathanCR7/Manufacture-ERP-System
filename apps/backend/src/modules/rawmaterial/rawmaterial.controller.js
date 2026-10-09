@@ -4,7 +4,7 @@ const { generateRmId } = require('../../utils/rmIdGenerator');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 const workflowNotifications = require('../notifications/workflow.notifications');
 const { receivePOAndProcess, cleanupPOReceiptsAndBatches, autoHealMultiItemGrnBatches } = require('../grn/grn.helper');
-const { savePaymentImageToDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
+const { savePaymentImageToDisk, saveSupplierInvoiceToDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
 
 const isUuid = (value) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -167,6 +167,7 @@ exports.getPOs = async (req, res, next) => {
           }] : []),
       supplierInvoiceNo: po.supplierInvoiceNo,
       supplierInvoiceDate: po.supplierInvoiceDate,
+      supplierInvoiceFile: po.supplierInvoiceFile || null,
       transportMode: po.transportMode || 'ROAD',
       transporterName: po.transporterName,
       vehicleNumber: po.vehicleNumber,
@@ -541,6 +542,7 @@ const createPOSchema = z.object({
   // Supplier Invoice & Logistics / E-Way Bill Details
   supplierInvoiceNo: z.string().trim().nullable().optional(),
   supplierInvoiceDate: z.string().nullable().optional(),
+  supplierInvoiceFile: z.string().trim().nullable().optional(),
   transportMode: z.string().trim().nullable().optional(),
   transporterName: z.string().trim().nullable().optional(),
   vehicleNumber: z.string().trim().nullable().optional(),
@@ -689,6 +691,7 @@ exports.createPO = async (req, res, next) => {
 
           supplierInvoiceNo: parsedData.supplierInvoiceNo || null,
           supplierInvoiceDate: parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null,
+          supplierInvoiceFile: parsedData.supplierInvoiceFile ? saveSupplierInvoiceToDisk(parsedData.supplierInvoiceFile, referenceNo || 'INVOICE') : null,
           transportMode: parsedData.transportMode || 'ROAD',
           transporterName: parsedData.transporterName || null,
           vehicleNumber: parsedData.vehicleNumber || null,
@@ -835,6 +838,7 @@ const updatePOSchema = z.object({
   // Supplier Invoice & Logistics / E-Way Bill Details
   supplierInvoiceNo: z.string().trim().nullable().optional(),
   supplierInvoiceDate: z.string().nullable().optional(),
+  supplierInvoiceFile: z.string().trim().nullable().optional(),
   transportMode: z.string().trim().nullable().optional(),
   transporterName: z.string().trim().nullable().optional(),
   vehicleNumber: z.string().trim().nullable().optional(),
@@ -990,6 +994,20 @@ exports.updatePO = async (req, res, next) => {
 
     if (parsedData.supplierInvoiceNo !== undefined) updateData.supplierInvoiceNo = parsedData.supplierInvoiceNo || null;
     if (parsedData.supplierInvoiceDate !== undefined) updateData.supplierInvoiceDate = parsedData.supplierInvoiceDate ? new Date(parsedData.supplierInvoiceDate) : null;
+    if (parsedData.supplierInvoiceFile !== undefined) {
+      if (parsedData.supplierInvoiceFile) {
+        updateData.supplierInvoiceFile = saveSupplierInvoiceToDisk(
+          parsedData.supplierInvoiceFile,
+          existing.referenceNo || existing.id,
+          existing.supplierInvoiceFile
+        );
+      } else {
+        if (existing.supplierInvoiceFile) {
+          deletePaymentImageFromDisk(existing.supplierInvoiceFile);
+        }
+        updateData.supplierInvoiceFile = null;
+      }
+    }
     if (parsedData.transportMode !== undefined) updateData.transportMode = parsedData.transportMode || 'ROAD';
     if (parsedData.transporterName !== undefined) updateData.transporterName = parsedData.transporterName || null;
     if (parsedData.vehicleNumber !== undefined) updateData.vehicleNumber = parsedData.vehicleNumber || null;
@@ -1213,6 +1231,9 @@ exports.deletePO = async (req, res, next) => {
 
     if (po.paymentImage) {
       deletePaymentImageFromDisk(po.paymentImage, po.referenceNo || po.id);
+    }
+    if (po.supplierInvoiceFile) {
+      deletePaymentImageFromDisk(po.supplierInvoiceFile);
     }
 
     await prisma.$transaction(async (tx) => {
@@ -3155,6 +3176,78 @@ exports.uploadPaymentImage = async (req, res, next) => {
       return res.status(500).json({ error: 'Failed to save payment proof image to server disk' });
     }
     res.json({ success: true, url: savedPath });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.updatePOSupplierInvoice = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { invoiceFile, supplierInvoiceNo, supplierInvoiceDate } = req.body;
+
+    const po = await prisma.rawMaterialPO.findFirst({
+      where: {
+        OR: [
+          { id },
+          { referenceNo: id }
+        ]
+      }
+    });
+
+    if (!po) {
+      return res.status(404).json({ error: 'Purchase Order not found' });
+    }
+
+    const updateData = {};
+
+    if (supplierInvoiceNo !== undefined) {
+      updateData.supplierInvoiceNo = supplierInvoiceNo ? String(supplierInvoiceNo).trim() : null;
+    }
+
+    if (supplierInvoiceDate !== undefined) {
+      updateData.supplierInvoiceDate = supplierInvoiceDate ? new Date(supplierInvoiceDate) : null;
+    }
+
+    if (invoiceFile !== undefined) {
+      if (invoiceFile && typeof invoiceFile === 'string' && invoiceFile.startsWith('data:')) {
+        // Save new file (PDF or image) and delete old file if one existed
+        const savedPath = saveSupplierInvoiceToDisk(
+          invoiceFile,
+          po.referenceNo || po.id,
+          po.supplierInvoiceFile
+        );
+        updateData.supplierInvoiceFile = savedPath;
+      } else if (invoiceFile === null || invoiceFile === '') {
+        // User explicitly removed attachment -> wipe old file from disk!
+        if (po.supplierInvoiceFile) {
+          deletePaymentImageFromDisk(po.supplierInvoiceFile);
+        }
+        updateData.supplierInvoiceFile = null;
+      } else if (typeof invoiceFile === 'string' && (invoiceFile.startsWith('/uploads/') || invoiceFile.startsWith('http'))) {
+        updateData.supplierInvoiceFile = invoiceFile;
+      }
+    }
+
+    const updated = await prisma.rawMaterialPO.update({
+      where: { id: po.id },
+      data: updateData,
+      include: {
+        uom: true,
+        supplier: true
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Supplier invoice updated successfully',
+      po: {
+        ...updated,
+        supplierName: updated.supplier?.name || updated.supplier?.contactPerson || '—',
+        paidAmount: parseFloat(updated.paidAmount || 0),
+        supplierInvoiceFile: updated.supplierInvoiceFile || null
+      }
+    });
   } catch (error) {
     next(error);
   }

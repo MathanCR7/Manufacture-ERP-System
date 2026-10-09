@@ -1125,28 +1125,24 @@ export default function UserManagementPage() {
  
                         {/* Status Toggle Button */}
                         <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              className={`rounded-xl h-9 px-3 border transition-all font-medium ${
-                                user.isActive 
-                                  ? "text-amber-600 dark:text-amber-400 hover:text-amber-750 dark:hover:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/30" 
-                                  : "text-emerald-600 dark:text-emerald-400 hover:text-emerald-770 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-300 dark:hover:border-emerald-500/30"
-                              }`}
-                            >
-                              {user.isActive ? (
-                                <div className="flex items-center gap-1.5">
-                                  <UserX className="w-3.5 h-3.5" />
-                                  <span>Deactivate</span>
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1.5">
-                                  <UserCheck className="w-3.5 h-3.5" />
-                                  <span>Activate</span>
-                                </div>
-                              )}
-                            </Button>
+                          <AlertDialogTrigger
+                            className={`rounded-xl h-9 px-3 border transition-all font-medium inline-flex items-center justify-center cursor-pointer ${
+                              user.isActive 
+                                ? "text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10 border-amber-200 dark:border-amber-500/20 hover:border-amber-300 dark:hover:border-amber-500/30" 
+                                : "text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 border-emerald-200 dark:border-emerald-500/20 hover:border-emerald-300 dark:hover:border-emerald-500/30"
+                            }`}
+                          >
+                            {user.isActive ? (
+                              <div className="flex items-center gap-1.5">
+                                <UserX className="w-3.5 h-3.5" />
+                                <span>Deactivate</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <UserCheck className="w-3.5 h-3.5" />
+                                <span>Activate</span>
+                              </div>
+                            )}
                           </AlertDialogTrigger>
                           <AlertDialogContent className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-2xl max-w-md shadow-2xl">
                             <AlertDialogHeader>
@@ -1188,15 +1184,11 @@ export default function UserManagementPage() {
  
                         {/* Delete Button */}
                         <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="rounded-xl h-9 px-3 border text-rose-600 dark:text-rose-455 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 hover:border-rose-300 dark:hover:border-rose-500/30 transition-all font-medium flex items-center gap-1.5"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Delete</span>
-                            </Button>
+                          <AlertDialogTrigger
+                            className="rounded-xl h-9 px-3 border text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-500/10 border-rose-200 dark:border-rose-500/20 hover:border-rose-300 dark:hover:border-rose-500/30 transition-all font-medium inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
                           </AlertDialogTrigger>
                           <AlertDialogContent className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-2xl max-w-md shadow-2xl">
                             <AlertDialogHeader>
