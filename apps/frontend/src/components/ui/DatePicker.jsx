@@ -9,17 +9,32 @@ import { Button } from '@/components/ui/button';
 
 /**
  * Validates and parses multiple date formats:
- * - DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY, DD MM YYYY
+ * - DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY, DD MM YYYY (supports 1 or 2 digit day/month)
  * - Pure digits: DDMMYYYY (e.g. 12122002, 12122026), DDMMYY (e.g. 121226), DDMM (e.g. 1212)
  * - 2-digit years (e.g. 12-12-26 -> 12-12-2026)
  * - YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
  * - ISO string or Date object
+ *
+ * Strict validation: Does NOT parse single digits (e.g. '7') as dates!
+ * Returns { valid: boolean, date: Date | null, display: string, iso: string, error?: string }
  */
-export function parseDateInput(input) {
-  if (!input) return null;
-  if (input instanceof Date) return isNaN(input.getTime()) ? null : input;
+export function validateAndParseDate(input) {
+  if (!input) return { valid: true, empty: true, date: null, display: '', iso: '' };
+  if (input instanceof Date) {
+    if (isNaN(input.getTime())) return { valid: false, error: 'Invalid date' };
+    const dd = String(input.getDate()).padStart(2, '0');
+    const mm = String(input.getMonth() + 1).padStart(2, '0');
+    const yyyy = input.getFullYear();
+    return {
+      valid: true,
+      date: input,
+      display: `${dd}-${mm}-${yyyy}`,
+      iso: `${yyyy}-${mm}-${dd}`,
+    };
+  }
+
   const str = String(input).trim();
-  if (!str) return null;
+  if (!str) return { valid: true, empty: true, date: null, display: '', iso: '' };
 
   // Case 1: DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY or DD MM YYYY (with optional HH:mm)
   const dmyMatch = str.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})(?:\s+(\d{1,2}):(\d{1,2}))?$/);
@@ -27,23 +42,32 @@ export function parseDateInput(input) {
     const day = parseInt(dmyMatch[1], 10);
     const month = parseInt(dmyMatch[2], 10);
     let year = parseInt(dmyMatch[3], 10);
-    if (year < 100) year = 2000 + year; // 2-digit year support (26 -> 2026)
+    if (year < 100) year = year < 50 ? 2000 + year : 1900 + year; // 2-digit year support (26 -> 2026)
     const hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
     const mins = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
 
-    if (month < 1 || month > 12) return null;
-    if (day < 1 || day > 31) return null;
-    if (year < 1900 || year > 2150) return null;
+    if (month < 1 || month > 12) return { valid: false, error: 'Month must be between 01 and 12' };
+    if (day < 1 || day > 31) return { valid: false, error: 'Day must be between 01 and 31' };
+    if (year < 1900 || year > 2150) return { valid: false, error: 'Year must be between 1900 and 2150' };
 
     const testDate = new Date(year, month - 1, day, hours, mins, 0, 0);
     if (
-      testDate.getFullYear() === year &&
-      testDate.getMonth() === month - 1 &&
-      testDate.getDate() === day
+      testDate.getFullYear() !== year ||
+      testDate.getMonth() !== month - 1 ||
+      testDate.getDate() !== day
     ) {
-      return testDate;
+      return { valid: false, error: 'Invalid calendar date for this month' };
     }
-    return null;
+
+    const dd = String(day).padStart(2, '0');
+    const mm = String(month).padStart(2, '0');
+    const yyyy = String(year);
+    return {
+      valid: true,
+      date: testDate,
+      display: `${dd}-${mm}-${yyyy}`,
+      iso: `${yyyy}-${mm}-${dd}`,
+    };
   }
 
   // Case 2: Pure digits continuous input: DDMMYYYY (8 digits), DDMMYY (6 digits), or DDMM (4 digits)
@@ -68,7 +92,14 @@ export function parseDateInput(input) {
         testDate.getMonth() === month - 1 &&
         testDate.getDate() === day
       ) {
-        return testDate;
+        const dd = String(day).padStart(2, '0');
+        const mm = String(month).padStart(2, '0');
+        return {
+          valid: true,
+          date: testDate,
+          display: `${dd}-${mm}-${year}`,
+          iso: `${year}-${mm}-${dd}`,
+        };
       }
     }
   }
@@ -80,9 +111,9 @@ export function parseDateInput(input) {
     const month = parseInt(ymdMatch[2], 10);
     const day = parseInt(ymdMatch[3], 10);
 
-    if (month < 1 || month > 12) return null;
-    if (day < 1 || day > 31) return null;
-    if (year < 1900 || year > 2150) return null;
+    if (month < 1 || month > 12) return { valid: false, error: 'Month must be between 01 and 12' };
+    if (day < 1 || day > 31) return { valid: false, error: 'Day must be between 01 and 31' };
+    if (year < 1900 || year > 2150) return { valid: false, error: 'Year must be between 1900 and 2150' };
 
     const testDate = new Date(year, month - 1, day, 0, 0, 0, 0);
     if (
@@ -90,12 +121,26 @@ export function parseDateInput(input) {
       testDate.getMonth() === month - 1 &&
       testDate.getDate() === day
     ) {
-      return testDate;
+      const dd = String(day).padStart(2, '0');
+      const mm = String(month).padStart(2, '0');
+      return {
+        valid: true,
+        date: testDate,
+        display: `${dd}-${mm}-${year}`,
+        iso: `${year}-${mm}-${dd}`,
+      };
     }
-    return null;
   }
 
-  return null;
+  return { valid: false, error: 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)' };
+}
+
+/**
+ * Backwards-compatible parser returning Date object or null
+ */
+export function parseDateInput(input) {
+  const res = validateAndParseDate(input);
+  return res.valid ? res.date : null;
 }
 
 /**
@@ -119,6 +164,9 @@ export function formatDateToDisplay(date, showTime = false) {
  *   '12122002' -> '12-12-2002'
  *   '12122026' -> '12-12-2026'
  * - Single digits like '7' remain '7' without false auto-completions!
+ * - Single digit followed by separator: '7-' or '7/' -> auto-pads to '07-'
+ * - Single digit day with month: '7-10' -> '07-10-', '7-10-2026' -> '07-10-2026'
+ * - Single digit month: '12-5-' -> '12-05-', '12-5-2026' -> '12-05-2026'
  * - Replaces '/' and '.' with '-'
  * - Supports deleting with Backspace without getting stuck on hyphens
  */
@@ -143,6 +191,38 @@ export function formatTypingDate(rawVal, prevVal = '', showTime = false) {
     }
   }
 
+  // Handle single digit day followed by separator: e.g. '7-' or '7/' or '7.' -> '07-'
+  const singleDayWithSep = rawVal.match(/^([1-9])[-/. ]$/);
+  if (singleDayWithSep) {
+    return '0' + singleDayWithSep[1] + '-';
+  }
+
+  // Handle single digit day with month: e.g. '7-10' -> '07-10-', '7-10-2026' -> '07-10-2026'
+  const singleDayPart = rawVal.match(/^([1-9])[-/. ](\d{1,2})?[-/. ]?(\d{1,4})?$/);
+  if (singleDayPart) {
+    const d = '0' + singleDayPart[1];
+    const m = singleDayPart[2] || '';
+    const y = singleDayPart[3] || '';
+    if (y) return d + '-' + (m.length === 1 ? '0' + m : m) + '-' + y;
+    if (m) {
+      const padM = (m.length === 2 || rawVal.endsWith('-') || rawVal.endsWith('/') || rawVal.endsWith('.')) 
+        ? (m.length === 1 ? '0' + m : m) + '-' 
+        : m;
+      return d + '-' + padM;
+    }
+    return d + '-';
+  }
+
+  // Handle two digit day with single digit month followed by separator: e.g. '12-5-' -> '12-05-'
+  const singleMonthPart = rawVal.match(/^(\d{2})[-/. ]([1-9])[-/. ](\d{1,4})?$/);
+  if (singleMonthPart) {
+    const d = singleMonthPart[1];
+    const m = '0' + singleMonthPart[2];
+    const y = singleMonthPart[3] || '';
+    if (y) return d + '-' + m + '-' + y;
+    return d + '-' + m + '-';
+  }
+
   // Replace separators with '-'
   const normalized = rawVal.replace(/[/.\s]/g, '-');
 
@@ -150,7 +230,7 @@ export function formatTypingDate(rawVal, prevVal = '', showTime = false) {
   const digits = normalized.replace(/\D/g, '');
 
   if (digits.length === 0) return '';
-  if (digits.length === 1) return digits; // E.g. '7' remains '7'
+  if (digits.length === 1) return digits; // E.g. '7' remains '7' without false auto-completions!
   if (digits.length === 2) {
     return `${digits}-`;
   }
@@ -195,13 +275,15 @@ export default function DatePicker({
   labelClassName = "",
   showTime = false,
 }) {
-  const dateValue = useMemo(() => {
+  const parsedValueRes = useMemo(() => {
     if (!value) return null;
-    return parseDateInput(value);
+    return validateAndParseDate(value);
   }, [value]);
 
+  const dateValue = parsedValueRes?.valid ? parsedValueRes.date : null;
+
   const [popoverOpen, setPopoverOpen] = useState(false);
-  const [textVal, setTextVal] = useState(() => formatDateToDisplay(dateValue, showTime));
+  const [textVal, setTextVal] = useState(() => (dateValue ? formatDateToDisplay(dateValue, showTime) : ''));
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
   const isFocusedRef = useRef(false);
@@ -315,7 +397,9 @@ export default function DatePicker({
     }
   };
 
-  // Manual typing change with BatchDateInput concept (only validates when full date is ready)
+  // Manual typing change with BatchDateInput concept:
+  // - Only validates when date is complete
+  // - Never prematurely fills month/year or displays false errors on single digits like '7'
   const handleInputChange = (e) => {
     const raw = e.target.value;
     if (!raw.trim()) {
@@ -329,22 +413,21 @@ export default function DatePicker({
     const formatted = formatTypingDate(raw, textVal, showTime);
     setTextVal(formatted);
 
-    // Only validate and fire onChange when 8 digits or 10 chars completed
+    // Validate if formatted text represents a complete valid date
     const cleanDigits = formatted.replace(/\D/g, '');
-    if (cleanDigits.length >= 8 || formatted.length >= 10) {
-      const parsed = parseDateInput(formatted);
-      if (parsed) {
-        if (typeof disabled === 'function' && disabled(parsed)) {
-          setError('This date is not permitted (check date restrictions)');
-          return;
-        }
-        setError(null);
-        onChange?.(parsed);
-      } else {
-        setError('Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
+    const res = validateAndParseDate(formatted);
+
+    if (res.valid && !res.empty) {
+      if (typeof disabled === 'function' && disabled(res.date)) {
+        setError('This date is not permitted (check date restrictions)');
+        return;
       }
+      setError(null);
+      onChange?.(res.date);
+    } else if (cleanDigits.length >= 8 || formatted.length >= 10) {
+      setError(res.error || 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
     } else {
-      // While user is still typing digits (e.g. '7', '12-', '12-12-'), clear error and do NOT fire premature onChange
+      // While user is still typing digits (e.g. '7', '07-', '12-', '12-12-'), clear error and do NOT fire premature onChange
       setError(null);
     }
   };
@@ -364,17 +447,26 @@ export default function DatePicker({
       return;
     }
 
-    const parsed = parseDateInput(textVal);
-    if (parsed) {
-      if (typeof disabled === 'function' && disabled(parsed)) {
+    const res = validateAndParseDate(textVal);
+    if (res.valid && !res.empty) {
+      if (typeof disabled === 'function' && disabled(res.date)) {
         setError('This date is not permitted');
         return;
       }
       setError(null);
-      setTextVal(formatDateToDisplay(parsed, showTime));
-      onChange?.(parsed);
+      setTextVal(formatDateToDisplay(res.date, showTime));
+      onChange?.(res.date);
     } else {
-      setError('Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
+      setError(res.error || 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
+    }
+  };
+
+  // Handle Enter key to commit/validate
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleBlur();
+      if (popoverOpen) setPopoverOpen(false);
     }
   };
 
@@ -418,6 +510,7 @@ export default function DatePicker({
           onFocus={handleFocus}
           onPaste={handlePaste}
           onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder || (showTime ? 'dd-mm-yyyy hh:mm' : 'dd-mm-yyyy')}
           disabled={isDisabled}
           maxLength={showTime ? 16 : 10}

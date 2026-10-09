@@ -163,6 +163,38 @@ export function formatTypingDate(rawVal, prevVal = '') {
     return rawVal;
   }
 
+  // Handle single digit day followed by separator: e.g. '7-' or '7/' or '7.' -> '07-'
+  const singleDayWithSep = rawVal.match(/^([1-9])[-/. ]$/);
+  if (singleDayWithSep) {
+    return '0' + singleDayWithSep[1] + '-';
+  }
+
+  // Handle single digit day with month: e.g. '7-10' -> '07-10-', '7-10-2026' -> '07-10-2026'
+  const singleDayPart = rawVal.match(/^([1-9])[-/. ](\d{1,2})?[-/. ]?(\d{1,4})?$/);
+  if (singleDayPart) {
+    const d = '0' + singleDayPart[1];
+    const m = singleDayPart[2] || '';
+    const y = singleDayPart[3] || '';
+    if (y) return d + '-' + (m.length === 1 ? '0' + m : m) + '-' + y;
+    if (m) {
+      const padM = (m.length === 2 || rawVal.endsWith('-') || rawVal.endsWith('/') || rawVal.endsWith('.')) 
+        ? (m.length === 1 ? '0' + m : m) + '-' 
+        : m;
+      return d + '-' + padM;
+    }
+    return d + '-';
+  }
+
+  // Handle two digit day with single digit month followed by separator: e.g. '12-5-' -> '12-05-'
+  const singleMonthPart = rawVal.match(/^(\d{2})[-/. ]([1-9])[-/. ](\d{1,4})?$/);
+  if (singleMonthPart) {
+    const d = singleMonthPart[1];
+    const m = '0' + singleMonthPart[2];
+    const y = singleMonthPart[3] || '';
+    if (y) return d + '-' + m + '-' + y;
+    return d + '-' + m + '-';
+  }
+
   const normalized = rawVal.replace(/[/.\s]/g, '-');
   const digits = normalized.replace(/\D/g, '');
 
@@ -253,16 +285,14 @@ export default function BatchDateInput({
     const formatted = formatTypingDate(raw, textVal);
     setTextVal(formatted);
 
-    // If 8 digits completed (or 10 chars with hyphens), validate immediately
+    // Validate if format represents a valid full date
     const cleanDigits = formatted.replace(/\D/g, '');
-    if (cleanDigits.length >= 8 || formatted.length >= 10) {
-      const res = validateAndParseDate(formatted);
-      if (res.valid && !res.empty) {
-        setError(null);
-        onChange?.(res.iso);
-      } else {
-        setError(res.error || 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
-      }
+    const res = validateAndParseDate(formatted);
+    if (res.valid && !res.empty) {
+      setError(null);
+      onChange?.(res.iso);
+    } else if (cleanDigits.length >= 8 || formatted.length >= 10) {
+      setError(res.error || 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
     } else {
       setError(null);
     }
