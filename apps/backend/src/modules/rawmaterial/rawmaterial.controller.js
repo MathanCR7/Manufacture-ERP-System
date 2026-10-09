@@ -98,7 +98,8 @@ exports.getPOs = async (req, res, next) => {
       orderBy: { createdAt: 'desc' },
       include: {
         uom: true,
-        supplier: true
+        supplier: true,
+        user: { select: { name: true, email: true } }
       }
     });
 
@@ -111,6 +112,19 @@ exports.getPOs = async (req, res, next) => {
       amount: po.amount,
       uom: po.uom ? (po.uom.abbreviation || po.uom.name) : null,
       supplierName: po.supplier ? po.supplier.name : null,
+      supplier: po.supplier ? {
+        id: po.supplier.id,
+        name: po.supplier.name,
+        contactPerson: po.supplier.contactPerson,
+        phone: po.supplier.phone,
+        email: po.supplier.email,
+        gstin: po.supplier.gstin,
+        pan: po.supplier.pan,
+        address: po.supplier.address,
+        openingBalance: po.supplier.openingBalance,
+        status: po.supplier.status
+      } : null,
+      supplierId: po.supplierId,
       expectedDelivery: po.expectedDelivery,
       status: po.status,
       createdAt: po.createdAt,
@@ -124,6 +138,9 @@ exports.getPOs = async (req, res, next) => {
       igst: po.igst,
       grandTotal: po.grandTotal,
       items: po.items,
+      notes: po.notes,
+      creator: po.user?.name || 'Admin Master',
+      createdBy: po.user,
       batchQuantity: po.batchQuantity ? parseFloat(po.batchQuantity) : null,
       weight: po.weight,
       mfgBatchNo: po.mfgBatchNo,

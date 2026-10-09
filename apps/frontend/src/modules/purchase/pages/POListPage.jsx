@@ -18,6 +18,7 @@ import {
 import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
 import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
 import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
+import useCompanyStore from '@/app/store/companyStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
@@ -433,6 +434,48 @@ export default function POListPage() {
     mutationFn: async (id) => { await api.delete(`/rm/po/${id}`); },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['pos'] }); }
   });
+
+  useEffect(() => {
+    useCompanyStore.getState().fetchCompany();
+  }, []);
+
+  const handleExportPDF = async (po) => {
+    try {
+      let fullPo = po;
+      if (!po.supplier?.address || !po.supplier?.gstin || !po.items || !Array.isArray(po.items) || po.items.length === 0) {
+        try {
+          const res = await api.get(`/rm/po/${po.id}`);
+          if (res.data) fullPo = res.data;
+        } catch (fetchErr) {
+          console.warn('Fallback to local PO data:', fetchErr);
+        }
+      }
+      await useCompanyStore.getState().fetchCompany();
+      generatePurchaseOrderPDF(fullPo);
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      generatePurchaseOrderPDF(po);
+    }
+  };
+
+  const handleExportExcel = async (po) => {
+    try {
+      let fullPo = po;
+      if (!po.supplier?.address || !po.supplier?.gstin || !po.items || !Array.isArray(po.items) || po.items.length === 0) {
+        try {
+          const res = await api.get(`/rm/po/${po.id}`);
+          if (res.data) fullPo = res.data;
+        } catch (fetchErr) {
+          console.warn('Fallback to local PO data:', fetchErr);
+        }
+      }
+      await useCompanyStore.getState().fetchCompany();
+      exportPurchaseOrderToExcel(fullPo);
+    } catch (err) {
+      console.error('Error exporting Excel:', err);
+      exportPurchaseOrderToExcel(po);
+    }
+  };
 
   const augmentedPos = useMemo(() => {
     return (pos || []).map(po => {
@@ -1021,7 +1064,7 @@ export default function POListPage() {
                             <Button
                               variant="ghost" 
                               size="icon"
-                              onClick={() => generatePurchaseOrderPDF(po)}
+                              onClick={() => handleExportPDF(po)}
                               className="h-7 w-7 rounded-lg text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer shrink-0"
                               title="Download PDF"
                             >
@@ -1030,7 +1073,7 @@ export default function POListPage() {
                             <Button
                               variant="ghost" 
                               size="icon"
-                              onClick={() => exportPurchaseOrderToExcel(po)}
+                              onClick={() => handleExportExcel(po)}
                               className="h-7 w-7 rounded-lg text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer shrink-0"
                               title="Export to Excel (.xlsx)"
                             >

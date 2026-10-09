@@ -94,7 +94,7 @@ export function generatePurchaseOrderPDF(rawData) {
 
     // ── SECTION 1 & 2: TWO COLUMNS (ORDER & SUPPLIER INFO + INVOICE & LOGISTICS) ──
     const colW = (contentWidth - 5) / 2;
-    const cardH = 43;
+    const cardH = 46;
 
     // Left Card: Supplier & Order Information
     doc.setFillColor(...bgLight);
@@ -116,32 +116,35 @@ export function generatePurchaseOrderPDF(rawData) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.8);
     doc.setTextColor(...darkTextColor);
-    const supName = data.supplier.name || 'Vendor / Supplier';
-    doc.text(supName.substring(0, 36), margin + 3.5, curY + 11);
+    const supName = data.supplier.name && data.supplier.name !== '—' ? data.supplier.name : 'Vendor / Supplier';
+    doc.text(supName.substring(0, 42), margin + 3.5, curY + 11);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(71, 85, 105);
 
-    let supY = curY + 15;
+    let supY = curY + 14.8;
     if (data.supplier.contactPerson && data.supplier.contactPerson !== '—') {
       doc.text(`Contact: ${data.supplier.contactPerson}`, margin + 3.5, supY);
-      supY += 3.8;
+      supY += 3.6;
     }
 
-    const supAddr = doc.splitTextToSize(data.supplier.address || 'Address on file', colW - 7);
+    const supAddr = doc.splitTextToSize(data.supplier.address && data.supplier.address !== '—' ? data.supplier.address : 'Address on file', colW - 7);
     doc.text(supAddr.slice(0, 2), margin + 3.5, supY);
-    supY += Math.min(supAddr.length, 2) * 3.6;
+    supY += Math.min(supAddr.length, 2) * 3.4;
 
     doc.setFont('helvetica', 'bold');
     doc.text(`GSTIN: ${data.supplier.gstin}`, margin + 3.5, supY);
     doc.setFont('helvetica', 'normal');
     doc.text(`PAN: ${data.supplier.pan}`, margin + 3.5 + 40, supY);
-    supY += 3.8;
+    supY += 3.6;
 
-    const contactStr = `Phone: ${data.supplier.phone}${data.supplier.email && data.supplier.email !== '—' ? ` | ${data.supplier.email}` : ''}`;
-    doc.text(contactStr.substring(0, 48), margin + 3.5, supY);
-    supY += 3.8;
+    const contactParts = [];
+    if (data.supplier.phone && data.supplier.phone !== '—') contactParts.push(`Phone: ${data.supplier.phone}`);
+    if (data.supplier.email && data.supplier.email !== '—') contactParts.push(`Email: ${data.supplier.email}`);
+    const contactStr = contactParts.length > 0 ? contactParts.join(' | ') : `Phone: ${data.supplier.phone || '—'}`;
+    doc.text(contactStr.substring(0, 52), margin + 3.5, supY);
+    supY += 3.6;
 
     doc.text(`Status: ${data.purchaseStatus}  |  By: ${data.creator}`, margin + 3.5, supY);
 

@@ -14,7 +14,51 @@ export function normalizePOData(rawInput = {}) {
   const orderDate = rawData.orderDate || rawData.createdAt || new Date();
   const expectedDelivery = rawData.expectedDelivery || rawData.deliveryDate || rawData.expectedDate;
   const purchaseStatus = (rawData.purchaseStatus || rawData.status || 'DRAFT').toUpperCase();
-  const selectedSupplier = rawData.selectedSupplier || rawData.supplier || rawData.vendor || {};
+  const rawSupplier = rawData.selectedSupplier || rawData.supplier || rawData.vendor || rawData.supplierDetails;
+  const supplierObj = (rawSupplier && typeof rawSupplier === 'object') ? rawSupplier : {};
+
+  const supplierName = supplierObj.name 
+    || (typeof rawSupplier === 'string' ? rawSupplier : '')
+    || rawData.supplierName 
+    || '—';
+
+  const supplierContactPerson = supplierObj.contactPerson 
+    || supplierObj.contactName 
+    || supplierObj.contact_person 
+    || rawData.contactPerson 
+    || rawData.contactName 
+    || '—';
+
+  const supplierPhone = supplierObj.phone 
+    || supplierObj.mobile 
+    || supplierObj.phoneNumber 
+    || rawData.phone 
+    || rawData.mobile 
+    || '—';
+
+  const supplierEmail = supplierObj.email 
+    || rawData.email 
+    || '—';
+
+  const supplierGstin = supplierObj.gstin 
+    || supplierObj.gst 
+    || supplierObj.gstNumber 
+    || rawData.gstin 
+    || rawData.gst 
+    || '—';
+
+  const supplierPan = supplierObj.pan 
+    || supplierObj.panNumber 
+    || rawData.pan 
+    || (supplierGstin !== '—' && supplierGstin.length >= 12 ? supplierGstin.substring(2, 12) : '—');
+
+  const formattedSupplierAddress = [
+    supplierObj.address,
+    supplierObj.city,
+    supplierObj.state,
+    supplierObj.pincode ? `PIN: ${supplierObj.pincode}` : ''
+  ].filter(Boolean).join(', ') || supplierObj.address || rawData.supplierAddress || rawData.address || '—';
+
   const supplierInvoiceNo = rawData.supplierInvoiceNo || rawData.invoiceNo || '—';
   const supplierInvoiceDate = rawData.supplierInvoiceDate || rawData.invoiceDate;
   const transportMode = rawData.transportMode || 'ROAD';
@@ -24,13 +68,31 @@ export function normalizePOData(rawInput = {}) {
   const ewayBillNo = rawData.ewayBillNo || rawData.ewayBillNumber || '—';
   const ewayBillDate = rawData.ewayBillDate;
   const tillDate = rawData.tillDate;
-  const items = (Array.isArray(rawData.items) && rawData.items.length > 0)
+
+  const rawItemsList = (Array.isArray(rawData.items) && rawData.items.length > 0)
     ? rawData.items
     : (Array.isArray(rawData.orderItems) && rawData.orderItems.length > 0)
       ? rawData.orderItems
       : (Array.isArray(rawData.purchaseOrderItems) && rawData.purchaseOrderItems.length > 0)
         ? rawData.purchaseOrderItems
-        : [];
+        : (rawData.name ? [{
+            id: rawData.rmId || 'item-1',
+            code: rawData.rmId || 'RM-00001',
+            name: rawData.name,
+            quantity: parseFloat(rawData.quantity) || 1,
+            unitPrice: rawData.amount && rawData.quantity ? (parseFloat(rawData.amount) / (parseFloat(rawData.quantity) || 1)) : (parseFloat(rawData.amount) || 0),
+            subtotal: parseFloat(rawData.subtotal || rawData.amount) || 0,
+            uom: rawData.uom?.abbreviation || rawData.uom || 'units',
+            batchNumber: rawData.mfgBatchNo,
+            weight: rawData.weight,
+            mfgDate: rawData.mfgDate,
+            expDate: rawData.expDate,
+            gstPercentage: 18,
+            gstPercent: 18,
+            gstApplicable: true
+          }] : []);
+  const items = rawItemsList;
+
   const discount = parseFloat(rawData.discount) || 0;
   const shipping = parseFloat(rawData.shipping || rawData.freight) || 0;
   const shippingGstApplicable = rawData.shippingGstApplicable === true || rawData.shippingGst === true;
@@ -44,7 +106,10 @@ export function normalizePOData(rawInput = {}) {
   const otherChargesLabel = rawData.otherChargesLabel || 'Other Charges';
 
   const subtotal = parseFloat(rawData.subtotal) || 0;
-  const isInterState = !!rawData.isInterState;
+  const cleanGstin = supplierGstin !== '—' ? supplierGstin.trim() : '';
+  const isInterState = rawData.isInterState !== undefined 
+    ? Boolean(rawData.isInterState) 
+    : (cleanGstin ? !cleanGstin.startsWith('33') : false);
   const cgstAmount = parseFloat(rawData.cgstAmount) || 0;
   const sgstAmount = parseFloat(rawData.sgstAmount) || 0;
   const igstAmount = parseFloat(rawData.igstAmount) || 0;
@@ -138,13 +203,6 @@ export function normalizePOData(rawInput = {}) {
     }
   };
 
-  const formattedSupplierAddress = [
-    selectedSupplier?.address,
-    selectedSupplier?.city,
-    selectedSupplier?.state,
-    selectedSupplier?.pincode ? `PIN: ${selectedSupplier.pincode}` : ''
-  ].filter(Boolean).join(', ') || selectedSupplier?.address || '—';
-
   return {
     referenceNo: referenceNo || 'PO DRAFT',
     orderDate: formatDateVal(orderDate || new Date()),
@@ -154,12 +212,12 @@ export function normalizePOData(rawInput = {}) {
     creator: creator || 'Admin Master',
     createdAt: format(new Date(), 'dd MMM yyyy, HH:mm'),
     supplier: {
-      name: selectedSupplier?.name || '—',
-      contactPerson: selectedSupplier?.contactPerson || selectedSupplier?.contactName || '—',
-      phone: selectedSupplier?.phone || selectedSupplier?.mobile || '—',
-      email: selectedSupplier?.email || '—',
-      gstin: selectedSupplier?.gstin || selectedSupplier?.gst || '—',
-      pan: selectedSupplier?.pan || '—',
+      name: supplierName,
+      contactPerson: supplierContactPerson,
+      phone: supplierPhone,
+      email: supplierEmail,
+      gstin: supplierGstin,
+      pan: supplierPan,
       address: formattedSupplierAddress
     },
     taxRule: isInterState ? 'IGST (Interstate)' : 'CGST+SGST (Intrastate)',
