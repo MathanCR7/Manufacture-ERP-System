@@ -113,9 +113,17 @@ export default function ReceiveDeliveryPage() {
       amountPaid: String(poTotal || 0)
     }));
 
+    const usedBatchTracker = new Set();
     const getInitBatch = (name) => {
-      const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
-      return `BATCH-${clean || 'RM'}-001`;
+      const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'RM';
+      let seq = 1;
+      let cand = `BATCH-${clean}-${String(seq).padStart(3, '0')}`;
+      while (usedBatchTracker.has(cand)) {
+        seq++;
+        cand = `BATCH-${clean}-${String(seq).padStart(3, '0')}`;
+      }
+      usedBatchTracker.add(cand);
+      return cand;
     };
 
     // Calculate previous receipts per raw material from all existing GRNs
@@ -148,22 +156,36 @@ export default function ReceiveDeliveryPage() {
 
         // Extract batches from PO item if present
         let initialBatches = [];
-        const baseBatch = (it.baseBatchNumber || it.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
-        if (!isCompleted && Array.isArray(it.batches) && it.batches.length > 0) {
-          initialBatches = it.batches.map((b, bIdx, arr) => ({
-            id: b.id || `b-${itemIdentifier}-${bIdx + 1}`,
-            batchNumber: b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch),
-            quantity: Number(b.quantity ?? b.batchQuantity ?? (bIdx === 0 ? actualReceivedQty : 0)),
-            batchQuantity: Number(b.batchQuantity ?? b.quantity ?? (bIdx === 0 ? actualReceivedQty : 0)),
-            weight: b.weight || it.weight || '',
-            mfgBatchNo: b.mfgBatchNo || b.batchNo || it.mfgBatchNo || '',
-            mfgDate: toInputDate(b.mfgDate || it.mfgDate || po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
-            expDate: toInputDate(b.expDate || it.expDate || po.expDate) || '',
-          }));
+        let baseBatch = (it.baseBatchNumber || it.batchNumber || '').replace(/-[A-Z]$/, '').trim();
+        if (!baseBatch || usedBatchTracker.has(baseBatch)) {
+          baseBatch = getInitBatch(it.name);
         } else {
+          usedBatchTracker.add(baseBatch);
+        }
+
+        if (!isCompleted && Array.isArray(it.batches) && it.batches.length > 0) {
+          initialBatches = it.batches.map((b, bIdx, arr) => {
+            let bNum = b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch);
+            if (usedBatchTracker.has(bNum) && bNum !== baseBatch) {
+              bNum = `${baseBatch}-${String.fromCharCode(65 + bIdx)}`;
+            }
+            usedBatchTracker.add(bNum);
+            return {
+              id: b.id || `b-${itemIdentifier}-${bIdx + 1}`,
+              batchNumber: bNum,
+              quantity: Number(b.quantity ?? b.batchQuantity ?? (bIdx === 0 ? actualReceivedQty : 0)),
+              batchQuantity: Number(b.batchQuantity ?? b.quantity ?? (bIdx === 0 ? actualReceivedQty : 0)),
+              weight: b.weight || it.weight || '',
+              mfgBatchNo: b.mfgBatchNo || b.batchNo || it.mfgBatchNo || '',
+              mfgDate: toInputDate(b.mfgDate || it.mfgDate || po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
+              expDate: toInputDate(b.expDate || it.expDate || po.expDate) || '',
+            };
+          });
+        } else {
+          usedBatchTracker.add(baseBatch);
           initialBatches = [{
             id: `b-${itemIdentifier}-1`,
-            batchNumber: it.batchNumber || baseBatch,
+            batchNumber: baseBatch,
             quantity: actualReceivedQty,
             batchQuantity: actualReceivedQty,
             weight: it.weight || '',
@@ -211,11 +233,11 @@ export default function ReceiveDeliveryPage() {
       const remainingPendingQty = Math.max(0, totalOrderedQty - prevReceivedQty);
       const isCompleted = remainingPendingQty <= 0 && totalOrderedQty > 0;
       const actualReceivedQty = isCompleted ? 0 : remainingPendingQty;
-      const baseBatch = (po.baseBatchNumber || po.batchNumber || getInitBatch(po.name)).replace(/-[A-Z]$/, '');
+      const baseBatch = getInitBatch(po.name);
 
       const initialBatches = [{
         id: `b-${po.rmId}-1`,
-        batchNumber: po.batchNumber || baseBatch,
+        batchNumber: baseBatch,
         quantity: actualReceivedQty,
         batchQuantity: actualReceivedQty,
         weight: po.weight || '',
@@ -235,8 +257,8 @@ export default function ReceiveDeliveryPage() {
         expectedQty: remainingPendingQty,
         actualReceivedQty: actualReceivedQty,
         returnQty: 0,
-        baseBatchNumber: getInitBatch(po.name),
-        batchNumber: getInitBatch(po.name),
+        baseBatchNumber: baseBatch,
+        batchNumber: baseBatch,
         mfgBatchNo: po.mfgBatchNo || '',
         mfgDate: toInputDate(po.mfgDate) || format(new Date(), 'yyyy-MM-dd'),
         expiryDate: toInputDate(po.expDate) || '',
@@ -257,30 +279,47 @@ export default function ReceiveDeliveryPage() {
     // Never auto-check final delivery! Fulfillment is strictly user-controlled via the checkbox
     setIsFinalDelivery(false);
 
-    // Auto-fetch server sequential batch numbers for each item
-    rawItems.forEach(async (item, idx) => {
-      try {
-        const res = await api.get(`/grn/next-batch/${encodeURIComponent(item.rmId)}?rmName=${encodeURIComponent(item.rmName)}`);
-        const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
-        if (generated) {
-          setItems(prev => prev.map((it, i) => {
-            if (i !== idx) return it;
-            const updatedBatches = (it.batches || []).map((b, bi, arr) => ({
-              ...b,
-              batchNumber: b.batchNumber || (arr.length > 1 ? `${generated}-${String.fromCharCode(65 + bi)}` : generated)
+    // Auto-fetch server sequential batch numbers for each item sequentially
+    (async () => {
+      const assignedBatches = new Set();
+      for (let idx = 0; idx < rawItems.length; idx++) {
+        const item = rawItems[idx];
+        if (item.isCompleted) continue;
+        try {
+          const res = await api.get(`/grn/next-batch/${encodeURIComponent(item.rmId)}?rmName=${encodeURIComponent(item.rmName)}`);
+          let generated = res.data?.batchNumber || res.data?.nextBatchNumber;
+          if (generated) {
+            // Disambiguate if already used in this PO
+            if (assignedBatches.has(generated)) {
+              let seq = 2;
+              let disambiguated = `${generated.replace(/-\d+$/, '')}-${String(seq).padStart(3, '0')}`;
+              while (assignedBatches.has(disambiguated)) {
+                seq++;
+                disambiguated = `${generated.replace(/-\d+$/, '')}-${String(seq).padStart(3, '0')}`;
+              }
+              generated = disambiguated;
+            }
+            assignedBatches.add(generated);
+
+            setItems(prev => prev.map((it, i) => {
+              if (i !== idx) return it;
+              const updatedBatches = (it.batches || []).map((b, bi, arr) => ({
+                ...b,
+                batchNumber: arr.length > 1 ? `${generated}-${String.fromCharCode(65 + bi)}` : generated
+              }));
+              return {
+                ...it,
+                baseBatchNumber: generated,
+                batchNumber: updatedBatches[0]?.batchNumber || generated,
+                batches: updatedBatches,
+              };
             }));
-            return {
-              ...it,
-              baseBatchNumber: it.baseBatchNumber || generated,
-              batchNumber: it.batchNumber || updatedBatches[0]?.batchNumber || generated,
-              batches: updatedBatches,
-            };
-          }));
+          }
+        } catch (e) {
+          console.warn('Auto batch fetch fallback used for', item.rmName);
         }
-      } catch (e) {
-        console.warn('Auto batch fetch fallback used for', item.rmName);
       }
-    });
+    })();
 
   }, [po]);
 
@@ -506,48 +545,62 @@ export default function ReceiveDeliveryPage() {
       invoiceNumber: transportForm.invoiceNumber?.trim() || null,
       invoiceDate: transportForm.invoiceDate ? new Date(transportForm.invoiceDate).toISOString() : null,
 
-      // Only send items being received in this delivery
-      items: receivingItems.map(it => {
-        const currentBatches = Array.isArray(it.batches) && it.batches.length > 0 ? it.batches : [{
-          batchNumber: it.batchNumber?.trim(),
-          quantity: Number(it.actualReceivedQty),
-          batchQuantity: Number(it.actualReceivedQty),
-          weight: it.weight || '',
-          mfgBatchNo: it.mfgBatchNo || '',
-          mfgDate: it.mfgDate ? new Date(it.mfgDate).toISOString() : null,
-          expDate: it.expiryDate ? new Date(it.expiryDate).toISOString() : null,
-        }];
+      // Only send items being received in this delivery with unique batch numbers
+      items: (() => {
+        const payloadBatchesUsed = new Set();
+        return receivingItems.map(it => {
+          const currentBatches = Array.isArray(it.batches) && it.batches.length > 0 ? it.batches : [{
+            batchNumber: it.batchNumber?.trim(),
+            quantity: Number(it.actualReceivedQty),
+            batchQuantity: Number(it.actualReceivedQty),
+            weight: it.weight || '',
+            mfgBatchNo: it.mfgBatchNo || '',
+            mfgDate: it.mfgDate ? new Date(it.mfgDate).toISOString() : null,
+            expDate: it.expiryDate ? new Date(it.expiryDate).toISOString() : null,
+          }];
 
-        const firstB = currentBatches[0] || {};
+          const firstB = currentBatches[0] || {};
+          let itemBatchNum = (firstB.batchNumber || it.batchNumber)?.trim() || 'BATCH-RM-001';
+          if (payloadBatchesUsed.has(itemBatchNum)) {
+            let seq = 2;
+            let cand = `${itemBatchNum.replace(/-\d+$/, '')}-${String(seq).padStart(3, '0')}`;
+            while (payloadBatchesUsed.has(cand)) {
+              seq++;
+              cand = `${itemBatchNum.replace(/-\d+$/, '')}-${String(seq).padStart(3, '0')}`;
+            }
+            itemBatchNum = cand;
+          }
+          payloadBatchesUsed.add(itemBatchNum);
 
-        return {
-          rmId: it.rmId,
-          rmName: it.rmName,
-          expectedQty: Number(it.expectedQty),
-          actualReceivedQty: Number(it.actualReceivedQty),
-          returnQty: Number(it.rejectedQty || it.returnQty || 0),
-          batchNumber: (firstB.batchNumber || it.batchNumber)?.trim(),
-          mfgDate: firstB.mfgDate ? new Date(firstB.mfgDate).toISOString() : (it.mfgDate ? new Date(it.mfgDate).toISOString() : null),
-          expiryDate: firstB.expDate ? new Date(firstB.expDate).toISOString() : (it.expiryDate ? new Date(it.expiryDate).toISOString() : null),
-          weight: firstB.weight || it.weight || null,
-          batches: currentBatches.map(b => ({
-            id: b.id,
-            batchNumber: b.batchNumber,
-            quantity: Number(b.quantity || b.batchQuantity || 0),
-            batchQuantity: Number(b.batchQuantity || b.quantity || 0),
-            weight: b.weight || '',
-            mfgBatchNo: b.mfgBatchNo || '',
-            mfgDate: b.mfgDate ? new Date(b.mfgDate).toISOString() : null,
-            expDate: b.expDate ? new Date(b.expDate).toISOString() : null,
-          })),
-          inspectionStatus: it.inspectionStatus || 'ACCEPTED',
-          coaRequired: Boolean(it.coaRequired),
-          coaNumber: it.coaNumber?.trim() || null,
-          rejectedQty: Number(it.rejectedQty || 0),
-          rejectionReason: it.rejectionReason?.trim() || null,
-          labTestRequired: it.labTestRequired !== false,
-        };
-      }),
+          return {
+            rmId: it.rmId,
+            rmName: it.rmName,
+            expectedQty: Number(it.expectedQty),
+            actualReceivedQty: Number(it.actualReceivedQty),
+            returnQty: Number(it.rejectedQty || it.returnQty || 0),
+            batchNumber: itemBatchNum,
+            mfgDate: firstB.mfgDate ? new Date(firstB.mfgDate).toISOString() : (it.mfgDate ? new Date(it.mfgDate).toISOString() : null),
+            expiryDate: firstB.expDate ? new Date(firstB.expDate).toISOString() : (it.expiryDate ? new Date(it.expiryDate).toISOString() : null),
+            weight: firstB.weight || it.weight || null,
+            batches: currentBatches.map((b, bi) => ({
+              id: b.id,
+              batchNumber: currentBatches.length > 1 ? `${itemBatchNum}-${String.fromCharCode(65 + bi)}` : itemBatchNum,
+              quantity: Number(b.quantity || b.batchQuantity || 0),
+              batchQuantity: Number(b.batchQuantity || b.quantity || 0),
+              weight: b.weight || '',
+              mfgBatchNo: b.mfgBatchNo || '',
+              mfgDate: b.mfgDate ? new Date(b.mfgDate).toISOString() : null,
+              expDate: b.expDate ? new Date(b.expDate).toISOString() : null,
+            })),
+            inspectionStatus: it.inspectionStatus || 'ACCEPTED',
+            coaRequired: Boolean(it.coaRequired),
+            coaNumber: it.coaNumber?.trim() || null,
+            rejectedQty: Number(it.rejectedQty || 0),
+            rejectionReason: it.rejectionReason?.trim() || null,
+            labTestRequired: it.labTestRequired !== false,
+          };
+        });
+      })(),
     };
 
     mutation.mutate(payload);

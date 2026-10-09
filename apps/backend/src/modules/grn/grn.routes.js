@@ -494,8 +494,8 @@ router.post('/receive',
               }
 
               const existingBatch = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
-              if (existingBatch && existingBatch.poId === po.id) {
-                // Same PO delivering with same batch: increment stock quantity in batch
+              if (existingBatch && existingBatch.poId === po.id && existingBatch.rawMaterialId === rm.id) {
+                // Exactly same raw material delivering with same batch within this PO: increment stock quantity in batch
                 await tx.inventoryBatch.update({
                   where: { id: existingBatch.id },
                   data: {
@@ -505,8 +505,16 @@ router.post('/receive',
                 });
                 console.log(`[EXEMPT ITEM] InventoryBatch ${batchNum} incremented for ${item.rmName} (+${acceptedQty})`);
               } else {
+                let uniqueBatchNum = batchNum;
                 if (existingBatch) {
-                  batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
+                  // Batch number already taken by another material or another PO:
+                  // Generate next unique batch number for this material
+                  const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
+                  uniqueBatchNum = auto.batchNumber;
+                  while (await tx.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } })) {
+                    const cleanCode = (rm.code || item.rmId || 'RM').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+                    uniqueBatchNum = `${batchNum}-${cleanCode}-${Date.now().toString().slice(-4)}`;
+                  }
                 }
 
                 const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });
@@ -514,7 +522,7 @@ router.post('/receive',
 
                 await tx.inventoryBatch.create({
                   data: {
-                    batchNumber: batchNum,
+                    batchNumber: uniqueBatchNum,
                     poId: g.poId,
                     grnId: g.id,
                     rawMaterialId: rm.id,
@@ -532,7 +540,7 @@ router.post('/receive',
                     addedBy: req.user.id,
                   }
                 });
-                console.log(`[EXEMPT ITEM] InventoryBatch ${batchNum} created at receipt for ${item.rmName} (+${acceptedQty})`);
+                console.log(`[EXEMPT ITEM] InventoryBatch ${uniqueBatchNum} created at receipt for ${item.rmName} (+${acceptedQty})`);
               }
             }
           }
@@ -719,6 +727,113 @@ router.get('/receive/:id',
         }
       });
       if (!grn) return res.status(404).json({ error: 'GRN not found' });
+
+      // Multi-Item GRN Auto-Healing: Ensure every accepted item in this GRN has an active InventoryBatch record
+      if ((grn.status === 'LAB_APPROVED' || grn.isExempt || grn.inventoryStatus === 'UPLOADED') && Array.isArray(grn.items) && grn.items.length > 0) {
+        let batchesModified = false;
+        const acceptedItems = grn.items.filter(it => (Number(it.actualReceivedQty) - Number(it.returnQty || it.rejectedQty || 0)) > 0);
+
+        for (const it of acceptedItems) {
+          const acceptedQty = Math.max(0, Number(it.actualReceivedQty) - Number(it.returnQty || it.rejectedQty || 0));
+
+          // Look for this item in grn.inventoryBatches by rawMaterialId, rmName or rmId
+          const matchingBatch = grn.inventoryBatches.find(b => 
+            (b.rawMaterialId && (b.rawMaterialId === it.rmId || b.rawMaterialId === it.id)) ||
+            (b.rawMaterialName && it.rmName && b.rawMaterialName.trim().toLowerCase() === it.rmName.trim().toLowerCase())
+          );
+
+          if (!matchingBatch) {
+            // Find the RawMaterial record
+            let rm = await prisma.rawMaterial.findFirst({
+              where: { OR: [{ code: it.rmId }, { id: it.rmId }] }
+            });
+            if (!rm && it.rmName) {
+              rm = await prisma.rawMaterial.findFirst({
+                where: { name: { equals: it.rmName, mode: 'insensitive' } }
+              });
+            }
+
+            // Check if another batch in this GRN was lumped with this item's quantity
+            const lumpedBatch = grn.inventoryBatches.find(b => Number(b.netQty) > acceptedQty);
+            if (lumpedBatch) {
+              const matchingItemForLumped = acceptedItems.find(ai => 
+                (ai.rmId === lumpedBatch.rawMaterialId) ||
+                (ai.rmName && lumpedBatch.rawMaterialName && ai.rmName.trim().toLowerCase() === lumpedBatch.rawMaterialName.trim().toLowerCase())
+              );
+              if (matchingItemForLumped) {
+                const properLumpedQty = Math.max(0, Number(matchingItemForLumped.actualReceivedQty) - Number(matchingItemForLumped.returnQty || matchingItemForLumped.rejectedQty || 0));
+                if (Number(lumpedBatch.netQty) > properLumpedQty) {
+                  await prisma.inventoryBatch.update({
+                    where: { id: lumpedBatch.id },
+                    data: {
+                      receivedQty: properLumpedQty,
+                      netQty: properLumpedQty
+                    }
+                  });
+                  batchesModified = true;
+                }
+              }
+            }
+
+            // Generate unique batch number for this missing item
+            let uniqueBatchNum = it.batchNumber?.trim();
+            if (!uniqueBatchNum || (await prisma.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } }))) {
+              const auto = await getNextBatchForRM(it.rmId, it.rmName, prisma);
+              uniqueBatchNum = auto.batchNumber;
+              while (await prisma.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } })) {
+                uniqueBatchNum = `BATCH-${(it.rmName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}-${Date.now().toString().slice(-4)}`;
+              }
+            }
+
+            const category = rm ? await prisma.rMCategory.findUnique({ where: { id: rm.categoryId } }) : null;
+            const batchUomId = await resolveBatchUomId(it, rm, grn.po, prisma);
+
+            await prisma.inventoryBatch.create({
+              data: {
+                batchNumber: uniqueBatchNum,
+                poId: grn.poId,
+                grnId: grn.id,
+                rawMaterialId: rm?.id || it.rmId,
+                rawMaterialName: it.rmName || rm?.name || 'Raw Material',
+                rmCategory: category?.name || null,
+                supplierId: grn.po?.supplierId || null,
+                receivedQty: it.actualReceivedQty,
+                sampleQty: 0,
+                netQty: acceptedQty,
+                uomId: batchUomId,
+                storageLocation: null,
+                mfgDate: it.mfgDate ? new Date(it.mfgDate) : null,
+                expiryDate: it.expiryDate ? new Date(it.expiryDate) : null,
+                status: 'AVAILABLE',
+                addedBy: grn.receivedBy || grn.po?.createdBy,
+              }
+            });
+
+            // Reconcile RM currentStock
+            if (rm) {
+              const currentInvSum = await prisma.inventoryBatch.aggregate({
+                where: { rawMaterialId: rm.id, status: 'AVAILABLE' },
+                _sum: { netQty: true }
+              });
+              if (currentInvSum._sum.netQty != null) {
+                await prisma.rawMaterial.update({
+                  where: { id: rm.id },
+                  data: { currentStock: currentInvSum._sum.netQty }
+                });
+              }
+            }
+            batchesModified = true;
+          }
+        }
+
+        if (batchesModified) {
+          grn.inventoryBatches = await prisma.inventoryBatch.findMany({
+            where: { grnId: grn.id },
+            include: { uom: true },
+            orderBy: { createdAt: 'desc' }
+          });
+        }
+      }
 
       // Fetch all sibling GRNs for this PO if available
       let allGrnsForPO = [];
@@ -1042,15 +1157,21 @@ router.post('/lab-test',
                 batchNum = auto.batchNumber;
               }
 
+              const targetRmId = rm?.id || item.rmId || 'unknown';
               const existingBatch = await tx.inventoryBatch.findFirst({
-                where: { grnId: grn.id, batchNumber: batchNum }
+                where: { grnId: grn.id, rawMaterialId: targetRmId }
               });
 
               if (!existingBatch) {
-                const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
-                if (clash) {
-                  batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
+                let candidateBatchNum = batchNum;
+                let clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: candidateBatchNum } });
+                let counter = 1;
+                while (clash) {
+                  candidateBatchNum = `${batchNum}-${counter}`;
+                  clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: candidateBatchNum } });
+                  counter++;
                 }
+                batchNum = candidateBatchNum;
 
                 const netQty = Math.max(0, Number(item.actualReceivedQty) - Number(item.returnQty || item.rejectedQty || 0));
                 const category = rm ? await tx.rMCategory.findUnique({ where: { id: rm.categoryId } }) : null;

@@ -31,8 +31,15 @@ async function getNextBatchForRM(rmId, rmName, tx = prisma) {
     }
   });
 
-  const nextSeq = Math.max(invCount, grnCount) + 1;
-  const batchNumber = `BATCH-${cleanName || 'RM'}-${String(nextSeq).padStart(3, '0')}`;
+  let nextSeq = Math.max(invCount, grnCount) + 1;
+  let batchNumber = `BATCH-${cleanName || 'RM'}-${String(nextSeq).padStart(3, '0')}`;
+
+  // Guarantee absolute uniqueness across all inventory batches
+  while (await tx.inventoryBatch.findUnique({ where: { batchNumber } })) {
+    nextSeq++;
+    batchNumber = `BATCH-${cleanName || 'RM'}-${String(nextSeq).padStart(3, '0')}`;
+  }
+
   return {
     sequence: nextSeq,
     batchNumber,
@@ -274,9 +281,13 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
         const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
         batchNum = auto.batchNumber;
       }
-      const clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
+      let clash = await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } });
       if (clash) {
-        batchNum = `${batchNum}-${Date.now().toString().slice(-4)}`;
+        const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
+        batchNum = auto.batchNumber;
+        while (await tx.inventoryBatch.findUnique({ where: { batchNumber: batchNum } })) {
+          batchNum = `${auto.batchNumber}-${Date.now().toString().slice(-4)}`;
+        }
       }
 
       const category = await tx.rMCategory.findUnique({ where: { id: rm.categoryId } });

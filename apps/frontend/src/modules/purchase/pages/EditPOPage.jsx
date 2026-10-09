@@ -501,24 +501,45 @@ export default function EditPOPage({ id: propId, onBack }) {
     try {
       const codeOrId = item.rmId || item.code || item.id;
       const res = await api.get(`/grn/next-batch/${encodeURIComponent(codeOrId)}?rmName=${encodeURIComponent(item.name)}`);
-      const generated = res.data?.batchNumber || res.data?.nextBatchNumber;
+      let generated = res.data?.batchNumber || res.data?.nextBatchNumber;
       if (generated) {
-        setForm(prev => ({
-          ...prev,
-          items: (prev.items || []).map(it => {
-            if (it.id !== item.id) return it;
-            const updatedBatches = (it.batches || []).map((b, bi, arr) => ({
-              ...b,
-              batchNumber: arr.length > 1 ? `${generated}-${String.fromCharCode(65 + bi)}` : generated
-            }));
-            return {
-              ...it,
-              baseBatchNumber: generated,
-              batchNumber: updatedBatches[0]?.batchNumber || generated,
-              batches: updatedBatches,
-            };
-          })
-        }));
+        setForm(prev => {
+          const otherBatches = new Set();
+          (prev.items || []).forEach(it => {
+            if (it.id !== item.id) {
+              if (it.batchNumber) otherBatches.add(it.batchNumber);
+              if (it.baseBatchNumber) otherBatches.add(it.baseBatchNumber);
+              (it.batches || []).forEach(b => { if (b.batchNumber) otherBatches.add(b.batchNumber); });
+            }
+          });
+
+          if (otherBatches.has(generated)) {
+            let seq = 2;
+            let disambiguated = `${generated.replace(/-\d+$/, '')}-${String(seq).padStart(3, '0')}`;
+            while (otherBatches.has(disambiguated)) {
+              seq++;
+              disambiguated = `${generated.replace(/-\d+$/, '')}-${String(seq).padStart(3, '0')}`;
+            }
+            generated = disambiguated;
+          }
+
+          return {
+            ...prev,
+            items: (prev.items || []).map(it => {
+              if (it.id !== item.id) return it;
+              const updatedBatches = (it.batches || []).map((b, bi, arr) => ({
+                ...b,
+                batchNumber: arr.length > 1 ? `${generated}-${String.fromCharCode(65 + bi)}` : generated
+              }));
+              return {
+                ...it,
+                baseBatchNumber: generated,
+                batchNumber: updatedBatches[0]?.batchNumber || generated,
+                batches: updatedBatches,
+              };
+            })
+          };
+        });
       }
     } catch (e) {
       // Fallback batch number already in place
