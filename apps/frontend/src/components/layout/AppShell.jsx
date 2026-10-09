@@ -805,6 +805,7 @@ const MENU_GROUPS = [
     items: [
       { name: '📦 Product Stock', path: '/products/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'], badgeKey: 'lowStock' },
       { name: '🚨 Reproduction Alerts', path: '/products/low-stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM'], badgeKey: 'lowStock' },
+      { name: '🔄 Stock Adjustment', path: '/products/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF'] },
     ]
   },
   {

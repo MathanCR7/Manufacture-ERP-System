@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import {
@@ -19,7 +20,8 @@ import {
   Filter,
   CheckCircle2,
   Boxes,
-  Activity
+  Activity,
+  RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +30,7 @@ import ProductHistoryDrawer from '@/modules/production/components/ProductHistory
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
 
 export default function ProductStockPage() {
+  const navigate = useNavigate();
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
@@ -259,12 +262,21 @@ export default function ProductStockPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/products/stock-adjustment/list')}
+            className="flex items-center justify-center gap-1.5 border-slate-200 bg-white dark:bg-slate-900 h-9 text-xs font-bold rounded-xl shadow-2xs cursor-pointer hover:border-indigo-400"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-indigo-600" />
+            Stock Adjustment
+          </Button>
           <Button
             variant="outline"
             size="sm"
             onClick={fetchHistory}
-            className="flex items-center justify-center gap-1.5 border-slate-200 bg-white dark:bg-slate-900 h-9 text-xs font-bold w-full sm:w-auto rounded-xl shadow-2xs cursor-pointer"
+            className="flex items-center justify-center gap-1.5 border-slate-200 bg-white dark:bg-slate-900 h-9 text-xs font-bold rounded-xl shadow-2xs cursor-pointer"
           >
             <History className="w-3.5 h-3.5 text-indigo-600" />
             Stock Ledger

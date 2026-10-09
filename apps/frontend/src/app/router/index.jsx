@@ -90,6 +90,8 @@ const InventoryUploadPage = lazy(() => import('@/modules/inventory/pages/Invento
 // Production Module Pages
 const ProductStockPage = lazy(() => import('@/modules/production/pages/ProductStockPage'));
 const LowStockAlertsPage = lazy(() => import('@/modules/production/pages/LowStockAlertsPage'));
+const ProductStockAdjustmentListPage = lazy(() => import('@/modules/production/pages/ProductStockAdjustmentListPage'));
+const ProductStockAdjustmentAddPage = lazy(() => import('@/modules/production/pages/ProductStockAdjustmentAddPage'));
 const ProductionsPage = lazy(() => import('@/modules/production/pages/ProductionsPage'));
 const ProductionRequirementPage = lazy(() => import('@/modules/production/pages/ProductionRequirementPage'));
 const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProductionPage'));
@@ -429,6 +431,9 @@ const AppRouter = () => {
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
               <Route path="/products/stock" element={<ProductStockPage />} />
               <Route path="/products/low-stock" element={<LowStockAlertsPage />} />
+              <Route path="/products/stock-adjustment" element={<ProductStockAdjustmentListPage />} />
+              <Route path="/products/stock-adjustment/list" element={<ProductStockAdjustmentListPage />} />
+              <Route path="/products/stock-adjustment/add" element={<ProductStockAdjustmentAddPage />} />
             </Route>
 
             {/* Production */}

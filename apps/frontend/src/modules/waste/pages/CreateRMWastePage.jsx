@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
   CalendarIcon, RefreshCw, ArrowLeft, Loader2, Search, X, ChevronDown,
-  AlertTriangle, ShieldAlert, CheckCircle, Tag, Calendar, Scale, Info
+  AlertTriangle, ShieldAlert, CheckCircle, Tag, Calendar, Scale, Info,
+  Package, Clock, AlertCircle
 } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
 import Swal from 'sweetalert2';
@@ -16,24 +17,55 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import DatePicker from '@/components/ui/DatePicker';
 import { Badge } from '@/components/ui/badge';
+import useAuthStore from '@/app/store/authStore';
 
-// Reusing RawMaterialSelect logic for RM Waste
-function RawMaterialSelect({ rawMaterials, value, onChange, error }) {
+// Safe date formatter
+function formatSafeDate(dateVal, pattern = 'dd-MM-yyyy') {
+  if (!dateVal || dateVal === '—' || dateVal === '-' || dateVal === 'N/A' || dateVal === 'null' || dateVal === 'undefined') {
+    return '—';
+  }
+  if (typeof dateVal === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(dateVal.trim())) {
+    return dateVal.trim();
+  }
+  try {
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) {
+      return typeof dateVal === 'string' && dateVal.length > 0 && dateVal !== '—' ? dateVal : '—';
+    }
+    return format(d, pattern);
+  } catch {
+    return typeof dateVal === 'string' && dateVal.length > 0 && dateVal !== '—' ? dateVal : '—';
+  }
+}
+
+/**
+ * Enhanced RawMaterialSelect:
+ * - Fetches upcoming & expired RM stock via FEFO engine (/rm-stock/fefo)
+ * - Fetches full Raw Materials catalog (/item-setup/raw-material)
+ * - Displays FEFO priority tags: EXPIRED, EXPIRING SOON, and SAFE with batch number, available stock, expiry date, and valuation
+ * - Allows quick adding with auto-populated batch traceability
+ */
+function RawMaterialSelect({ 
+  rawMaterials = [], 
+  fefoBatches = [], 
+  isLoadingRMs = false, 
+  isLoadingFefo = false,
+  onSelectFefoBatch, 
+  onSelectRm, 
+  error 
+}) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('FEFO'); // 'FEFO' | 'ALL'
+  const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL' | 'EXPIRED' | 'EXPIRING_SOON'
   const containerRef = useRef(null);
   const searchRef = useRef(null);
 
-  const filtered = rawMaterials.filter(rm =>
-    rm.name.toLowerCase().includes(search.toLowerCase()) || 
-    (rm.code && rm.code.toLowerCase().includes(search.toLowerCase()))
-  );
-
+  // Close when clicking outside
   useEffect(() => {
     const handler = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
         setOpen(false);
-        setSearch('');
       }
     };
     document.addEventListener('mousedown', handler);
@@ -46,110 +78,337 @@ function RawMaterialSelect({ rawMaterials, value, onChange, error }) {
     }
   }, [open]);
 
-  const handleSelect = (rm) => {
-    onChange(rm);
+  // Filter FEFO batches
+  const filteredFefoBatches = useMemo(() => {
+    let list = fefoBatches;
+    if (statusFilter !== 'ALL') {
+      list = list.filter(b => b.healthStatus === statusFilter);
+    }
+    if (!search.trim()) return list;
+    const q = search.trim().toLowerCase();
+    return list.filter(b =>
+      (b.rawMaterialName && b.rawMaterialName.toLowerCase().includes(q)) ||
+      (b.rawMaterialCode && b.rawMaterialCode.toLowerCase().includes(q)) ||
+      (b.batchNumber && b.batchNumber.toLowerCase().includes(q)) ||
+      (b.mfgBatchNo && b.mfgBatchNo.toLowerCase().includes(q)) ||
+      (b.category && b.category.toLowerCase().includes(q))
+    );
+  }, [fefoBatches, search, statusFilter]);
+
+  // Filter Catalog Raw Materials
+  const filteredRMs = useMemo(() => {
+    if (!search.trim()) return rawMaterials;
+    const q = search.trim().toLowerCase();
+    return rawMaterials.filter(rm =>
+      (rm.name && rm.name.toLowerCase().includes(q)) ||
+      (rm.code && rm.code.toLowerCase().includes(q)) ||
+      (rm.category?.name && rm.category.name.toLowerCase().includes(q))
+    );
+  }, [rawMaterials, search]);
+
+  const expiredCount = useMemo(() => fefoBatches.filter(b => b.healthStatus === 'EXPIRED').length, [fefoBatches]);
+  const expiringSoonCount = useMemo(() => fefoBatches.filter(b => b.healthStatus === 'EXPIRING_SOON').length, [fefoBatches]);
+
+  const handlePickFefo = (batch) => {
+    onSelectFefoBatch(batch);
     setOpen(false);
     setSearch('');
   };
 
-  const handleClear = (e) => {
-    e.stopPropagation();
-    onChange(null);
+  const handlePickRm = (rm) => {
+    onSelectRm(rm);
+    setOpen(false);
     setSearch('');
   };
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative w-full">
       <button
         type="button"
         onClick={() => setOpen(prev => !prev)}
-        className={`w-full px-3 py-2 border rounded-xl text-left flex items-center justify-between bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-xs font-semibold h-9 ${error ? 'border-red-400' : 'border-slate-200 dark:border-slate-700'}`}
+        className={twMerge(
+          "w-full px-3 py-2 border rounded-xl text-left flex items-center justify-between bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-xs font-semibold h-9 shadow-2xs transition-all",
+          error ? "border-red-400 ring-1 ring-red-400" : "border-slate-200 dark:border-slate-800 hover:border-indigo-400",
+          open && "ring-2 ring-indigo-500/20 border-indigo-600"
+        )}
       >
-        <span className={value ? 'text-slate-900 dark:text-white truncate' : 'text-slate-400'}>
-          {value ? `${value.code} - ${value.name}` : 'Select Raw Material...'}
-        </span>
-        <div className="flex items-center gap-1">
-          {value && (
-            <span
-              onMouseDown={handleClear}
-              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer p-0.5 rounded"
-            >
-              <X className="w-3 h-3" />
+        <div className="flex items-center gap-2 truncate">
+          <span className="text-slate-600 dark:text-slate-300 truncate">
+            Select Raw Material or Expired/Upcoming FEFO Batch...
+          </span>
+          {expiredCount > 0 && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-rose-300 shrink-0">
+              {expiredCount} Expired
             </span>
           )}
-          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0 ml-2">
+          <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 px-2 py-0.5 rounded-md border border-indigo-200/80 dark:border-indigo-800">
+            ⚡ FEFO
+          </span>
+          <ChevronDown className={twMerge("w-3.5 h-3.5 text-slate-400 transition-transform duration-200", open && "rotate-180")} />
         </div>
       </button>
 
       {open && (
-        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg">
-          <div className="p-2 border-b border-slate-100 dark:border-slate-700">
+        <div className="absolute z-50 mt-1.5 w-full min-w-[340px] sm:min-w-[580px] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          {/* Header Search & Tabs */}
+          <div className="p-3 bg-slate-50/70 dark:bg-slate-950/70 border-b border-slate-200/80 dark:border-slate-800 space-y-2.5">
+            {/* Search Input */}
             <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 ref={searchRef}
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                placeholder="Search RM Name or Code..."
-                className="w-full pl-7 pr-7 py-1.5 text-xs border rounded-xl border-slate-200 dark:border-slate-650 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="Search by RM Name, Code, Batch No, or Category..."
+                className="w-full pl-9 pr-8 py-2 text-xs border rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 font-medium placeholder:text-slate-400"
               />
               {search && (
                 <button
                   type="button"
-                  onMouseDown={() => setSearch('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  onClick={() => setSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" />
                 </button>
+              )}
+            </div>
+
+            {/* Navigation Tabs */}
+            <div className="flex items-center justify-between gap-2 flex-wrap pt-0.5">
+              <div className="flex items-center gap-1.5 p-1 bg-slate-200/60 dark:bg-slate-800/80 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('FEFO')}
+                  className={twMerge(
+                    "px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer",
+                    activeTab === 'FEFO'
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  )}
+                >
+                  <span>⚡ FEFO Stock</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-100 dark:bg-indigo-950 font-bold">
+                    {search ? filteredFefoBatches.length : fefoBatches.length}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('ALL')}
+                  className={twMerge(
+                    "px-3 py-1 rounded-lg transition-all flex items-center gap-1.5 cursor-pointer",
+                    activeTab === 'ALL'
+                      ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs font-bold"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900"
+                  )}
+                >
+                  <span>📦 All Raw Materials</span>
+                  <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-800 font-bold">
+                    {search ? filteredRMs.length : rawMaterials.length}
+                  </span>
+                </button>
+              </div>
+
+              {/* Status Sub-Filters when FEFO Tab is Active */}
+              {activeTab === 'FEFO' && (
+                <div className="flex items-center gap-1 text-[10px] font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('ALL')}
+                    className={twMerge(
+                      "px-2 py-0.5 rounded-md border transition-colors cursor-pointer",
+                      statusFilter === 'ALL'
+                        ? "bg-indigo-600 text-white border-indigo-600 font-bold"
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                    )}
+                  >
+                    All ({fefoBatches.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('EXPIRED')}
+                    className={twMerge(
+                      "px-2 py-0.5 rounded-md border transition-colors cursor-pointer flex items-center gap-1",
+                      statusFilter === 'EXPIRED'
+                        ? "bg-rose-600 text-white border-rose-600 font-bold"
+                        : "bg-white dark:bg-slate-900 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-900/60 hover:bg-rose-50"
+                    )}
+                  >
+                    <span>🔴 Expired</span>
+                    <span>({expiredCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('EXPIRING_SOON')}
+                    className={twMerge(
+                      "px-2 py-0.5 rounded-md border transition-colors cursor-pointer flex items-center gap-1",
+                      statusFilter === 'EXPIRING_SOON'
+                        ? "bg-amber-600 text-white border-amber-600 font-bold"
+                        : "bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-900/60 hover:bg-amber-50"
+                    )}
+                  >
+                    <span>🟡 Expiring</span>
+                    <span>({expiringSoonCount})</span>
+                  </button>
+                </div>
               )}
             </div>
           </div>
 
-          <ul className="max-h-52 overflow-y-auto py-1">
-            {filtered.length === 0 ? (
-              <li className="px-3 py-2 text-xs text-slate-400 text-center">No results found</li>
+          {/* List Content */}
+          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80 p-1">
+            {isLoadingFefo || isLoadingRMs ? (
+              <div className="py-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                <span>Loading inventory & FEFO expiry stock...</span>
+              </div>
+            ) : activeTab === 'FEFO' ? (
+              filteredFefoBatches.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400 space-y-2">
+                  <p className="font-semibold text-slate-500">No matching FEFO batches found</p>
+                  {filteredRMs.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('ALL')}
+                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Found {filteredRMs.length} matching item(s) in All Raw Materials &rarr;
+                    </button>
+                  ) : (
+                    <p className="text-[11px]">Clear search filters or add stock.</p>
+                  )}
+                </div>
+              ) : (
+                filteredFefoBatches.map((b) => {
+                  const isExpired = b.healthStatus === 'EXPIRED';
+                  const isExpiringSoon = b.healthStatus === 'EXPIRING_SOON';
+                  return (
+                    <div
+                      key={b.id}
+                      onClick={() => handlePickFefo(b)}
+                      className="p-3 hover:bg-indigo-50/50 dark:hover:bg-slate-800/70 rounded-xl cursor-pointer transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs group"
+                    >
+                      {/* Left: Material Info & Badges */}
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 dark:text-slate-100 text-xs">
+                            {b.rawMaterialName}
+                          </span>
+                          <span className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded font-bold">
+                            {b.rawMaterialCode}
+                          </span>
+                          
+                          {/* Expiry Pill */}
+                          {isExpired ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-300">
+                              ⚠️ EXPIRED {b.daysRemaining !== null ? `(${Math.abs(b.daysRemaining)}d ago)` : ''}
+                            </span>
+                          ) : isExpiringSoon ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">
+                              ⏳ EXPIRES SOON ({b.daysRemaining}d left)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200">
+                              ✅ SAFE
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Batch Details Strip */}
+                        <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 flex-wrap font-medium">
+                          <span>
+                            Batch: <b className="font-mono text-indigo-600 dark:text-indigo-400">{b.batchNumber}</b>
+                          </span>
+                          {b.mfgBatchNo && b.mfgBatchNo !== '—' && (
+                            <span>MFG Batch: <b>{b.mfgBatchNo}</b></span>
+                          )}
+                          <span>
+                            Stock: <b className="text-slate-800 dark:text-slate-200">{b.netQty} {b.uom}</b>
+                          </span>
+                          <span>
+                            Exp: <b className={isExpired ? 'text-rose-600' : 'text-slate-700 dark:text-slate-300'}>{formatSafeDate(b.expiryDate)}</b>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Right: Valuation & Select Action */}
+                      <div className="text-right shrink-0 flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1">
+                        <div>
+                          <div className="font-mono font-bold text-xs text-rose-600 dark:text-rose-400">
+                            Est. Loss: ₹{Number(b.batchValue || (b.netQty * (b.ratePerUnit || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            ₹{Number(b.ratePerUnit || 0).toFixed(2)} / {b.uom}
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-indigo-600 group-hover:underline flex items-center gap-0.5">
+                          + Add to Docket →
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )
             ) : (
-              filtered.map(rm => (
-                <li
-                  key={rm.id}
-                  onMouseDown={() => handleSelect(rm)}
-                  className={`px-3 py-2 text-xs cursor-pointer select-none flex justify-between items-center ${
-                    value?.id === rm.id
-                      ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold'
-                      : 'text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <span>{rm.name}</span>
-                  <span className="text-xs text-slate-400 font-mono">{rm.code}</span>
-                </li>
-              ))
+              filteredRMs.length === 0 ? (
+                <div className="py-8 text-center text-xs text-slate-400 space-y-2">
+                  <p className="font-semibold text-slate-500">No raw materials found in catalog</p>
+                  {filteredFefoBatches.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('FEFO')}
+                      className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Found {filteredFefoBatches.length} batch(es) in FEFO Stock &rarr;
+                    </button>
+                  ) : (
+                    <p className="text-[11px]">Clear search query to see all items.</p>
+                  )}
+                </div>
+              ) : (
+                filteredRMs.map((rm) => (
+                  <div
+                    key={rm.id}
+                    onClick={() => handlePickRm(rm)}
+                    className="p-3 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-xl cursor-pointer transition-colors flex items-center justify-between text-xs"
+                  >
+                    <div className="min-w-0 pr-2 space-y-0.5">
+                      <div className="font-bold text-slate-800 dark:text-slate-200">{rm.name}</div>
+                      <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                        <span className="font-mono bg-slate-100 dark:bg-slate-800 px-1 py-0.2 rounded font-bold text-slate-600 dark:text-slate-300">{rm.code}</span>
+                        <span>Category: {rm.category?.name || 'General'}</span>
+                        {rm.currentStock !== undefined && (
+                          <span>Current Stock: <b>{rm.currentStock} {rm.uom?.abbreviation || rm.uom?.name || 'Units'}</b></span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 block font-mono">
+                        ₹{Number(rm.costPrice || rm.standardPrice || 0).toFixed(2)}
+                      </span>
+                      <span className="text-[9px] text-slate-400 uppercase font-medium">per {rm.uom?.abbreviation || rm.uom?.name || 'Unit'}</span>
+                    </div>
+                  </div>
+                ))
+              )
             )}
-          </ul>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-// Row Batch Selector component to load & pick active batches for an RM
-function RowBatchSelector({ rawMaterialId, currentBatchId, onSelectBatch }) {
-  const { data: batches = [], isLoading } = useQuery({
-    queryKey: ['rm-batches-select', rawMaterialId],
-    queryFn: async () => {
-      if (!rawMaterialId) return [];
-      const res = await api.get(`/rm-stock/${rawMaterialId}/batches`);
-      return res.data || [];
-    },
-    enabled: !!rawMaterialId
-  });
-
-  if (isLoading) {
-    return <div className="text-[10px] text-slate-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading batches...</div>;
-  }
+// Row Batch Selector component to load & pick active FEFO batches for an RM
+function RowBatchSelector({ rawMaterialId, rawMaterialCode, currentBatchId, fefoBatches = [], onSelectBatch }) {
+  const batches = useMemo(() => {
+    return fefoBatches.filter(b => b.rawMaterialId === rawMaterialId || b.rawMaterialCode === rawMaterialCode);
+  }, [fefoBatches, rawMaterialId, rawMaterialCode]);
 
   if (!batches || batches.length === 0) {
-    return <span className="text-[10px] text-slate-400 italic">No specific batches found (General Stock)</span>;
+    return <span className="text-[10px] text-slate-400 italic">General Stock / No Batch</span>;
   }
 
   return (
@@ -161,12 +420,17 @@ function RowBatchSelector({ rawMaterialId, currentBatchId, onSelectBatch }) {
       }}
       className="w-full text-[11px] font-semibold py-1 px-2 border rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 truncate"
     >
-      <option value="">-- General Stock / No Batch --</option>
-      {batches.map(b => (
-        <option key={b.id} value={b.id}>
-          {b.batchNumber} (Avail: {b.availableQty}) {b.expiryDate ? `• Exp: ${b.expiryDate.slice(0, 10)}` : ''}
-        </option>
-      ))}
+      <option value="">-- General Stock / Pick Batch --</option>
+      {batches.map(b => {
+        const isExp = b.healthStatus === 'EXPIRED';
+        const isSoon = b.healthStatus === 'EXPIRING_SOON';
+        const statusTag = isExp ? '[EXPIRED]' : (isSoon ? '[EXPIRING SOON]' : '');
+        return (
+          <option key={b.id} value={b.id}>
+            {b.batchNumber} (Avail: {b.netQty} {b.uom}) {statusTag} {b.expiryDate ? `• Exp: ${formatSafeDate(b.expiryDate)}` : ''}
+          </option>
+        );
+      })}
     </select>
   );
 }
@@ -213,13 +477,34 @@ export default function CreateRMWastePage() {
     }
   });
 
+  const currentUser = useAuthStore((s) => s.user);
+
+  // Auto prefill responsible person with current user in create mode
+  useEffect(() => {
+    if (!isEditMode && currentUser?.id && !formData.responsibleId) {
+      setFormData(prev => ({ ...prev, responsibleId: currentUser.id }));
+    }
+  }, [currentUser, isEditMode, formData.responsibleId]);
+
+  // 1. Fetch raw materials from correct endpoint
   const { data: rawMaterials = [], isLoading: isLoadingRMs } = useQuery({
-    queryKey: ['active-raw-materials'],
+    queryKey: ['item-setup-raw-materials'],
     queryFn: async () => {
-      const response = await api.get('/raw-materials');
+      const response = await api.get('/item-setup/raw-material');
+      return Array.isArray(response.data) ? response.data : (response.data?.data || []);
+    }
+  });
+
+  // 2. Fetch FEFO upcoming and expired stock
+  const { data: fefoData, isLoading: isLoadingFefo } = useQuery({
+    queryKey: ['rm-fefo-stock-waste'],
+    queryFn: async () => {
+      const response = await api.get('/rm-stock/fefo');
       return response.data;
     }
   });
+
+  const fefoBatches = fefoData?.batches || [];
 
   // Prefill in edit mode
   useEffect(() => {
@@ -259,6 +544,13 @@ export default function CreateRMWastePage() {
         });
     }
   }, [id, isEditMode]);
+
+  // Set reference number when fetched
+  useEffect(() => {
+    if (!isEditMode && refData?.referenceNo) {
+      setFormData(prev => ({ ...prev, referenceNo: refData.referenceNo }));
+    }
+  }, [refData, isEditMode]);
 
   // Handle prefill from FEFO page navigation
   useEffect(() => {
@@ -326,7 +618,7 @@ export default function CreateRMWastePage() {
           timerProgressBar: 'bg-emerald-500'
         }
       });
-      navigate('/waste/raw-material');
+      navigate('/rm/waste');
     },
     onError: (err) => {
       const isDark = document.documentElement.classList.contains('dark');
@@ -378,7 +670,7 @@ export default function CreateRMWastePage() {
           timerProgressBar: 'bg-emerald-500'
         }
       });
-      navigate('/waste/raw-material');
+      navigate('/rm/waste');
     },
     onError: (err) => {
       const isDark = document.documentElement.classList.contains('dark');
@@ -404,6 +696,64 @@ export default function CreateRMWastePage() {
     }
   });
 
+  // Handle selecting a FEFO batch directly from dropdown
+  const handleSelectFefoBatch = (batch) => {
+    if (!batch) return;
+
+    const alreadyAdded = wasteItems.some(i => i.batchId === batch.id || (i.batchNumber && i.batchNumber === batch.batchNumber));
+    if (alreadyAdded) {
+      Swal.fire('Already Added', `Batch "${batch.batchNumber}" is already in this waste docket.`, 'info');
+      return;
+    }
+
+    const matchedRm = rawMaterials.find(r => r.id === batch.rawMaterialId || r.code === batch.rawMaterialCode) || {
+      id: batch.rawMaterialId,
+      name: batch.rawMaterialName,
+      code: batch.rawMaterialCode,
+      category: { name: batch.category },
+      uom: { name: batch.uom, abbreviation: batch.uom },
+      costPrice: batch.ratePerUnit,
+    };
+
+    const uomId = matchedRm.uomId || matchedRm.uom?.id || matchedRm.unitId || batch.uom || 'KG';
+    const unitCost = Number(batch.ratePerUnit || matchedRm.costPrice || matchedRm.standardPrice || 0);
+    const qty = Number(batch.netQty || 1);
+    const loss = (qty * unitCost).toFixed(2);
+
+    const formattedMfg = batch.mfgDate ? (typeof batch.mfgDate === 'string' ? batch.mfgDate.split('T')[0] : format(new Date(batch.mfgDate), 'yyyy-MM-dd')) : '';
+    const formattedExp = batch.expiryDate ? (typeof batch.expiryDate === 'string' ? batch.expiryDate.split('T')[0] : format(new Date(batch.expiryDate), 'yyyy-MM-dd')) : '';
+
+    const newItem = {
+      id: crypto.randomUUID(),
+      rm: matchedRm,
+      quantity: qty,
+      uomId,
+      costPrice: unitCost,
+      lossAmount: loss,
+      batchId: batch.id,
+      batchNumber: batch.batchNumber,
+      mfgBatchNo: batch.mfgBatchNo || '',
+      weight: batch.weight || '',
+      mfgDate: formattedMfg,
+      expiryDate: formattedExp,
+      availableStock: batch.netQty,
+      remarks: batch.healthStatus === 'EXPIRED'
+        ? `Expired batch ${batch.batchNumber} moved to waste (FEFO)`
+        : `FEFO batch ${batch.batchNumber} write-off`,
+      isFromFefo: true,
+    };
+
+    setWasteItems(prev => [...prev, newItem]);
+
+    if (!formData.note) {
+      setFormData(prev => ({
+        ...prev,
+        note: `FEFO Write-off: Expired batch ${batch.batchNumber} (${batch.rawMaterialName})`
+      }));
+    }
+  };
+
+  // Handle adding catalog raw material
   const handleAddRm = (rm) => {
     if (!rm) return;
     if (wasteItems.some(item => item.rm.id === rm.id && !item.batchId)) {
@@ -430,21 +780,25 @@ export default function CreateRMWastePage() {
       setSelectedRmForAdd(null);
       return;
     }
+
+    // Auto-check if there's a top FEFO batch for this RM
+    const rmFefo = fefoBatches.filter(b => b.rawMaterialId === rm.id || b.rawMaterialCode === rm.code);
+    const topBatch = rmFefo[0];
     
     setWasteItems([...wasteItems, {
       id: crypto.randomUUID(),
       rm: rm,
-      quantity: '',
-      uomId: rm.unitId || rm.unit || '',
-      lossAmount: '',
-      batchId: null,
-      batchNumber: '',
-      mfgBatchNo: '',
-      weight: '',
-      mfgDate: '',
-      expiryDate: '',
-      remarks: '',
-      isFromFefo: false,
+      quantity: topBatch ? topBatch.netQty : '',
+      uomId: rm.uomId || rm.uom?.id || rm.unitId || rm.unit || 'KG',
+      lossAmount: topBatch ? (Number(topBatch.netQty) * Number(topBatch.ratePerUnit || 0)).toFixed(2) : '',
+      batchId: topBatch ? topBatch.id : null,
+      batchNumber: topBatch ? topBatch.batchNumber : '',
+      mfgBatchNo: topBatch?.mfgBatchNo || '',
+      weight: topBatch?.weight || '',
+      mfgDate: topBatch?.mfgDate ? (typeof topBatch.mfgDate === 'string' ? topBatch.mfgDate.split('T')[0] : format(new Date(topBatch.mfgDate), 'yyyy-MM-dd')) : '',
+      expiryDate: topBatch?.expiryDate ? (typeof topBatch.expiryDate === 'string' ? topBatch.expiryDate.split('T')[0] : format(new Date(topBatch.expiryDate), 'yyyy-MM-dd')) : '',
+      remarks: topBatch ? `FEFO batch ${topBatch.batchNumber} write-off` : '',
+      isFromFefo: !!topBatch,
     }]);
     setSelectedRmForAdd(null);
   };
@@ -463,8 +817,8 @@ export default function CreateRMWastePage() {
           expiryDate: '',
         };
       }
-      const qty = batch.availableQty || item.quantity;
-      const rate = Number(batch.unitPrice || item.rm.standardCost || item.rm.lastPurchasePrice || 0);
+      const qty = batch.netQty || batch.availableQty || item.quantity;
+      const rate = Number(batch.ratePerUnit || batch.unitPrice || item.rm.standardCost || item.rm.costPrice || 0);
       const calculatedLoss = rate && qty ? (Number(qty) * rate).toFixed(2) : item.lossAmount;
 
       return {
@@ -473,11 +827,12 @@ export default function CreateRMWastePage() {
         batchNumber: batch.batchNumber,
         mfgBatchNo: batch.mfgBatchNo || '',
         weight: batch.weight || '',
-        mfgDate: batch.mfgDate ? batch.mfgDate.split('T')[0] : '',
-        expiryDate: batch.expiryDate ? batch.expiryDate.split('T')[0] : '',
+        mfgDate: batch.mfgDate ? (typeof batch.mfgDate === 'string' ? batch.mfgDate.split('T')[0] : format(new Date(batch.mfgDate), 'yyyy-MM-dd')) : '',
+        expiryDate: batch.expiryDate ? (typeof batch.expiryDate === 'string' ? batch.expiryDate.split('T')[0] : format(new Date(batch.expiryDate), 'yyyy-MM-dd')) : '',
         quantity: qty,
         lossAmount: calculatedLoss,
-        remarks: item.remarks || `Batch ${batch.batchNumber} write-off`,
+        remarks: item.remarks || (batch.healthStatus === 'EXPIRED' ? `Expired batch ${batch.batchNumber} moved to waste (FEFO)` : `Batch ${batch.batchNumber} write-off`),
+        isFromFefo: true,
       };
     }));
   };
@@ -493,7 +848,7 @@ export default function CreateRMWastePage() {
       
       // Auto-recalc lossAmount if quantity changed and we have a unit rate
       if (field === 'quantity') {
-        const rate = Number(item.rm.unitPrice || item.rm.standardCost || item.rm.lastPurchasePrice || 0);
+        const rate = Number(item.rm.costPrice || item.rm.unitPrice || item.rm.standardCost || item.rm.standardPrice || 0);
         if (rate > 0 && Number(value) > 0) {
           updated.lossAmount = (Number(value) * rate).toFixed(2);
         }
@@ -503,6 +858,7 @@ export default function CreateRMWastePage() {
   };
 
   const totalLoss = wasteItems.reduce((acc, item) => acc + (Number(item.lossAmount) || 0), 0);
+  const totalQty = wasteItems.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -568,45 +924,90 @@ export default function CreateRMWastePage() {
     );
   }
 
-  const isPending = createMutation.isPending || updateMutation.isPending;
-
   return (
-    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
-      {/* Header with back navigation */}
-      <div className="flex items-center space-x-3 pb-3 border-b border-slate-200 dark:border-slate-800">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/waste/raw-material')} className="text-slate-500 rounded-full h-8 w-8 hover:bg-slate-100 dark:hover:bg-slate-800">
-          <ArrowLeft className="w-4 h-4" />
-        </Button>
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              {isEditMode ? 'Edit RM Waste' : 'Add RM Waste'}
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate('/rm/waste')}
+            className="rounded-xl h-9 w-9 p-0 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+          </Button>
+          <div>
+            <h1 className="text-xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+              {isEditMode ? 'Edit RM Waste Docket' : 'Add RM Waste'}
+              {prefillBatch && (
+                <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300 border-amber-300 text-[10px] font-bold">
+                  FEFO Expired Batch Transfer
+                </Badge>
+              )}
             </h1>
-            {prefillBatch && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
-                <AlertTriangle className="w-3 h-3 text-rose-600" />
-                FEFO Expired Batch Transfer
-              </span>
-            )}
+            <p className="text-xs text-slate-500 font-medium">Log raw material wastage and write-off expired stock with full batch traceability.</p>
           </div>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
-            {isEditMode ? 'Update raw material wastage and associated loss.' : 'Log raw material wastage and write-off expired stock with full batch traceability.'}
-          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate('/rm/waste')}
+            className="rounded-xl h-9 text-xs font-bold border-slate-300 dark:border-slate-700"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={createMutation.isPending || updateMutation.isPending}
+            className="rounded-xl h-9 text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-1.5"
+          >
+            {(createMutation.isPending || updateMutation.isPending) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+            {isEditMode ? 'Update Docket' : 'Save Waste Docket'}
+          </Button>
         </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden text-xs">
-        <form onSubmit={handleSubmit}>
-          {/* Top Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-5 border-b border-slate-200 dark:border-slate-800">
+      {errorMsg && (
+        <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 rounded-xl text-xs font-semibold flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Main Form Content */}
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs divide-y divide-slate-100 dark:divide-slate-800">
+          {/* Metadata Grid */}
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-red-500 font-extrabold uppercase text-[10px]">Reference No *</Label>
-              {isEditMode ? (
-                <Input value={formData.referenceNo || 'Loading...'} readOnly className="bg-slate-50 dark:bg-slate-950 font-mono text-indigo-600 dark:text-indigo-400 h-9 text-xs font-bold" />
+              <Label className="text-slate-700 dark:text-slate-300 text-xs font-bold">Reference Number</Label>
+              {isLoadingRef && !isEditMode ? (
+                <div className="h-9 w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 flex items-center text-xs text-slate-400 font-mono">
+                  <Loader2 className="w-3 h-3 mr-2 animate-spin text-indigo-500" />
+                  Generating...
+                </div>
               ) : (
-                <div className="flex">
-                  <Input value={isRotating ? '------' : (refData?.candidateId || (isLoadingRef ? 'Generating...' : 'RMW-000001'))} readOnly className="bg-slate-50 dark:bg-slate-950 rounded-r-none font-mono text-indigo-600 dark:text-indigo-400 h-9 text-xs font-bold rounded-l-xl" />
-                  <Button type="button" variant="outline" size="icon" className="rounded-l-none border-l-0 h-9 rounded-r-xl border-slate-200" onClick={(e) => { e.preventDefault(); rotateRef(); }} disabled={isRotating}>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={formData.referenceNo}
+                    onChange={(e) => setFormData({ ...formData, referenceNo: e.target.value })}
+                    placeholder="e.g. RMW-2026-0001"
+                    className="h-9 rounded-xl text-xs font-mono font-bold uppercase tracking-wider bg-slate-50/50 dark:bg-slate-950 border-slate-200 dark:border-slate-800"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => rotateRef()}
+                    disabled={isRotating}
+                    title="Generate next available sequential reference"
+                    className="h-9 w-9 p-0 shrink-0 rounded-xl border-slate-200 dark:border-slate-800"
+                  >
                     <RefreshCw className={twMerge("w-4 h-4 text-slate-500", isRotating && "animate-spin")} />
                   </Button>
                 </div>
@@ -625,13 +1026,25 @@ export default function CreateRMWastePage() {
 
             <div className="space-y-1.5">
               <Label className="text-red-500 font-extrabold uppercase text-[10px]">Responsible Person *</Label>
-              <Select value={formData.responsibleId} onValueChange={(val) => setFormData({...formData, responsibleId: val})} required>
-                <SelectTrigger className="h-9 rounded-xl text-xs font-semibold border-slate-200 dark:bg-slate-950">
-                  <SelectValue placeholder="Select" />
+              <Select 
+                items={users.map((u) => ({ value: u.id, label: `${u.name} (${u.role})` }))}
+                value={formData.responsibleId} 
+                onValueChange={(val) => setFormData(prev => ({ ...prev, responsibleId: val }))} 
+                required
+              >
+                <SelectTrigger className="h-9 w-full rounded-xl text-xs font-semibold border-slate-200 dark:bg-slate-950">
+                  <SelectValue placeholder="Select Responsible Person">
+                    {(() => {
+                      const selectedUser = users.find((u) => u.id === formData.responsibleId);
+                      return selectedUser ? `${selectedUser.name} (${selectedUser.role})` : undefined;
+                    })()}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent className="rounded-xl">
+                <SelectContent className="rounded-xl z-50">
                   {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id} className="text-xs font-semibold">{u.name} ({u.role})</SelectItem>
+                    <SelectItem key={u.id} value={u.id} className="text-xs font-semibold cursor-pointer">
+                      {u.name} ({u.role})
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -640,17 +1053,26 @@ export default function CreateRMWastePage() {
 
           {/* Details Section */}
           <div className="p-5 space-y-4">
-            <div className="space-y-1.5 max-w-md text-xs">
-              <Label className="text-slate-700 dark:text-slate-300 font-bold">Raw Material (Select to add to docket)</Label>
-              {isLoadingRMs ? (
-                <div className="w-full px-3 py-2 border rounded-xl text-slate-400 flex items-center text-xs h-9 bg-slate-50/50"><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading materials...</div>
-              ) : (
-                <RawMaterialSelect 
-                  rawMaterials={rawMaterials}
-                  value={selectedRmForAdd}
-                  onChange={handleAddRm} 
-                />
-              )}
+            <div className="space-y-1.5 max-w-xl text-xs">
+              <div className="flex items-center justify-between">
+                <Label className="text-slate-700 dark:text-slate-300 font-bold flex items-center gap-1.5">
+                  <Package className="w-3.5 h-3.5 text-indigo-500" />
+                  Raw Material (Select to add to docket)
+                </Label>
+                {fefoBatches.length > 0 && (
+                  <span className="text-[10px] font-semibold text-slate-500">
+                    ⚡ {fefoBatches.length} FEFO Batches Available
+                  </span>
+                )}
+              </div>
+              <RawMaterialSelect 
+                rawMaterials={rawMaterials}
+                fefoBatches={fefoBatches}
+                isLoadingRMs={isLoadingRMs}
+                isLoadingFefo={isLoadingFefo}
+                onSelectFefoBatch={handleSelectFefoBatch}
+                onSelectRm={handleAddRm} 
+              />
             </div>
 
             <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-2xs">
@@ -671,7 +1093,7 @@ export default function CreateRMWastePage() {
                   {wasteItems.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-slate-400 bg-white dark:bg-slate-900 font-semibold">
-                        No raw materials added yet. Select a raw material from the dropdown above or navigate from the FEFO Expiry Tracker page.
+                        No raw materials added yet. Select a raw material or FEFO batch from the dropdown above.
                       </td>
                     </tr>
                   ) : (
@@ -690,7 +1112,7 @@ export default function CreateRMWastePage() {
                               {item.rm.code}
                             </div>
                             {item.isFromFefo && (
-                              <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                                 FEFO Selected
                               </span>
                             )}
@@ -702,7 +1124,9 @@ export default function CreateRMWastePage() {
                             <div>
                               <RowBatchSelector
                                 rawMaterialId={item.rm.id}
+                                rawMaterialCode={item.rm.code}
                                 currentBatchId={item.batchId}
+                                fefoBatches={fefoBatches}
                                 onSelectBatch={(b) => handleSelectBatchForItem(item.id, b)}
                               />
                             </div>
@@ -740,78 +1164,82 @@ export default function CreateRMWastePage() {
                                   </div>
                                 )}
                               </div>
-                            ) : (
-                              <div className="text-[10px] text-slate-400 italic">
-                                Writing off from general pool (No batch assigned)
-                              </div>
-                            )}
+                            ) : null}
                           </td>
 
                           {/* Stock Info */}
-                          <td className="px-3 py-3 text-3xs text-slate-500 font-bold space-y-0.5">
-                            <div className="bg-indigo-50/70 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded w-fit">
-                              Stock: {item.rm.currentStock || 0} {item.rm.unitId || item.rm.unit}
-                            </div>
-                            <div className="text-slate-400 px-2">
-                              UOM: {item.uomId || item.rm.unitId}
+                          <td className="px-3 py-3">
+                            <div className="text-[11px] text-slate-600 dark:text-slate-400 space-y-0.5">
+                              {item.availableStock !== undefined ? (
+                                <div>Stock: <b className="text-slate-800 dark:text-slate-200 font-bold">{item.availableStock}</b></div>
+                              ) : item.rm.currentStock !== undefined ? (
+                                <div>Stock: <b className="text-slate-800 dark:text-slate-200 font-bold">{item.rm.currentStock}</b></div>
+                              ) : null}
+                              <div className="text-[10px] text-slate-400">
+                                UOM: {item.rm.uom?.abbreviation || item.rm.uom?.name || item.uomId || 'KG'}
+                              </div>
                             </div>
                           </td>
 
                           {/* Quantity */}
-                          <td className="px-3 py-3 relative">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="h-8 pr-12 text-xs font-bold rounded-lg border-slate-200 dark:bg-slate-950"
-                              value={item.quantity}
-                              onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value)}
-                              required
-                            />
-                            <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 text-3xs uppercase font-extrabold">
-                              {item.uomId || item.rm.unitId}
-                            </span>
+                          <td className="px-3 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <Input
+                                type="number"
+                                min="0.001"
+                                step="any"
+                                value={item.quantity}
+                                onChange={(e) => handleItemChange(item.id, 'quantity', e.target.value)}
+                                placeholder="Qty"
+                                className="h-8 text-xs font-bold text-center w-24 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                                required
+                              />
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">
+                                {item.rm.uom?.abbreviation || item.rm.uom?.name || item.uomId || 'KG'}
+                              </span>
+                            </div>
                           </td>
 
                           {/* Loss Amount */}
-                          <td className="px-3 py-3 relative">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="h-8 pr-12 text-xs font-bold rounded-lg border-slate-200 dark:bg-slate-950 font-mono text-rose-600 dark:text-rose-400"
-                              value={item.lossAmount}
-                              onChange={(e) => handleItemChange(item.id, 'lossAmount', e.target.value)}
-                              required
-                            />
-                            <span className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 text-3xs font-extrabold">
-                              INR
-                            </span>
+                          <td className="px-3 py-3">
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={item.lossAmount}
+                                onChange={(e) => handleItemChange(item.id, 'lossAmount', e.target.value)}
+                                placeholder="0.00"
+                                className="h-8 text-xs font-bold font-mono text-right w-24 rounded-lg bg-rose-50/50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900"
+                                required
+                              />
+                              <span className="text-[10px] text-slate-400 font-mono">INR</span>
+                            </div>
                           </td>
 
                           {/* Remarks */}
                           <td className="px-3 py-3">
                             <Input
                               type="text"
-                              placeholder="Batch notes / reason"
-                              className="h-8 text-xs rounded-lg border-slate-200 dark:bg-slate-950"
-                              value={item.remarks || ''}
+                              value={item.remarks}
                               onChange={(e) => handleItemChange(item.id, 'remarks', e.target.value)}
+                              placeholder="e.g. Expired lot write-off"
+                              className="h-8 text-xs rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
                             />
                           </td>
 
-                          {/* Action */}
+                          {/* Actions */}
                           <td className="px-3 py-3 text-center">
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="sm"
                               onClick={() => handleRemoveRm(item.id)}
-                              className="text-rose-500 hover:text-rose-700 p-1 cursor-pointer hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors"
-                              title="Remove item"
+                              className="h-7 w-7 p-0 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg"
+                              title="Remove line item"
                             >
-                              <X className="w-4 h-4 mx-auto" />
-                            </button>
+                              <X className="w-3.5 h-3.5" />
+                            </Button>
                           </td>
                         </tr>
                       );
@@ -821,46 +1249,63 @@ export default function CreateRMWastePage() {
               </table>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
-              <div className="space-y-1.5">
-                <Label className="text-[10px] font-extrabold text-slate-500 uppercase">Docket Note / Remarks</Label>
-                <textarea 
-                  className="w-full px-3 py-2 border rounded-xl dark:bg-slate-950 dark:border-slate-800 dark:text-white border-slate-200 min-h-[90px] text-xs resize-none font-medium" 
-                  placeholder="Enter docket level reasons, batch context, or FEFO expiry audit details..."
-                  value={formData.note}
-                  onChange={(e) => setFormData({...formData, note: e.target.value})}
-                />
-              </div>
-              
-              <div className="flex flex-col justify-start items-end space-y-4">
-                <div className="flex flex-col space-y-1 w-full max-w-xs pt-4">
-                  <Label className="text-slate-900 dark:text-white font-bold text-xs uppercase">Grand Total Loss *</Label>
-                  <div className="relative w-full">
-                    <Input readOnly value={totalLoss.toFixed(2)} className="pr-12 bg-slate-50 dark:bg-slate-950 h-10 text-base font-black font-mono text-rose-600 dark:text-rose-400 border-slate-200 rounded-xl" />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">INR</span>
+            {/* Docket Summary Footer */}
+            {wasteItems.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-50/70 dark:bg-slate-950/60 rounded-xl border border-slate-200/80 dark:border-slate-800 text-xs">
+                <div className="flex items-center gap-6">
+                  <div>
+                    <span className="text-slate-400 block font-medium">Total Items:</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{wasteItems.length} Material(s)</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block font-medium">Total Quantity:</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{totalQty.toFixed(2)}</span>
                   </div>
                 </div>
+
+                <div className="text-right">
+                  <span className="text-slate-400 block font-medium">Total Loss Valuation:</span>
+                  <span className="text-lg font-black text-red-600 dark:text-red-400 font-mono">
+                    ₹{totalLoss.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
+            )}
+
+            {/* Docket Notes */}
+            <div className="space-y-1.5">
+              <Label className="text-slate-700 dark:text-slate-300 text-xs font-bold">General Remarks / Scrap Disposition Note</Label>
+              <textarea
+                value={formData.note}
+                onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                rows={3}
+                placeholder="Explain context for waste, write-off approvals, or disposal actions..."
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium"
+              />
             </div>
           </div>
+        </div>
 
-          {errorMsg && (
-            <div className="m-5 mt-0 p-3 bg-red-50 text-red-650 dark:bg-red-950/30 dark:text-red-400 rounded-xl text-xs font-bold border border-red-200 dark:border-red-900">
-              {errorMsg}
-            </div>
-          )}
-
-          <div className="p-5 border-t border-slate-200 dark:border-slate-800 flex space-x-3 bg-slate-50 dark:bg-slate-900/50">
-            <Button type="submit" disabled={isPending} className="bg-indigo-600 hover:bg-indigo-700 min-w-28 text-white text-xs font-bold h-9 rounded-xl shadow-md cursor-pointer">
-              {isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
-              {isPending ? (isEditMode ? 'Updating...' : 'Submitting...') : (isEditMode ? 'Update Waste Docket' : 'Submit Waste Docket')}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => navigate('/waste/raw-material')} className="min-w-28 text-xs font-bold h-9 rounded-xl border-slate-200">
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </div>
+        {/* Footer Actions */}
+        <div className="flex items-center justify-end gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => navigate('/rm/waste')}
+            className="rounded-xl h-10 text-xs font-bold px-5"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={createMutation.isPending || updateMutation.isPending}
+            className="rounded-xl h-10 text-xs font-bold px-6 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm flex items-center gap-2"
+          >
+            {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isEditMode ? 'Update Docket' : 'Save Waste Docket'}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

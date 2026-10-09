@@ -35,6 +35,8 @@ router.use('/inventory', authMiddleware, require('../modules/inventory/inventory
 router.use('/lab-inventory', authMiddleware, require('../modules/lab-inventory/lab-inventory.routes'));
 router.use('/rm-lab-category', authMiddleware, require('../modules/rm-lab-category/rm-lab-category.routes'));
 router.use('/rm-stock-adjustment', authMiddleware, require('../modules/rm-stock-adjustment/rm-stock-adjustment.routes'));
+router.use('/product-stock-adjustment', authMiddleware, require('../modules/product-stock-adjustment/product-stock-adjustment.routes'));
+router.use('/products/stock-adjustment', authMiddleware, require('../modules/product-stock-adjustment/product-stock-adjustment.routes'));
 
 // New modules
 router.use('/attendance', require('../modules/attendance/attendance.routes'));
