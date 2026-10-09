@@ -53,6 +53,7 @@ import PaymentFieldsSection from '../components/PaymentFieldsSection';
 import PurchaseOrderPrintModal from '../components/PurchaseOrderPrintModal';
 import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
 import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
+import GstCalculationModal, { calculateGstBreakdown } from '../components/GstCalculationModal';
 import useCompanyStore from '@/app/store/companyStore';
 import useAuthStore from '@/app/store/authStore';
 
@@ -185,7 +186,13 @@ export default function EditPOPage({ id: propId, onBack }) {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const storeCompany = useCompanyStore((s) => s.company);
+  const fetchCompany = useCompanyStore((s) => s.fetchCompany);
   const currentUser = useAuthStore((s) => s.user);
+
+  useEffect(() => {
+    fetchCompany();
+  }, [fetchCompany]);
+
   const rawMaterialSelectRef = useRef(null);
 
   const triggerAddRmDropdown = () => {
@@ -381,7 +388,12 @@ export default function EditPOPage({ id: propId, onBack }) {
       orderTax: String(po.orderTax ?? '0'),
       discount: String(po.discount ?? '0'),
       shipping: String(po.shipping ?? '0'),
+      shippingGstApplicable: Boolean(po.shippingGstApplicable || (Number(po.shipping || 0) > 0 && po.items?.[0]?.shippingGstApplicable)),
+      shippingGstPercentage: Number(po.shippingGstPercentage !== undefined ? po.shippingGstPercentage : 18),
       otherCharges: String(po.otherCharges ?? '0'),
+      otherChargesGstApplicable: Boolean(po.otherChargesGstApplicable || (Number(po.otherCharges || 0) > 0 && po.items?.[0]?.otherChargesGstApplicable)),
+      otherChargesGstPercentage: Number(po.otherChargesGstPercentage !== undefined ? po.otherChargesGstPercentage : 18),
+      otherChargesLabel: po.otherChargesLabel || 'Loading & Unloading',
       notes: po.notes || '',
       items: initialItems,
 
@@ -440,6 +452,13 @@ export default function EditPOPage({ id: propId, onBack }) {
     const initialBatchId = 'batch-' + Date.now() + '-' + Math.random().toString(36).substr(2, 4);
     const baseBatch = getInitBatch(item.name);
 
+    const catalogGst = item.gstPercentage !== undefined ? Number(item.gstPercentage)
+      : (item.gstRate !== undefined ? Number(item.gstRate)
+      : (item.taxRate !== undefined ? Number(item.taxRate)
+      : (item.taxPercentage !== undefined ? Number(item.taxPercentage)
+      : (item.gst !== undefined ? Number(item.gst) : 18))));
+    const finalGst = !isNaN(catalogGst) && catalogGst >= 0 ? catalogGst : 18;
+
     return {
       id: item.id,
       rmId: item.code,
@@ -470,8 +489,9 @@ export default function EditPOPage({ id: propId, onBack }) {
       subtotal: Math.round(quantity * unitPrice * 100) / 100,
       uomLabel: uomLabel,
       uomId: uomId,
-      gstApplicable: true,
-      gstPercentage: 18,
+      gstApplicable: item.gstApplicable !== false && finalGst > 0,
+      gstPercentage: finalGst,
+      gstPercent: finalGst,
       labTestRequired: false,
     };
   };
@@ -830,32 +850,67 @@ export default function EditPOPage({ id: propId, onBack }) {
   const shipping = Number(form?.shipping || 0);
   const discount = Number(form?.discount || 0);
   const otherCharges = Number(form?.otherCharges || 0);
+  const shippingGstApplicable = form?.shippingGstApplicable === true;
+  const shippingGstPercentage = Number(form?.shippingGstPercentage !== undefined ? form.shippingGstPercentage : 18);
+  const shippingGstAmount = shippingGstApplicable && shipping > 0 ? (shipping * shippingGstPercentage / 100) : 0;
+  const otherChargesGstApplicable = form?.otherChargesGstApplicable === true;
+  const otherChargesGstPercentage = Number(form?.otherChargesGstPercentage !== undefined ? form.otherChargesGstPercentage : 18);
+  const otherChargesGstAmount = otherChargesGstApplicable && otherCharges > 0 ? (otherCharges * otherChargesGstPercentage / 100) : 0;
+  const otherChargesLabel = form?.otherChargesLabel || 'Loading & Unloading';
 
   // Check supplier state code (prefix 33)
   const isInterState = form?.selectedSupplier?.gstin
     ? !form.selectedSupplier.gstin.trim().startsWith('33')
     : false;
 
-  const totalItemTax = form?.items?.reduce((sum, item) => {
-    if (!item.gstApplicable) return sum;
-    const itemSubtotal = parseFloat(item.subtotal) || (Number(item.quantity || 0) * Number(item.unitPrice || 0));
-    return sum + (itemSubtotal * (Number(item.gstPercentage || 0) / 100));
-  }, 0) || 0;
+  const chargesList = useMemo(() => {
+    const list = [];
+    if (shipping > 0) {
+      list.push({
+        label: 'Shipping / Freight',
+        value: shipping,
+        applied: true,
+        gstApplicable: shippingGstApplicable,
+        rate: shippingGstPercentage,
+      });
+    }
+    if (otherCharges > 0) {
+      list.push({
+        label: otherChargesLabel,
+        value: otherCharges,
+        applied: true,
+        gstApplicable: otherChargesGstApplicable,
+        rate: otherChargesGstPercentage,
+      });
+    }
+    return list;
+  }, [shipping, shippingGstApplicable, shippingGstPercentage, otherCharges, otherChargesGstApplicable, otherChargesGstPercentage, otherChargesLabel]);
 
-  const cgstAmount = isInterState ? 0 : totalItemTax / 2;
-  const sgstAmount = isInterState ? 0 : totalItemTax / 2;
-  const igstAmount = isInterState ? totalItemTax : 0;
+  const gstBreakdown = useMemo(() => {
+    return calculateGstBreakdown({
+      items: form?.items || [],
+      charges: chargesList,
+      isInterState
+    });
+  }, [form?.items, chargesList, isInterState]);
+
+  const totalTaxableValue = gstBreakdown.totalTaxable;
+  const totalGstAmount = gstBreakdown.totalGst;
+  const cgstAmount = gstBreakdown.totalCgst;
+  const sgstAmount = gstBreakdown.totalSgst;
+  const igstAmount = gstBreakdown.totalIgst;
 
   // Determine dynamic CGST & SGST percentage labels (e.g. 18% GST -> 9% CGST & 9% SGST; 5% -> 2.5%)
-  const taxableItems = (form?.items || []).filter(it => it.gstApplicable && (Number(it.gstPercentage) > 0));
-  const uniqueGstRates = Array.from(new Set(taxableItems.map(it => Number(it.gstPercentage))));
-  const effectiveGstRate = uniqueGstRates.length === 1 ? uniqueGstRates[0] : null;
-  const cgstRateText = effectiveGstRate !== null ? `${(effectiveGstRate / 2)}%` : null;
-  const sgstRateText = effectiveGstRate !== null ? `${(effectiveGstRate / 2)}%` : null;
-  const cgstLabel = cgstRateText ? `CGST (${cgstRateText})` : 'CGST (Intrastate)';
-  const sgstLabel = sgstRateText ? `SGST (${sgstRateText})` : 'SGST (Intrastate)';
+  const activeRateBlocks = gstBreakdown.sortedBlocks.filter(b => b.rate > 0);
+  const singleRateBlock = activeRateBlocks.length === 1 ? activeRateBlocks[0] : null;
+  const cgstRateText = singleRateBlock ? `${(singleRateBlock.rate / 2)}%` : null;
+  const sgstRateText = singleRateBlock ? `${(singleRateBlock.rate / 2)}%` : null;
+  const igstRateText = singleRateBlock ? `${singleRateBlock.rate}%` : null;
+  const cgstLabel = cgstRateText ? `CGST @ ${cgstRateText}` : 'CGST (Intrastate)';
+  const sgstLabel = sgstRateText ? `SGST @ ${sgstRateText}` : 'SGST (Intrastate)';
+  const igstLabel = igstRateText ? `IGST @ ${igstRateText}` : 'IGST (Interstate)';
 
-  const unroundedTotal = Math.max(0, subtotal + totalItemTax + shipping + otherCharges - discount);
+  const unroundedTotal = Math.max(0, subtotal + totalGstAmount + shipping + otherCharges - discount);
   const grandTotal = Math.round(unroundedTotal);
   const roundOff = Number((grandTotal - unroundedTotal).toFixed(2));
 
@@ -878,7 +933,15 @@ export default function EditPOPage({ id: propId, onBack }) {
     items: form?.items || [],
     discount: discount,
     shipping: shipping,
+    shippingGstApplicable: shippingGstApplicable,
+    shippingGstPercentage: shippingGstPercentage,
+    shippingGstAmount: shippingGstAmount,
     otherCharges: otherCharges,
+    otherChargesGstApplicable: otherChargesGstApplicable,
+    otherChargesGstPercentage: otherChargesGstPercentage,
+    otherChargesGstAmount: otherChargesGstAmount,
+    otherChargesLabel: otherChargesLabel,
+    taxableValue: totalTaxableValue,
     subtotal: subtotal,
     isInterState: isInterState,
     cgstAmount: cgstAmount,
@@ -894,7 +957,7 @@ export default function EditPOPage({ id: propId, onBack }) {
     notes: form?.notes,
     company: storeCompany,
     creator: currentUser?.name || po?.createdBy?.name || 'Admin Master'
-  }), [form, po, discount, shipping, otherCharges, subtotal, isInterState, cgstAmount, sgstAmount, igstAmount, roundOff, grandTotal, storeCompany, currentUser]);
+  }), [form, po, discount, shipping, shippingGstApplicable, shippingGstPercentage, shippingGstAmount, otherCharges, otherChargesGstApplicable, otherChargesGstPercentage, otherChargesGstAmount, otherChargesLabel, totalTaxableValue, subtotal, isInterState, cgstAmount, sgstAmount, igstAmount, roundOff, grandTotal, storeCompany, currentUser]);
 
   const handleExportExcel = () => {
     if (!form?.items || form.items.length === 0) {
@@ -1003,7 +1066,15 @@ export default function EditPOPage({ id: propId, onBack }) {
       orderTax: 0,
       discount: discount,
       shipping: shipping,
+      shippingGstApplicable: shippingGstApplicable,
+      shippingGstPercentage: shippingGstPercentage,
+      shippingGstAmount: shippingGstAmount,
       otherCharges: otherCharges,
+      otherChargesGstApplicable: otherChargesGstApplicable,
+      otherChargesGstPercentage: otherChargesGstPercentage,
+      otherChargesGstAmount: otherChargesGstAmount,
+      otherChargesLabel: otherChargesLabel,
+      taxableValue: totalTaxableValue,
       cgst: cgstAmount,
       sgst: sgstAmount,
       igst: igstAmount,
@@ -1713,12 +1784,12 @@ export default function EditPOPage({ id: propId, onBack }) {
                         <td className="px-2 py-2 text-center align-middle">
                           <select
                             disabled={!item.gstApplicable}
-                            value={item.gstPercentage}
+                            value={item.gstPercentage !== undefined ? item.gstPercentage : (item.gstPercent !== undefined ? item.gstPercent : 18)}
                             onChange={(e) => {
                               const val = Number(e.target.value);
                               setForm(prev => ({
                                 ...prev,
-                                items: prev.items.map(it => it.id === item.id ? { ...it, gstPercentage: val } : it)
+                                items: prev.items.map(it => it.id === item.id ? { ...it, gstPercentage: val, gstPercent: val } : it)
                               }));
                             }}
                             className="h-7 px-1.5 text-xs border rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-700 dark:text-slate-200 font-bold cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed w-16 mx-auto block"
@@ -2080,8 +2151,19 @@ export default function EditPOPage({ id: propId, onBack }) {
               </div>
 
               {/* Shipping */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Shipping (₹)</Label>
+              <div className="space-y-1.5 p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <Label className="text-[11px] font-semibold text-slate-700 dark:text-slate-300">Shipping (₹)</Label>
+                  <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={form.shippingGstApplicable} 
+                      onChange={(e) => setForm({ ...form, shippingGstApplicable: e.target.checked })}
+                      className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                    />
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+                  </label>
+                </div>
                 <div className="relative">
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
                   <Input 
@@ -2089,14 +2171,53 @@ export default function EditPOPage({ id: propId, onBack }) {
                     min="0"
                     value={form.shipping} 
                     onChange={(e) => setForm({ ...form, shipping: e.target.value })}
-                    className="h-9 text-xs pl-6 rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
+                    className="h-8 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
                   />
                 </div>
+                {form.shippingGstApplicable && (
+                  <div className="flex items-center justify-between gap-1 pt-0.5">
+                    <span className="text-[10px] text-slate-500 font-medium">Rate:</span>
+                    <select
+                      value={form.shippingGstPercentage}
+                      onChange={(e) => setForm({ ...form, shippingGstPercentage: Number(e.target.value) })}
+                      className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                    >
+                      <option value={0}>0%</option>
+                      <option value={5}>5%</option>
+                      <option value={12}>12%</option>
+                      <option value={18}>18%</option>
+                      <option value={28}>28%</option>
+                    </select>
+                    {shipping > 0 && (
+                      <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                        +₹{shippingGstAmount.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Other Charges */}
-              <div className="space-y-1">
-                <Label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Other Charges (₹)</Label>
+              <div className="space-y-1.5 p-2 rounded-xl bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
+                <div className="flex items-center justify-between">
+                  <Input
+                    type="text"
+                    value={form.otherChargesLabel}
+                    onChange={(e) => setForm({ ...form, otherChargesLabel: e.target.value })}
+                    placeholder="Other Charges"
+                    className="h-5 px-1 py-0 text-[11px] font-semibold text-slate-700 dark:text-slate-300 border-0 bg-transparent focus-visible:ring-0 max-w-[120px] p-0"
+                    title="Edit charge title (e.g. Loading & Unloading)"
+                  />
+                  <label className="inline-flex items-center gap-1 cursor-pointer select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={form.otherChargesGstApplicable} 
+                      onChange={(e) => setForm({ ...form, otherChargesGstApplicable: e.target.checked })}
+                      className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300 dark:border-slate-700 cursor-pointer"
+                    />
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">GST</span>
+                  </label>
+                </div>
                 <div className="relative">
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-indigo-600 dark:text-indigo-400 select-none">₹</span>
                   <Input 
@@ -2104,9 +2225,30 @@ export default function EditPOPage({ id: propId, onBack }) {
                     min="0"
                     value={form.otherCharges} 
                     onChange={(e) => setForm({ ...form, otherCharges: e.target.value })}
-                    className="h-9 text-xs pl-6 rounded-xl bg-slate-50/70 dark:bg-slate-900/90 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
+                    className="h-8 text-xs pl-6 rounded-lg bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 hover:border-indigo-400 focus:border-indigo-600 font-semibold" 
                   />
                 </div>
+                {form.otherChargesGstApplicable && (
+                  <div className="flex items-center justify-between gap-1 pt-0.5">
+                    <span className="text-[10px] text-slate-500 font-medium">Rate:</span>
+                    <select
+                      value={form.otherChargesGstPercentage}
+                      onChange={(e) => setForm({ ...form, otherChargesGstPercentage: Number(e.target.value) })}
+                      className="h-6 text-[11px] px-1.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 font-bold focus:outline-none"
+                    >
+                      <option value={0}>0%</option>
+                      <option value={5}>5%</option>
+                      <option value={12}>12%</option>
+                      <option value={18}>18%</option>
+                      <option value={28}>28%</option>
+                    </select>
+                    {otherCharges > 0 && (
+                      <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                        +₹{otherChargesGstAmount.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2135,10 +2277,26 @@ export default function EditPOPage({ id: propId, onBack }) {
               </span>
             </div>
 
-            {/* Tax Breakdown */}
+            {/* Taxable Value */}
+            <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
+              <span>Taxable Value</span>
+              <span className="font-semibold text-slate-800 dark:text-slate-200">
+                ₹{totalTaxableValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+
+            {/* Tax Breakdown with (i) Info Popover Trigger */}
             {isInterState ? (
               <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                <span>IGST (Interstate)</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span>{igstLabel}</span>
+                  <GstCalculationModal 
+                    items={form?.items || []} 
+                    charges={chargesList} 
+                    isInterState={true} 
+                    breakdownData={gstBreakdown} 
+                  />
+                </span>
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
                   ₹{igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
@@ -2146,13 +2304,29 @@ export default function EditPOPage({ id: propId, onBack }) {
             ) : (
               <>
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>{cgstLabel}</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span>{cgstLabel}</span>
+                    <GstCalculationModal 
+                      items={form?.items || []} 
+                      charges={chargesList} 
+                      isInterState={false} 
+                      breakdownData={gstBreakdown} 
+                    />
+                  </span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                     ₹{cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 <div className="flex justify-between items-center text-slate-600 dark:text-slate-400">
-                  <span>{sgstLabel}</span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span>{sgstLabel}</span>
+                    <GstCalculationModal 
+                      items={form?.items || []} 
+                      charges={chargesList} 
+                      isInterState={false} 
+                      breakdownData={gstBreakdown} 
+                    />
+                  </span>
                   <span className="font-semibold text-slate-800 dark:text-slate-200">
                     ₹{sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>

@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Pagination } from '@/components/ui/Pagination';
 import DatePicker from '@/components/ui/DatePicker';
 import Swal from 'sweetalert2';
-
+  
 export default function ProductWastagePage() {
   const user = useAuthStore(s => s.user);
   const canEdit = user?.role === 'MAIN_MASTER';

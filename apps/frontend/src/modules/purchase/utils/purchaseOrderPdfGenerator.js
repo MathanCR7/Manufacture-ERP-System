@@ -94,7 +94,7 @@ export function generatePurchaseOrderPDF(rawData) {
 
     // ── SECTION 1 & 2: TWO COLUMNS (ORDER & SUPPLIER INFO + INVOICE & LOGISTICS) ──
     const colW = (contentWidth - 5) / 2;
-    const cardH = 39;
+    const cardH = 43;
 
     // Left Card: Supplier & Order Information
     doc.setFillColor(...bgLight);
@@ -114,23 +114,36 @@ export function generatePurchaseOrderPDF(rawData) {
     doc.text(data.taxRule, margin + colW - 3.5, curY + 4.5, { align: 'right' });
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8.8);
     doc.setTextColor(...darkTextColor);
     const supName = data.supplier.name || 'Vendor / Supplier';
     doc.text(supName.substring(0, 36), margin + 3.5, curY + 11);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7);
     doc.setTextColor(71, 85, 105);
+
+    let supY = curY + 15;
+    if (data.supplier.contactPerson && data.supplier.contactPerson !== '—') {
+      doc.text(`Contact: ${data.supplier.contactPerson}`, margin + 3.5, supY);
+      supY += 3.8;
+    }
+
     const supAddr = doc.splitTextToSize(data.supplier.address || 'Address on file', colW - 7);
-    doc.text(supAddr.slice(0, 2), margin + 3.5, curY + 15.5);
+    doc.text(supAddr.slice(0, 2), margin + 3.5, supY);
+    supY += Math.min(supAddr.length, 2) * 3.6;
 
     doc.setFont('helvetica', 'bold');
-    doc.text(`GSTIN: ${data.supplier.gstin}`, margin + 3.5, curY + 24);
+    doc.text(`GSTIN: ${data.supplier.gstin}`, margin + 3.5, supY);
     doc.setFont('helvetica', 'normal');
-    doc.text(`PAN: ${data.supplier.pan}  |  Phone: ${data.supplier.phone}`, margin + 3.5, curY + 28);
-    doc.text(`Status: ${data.purchaseStatus}  (Workflow Locked)`, margin + 3.5, curY + 32);
-    doc.text(`Created By: ${data.creator}`, margin + 3.5, curY + 36);
+    doc.text(`PAN: ${data.supplier.pan}`, margin + 3.5 + 40, supY);
+    supY += 3.8;
+
+    const contactStr = `Phone: ${data.supplier.phone}${data.supplier.email && data.supplier.email !== '—' ? ` | ${data.supplier.email}` : ''}`;
+    doc.text(contactStr.substring(0, 48), margin + 3.5, supY);
+    supY += 3.8;
+
+    doc.text(`Status: ${data.purchaseStatus}  |  By: ${data.creator}`, margin + 3.5, supY);
 
     // Right Card: Supplier Invoice & Transport / E-Way Bill Details
     const rX = margin + colW + 5;
@@ -504,18 +517,24 @@ export function generatePurchaseOrderPDF(rawData) {
     }
 
     if (data.financials.shipping > 0) {
-      printFinRow(`Freight / Shipping:`, `+Rs. ${data.financials.shipping.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      const shipLabel = data.financials.shippingGstApplicable 
+        ? `Freight / Shipping (+${data.financials.shippingGstPercentage}% GST):` 
+        : `Freight / Shipping:`;
+      printFinRow(shipLabel, `+Rs. ${data.financials.shipping.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
     }
 
     if (data.financials.otherCharges > 0) {
-      printFinRow(`Other Charges:`, `+Rs. ${data.financials.otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      const chLabel = data.financials.otherChargesGstApplicable 
+        ? `${data.financials.otherChargesLabel || 'Other Charges'} (+${data.financials.otherChargesGstPercentage}% GST):` 
+        : `${data.financials.otherChargesLabel || 'Other Charges'}:`;
+      printFinRow(chLabel, `+Rs. ${data.financials.otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
     }
 
     if (data.isInterState) {
-      printFinRow(`IGST (18% Interstate):`, `Rs. ${data.financials.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      printFinRow(`IGST (Interstate):`, `Rs. ${data.financials.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
     } else {
-      printFinRow(`CGST (9% Intrastate):`, `Rs. ${data.financials.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
-      printFinRow(`SGST (9% Intrastate):`, `Rs. ${data.financials.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      printFinRow(`CGST (Intrastate):`, `Rs. ${data.financials.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      printFinRow(`SGST (Intrastate):`, `Rs. ${data.financials.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
     }
 
     if (data.financials.roundOff !== 0) {

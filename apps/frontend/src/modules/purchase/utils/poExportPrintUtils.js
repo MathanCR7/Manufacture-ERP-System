@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 import { numberToIndianWords } from '@/utils/gstEngine';
+import useCompanyStore from '@/app/store/companyStore';
 
 /**
  * Normalizes Purchase Order data from either CreatePOPage or EditPOPage
@@ -32,7 +33,16 @@ export function normalizePOData(rawInput = {}) {
         : [];
   const discount = parseFloat(rawData.discount) || 0;
   const shipping = parseFloat(rawData.shipping || rawData.freight) || 0;
+  const shippingGstApplicable = rawData.shippingGstApplicable === true || rawData.shippingGst === true;
+  const shippingGstPercentage = Number(rawData.shippingGstPercentage !== undefined ? rawData.shippingGstPercentage : 18);
+  const shippingGstAmount = shippingGstApplicable && shipping > 0 ? shipping * (shippingGstPercentage / 100) : 0;
+
   const otherCharges = parseFloat(rawData.otherCharges) || 0;
+  const otherChargesGstApplicable = rawData.otherChargesGstApplicable === true || rawData.otherChargesGst === true;
+  const otherChargesGstPercentage = Number(rawData.otherChargesGstPercentage !== undefined ? rawData.otherChargesGstPercentage : 18);
+  const otherChargesGstAmount = otherChargesGstApplicable && otherCharges > 0 ? otherCharges * (otherChargesGstPercentage / 100) : 0;
+  const otherChargesLabel = rawData.otherChargesLabel || 'Other Charges';
+
   const subtotal = parseFloat(rawData.subtotal) || 0;
   const isInterState = !!rawData.isInterState;
   const cgstAmount = parseFloat(rawData.cgstAmount) || 0;
@@ -46,7 +56,10 @@ export function normalizePOData(rawInput = {}) {
   const paymentRef = rawData.paymentRef || rawData.reference || '—';
   const paymentNotes = rawData.paymentNotes || '';
   const notes = rawData.notes || rawData.remarks || '—';
-  const company = rawData.company || null;
+
+  // Live Company Details fallback from Zustand store
+  const storeCompany = useCompanyStore.getState()?.company;
+  const comp = rawData.company || (storeCompany?.companyName ? storeCompany : null);
   const creator = rawData.creator || rawData.createdBy?.name || 'Admin Master';
 
   const safeItems = (items || []).map((it, idx) => {
@@ -55,6 +68,11 @@ export function normalizePOData(rawInput = {}) {
     const itemSubtotal = it.subtotal !== undefined && it.subtotal !== null && !isNaN(parseFloat(it.subtotal))
       ? parseFloat(it.subtotal)
       : qty * price;
+
+    const isTaxable = it.gstApplicable !== false && it.isTaxable !== false;
+    const itemGstRate = isTaxable 
+      ? Number(it.gstPercentage !== undefined ? it.gstPercentage : (it.gstRate !== undefined ? it.gstRate : 18))
+      : 0;
 
     const batches = Array.isArray(it.batches) && it.batches.length > 0
       ? it.batches.map((b, bIdx) => ({
@@ -90,7 +108,10 @@ export function normalizePOData(rawInput = {}) {
       quantity: qty,
       unitPrice: price,
       subtotal: itemSubtotal,
-      taxStatus: it.isTaxable !== false ? 'GST (Yes)' : 'GST Exempt',
+      gstPercent: itemGstRate,
+      gstPercentage: itemGstRate,
+      gstApplicable: isTaxable,
+      taxStatus: isTaxable ? `GST (${itemGstRate}%)` : 'GST Exempt',
       labTestStatus: it.labTestStatus 
         ? it.labTestStatus 
         : (it.labTestRequired !== undefined 
@@ -117,6 +138,13 @@ export function normalizePOData(rawInput = {}) {
     }
   };
 
+  const formattedSupplierAddress = [
+    selectedSupplier?.address,
+    selectedSupplier?.city,
+    selectedSupplier?.state,
+    selectedSupplier?.pincode ? `PIN: ${selectedSupplier.pincode}` : ''
+  ].filter(Boolean).join(', ') || selectedSupplier?.address || '—';
+
   return {
     referenceNo: referenceNo || 'PO DRAFT',
     orderDate: formatDateVal(orderDate || new Date()),
@@ -127,10 +155,12 @@ export function normalizePOData(rawInput = {}) {
     createdAt: format(new Date(), 'dd MMM yyyy, HH:mm'),
     supplier: {
       name: selectedSupplier?.name || '—',
-      phone: selectedSupplier?.phone || '—',
-      gstin: selectedSupplier?.gstin || '—',
+      contactPerson: selectedSupplier?.contactPerson || selectedSupplier?.contactName || '—',
+      phone: selectedSupplier?.phone || selectedSupplier?.mobile || '—',
+      email: selectedSupplier?.email || '—',
+      gstin: selectedSupplier?.gstin || selectedSupplier?.gst || '—',
       pan: selectedSupplier?.pan || '—',
-      address: selectedSupplier?.address || '—'
+      address: formattedSupplierAddress
     },
     taxRule: isInterState ? 'IGST (Interstate)' : 'CGST+SGST (Intrastate)',
     isInterState,
@@ -152,7 +182,14 @@ export function normalizePOData(rawInput = {}) {
       totalQuantity,
       discount: parseFloat(discount) || 0,
       shipping: parseFloat(shipping) || 0,
+      shippingGstApplicable,
+      shippingGstPercentage,
+      shippingGstAmount,
       otherCharges: parseFloat(otherCharges) || 0,
+      otherChargesLabel,
+      otherChargesGstApplicable,
+      otherChargesGstPercentage,
+      otherChargesGstAmount,
       cgstAmount: parseFloat(cgstAmount) || 0,
       sgstAmount: parseFloat(sgstAmount) || 0,
       igstAmount: parseFloat(igstAmount) || 0,
@@ -171,11 +208,11 @@ export function normalizePOData(rawInput = {}) {
     },
     notes: notes || '—',
     company: {
-      name: company?.companyName || 'SUPERB FORMULATIONS PRIVATE LIMITED',
-      address: company?.companyAddress || 'Factory / Registered Office Address',
-      gstin: company?.companyGstin || '33AAWCS2781F1ZZ',
-      pan: company?.companyPan || 'AAWCS2781F',
-      phone: company?.companyMobile || '+91 99404 54154'
+      name: comp?.companyName || 'SUPERB FORMULATIONS PRIVATE LIMITED',
+      address: comp?.companyAddress || 'Factory / Registered Office Address',
+      gstin: comp?.companyGstin || '33AAWCS2781F1ZZ',
+      pan: comp?.companyPan || 'AAWCS2781F',
+      phone: comp?.companyMobile || '+91 99404 54154'
     }
   };
 }
@@ -315,7 +352,13 @@ export async function exportPurchaseOrderToExcel(poRawData) {
     addSectionHeader(curR, '2. SUPPLIER / VENDOR DETAILS');
     curR++;
     addKeyValue('Supplier / Vendor Name', data.supplier.name);
-    addKeyValue('Contact Phone', data.supplier.phone);
+    if (data.supplier.contactPerson && data.supplier.contactPerson !== '—') {
+      addKeyValue('Contact Person', data.supplier.contactPerson);
+    }
+    addKeyValue('Contact Phone / Mobile', data.supplier.phone);
+    if (data.supplier.email && data.supplier.email !== '—') {
+      addKeyValue('Email Address', data.supplier.email);
+    }
     addKeyValue('GSTIN', data.supplier.gstin);
     addKeyValue('PAN Number', data.supplier.pan);
     addKeyValue('Registered Business Address', data.supplier.address);
@@ -342,13 +385,23 @@ export async function exportPurchaseOrderToExcel(poRawData) {
     addKeyValue('Total Quantity Count', data.financials.totalQuantity);
     addKeyValue('Items Subtotal (₹)', data.financials.subtotal, true);
     if (data.financials.discount > 0) addKeyValue('Discount (₹)', -data.financials.discount, true);
-    if (data.financials.shipping > 0) addKeyValue('Freight / Shipping (₹)', data.financials.shipping, true);
-    if (data.financials.otherCharges > 0) addKeyValue('Other Charges (₹)', data.financials.otherCharges, true);
+    if (data.financials.shipping > 0) {
+      const shipLabel = data.financials.shippingGstApplicable 
+        ? `Freight / Shipping (${data.financials.shippingGstPercentage}% GST) (₹)` 
+        : 'Freight / Shipping (₹)';
+      addKeyValue(shipLabel, data.financials.shipping, true);
+    }
+    if (data.financials.otherCharges > 0) {
+      const chLabel = data.financials.otherChargesGstApplicable 
+        ? `${data.financials.otherChargesLabel} (${data.financials.otherChargesGstPercentage}% GST) (₹)` 
+        : `${data.financials.otherChargesLabel} (₹)`;
+      addKeyValue(chLabel, data.financials.otherCharges, true);
+    }
     if (data.isInterState) {
-      addKeyValue('IGST (18% Interstate) (₹)', data.financials.igstAmount, true);
+      addKeyValue('IGST (Interstate) (₹)', data.financials.igstAmount, true);
     } else {
-      addKeyValue('CGST (9% Intrastate) (₹)', data.financials.cgstAmount, true);
-      addKeyValue('SGST (9% Intrastate) (₹)', data.financials.sgstAmount, true);
+      addKeyValue('CGST (Intrastate) (₹)', data.financials.cgstAmount, true);
+      addKeyValue('SGST (Intrastate) (₹)', data.financials.sgstAmount, true);
     }
     if (data.financials.roundOff !== 0) addKeyValue('Round Off (₹)', data.financials.roundOff, true);
     addKeyValue('Grand Total (₹)', data.financials.grandTotal, true);
@@ -441,8 +494,9 @@ export async function exportPurchaseOrderToExcel(poRawData) {
     let sumBatchQty = 0;
 
     data.items.forEach((item, itemIdx) => {
-      const gstPct = item.gstPercent || 18;
-      const gstAmt = (item.subtotal * gstPct) / 100;
+      const isTaxable = item.gstApplicable !== false;
+      const gstPct = isTaxable ? (item.gstPercent !== undefined ? item.gstPercent : (item.gstPercentage !== undefined ? item.gstPercentage : 18)) : 0;
+      const gstAmt = isTaxable ? (item.subtotal * gstPct) / 100 : 0;
       const totalWithTax = item.subtotal + gstAmt;
       sumGstAmount += gstAmt;
       sumTotalWithTax += totalWithTax;

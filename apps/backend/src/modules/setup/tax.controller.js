@@ -2,13 +2,13 @@ const prisma = require('../../database/prisma');
 const crypto = require('crypto');
 
 const DEFAULT_SETTINGS = {
-  companyName: 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
-  companyAddress: 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
-  companyGstin: '33AABCA1234F1Z8',
-  companyPan: 'AABCA1234F',
-  companyMobile: '+91 94433 12345',
+  companyName: 'SUPERB FORMULATIONS PRIVATE LIMITED',
+  companyAddress: 'Factory / Registered Office Address',
+  companyGstin: '33AAWCS2781F1ZZ',
+  companyPan: 'AAWCS2781F',
+  companyMobile: '+91 99404 54154',
   collectTax: 'Yes',
-  taxRegNo: '33AABCA1234F1Z8',
+  taxRegNo: '33AAWCS2781F1ZZ',
   taxType: 'Exclusive Tax',
   stateCode: '33',
   taxes: [

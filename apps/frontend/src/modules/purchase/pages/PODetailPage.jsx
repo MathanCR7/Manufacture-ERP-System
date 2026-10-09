@@ -9,7 +9,7 @@ import {
   Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck, PackageCheck,
   Copy, Check, ExternalLink, Boxes, RefreshCw, Scale,
   CreditCard, Wallet, Image as ImageIcon, ZoomIn, UploadCloud, Eye, X, Loader2, AlertCircle,
-  RotateCcw, Undo2, Download
+  RotateCcw, Undo2, Download, Phone, Mail, MapPin, Building, Building2
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { 
@@ -28,6 +28,8 @@ import {
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
 import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
+import GstCalculationModal, { calculateGstBreakdown } from '../components/GstCalculationModal';
+import useCompanyStore from '@/app/store/companyStore';
 
 // Safely import QRCode
 import _QRCode from 'react-qr-code';
@@ -260,6 +262,11 @@ export default function PODetailPage() {
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedInstallmentIndex, setSelectedInstallmentIndex] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
+  const fetchCompany = useCompanyStore((s) => s.fetchCompany);
+
+  useEffect(() => {
+    fetchCompany();
+  }, [fetchCompany]);
 
   useEffect(() => {
     if (highlightActive) {
@@ -1027,6 +1034,82 @@ export default function PODetailPage() {
             </div>
           )}
 
+          {/* Dedicated Supplier & Vendor Details Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 sm:p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-indigo-500" /> Supplier & Vendor Details
+              </h3>
+              {po.supplier?.gstin && (
+                <span className="font-mono text-xs font-bold px-2.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/60">
+                  GSTIN: {po.supplier.gstin}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4 text-xs">
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Company / Supplier Name</span>
+                <p className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  <Building className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                  {po.supplier?.name || po.supplierName || '—'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Contact Person</span>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  {po.supplier?.contactPerson || po.supplier?.contact_person || '—'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Phone / Mobile</span>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 font-mono">
+                  <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  {po.supplier?.phone || po.supplier?.mobile || '—'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Email Address</span>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  {po.supplier?.email || '—'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">PAN Number</span>
+                <p className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 font-mono">
+                  <Tag className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  {po.supplier?.pan || '—'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Tax Territory</span>
+                <p className="font-semibold text-slate-800 dark:text-slate-200">
+                  {po.supplier?.gstin?.trim()?.startsWith('33') ? 'Intrastate (Tamil Nadu)' : 'Interstate (IGST)'}
+                </p>
+              </div>
+
+              <div className="space-y-1 sm:col-span-2 lg:col-span-3 pt-1 border-t border-slate-100 dark:border-slate-800">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Registered Address</span>
+                <p className="font-medium text-slate-700 dark:text-slate-300 flex items-start gap-1.5 leading-relaxed">
+                  <MapPin className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
+                  {[
+                    po.supplier?.address,
+                    po.supplier?.city,
+                    po.supplier?.state,
+                    po.supplier?.pincode ? `PIN: ${po.supplier.pincode}` : ''
+                  ].filter(Boolean).join(', ') || po.supplier?.address || '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Material & Item Details */}
           <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm transition-all duration-1000 ${highlightActive ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 shadow-md shadow-indigo-200 dark:shadow-indigo-900 bg-indigo-50/10 dark:bg-indigo-950/15 animate-pulse' : ''}`}>
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -1048,6 +1131,7 @@ export default function PODetailPage() {
                         <th className="py-2.5 px-3">Type</th>
                         <th className="py-2.5 px-3 text-right">Qty</th>
                         <th className="py-2.5 px-3 text-right">Unit Price</th>
+                        <th className="py-2.5 px-3 text-center">GST %</th>
                         <th className="py-2.5 px-3 text-right">Total</th>
                         <th className="py-2.5 px-3 text-center">Quality / Lab Route</th>
                       </tr>
@@ -1132,6 +1216,11 @@ export default function PODetailPage() {
                           </td>
                           <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-300">
                             ₹{Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <span className="font-bold text-xs px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                              {item.gstPercentage !== undefined ? item.gstPercentage : (item.gstPercent !== undefined ? item.gstPercent : (item.gstApplicable !== false ? 18 : 0))}%
+                            </span>
                           </td>
                           <td className="py-2.5 px-3 text-right font-semibold text-slate-900 dark:text-white font-mono">
                             ₹{Number(item.total || ((item.quantity || 0) * (item.unitPrice || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -1253,98 +1342,209 @@ export default function PODetailPage() {
           </div>
 
           {/* Financial Breakdown */}
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
-            <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
-              <IndianRupee className="w-4 h-4 text-emerald-500" /> Financial & Tax Details
-            </h3>
-            <div className="space-y-2 mb-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-lg">
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-slate-500 dark:text-slate-400">Subtotal:</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-300">
-                  ₹{parseFloat(po.subtotal || po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
+          {(() => {
+            const isInterState = po.supplier?.gstin ? !po.supplier.gstin.trim().startsWith('33') : false;
+            const charges = [];
+            const shippingVal = Number(po.shipping || 0);
+            const otherVal = Number(po.otherCharges || 0);
+            const shippingGstApplicable = Boolean(po.shippingGstApplicable || (shippingVal > 0 && po.items?.[0]?.shippingGstApplicable));
+            const shippingRate = Number(po.shippingGstPercentage ?? 18);
+            const otherGstApplicable = Boolean(po.otherChargesGstApplicable || (otherVal > 0 && po.items?.[0]?.otherChargesGstApplicable));
+            const otherRate = Number(po.otherChargesGstPercentage ?? 18);
+            const otherLabel = po.otherChargesLabel || 'Loading & Unloading';
 
-              {Number(po.cgst || 0) > 0 && (
-                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">CGST:</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    ₹{parseFloat(po.cgst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            if (shippingVal > 0) {
+              charges.push({
+                label: 'Shipping / Freight',
+                value: shippingVal,
+                applied: true,
+                gstApplicable: shippingGstApplicable,
+                rate: shippingRate,
+              });
+            }
+            if (otherVal > 0) {
+              charges.push({
+                label: otherLabel,
+                value: otherVal,
+                applied: true,
+                gstApplicable: otherGstApplicable,
+                rate: otherRate,
+              });
+            }
+
+            const breakdown = calculateGstBreakdown({
+              items: Array.isArray(po.items) ? po.items : [],
+              charges,
+              isInterState
+            });
+
+            const activeRateBlocks = breakdown.sortedBlocks.filter(b => b.rate > 0);
+            const singleBlock = activeRateBlocks.length === 1 ? activeRateBlocks[0] : null;
+            const cgstRateText = singleBlock ? `${(singleBlock.rate / 2)}%` : null;
+            const sgstRateText = singleBlock ? `${(singleBlock.rate / 2)}%` : null;
+            const igstRateText = singleBlock ? `${singleBlock.rate}%` : null;
+            const cgstLabel = cgstRateText ? `CGST @ ${cgstRateText}` : 'CGST (Intrastate)';
+            const sgstLabel = sgstRateText ? `SGST @ ${sgstRateText}` : 'SGST (Intrastate)';
+            const igstLabel = igstRateText ? `IGST @ ${igstRateText}` : 'IGST (Interstate)';
+
+            const displayTaxable = breakdown.totalTaxable > 0 ? breakdown.totalTaxable : parseFloat(po.subtotal || po.amount);
+            const displayCgst = Number(po.cgst || 0) > 0 ? parseFloat(po.cgst) : breakdown.totalCgst;
+            const displaySgst = Number(po.sgst || 0) > 0 ? parseFloat(po.sgst) : breakdown.totalSgst;
+            const displayIgst = Number(po.igst || 0) > 0 ? parseFloat(po.igst) : breakdown.totalIgst;
+
+            return (
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-sm">
+                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <IndianRupee className="w-4 h-4 text-emerald-500" /> Financial & Tax Details
                   </span>
-                </div>
-              )}
-
-              {Number(po.sgst || 0) > 0 && (
-                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">SGST:</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    ₹{parseFloat(po.sgst).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                    INR (₹)
                   </span>
+                </h3>
+                <div className="space-y-2 mb-4 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-lg">
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 dark:text-slate-400">Items Subtotal:</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      ₹{parseFloat(po.subtotal || po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-slate-500 dark:text-slate-400">Taxable Value:</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                      ₹{displayTaxable.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  {/* GST with (i) Info popover */}
+                  {isInterState ? (
+                    (displayIgst > 0 || breakdown.totalGst > 0) && (
+                      <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                        <span className="text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5">
+                          <span>{igstLabel}</span>
+                          <GstCalculationModal 
+                            items={Array.isArray(po.items) ? po.items : []} 
+                            charges={charges} 
+                            isInterState={true} 
+                            breakdownData={breakdown} 
+                          />
+                        </span>
+                        <span className="font-semibold text-slate-700 dark:text-slate-300">
+                          ₹{displayIgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )
+                  ) : (
+                    <>
+                      {(displayCgst > 0 || breakdown.totalCgst > 0) && (
+                        <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                          <span className="text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5">
+                            <span>{cgstLabel}</span>
+                            <GstCalculationModal 
+                              items={Array.isArray(po.items) ? po.items : []} 
+                              charges={charges} 
+                              isInterState={false} 
+                              breakdownData={breakdown} 
+                            />
+                          </span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            ₹{displayCgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+
+                      {(displaySgst > 0 || breakdown.totalSgst > 0) && (
+                        <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                          <span className="text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5">
+                            <span>{sgstLabel}</span>
+                            <GstCalculationModal 
+                              items={Array.isArray(po.items) ? po.items : []} 
+                              charges={charges} 
+                              isInterState={false} 
+                              breakdownData={breakdown} 
+                            />
+                          </span>
+                          <span className="font-semibold text-slate-700 dark:text-slate-300">
+                            ₹{displaySgst.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {Number(po.discount || 0) > 0 && (
+                    <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">Discount:</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        -₹{parseFloat(po.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {shippingVal > 0 && (
+                    <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        Shipping / Freight {shippingGstApplicable ? `(+${shippingRate}% GST)` : ''}:
+                      </span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        +₹{shippingVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  {otherVal > 0 && (
+                    <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
+                      <span className="text-slate-500 dark:text-slate-400">
+                        {otherLabel} {otherGstApplicable ? `(+${otherRate}% GST)` : ''}:
+                      </span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        +₹{otherVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-700 pt-2.5 font-bold text-base text-indigo-600 dark:text-indigo-400">
+                    <div>
+                      <div>Grand Total:</div>
+                      <div className="text-[10px] font-normal text-slate-400">Includes all taxes & delivery</div>
+                    </div>
+                    <span>
+                      ₹{parseFloat(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center pt-2 text-xs">
+                    <span className="text-slate-500 dark:text-slate-400 font-semibold">Payment Status:</span>
+                    <span className={`font-bold px-2 py-0.5 rounded-lg border ${
+                      (po.paymentStatus || 'UNPAID') === 'PAID'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                        : po.paymentStatus === 'PARTIALLY_PAID'
+                        ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
+                        : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                    }`}>
+                      {po.paymentStatus === 'PAID' ? '🟢 PAID' : po.paymentStatus === 'PARTIALLY_PAID' ? '🔵 PARTIALLY PAID' : '🔴 UNPAID'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 text-xs">
+                    <span className="text-slate-500 dark:text-slate-400 font-semibold">Amount Paid:</span>
+                    <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
+                      ₹{parseFloat(po.paidAmount || (po.paymentStatus === 'PAID' ? (po.grandTotal || po.amount) : 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1 text-xs">
+                    <span className="text-slate-500 dark:text-slate-400 font-semibold">Balance Due:</span>
+                    <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">
+                      ₹{Math.max(0, (po.grandTotal && Number(po.grandTotal) > 0 ? Number(po.grandTotal) : Number(po.amount)) - Number(po.paidAmount || (po.paymentStatus === 'PAID' ? (po.grandTotal || po.amount) : 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
                 </div>
-              )}
 
-              {Number(po.discount || 0) > 0 && (
-                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">Discount:</span>
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                    -₹{parseFloat(po.discount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-
-              {Number(po.shipping || 0) > 0 && (
-                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">Shipping:</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    +₹{parseFloat(po.shipping).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-
-              {Number(po.otherCharges || 0) > 0 && (
-                <div className="flex justify-between items-center border-t border-dashed border-slate-200 dark:border-slate-700 pt-2 text-xs">
-                  <span className="text-slate-500 dark:text-slate-400">Other Charges:</span>
-                  <span className="font-semibold text-slate-700 dark:text-slate-300">
-                    +₹{parseFloat(po.otherCharges).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-
-              <div className="flex justify-between items-center border-t border-slate-200 dark:border-slate-700 pt-2.5 font-bold text-base text-indigo-600 dark:text-indigo-400">
-                <span>Grand Total:</span>
-                <span>
-                  ₹{parseFloat(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
+                <InfoRow icon={Calendar} label="Expected Delivery" value={format(new Date(po.expectedDelivery), 'PPPP')} />
+                <InfoRow icon={User} label="Created By" value={po.user?.name || '—'} />
               </div>
-              <div className="flex justify-between items-center pt-2 text-xs">
-                <span className="text-slate-500 dark:text-slate-400 font-semibold">Payment Status:</span>
-                <span className={`font-bold px-2 py-0.5 rounded-lg border ${
-                  (po.paymentStatus || 'UNPAID') === 'PAID'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-                    : po.paymentStatus === 'PARTIALLY_PAID'
-                    ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
-                    : 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
-                }`}>
-                  {po.paymentStatus === 'PAID' ? '🟢 PAID' : po.paymentStatus === 'PARTIALLY_PAID' ? '🔵 PARTIALLY PAID' : '🔴 UNPAID'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center pt-1 text-xs">
-                <span className="text-slate-500 dark:text-slate-400 font-semibold">Amount Paid:</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono">
-                  ₹{parseFloat(po.paidAmount || (po.paymentStatus === 'PAID' ? (po.grandTotal || po.amount) : 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-              <div className="flex justify-between items-center pt-1 text-xs">
-                <span className="text-slate-500 dark:text-slate-400 font-semibold">Balance Due:</span>
-                <span className="font-bold text-rose-600 dark:text-rose-400 font-mono">
-                  ₹{Math.max(0, (po.grandTotal && Number(po.grandTotal) > 0 ? Number(po.grandTotal) : Number(po.amount)) - Number(po.paidAmount || (po.paymentStatus === 'PAID' ? (po.grandTotal || po.amount) : 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-
-            <InfoRow icon={Calendar} label="Expected Delivery" value={format(new Date(po.expectedDelivery), 'PPPP')} />
-            <InfoRow icon={User} label="Created By" value={po.user?.name || '—'} />
-          </div>
+            );
+          })()}
 
           {/* ───────────────────────────────────────────────────────────────────
               Payment & Settlement Details Card with Receipt Image Preview & Installments
