@@ -551,6 +551,7 @@ model RMStockAdjustment {
   type            String   // ADDITION or SUBTRACTION
   quantity        Decimal
   notes           String?  @db.Text
+  batches         Json?    // Stored batch allocation details
   createdBy       String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -876,13 +877,14 @@ model PurchaseReturn {
 model InventoryBatch {
   id              String   @id @default(uuid())
   batchNumber     String   @unique // RM-YYYYMMDD-POID-GRNID
-  poId            String
-  grnId           String
+  poId            String?
+  grnId           String?
+  adjustmentId    String?
   rawMaterialId   String
   rawMaterialName String
   rmCategory      String?
   supplierId      String?
-  receivedQty     Decimal  // from GRN
+  receivedQty     Decimal  // from GRN or Adjustment
   sampleQty       Decimal  @default(0) // consumed in lab testing
   netQty          Decimal  // receivedQty - sampleQty - wastedQty
   wastedQty       Decimal  @default(0) // tracked wasted quantity
@@ -897,10 +899,10 @@ model InventoryBatch {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  po     RawMaterialPO @relation(fields: [poId], references: [id])
-  grn    GRNReceive    @relation(fields: [grnId], references: [id])
-  uom    UOM           @relation(fields: [uomId], references: [id])
-  adder  User          @relation("InventoryAdder", fields: [addedBy], references: [id])
+  po     RawMaterialPO? @relation(fields: [poId], references: [id])
+  grn    GRNReceive?    @relation(fields: [grnId], references: [id])
+  uom    UOM            @relation(fields: [uomId], references: [id])
+  adder  User           @relation("InventoryAdder", fields: [addedBy], references: [id])
 
   @@index([poId])
   @@index([grnId])
