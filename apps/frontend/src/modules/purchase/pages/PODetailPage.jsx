@@ -1915,6 +1915,7 @@ export default function PODetailPage() {
       {/* Supplier Invoice Upload / Replace / Delete Modal */}
       {invoiceModalOpen && (
         <SupplierInvoiceModal
+          isOpen={true}
           po={po}
           onClose={() => setInvoiceModalOpen(false)}
           onUpdated={() => {

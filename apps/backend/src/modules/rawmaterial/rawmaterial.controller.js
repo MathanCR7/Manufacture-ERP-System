@@ -3184,7 +3184,8 @@ exports.uploadPaymentImage = async (req, res, next) => {
 exports.updatePOSupplierInvoice = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { invoiceFile, supplierInvoiceNo, supplierInvoiceDate } = req.body;
+    const { invoiceFile, supplierInvoiceFile, supplierInvoiceNo, supplierInvoiceDate } = req.body;
+    const incomingFile = invoiceFile !== undefined ? invoiceFile : supplierInvoiceFile;
 
     const po = await prisma.rawMaterialPO.findFirst({
       where: {
@@ -3209,23 +3210,23 @@ exports.updatePOSupplierInvoice = async (req, res, next) => {
       updateData.supplierInvoiceDate = supplierInvoiceDate ? new Date(supplierInvoiceDate) : null;
     }
 
-    if (invoiceFile !== undefined) {
-      if (invoiceFile && typeof invoiceFile === 'string' && invoiceFile.startsWith('data:')) {
+    if (incomingFile !== undefined) {
+      if (incomingFile && typeof incomingFile === 'string' && incomingFile.startsWith('data:')) {
         // Save new file (PDF or image) and delete old file if one existed
         const savedPath = saveSupplierInvoiceToDisk(
-          invoiceFile,
+          incomingFile,
           po.referenceNo || po.id,
           po.supplierInvoiceFile
         );
         updateData.supplierInvoiceFile = savedPath;
-      } else if (invoiceFile === null || invoiceFile === '') {
+      } else if (incomingFile === null || incomingFile === '') {
         // User explicitly removed attachment -> wipe old file from disk!
         if (po.supplierInvoiceFile) {
           deletePaymentImageFromDisk(po.supplierInvoiceFile);
         }
         updateData.supplierInvoiceFile = null;
-      } else if (typeof invoiceFile === 'string' && (invoiceFile.startsWith('/uploads/') || invoiceFile.startsWith('http'))) {
-        updateData.supplierInvoiceFile = invoiceFile;
+      } else if (typeof incomingFile === 'string' && (incomingFile.startsWith('/uploads/') || incomingFile.startsWith('http'))) {
+        updateData.supplierInvoiceFile = incomingFile;
       }
     }
 

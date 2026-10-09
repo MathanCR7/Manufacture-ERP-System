@@ -168,7 +168,7 @@ export function InvoiceFilePreviewModal({ src, title = 'Supplier Invoice', poRef
  * - Removing existing file (deletes file on server disk)
  * - Previewing and Downloading
  */
-export function SupplierInvoiceModal({ po, isOpen, onClose, onUpdated }) {
+export function SupplierInvoiceModal({ po, isOpen = true, onClose, onUpdated }) {
   const fileInputRef = useRef(null);
 
   const [invoiceNo, setInvoiceNo] = useState('');
@@ -179,17 +179,19 @@ export function SupplierInvoiceModal({ po, isOpen, onClose, onUpdated }) {
   const [previewSrc, setPreviewSrc] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
 
+  const isModalOpen = isOpen !== undefined ? Boolean(isOpen) : true;
+
   useEffect(() => {
-    if (po && isOpen) {
+    if (po && isModalOpen) {
       setInvoiceNo(po.supplierInvoiceNo || '');
       setInvoiceDate(po.supplierInvoiceDate ? po.supplierInvoiceDate.split('T')[0] : '');
       setSelectedFile(null);
       setIsReplacing(false);
       setErrorMessage('');
     }
-  }, [po, isOpen]);
+  }, [po, isModalOpen]);
 
-  if (!isOpen || !po) return null;
+  if (!isModalOpen || !po) return null;
 
   const existingFileUrl = po.supplierInvoiceFile || null;
   const isExistingPdf = isPdfDocument(existingFileUrl);
@@ -239,6 +241,7 @@ export function SupplierInvoiceModal({ po, isOpen, onClose, onUpdated }) {
 
       if (selectedFile) {
         payload.invoiceFile = selectedFile.dataUrl;
+        payload.supplierInvoiceFile = selectedFile.dataUrl;
       }
 
       const res = await api.patch(`/rm/po/${po.id}/supplier-invoice`, payload);
@@ -296,7 +299,8 @@ export function SupplierInvoiceModal({ po, isOpen, onClose, onUpdated }) {
     setIsSubmitting(true);
     try {
       const res = await api.patch(`/rm/po/${po.id}/supplier-invoice`, {
-        invoiceFile: null
+        invoiceFile: null,
+        supplierInvoiceFile: null
       });
       const updatedPo = res.data?.po || { ...po, supplierInvoiceFile: null };
 

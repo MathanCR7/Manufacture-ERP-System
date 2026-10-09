@@ -1141,7 +1141,10 @@ export default function POListPage() {
                             <Button
                               variant="ghost" 
                               size="icon"
-                              onClick={() => setInvoiceModalPO(po)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setInvoiceModalPO(po);
+                              }}
                               className={`h-7 w-7 rounded-lg transition-colors cursor-pointer shrink-0 relative ${
                                 po.supplierInvoiceFile
                                   ? 'text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50'
@@ -1354,6 +1357,7 @@ export default function POListPage() {
       {/* Supplier Invoice Upload / View / Update Modal */}
       {invoiceModalPO && (
         <SupplierInvoiceModal
+          isOpen={true}
           po={augmentedPos.find(p => p.id === invoiceModalPO.id) || invoiceModalPO}
           onClose={() => setInvoiceModalPO(null)}
           onUpdated={() => {
