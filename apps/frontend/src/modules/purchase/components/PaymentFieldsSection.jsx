@@ -18,8 +18,17 @@ export const PAYMENT_MODES = [
   { id: 'NET_BANKING', label: 'Net Banking', icon: Landmark, color: 'text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/60 border-cyan-200 dark:border-cyan-800', placeholder: 'Online Banking Transaction Ref' },
   { id: 'CARD', label: 'Debit / Credit Card', icon: CreditCard, color: 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-800', placeholder: 'Card Last 4 Digits / POS Auth Code' },
   { id: 'PAYMENT_LINK', label: 'Payment Link', icon: Link2, color: 'text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950/60 border-sky-200 dark:border-sky-800', placeholder: 'Payment Gateway Link / Order ID' },
-  { id: 'OTHER', label: 'Other Mode', icon: Wallet, color: 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700', placeholder: 'Payment Reference / Memo' },
+  { id: 'OTHER', label: 'Other', icon: Wallet, color: 'text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700', placeholder: 'Payment Reference / Memo' },
 ];
+
+export const ACTIVE_PAYMENT_MODES = [
+  PAYMENT_MODES.find(m => m.id === 'CASH'),
+  PAYMENT_MODES.find(m => m.id === 'BANK_TRANSFER'),
+  PAYMENT_MODES.find(m => m.id === 'UPI'),
+  PAYMENT_MODES.find(m => m.id === 'CHEQUE'),
+  PAYMENT_MODES.find(m => m.id === 'CARD'),
+  PAYMENT_MODES.find(m => m.id === 'OTHER'),
+].filter(Boolean);
 
 /**
  * Resolves any relative URL (/uploads/payments/...) to the full backend URL,
@@ -660,7 +669,7 @@ export default function PaymentFieldsSection({
               <span className="text-[10px] font-normal text-slate-400">Select payment channel</span>
             </Label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {PAYMENT_MODES.map((mode) => {
+              {ACTIVE_PAYMENT_MODES.map((mode) => {
                 const Icon = mode.icon;
                 const isSelected = paymentMode === mode.id;
                 return (

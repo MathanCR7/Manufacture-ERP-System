@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { 
   PAYMENT_MODES, 
+  ACTIVE_PAYMENT_MODES,
   resolvePaymentImageUrl, 
   compressImage, 
   LiveCameraModal, 
@@ -572,8 +573,8 @@ export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex =
                   <span>Payment Mode / Channel</span>
                   <span className="text-[10px] text-slate-400">Choose mode</span>
                 </Label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {PAYMENT_MODES.slice(0, 8).map((mode) => {
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                  {ACTIVE_PAYMENT_MODES.map((mode) => {
                     const Icon = mode.icon;
                     const isSelected = instMode === mode.id;
                     return (
