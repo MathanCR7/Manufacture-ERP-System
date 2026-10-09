@@ -90,13 +90,20 @@ export function getInitialInstallments(po) {
  */
 export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex = null, onClose, onUpdated }) {
   const po = modalData?.po || modalData;
+  const initialIndex = modalData?.initialEditIndex ?? initialEditIndex;
   const totalPayable = Number(po?.grandTotal && Number(po?.grandTotal) > 0 ? po?.grandTotal : po?.amount || 0);
 
   const [installments, setInstallments] = useState(() => getInitialInstallments(po));
   const [editingId, setEditingId] = useState(null);
 
   // Form State for Active Installment (Add or Edit)
-  const [instAmount, setInstAmount] = useState('');
+  // Auto-prefill instAmount with balanceDue if no installments exist yet, enabling 1-click settlement
+  const [instAmount, setInstAmount] = useState(() => {
+    const list = getInitialInstallments(po);
+    const paidSum = list.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const dueSum = Math.max(0, Math.round((totalPayable - paidSum) * 100) / 100);
+    return list.length === 0 && dueSum > 0 ? String(dueSum.toFixed(2)) : '';
+  });
   const [instDateTime, setInstDateTime] = useState(() => toDateTimeLocalString(new Date()));
   const [instMode, setInstMode] = useState('BANK_TRANSFER');
   const [instRef, setInstRef] = useState('');
@@ -113,8 +120,14 @@ export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex =
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
 
-  // Calculate live financial metrics
-  const totalPaid = installments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  // Calculate live financial metrics including any uncommitted amount in the active input
+  const committedPaid = installments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const parsedInputAmt = parseFloat(instAmount);
+  const pendingInputAmt = (!isNaN(parsedInputAmt) && parsedInputAmt > 0) ? parsedInputAmt : 0;
+  const editingOldAmt = editingId ? (installments.find(i => i.id === editingId)?.amount || 0) : 0;
+  const liveDiff = editingId ? (pendingInputAmt - editingOldAmt) : pendingInputAmt;
+
+  const totalPaid = Math.max(0, Math.round((committedPaid + liveDiff) * 100) / 100);
   const balanceDue = Math.max(0, Math.round((totalPayable - totalPaid) * 100) / 100);
   
   let settlementStatus = 'UNPAID';
@@ -154,12 +167,12 @@ export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex =
     setFormError('');
   };
 
-  // If initialEditIndex provided on open, trigger edit
+  // If initialIndex provided on open, trigger edit
   useEffect(() => {
-    if (initialEditIndex !== null && installments[initialEditIndex]) {
-      handleSelectForEdit(installments[initialEditIndex]);
+    if (initialIndex !== null && initialIndex !== undefined && installments[initialIndex]) {
+      handleSelectForEdit(installments[initialIndex]);
     }
-  }, [initialEditIndex]);
+  }, [initialIndex]);
 
   // Image Processing
   const processImageFile = async (file) => {
@@ -255,20 +268,45 @@ export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex =
     });
   };
 
-  // Reset to Unpaid
+  // Reset to Unpaid: clears all installments and updates backend immediately
   const handleResetToUnpaid = () => {
     Swal.fire({
       title: 'Mark Order as Unpaid?',
-      text: 'This will clear all payment installment entries and reset total paid to ₹0.00.',
+      text: 'This will clear all payment installment entries and reset total paid to ₹0.00 in the database.',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#d97706',
       cancelButtonColor: '#64748b',
       confirmButtonText: 'Yes, reset to Unpaid'
-    }).then((result) => {
+    }).then(async (result) => {
       if (result.isConfirmed) {
-        setInstallments([]);
-        resetFormFields();
+        setIsSubmitting(true);
+        try {
+          const response = await api.patch(`/rm/po/${po.id}/payment`, {
+            installmentAction: 'UNPAID',
+            paymentStatus: 'UNPAID',
+            paidAmount: 0,
+            paymentHistory: [],
+          });
+          setInstallments([]);
+          resetFormFields();
+          Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'info',
+            title: `Order Marked Unpaid`,
+            text: `Settlement cleared for ${po.referenceNo || po.rmId}`,
+            showConfirmButton: false,
+            timer: 2500,
+          });
+          if (onUpdated) onUpdated(response.data);
+          if (onClose) onClose();
+        } catch (err) {
+          console.error('Error resetting to unpaid:', err);
+          setFormError('Failed to reset to unpaid. Please try again.');
+        } finally {
+          setIsSubmitting(false);
+        }
       }
     });
   };
@@ -280,16 +318,73 @@ export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex =
     }
   };
 
-  // Submit all changes to backend
+  // Submit all changes to backend (auto-commits active input if not explicitly added)
   const handleFinalSubmit = async () => {
-    setIsSubmitting(true);
     setFormError('');
 
+    let finalInstallments = [...installments];
+    const pendingAmount = parseFloat(instAmount);
+
+    // If there is an active amount entered in the input, commit it!
+    if (!isNaN(pendingAmount) && pendingAmount > 0) {
+      if (editingId) {
+        finalInstallments = finalInstallments.map(item => {
+          if (item.id === editingId) {
+            return {
+              ...item,
+              amount: Math.round(pendingAmount * 100) / 100,
+              paymentDate: instDateTime ? new Date(instDateTime).toISOString() : new Date().toISOString(),
+              paymentMode: instMode || 'BANK_TRANSFER',
+              paymentRef: instRef.trim() || null,
+              paymentImage: instImage || null,
+              paymentNotes: instNotes.trim() || null,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          return item;
+        });
+      } else {
+        finalInstallments.push({
+          id: `inst_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          amount: Math.round(pendingAmount * 100) / 100,
+          paymentDate: instDateTime ? new Date(instDateTime).toISOString() : new Date().toISOString(),
+          paymentMode: instMode || 'BANK_TRANSFER',
+          paymentRef: instRef.trim() || null,
+          paymentImage: instImage || null,
+          paymentNotes: instNotes.trim() || null,
+          createdAt: new Date().toISOString()
+        });
+      }
+    }
+
+    if (finalInstallments.length === 0) {
+      setFormError('Please enter an installment payment amount before saving, or click "Reset to Unpaid" if you wish to clear all payments.');
+      return;
+    }
+
+    const calculatedPaid = finalInstallments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    const roundedPaid = Math.round(calculatedPaid * 100) / 100;
+
+    let finalStatus = 'UNPAID';
+    if (roundedPaid >= totalPayable && totalPayable > 0) {
+      finalStatus = 'PAID';
+    } else if (roundedPaid > 0) {
+      finalStatus = 'PARTIALLY_PAID';
+    }
+
+    const latest = [...finalInstallments].sort((a, b) => new Date(b.paymentDate) - new Date(a.paymentDate))[0] || null;
+
+    setIsSubmitting(true);
     try {
       const response = await api.patch(`/rm/po/${po.id}/payment`, {
-        paymentStatus: settlementStatus,
-        paidAmount: totalPaid,
-        paymentHistory: installments,
+        paymentStatus: finalStatus,
+        paidAmount: roundedPaid,
+        paymentHistory: finalInstallments,
+        paymentDate: latest?.paymentDate || null,
+        paymentMode: latest?.paymentMode || 'BANK_TRANSFER',
+        paymentRef: latest?.paymentRef || null,
+        paymentImage: latest?.paymentImage || null,
+        paymentNotes: latest?.paymentNotes || null,
       });
 
       Swal.fire({
@@ -297,7 +392,7 @@ export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex =
         position: 'top-end',
         icon: 'success',
         title: `Settlement Updated for ${po.referenceNo || po.rmId}`,
-        html: `<span class="text-xs">Status: <b>${settlementStatus}</b> · Total Paid: <b>₹${totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</b> (${installments.length} installment${installments.length === 1 ? '' : 's'})</span>`,
+        html: `<span class="text-xs">Status: <b>${finalStatus}</b> · Total Paid: <b>₹${roundedPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</b> (${finalInstallments.length} installment${finalInstallments.length === 1 ? '' : 's'})</span>`,
         showConfirmButton: false,
         timer: 3500,
         timerProgressBar: true
@@ -1061,10 +1156,25 @@ export function PaymentSettlementDetailsModal({ po, onClose, onEditPayment }) {
                             ₹{Number(inst.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           </span>
                         </div>
-                        <span className="inline-flex items-center gap-1 font-semibold text-[11px] text-slate-700 dark:text-slate-300">
-                          <ModeIcon className="w-3 h-3 text-indigo-500" />
-                          {modeObj.label}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 font-semibold text-[11px] text-slate-700 dark:text-slate-300">
+                            <ModeIcon className="w-3 h-3 text-indigo-500" />
+                            {modeObj.label}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              onClose();
+                              if (onEditPayment) onEditPayment(idx);
+                            }}
+                            className="h-6 px-2 text-[10.5px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded cursor-pointer gap-1"
+                          >
+                            <Edit className="w-3 h-3" />
+                            Edit
+                          </Button>
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-slate-200/60 dark:border-slate-800">

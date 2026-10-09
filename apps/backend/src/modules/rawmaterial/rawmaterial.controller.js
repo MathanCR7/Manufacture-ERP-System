@@ -215,7 +215,13 @@ exports.updatePOPayment = async (req, res, next) => {
       newInstallment, installmentAction, installmentId 
     } = updatePOPaymentSchema.parse(req.body);
 
-    const po = await prisma.rawMaterialPO.findUnique({ where: { id } });
+    const po = await prisma.rawMaterialPO.findUnique({ 
+      where: { id },
+      include: {
+        uom: true,
+        supplier: true
+      }
+    });
     if (!po) {
       return res.status(404).json({ error: 'Purchase Order not found' });
     }
@@ -242,29 +248,52 @@ exports.updatePOPayment = async (req, res, next) => {
     let finalHistory = currentHistory;
 
     // Handle different update modes
-    if (installmentAction === 'UNPAID' || (paymentStatus === 'UNPAID' && !paymentHistory && !newInstallment)) {
+    if (installmentAction === 'UNPAID' || paymentStatus === 'UNPAID') {
       finalHistory = [];
     } else if (paymentHistory !== undefined && Array.isArray(paymentHistory)) {
-      // Full installment history array provided from client
-      finalHistory = paymentHistory.map((item, idx) => {
-        const itemAmount = Number(item.amount || 0);
-        const itemKey = item.id || `inst_${Date.now()}_${idx}`;
-        let itemImg = item.paymentImage || null;
-        if (itemImg && itemImg.startsWith('data:')) {
-          itemImg = savePaymentImageToDisk(itemImg, po.referenceNo || po.id, null, itemKey);
+      if (paymentHistory.length > 0) {
+        // Full installment history array provided from client
+        finalHistory = paymentHistory.map((item, idx) => {
+          const itemAmount = Number(item.amount || 0);
+          const itemKey = item.id || `inst_${Date.now()}_${idx}`;
+          let itemImg = item.paymentImage || null;
+          if (itemImg && itemImg.startsWith('data:')) {
+            itemImg = savePaymentImageToDisk(itemImg, po.referenceNo || po.id, null, itemKey);
+          }
+          return {
+            id: itemKey,
+            amount: Math.round(itemAmount * 100) / 100,
+            paymentDate: item.paymentDate ? new Date(item.paymentDate).toISOString() : new Date().toISOString(),
+            paymentMode: item.paymentMode || 'BANK_TRANSFER',
+            paymentRef: item.paymentRef || null,
+            paymentImage: itemImg,
+            paymentNotes: item.paymentNotes || null,
+            createdAt: item.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+        });
+      } else if (Number(paidAmount) > 0 || paymentStatus === 'PAID') {
+        // Fallback: If empty array was sent but paidAmount > 0 or status is PAID, synthesize installment!
+        const settleAmt = Number(paidAmount) > 0 ? Number(paidAmount) : totalAmount;
+        let imgPath = po.paymentImage;
+        if (paymentImage && paymentImage.startsWith('data:')) {
+          imgPath = savePaymentImageToDisk(paymentImage, po.referenceNo || po.id, po.paymentImage, `inst_${Date.now()}`);
+        } else if (paymentImage !== undefined) {
+          imgPath = paymentImage;
         }
-        return {
-          id: itemKey,
-          amount: Math.round(itemAmount * 100) / 100,
-          paymentDate: item.paymentDate ? new Date(item.paymentDate).toISOString() : new Date().toISOString(),
-          paymentMode: item.paymentMode || 'BANK_TRANSFER',
-          paymentRef: item.paymentRef || null,
-          paymentImage: itemImg,
-          paymentNotes: item.paymentNotes || null,
-          createdAt: item.createdAt || new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-      });
+        finalHistory = [{
+          id: `inst_${Date.now()}`,
+          amount: Math.round(settleAmt * 100) / 100,
+          paymentDate: paymentDate ? new Date(paymentDate).toISOString() : new Date().toISOString(),
+          paymentMode: paymentMode || po.paymentMode || 'BANK_TRANSFER',
+          paymentRef: paymentRef || po.paymentRef || null,
+          paymentImage: imgPath,
+          paymentNotes: paymentNotes || po.paymentNotes || 'Payment settlement',
+          createdAt: new Date().toISOString()
+        }];
+      } else {
+        finalHistory = [];
+      }
     } else if (newInstallment) {
       const itemKey = newInstallment.id || `inst_${Date.now()}`;
       let itemImg = newInstallment.paymentImage || null;
@@ -288,9 +317,7 @@ exports.updatePOPayment = async (req, res, next) => {
         deletePaymentImageFromDisk(toDelete.paymentImage);
       }
       finalHistory = currentHistory.filter(item => item.id !== installmentId);
-    } else {
-      // Legacy single payment update fallback
-      let finalPaid = paidAmount !== undefined ? Number(paidAmount) : Number(po.paidAmount || 0);
+    } else if (paidAmount !== undefined && Number(paidAmount) > 0) {
       let imgPath = po.paymentImage;
       if (paymentImage !== undefined) {
         if (paymentImage && paymentImage.startsWith('data:')) {
@@ -299,20 +326,28 @@ exports.updatePOPayment = async (req, res, next) => {
           imgPath = paymentImage;
         }
       }
-      if (finalPaid <= 0) {
-        finalHistory = [];
-      } else {
-        finalHistory = [{
-          id: `inst_${Date.now()}`,
-          amount: finalPaid,
-          paymentDate: paymentDate ? new Date(paymentDate).toISOString() : new Date().toISOString(),
-          paymentMode: paymentMode || 'BANK_TRANSFER',
-          paymentRef: paymentRef || null,
-          paymentImage: imgPath,
-          paymentNotes: paymentNotes || null,
-          createdAt: new Date().toISOString()
-        }];
-      }
+      finalHistory = [{
+        id: `inst_${Date.now()}`,
+        amount: Math.round(Number(paidAmount) * 100) / 100,
+        paymentDate: paymentDate ? new Date(paymentDate).toISOString() : new Date().toISOString(),
+        paymentMode: paymentMode || po.paymentMode || 'BANK_TRANSFER',
+        paymentRef: paymentRef || po.paymentRef || null,
+        paymentImage: imgPath,
+        paymentNotes: paymentNotes || po.paymentNotes || 'Payment settlement',
+        createdAt: new Date().toISOString()
+      }];
+    } else if (paymentStatus === 'PAID') {
+      const settleAmount = totalAmount > 0 ? totalAmount : Number(po.amount || 0);
+      finalHistory = [{
+        id: `inst_${Date.now()}`,
+        amount: Math.round(settleAmount * 100) / 100,
+        paymentDate: new Date().toISOString(),
+        paymentMode: paymentMode || po.paymentMode || 'BANK_TRANSFER',
+        paymentRef: paymentRef || po.paymentRef || null,
+        paymentImage: po.paymentImage || null,
+        paymentNotes: paymentNotes || 'Full payment settlement',
+        createdAt: new Date().toISOString()
+      }];
     }
 
     // Recalculate total amount paid
@@ -364,7 +399,14 @@ exports.updatePOPayment = async (req, res, next) => {
       }
     });
 
-    res.json(updated);
+    const formattedUpdated = {
+      ...updated,
+      supplierName: updated.supplier?.name || updated.supplier?.contactPerson || '—',
+      paidAmount: parseFloat(updated.paidAmount || 0),
+      paymentHistory: Array.isArray(updated.paymentHistory) ? updated.paymentHistory : finalHistory
+    };
+
+    res.json(formattedUpdated);
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: error.errors });

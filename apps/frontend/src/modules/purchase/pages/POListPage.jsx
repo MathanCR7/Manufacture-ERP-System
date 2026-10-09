@@ -1248,12 +1248,12 @@ export default function POListPage() {
       {/* Payment Settlement Details Modal (Multi-installment, DateTime, Modes, Receipt Zoom) */}
       {summaryModalPO && (
         <PaymentSettlementDetailsModal
-          po={summaryModalPO}
+          po={augmentedPos.find(p => p.id === summaryModalPO.id) || summaryModalPO}
           onClose={() => setSummaryModalPO(null)}
-          onEditPayment={() => {
-            const selected = summaryModalPO;
+          onEditPayment={(idx = null) => {
+            const selected = augmentedPos.find(p => p.id === summaryModalPO.id) || summaryModalPO;
             setSummaryModalPO(null);
-            setPaymentModalPO(selected);
+            setPaymentModalPO({ po: selected, initialEditIndex: idx });
           }}
         />
       )}
@@ -1261,7 +1261,8 @@ export default function POListPage() {
       {/* Modern Multi-Installment Payment Settlement Modal */}
       {paymentModalPO && (
         <UpdatePaymentSettlementModal
-          po={paymentModalPO}
+          po={paymentModalPO?.po || paymentModalPO}
+          initialEditIndex={paymentModalPO?.initialEditIndex ?? null}
           onClose={() => setPaymentModalPO(null)}
           onUpdated={() => {
             refetch();
