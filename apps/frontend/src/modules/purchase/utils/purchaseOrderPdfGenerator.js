@@ -407,8 +407,20 @@ export function generatePurchaseOrderPDF(rawData) {
     doc.line(margin, curY, pageWidth - margin, curY);
     curY += 5;
 
-    // Check space for Section 4 & 5 totals block + Section 6 signatures block (approx 78mm)
-    if (curY + 78 > pageHeight - 12) {
+    // Calculate required height for Section 4 so all financial rows fit cleanly
+    const finRowsCount = 
+      1 /* Items Subtotal */ + 
+      1 /* Taxable Value */ +
+      (data.financials.discount > 0 ? 1 : 0) +
+      (data.financials.shipping > 0 ? 1 : 0) +
+      (data.financials.otherCharges > 0 ? 1 : 0) +
+      (data.isInterState ? 1 : 2) +
+      (data.financials.roundOff !== 0 ? 1 : 0);
+
+    const sumCardH = Math.max(52, 11 + (finRowsCount * 4.2) + 12);
+
+    // Check space for Section 4 & 5 totals block + Section 6 signatures block (approx sumCardH + 32mm)
+    if (curY + sumCardH + 32 > pageHeight - 12) {
       doc.addPage();
       doc.setFillColor(24, 28, 48);
       doc.rect(0, 0, pageWidth, 3.5, 'F');
@@ -424,7 +436,6 @@ export function generatePurchaseOrderPDF(rawData) {
     }
 
     // ── SECTION 4 & 5: FINANCIAL SUMMARY & PAYMENT DETAILS (TWO COLUMNS) ──
-    const sumCardH = 49;
 
     // Left Box: Payment Details & Amount in Words
     doc.setFillColor(...bgLight);
@@ -473,20 +484,21 @@ export function generatePurchaseOrderPDF(rawData) {
     doc.text(`Channel / Mode: ${data.payment.paymentMode}  |  Ref: ${data.payment.paymentRef}`, margin + 3.5, curY + 24.5);
 
     // Amount in Words Callout
+    const wordsBoxH = Math.max(14, sumCardH - 28.5);
     doc.setFillColor(243, 232, 255);
     doc.setDrawColor(216, 180, 254);
-    doc.roundedRect(margin + 2.5, curY + 28, colW - 5, 14, 1.5, 1.5, 'FD');
+    doc.roundedRect(margin + 2.5, curY + 27, colW - 5, wordsBoxH, 1.5, 1.5, 'FD');
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
     doc.setTextColor(107, 33, 168);
-    doc.text('TOTAL AMOUNT IN WORDS (INR):', margin + 5, curY + 32);
+    doc.text('TOTAL AMOUNT IN WORDS (INR):', margin + 5, curY + 31);
 
     doc.setFont('helvetica', 'bolditalic');
     doc.setFontSize(6.8);
     doc.setTextColor(...darkTextColor);
     const wordsLines = doc.splitTextToSize(data.financials.amountInWords, colW - 10);
-    doc.text(wordsLines.slice(0, 2), margin + 5, curY + 36);
+    doc.text(wordsLines.slice(0, 3), margin + 5, curY + 35);
 
     // Right Box: Charges & Financial Summary
     doc.setFillColor(...bgLight);
@@ -515,6 +527,11 @@ export function generatePurchaseOrderPDF(rawData) {
       `Rs. ${data.financials.subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
     );
 
+    printFinRow(
+      `Taxable Value:`,
+      `Rs. ${data.financials.taxableValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
+    );
+
     if (data.financials.discount > 0) {
       printFinRow(`Discount:`, `-Rs. ${data.financials.discount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
     }
@@ -534,10 +551,13 @@ export function generatePurchaseOrderPDF(rawData) {
     }
 
     if (data.isInterState) {
-      printFinRow(`IGST (Interstate):`, `Rs. ${data.financials.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      const igstLabel = data.financials.igstLabel ? `${data.financials.igstLabel}:` : `IGST (Interstate):`;
+      printFinRow(igstLabel, `Rs. ${data.financials.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
     } else {
-      printFinRow(`CGST (Intrastate):`, `Rs. ${data.financials.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
-      printFinRow(`SGST (Intrastate):`, `Rs. ${data.financials.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      const cgstLabel = data.financials.cgstLabel ? `${data.financials.cgstLabel}:` : `CGST (Intrastate):`;
+      const sgstLabel = data.financials.sgstLabel ? `${data.financials.sgstLabel}:` : `SGST (Intrastate):`;
+      printFinRow(cgstLabel, `Rs. ${data.financials.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+      printFinRow(sgstLabel, `Rs. ${data.financials.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
     }
 
     if (data.financials.roundOff !== 0) {

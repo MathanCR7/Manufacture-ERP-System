@@ -478,6 +478,13 @@ export default function PurchaseOrderPrintModal({ isOpen, onClose, rawData }) {
                 </span>
               </div>
 
+              <div className="flex justify-between items-center">
+                <span className="text-slate-600">Taxable Value:</span>
+                <span className="font-bold text-slate-900">
+                  ₹{data.financials.taxableValue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+
               {data.financials.discount > 0 && (
                 <div className="flex justify-between items-center text-emerald-700">
                   <span>Trade Discount:</span>
@@ -487,31 +494,35 @@ export default function PurchaseOrderPrintModal({ isOpen, onClose, rawData }) {
 
               {data.financials.shipping > 0 && (
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600">Freight & Shipping:</span>
+                  <span className="text-slate-600">
+                    Freight & Shipping {data.financials.shippingGstApplicable ? `(+${data.financials.shippingGstPercentage}% GST)` : ''}:
+                  </span>
                   <span className="font-semibold">₹{data.financials.shipping.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
               )}
 
               {data.financials.otherCharges > 0 && (
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-600">Other Charges:</span>
+                  <span className="text-slate-600">
+                    {data.financials.otherChargesLabel || 'Other Charges'} {data.financials.otherChargesGstApplicable ? `(+${data.financials.otherChargesGstPercentage}% GST)` : ''}:
+                  </span>
                   <span className="font-semibold">₹{data.financials.otherCharges.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
               )}
 
               {data.isInterState ? (
                 <div className="flex justify-between items-center text-indigo-700">
-                  <span>IGST (18% Interstate):</span>
+                  <span>{data.financials.igstLabel || 'IGST (Interstate)'}:</span>
                   <span className="font-semibold">₹{data.financials.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                 </div>
               ) : (
                 <>
                   <div className="flex justify-between items-center text-slate-700">
-                    <span>CGST (9% Intrastate):</span>
+                    <span>{data.financials.cgstLabel || 'CGST (Intrastate)'}:</span>
                     <span className="font-semibold">₹{data.financials.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between items-center text-slate-700">
-                    <span>SGST (9% Intrastate):</span>
+                    <span>{data.financials.sgstLabel || 'SGST (Intrastate)'}:</span>
                     <span className="font-semibold">₹{data.financials.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </>

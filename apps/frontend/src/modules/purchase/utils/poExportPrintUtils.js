@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import { format } from 'date-fns';
 import { numberToIndianWords } from '@/utils/gstEngine';
 import useCompanyStore from '@/app/store/companyStore';
+import { calculateGstBreakdown } from '../components/GstCalculationModal';
 
 /**
  * Normalizes Purchase Order data from either CreatePOPage or EditPOPage
@@ -105,16 +106,9 @@ export function normalizePOData(rawInput = {}) {
   const otherChargesGstAmount = otherChargesGstApplicable && otherCharges > 0 ? otherCharges * (otherChargesGstPercentage / 100) : 0;
   const otherChargesLabel = rawData.otherChargesLabel || 'Other Charges';
 
-  const subtotal = parseFloat(rawData.subtotal) || 0;
+  const subtotal = parseFloat(rawData.subtotal || rawData.amount) || 0;
   const cleanGstin = supplierGstin !== '—' ? supplierGstin.trim() : '';
-  const isInterState = rawData.isInterState !== undefined 
-    ? Boolean(rawData.isInterState) 
-    : (cleanGstin ? !cleanGstin.startsWith('33') : false);
-  const cgstAmount = parseFloat(rawData.cgstAmount) || 0;
-  const sgstAmount = parseFloat(rawData.sgstAmount) || 0;
-  const igstAmount = parseFloat(rawData.igstAmount) || 0;
-  const roundOff = parseFloat(rawData.roundOff) || 0;
-  const grandTotal = parseFloat(rawData.grandTotal || rawData.amount || rawData.totalAmount) || 0;
+
   const paymentStatus = (rawData.paymentStatus || 'UNPAID').toUpperCase();
   const paidAmount = parseFloat(rawData.paidAmount) || 0;
   const paymentMode = rawData.paymentMode || 'BANK_TRANSFER';
@@ -188,8 +182,85 @@ export function normalizePOData(rawInput = {}) {
 
   const totalQuantity = safeItems.reduce((sum, it) => sum + (parseFloat(it.quantity) || 0), 0);
   const totalItemsCount = safeItems.length;
+  const calculatedItemsSubtotal = safeItems.reduce((acc, it) => acc + (parseFloat(it.subtotal) || 0), 0);
+  const finalSubtotal = subtotal > 0 ? subtotal : calculatedItemsSubtotal;
 
-  const totalPayable = parseFloat(grandTotal) || 0;
+  // Build charges list for GST breakdown calculation
+  const chargesList = [];
+  if (shipping > 0) {
+    chargesList.push({
+      label: 'Freight / Shipping',
+      value: shipping,
+      applied: true,
+      gstApplicable: shippingGstApplicable,
+      rate: shippingGstPercentage
+    });
+  }
+  if (otherCharges > 0) {
+    chargesList.push({
+      label: otherChargesLabel,
+      value: otherCharges,
+      applied: true,
+      gstApplicable: otherChargesGstApplicable,
+      rate: otherChargesGstPercentage
+    });
+  }
+
+  // Support both header field formats: cgstAmount vs cgst, sgstAmount vs sgst, igstAmount vs igst
+  const rawIgst = parseFloat(rawData.igstAmount ?? rawData.igst ?? 0) || 0;
+  const rawCgst = parseFloat(rawData.cgstAmount ?? rawData.cgst ?? 0) || 0;
+  const rawSgst = parseFloat(rawData.sgstAmount ?? rawData.sgst ?? 0) || 0;
+
+  const isInterState = rawData.isInterState !== undefined 
+    ? Boolean(rawData.isInterState) 
+    : (rawIgst > 0 ? true : (rawCgst > 0 || rawSgst > 0 ? false : (cleanGstin ? !cleanGstin.startsWith('33') : false)));
+
+  const gstBreakdown = calculateGstBreakdown({
+    items: safeItems,
+    charges: chargesList,
+    isInterState
+  });
+
+  const taxableValue = (rawData.taxableValue !== undefined && Number(rawData.taxableValue) > 0)
+    ? parseFloat(rawData.taxableValue)
+    : (gstBreakdown.totalTaxable > 0 
+        ? gstBreakdown.totalTaxable 
+        : Math.max(0, finalSubtotal - discount));
+
+  const cgstAmount = rawCgst > 0 ? rawCgst : (!isInterState ? gstBreakdown.totalCgst : 0);
+  const sgstAmount = rawSgst > 0 ? rawSgst : (!isInterState ? gstBreakdown.totalSgst : 0);
+  const igstAmount = rawIgst > 0 ? rawIgst : (isInterState ? gstBreakdown.totalIgst : 0);
+
+  // Dynamic tax rate label generation (e.g. "IGST @ 18%", "CGST @ 9%", "SGST @ 9%")
+  const activeRateBlocks = gstBreakdown.sortedBlocks.filter(b => b.rate > 0);
+  const singleRateBlock = activeRateBlocks.length === 1 ? activeRateBlocks[0] : null;
+  const singleRate = singleRateBlock ? singleRateBlock.rate : (safeItems[0]?.gstPercentage || 18);
+
+  const cgstRateText = singleRateBlock ? `${singleRate / 2}%` : (rawCgst > 0 && taxableValue > 0 ? `${Math.round(((rawCgst * 2) / taxableValue) * 100 / 2)}%` : null);
+  const sgstRateText = singleRateBlock ? `${singleRate / 2}%` : (rawSgst > 0 && taxableValue > 0 ? `${Math.round(((rawSgst * 2) / taxableValue) * 100 / 2)}%` : null);
+  const igstRateText = singleRateBlock ? `${singleRate}%` : (rawIgst > 0 && taxableValue > 0 ? `${Math.round((rawIgst / taxableValue) * 100)}%` : null);
+
+  const cgstLabel = rawData.cgstLabel || (cgstRateText ? `CGST @ ${cgstRateText}` : 'CGST (Intrastate)');
+  const sgstLabel = rawData.sgstLabel || (sgstRateText ? `SGST @ ${sgstRateText}` : 'SGST (Intrastate)');
+  const igstLabel = rawData.igstLabel || (igstRateText ? `IGST @ ${igstRateText}` : 'IGST (Interstate)');
+
+  const totalTax = isInterState ? igstAmount : (cgstAmount + sgstAmount);
+  const grandTotal = parseFloat(rawData.grandTotal || rawData.amount || rawData.totalAmount) || 0;
+
+  // Derive roundOff accurately: grandTotal - unroundedTotal
+  let roundOff = 0;
+  if (rawData.roundOff !== undefined && rawData.roundOff !== null && rawData.roundOff !== '') {
+    roundOff = parseFloat(rawData.roundOff) || 0;
+  } else if (grandTotal > 0) {
+    const unroundedTotal = Math.max(0, (finalSubtotal - discount) + shipping + otherCharges + totalTax);
+    roundOff = Number((grandTotal - unroundedTotal).toFixed(2));
+  }
+
+  const calculatedGrandTotal = grandTotal > 0 
+    ? grandTotal 
+    : Math.round(Math.max(0, (finalSubtotal - discount) + shipping + otherCharges + totalTax));
+
+  const totalPayable = parseFloat(calculatedGrandTotal) || 0;
   const numPaid = parseFloat(paidAmount) || 0;
   const balanceDue = Math.max(0, totalPayable - numPaid);
 
@@ -235,9 +306,10 @@ export function normalizePOData(rawInput = {}) {
     },
     items: safeItems,
     financials: {
-      subtotal: parseFloat(subtotal) || 0,
+      subtotal: parseFloat(finalSubtotal) || 0,
       totalItemsCount,
       totalQuantity,
+      taxableValue: parseFloat(taxableValue) || 0,
       discount: parseFloat(discount) || 0,
       shipping: parseFloat(shipping) || 0,
       shippingGstApplicable,
@@ -251,6 +323,9 @@ export function normalizePOData(rawInput = {}) {
       cgstAmount: parseFloat(cgstAmount) || 0,
       sgstAmount: parseFloat(sgstAmount) || 0,
       igstAmount: parseFloat(igstAmount) || 0,
+      cgstLabel,
+      sgstLabel,
+      igstLabel,
       roundOff: parseFloat(roundOff) || 0,
       grandTotal: totalPayable,
       amountInWords: numberToIndianWords(totalPayable)
@@ -442,6 +517,7 @@ export async function exportPurchaseOrderToExcel(poRawData) {
     addKeyValue('Total Line Items Count', data.financials.totalItemsCount);
     addKeyValue('Total Quantity Count', data.financials.totalQuantity);
     addKeyValue('Items Subtotal (₹)', data.financials.subtotal, true);
+    addKeyValue('Taxable Value (₹)', data.financials.taxableValue, true);
     if (data.financials.discount > 0) addKeyValue('Discount (₹)', -data.financials.discount, true);
     if (data.financials.shipping > 0) {
       const shipLabel = data.financials.shippingGstApplicable 
@@ -456,10 +532,13 @@ export async function exportPurchaseOrderToExcel(poRawData) {
       addKeyValue(chLabel, data.financials.otherCharges, true);
     }
     if (data.isInterState) {
-      addKeyValue('IGST (Interstate) (₹)', data.financials.igstAmount, true);
+      const igstLabel = data.financials.igstLabel ? `${data.financials.igstLabel} (₹)` : 'IGST (Interstate) (₹)';
+      addKeyValue(igstLabel, data.financials.igstAmount, true);
     } else {
-      addKeyValue('CGST (Intrastate) (₹)', data.financials.cgstAmount, true);
-      addKeyValue('SGST (Intrastate) (₹)', data.financials.sgstAmount, true);
+      const cgstLabel = data.financials.cgstLabel ? `${data.financials.cgstLabel} (₹)` : 'CGST (Intrastate) (₹)';
+      const sgstLabel = data.financials.sgstLabel ? `${data.financials.sgstLabel} (₹)` : 'SGST (Intrastate) (₹)';
+      addKeyValue(cgstLabel, data.financials.cgstAmount, true);
+      addKeyValue(sgstLabel, data.financials.sgstAmount, true);
     }
     if (data.financials.roundOff !== 0) addKeyValue('Round Off (₹)', data.financials.roundOff, true);
     addKeyValue('Grand Total (₹)', data.financials.grandTotal, true);
