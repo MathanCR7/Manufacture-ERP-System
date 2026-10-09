@@ -8,15 +8,21 @@ async function getNextBatchForRM(rmId, rmName, tx = prisma) {
   const cleanName = (rmName || 'RM')
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, '')
-    .slice(0, 8);
+    .slice(0, 24);
 
   const invCount = await tx.inventoryBatch.count({
     where: rmId ? {
       OR: [
         { rawMaterialId: rmId },
-        { rawMaterialName: { equals: rmName, mode: 'insensitive' } }
+        { rawMaterialName: { equals: rmName, mode: 'insensitive' } },
+        { batchNumber: { startsWith: `BATCH-${cleanName}-` } }
       ]
-    } : { rawMaterialName: { equals: rmName, mode: 'insensitive' } }
+    } : {
+      OR: [
+        { rawMaterialName: { equals: rmName, mode: 'insensitive' } },
+        { batchNumber: { startsWith: `BATCH-${cleanName}-` } }
+      ]
+    }
   });
 
   const grnCount = await tx.gRNReceiveItem.count({
@@ -24,14 +30,39 @@ async function getNextBatchForRM(rmId, rmName, tx = prisma) {
       ...(rmId ? {
         OR: [
           { rmId: rmId },
-          { rmName: { equals: rmName, mode: 'insensitive' } }
+          { rmName: { equals: rmName, mode: 'insensitive' } },
+          { batchNumber: { startsWith: `BATCH-${cleanName}-` } }
         ]
-      } : { rmName: { equals: rmName, mode: 'insensitive' } }),
+      } : {
+        OR: [
+          { rmName: { equals: rmName, mode: 'insensitive' } },
+          { batchNumber: { startsWith: `BATCH-${cleanName}-` } }
+        ]
+      }),
       batchNumber: { not: null }
     }
   });
 
-  let nextSeq = Math.max(invCount, grnCount) + 1;
+  // Also inspect existing batch numbers starting with BATCH-${cleanName}- to find maximum sequence used
+  const prefixBatches = await tx.inventoryBatch.findMany({
+    where: {
+      batchNumber: { startsWith: `BATCH-${cleanName}-` }
+    },
+    select: { batchNumber: true }
+  });
+
+  let maxFoundSeq = 0;
+  for (const b of prefixBatches) {
+    const m = b.batchNumber.match(new RegExp(`^BATCH-${cleanName}-(\\d+)`, 'i'));
+    if (m && m[1]) {
+      const parsed = parseInt(m[1], 10);
+      if (!isNaN(parsed) && parsed > maxFoundSeq) {
+        maxFoundSeq = parsed;
+      }
+    }
+  }
+
+  let nextSeq = Math.max(invCount, grnCount, maxFoundSeq) + 1;
   let batchNumber = `BATCH-${cleanName || 'RM'}-${String(nextSeq).padStart(3, '0')}`;
 
   // Guarantee absolute uniqueness across all inventory batches
@@ -277,6 +308,16 @@ async function receivePOAndProcess({ po, reqUserId, tx = prisma }) {
 
       // Generate sequential batch number
       let batchNum = item.batchNumber;
+      const cleanName = (item.rmName || rm.name || 'RM')
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '')
+        .slice(0, 24);
+      const oldShort = cleanName.slice(0, 8);
+
+      if (batchNum && cleanName.length > 8 && batchNum.startsWith(`BATCH-${oldShort}-`)) {
+        batchNum = batchNum.replace(new RegExp(`^BATCH-${oldShort}-`, 'i'), `BATCH-${cleanName}-`);
+      }
+
       if (!batchNum) {
         const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
         batchNum = auto.batchNumber;
@@ -620,7 +661,7 @@ async function autoHealMultiItemGrnBatches(grn, tx = prisma, parentPo = null) {
         const auto = await getNextBatchForRM(it.rmId, it.rmName, tx);
         uniqueBatchNum = auto.batchNumber;
         while (await tx.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } })) {
-          uniqueBatchNum = `BATCH-${(it.rmName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)}-${Date.now().toString().slice(-4)}`;
+          uniqueBatchNum = `BATCH-${(it.rmName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24)}-${Date.now().toString().slice(-4)}`;
         }
       }
 

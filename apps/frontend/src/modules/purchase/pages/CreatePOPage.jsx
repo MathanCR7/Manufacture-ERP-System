@@ -430,7 +430,7 @@ export default function CreatePOPage({ onBack }) {
   };
 
   const getInitBatch = (name) => {
-    const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
     return `BATCH-${clean || 'RM'}-001`;
   };
 

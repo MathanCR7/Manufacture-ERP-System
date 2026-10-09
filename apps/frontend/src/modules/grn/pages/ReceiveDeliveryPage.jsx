@@ -115,7 +115,7 @@ export default function ReceiveDeliveryPage() {
 
     const usedBatchTracker = new Set();
     const getInitBatch = (name) => {
-      const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'RM';
+      const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24) || 'RM';
       let seq = 1;
       let cand = `BATCH-${clean}-${String(seq).padStart(3, '0')}`;
       while (usedBatchTracker.has(cand)) {
@@ -157,6 +157,14 @@ export default function ReceiveDeliveryPage() {
         // Extract batches from PO item if present
         let initialBatches = [];
         let baseBatch = (it.baseBatchNumber || it.batchNumber || '').replace(/-[A-Z]$/, '').trim();
+        const cleanFull = (it.name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24) || 'RM';
+        const oldShort = cleanFull.slice(0, 8);
+
+        // Modernize legacy truncated batch numbers (e.g. BATCH-PACKINGR-001 -> BATCH-PACKINGROLL170MM-001)
+        if (cleanFull.length > 8 && baseBatch.startsWith(`BATCH-${oldShort}-`)) {
+          baseBatch = baseBatch.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`);
+        }
+
         if (!baseBatch || usedBatchTracker.has(baseBatch)) {
           baseBatch = getInitBatch(it.name);
         } else {
@@ -166,6 +174,9 @@ export default function ReceiveDeliveryPage() {
         if (!isCompleted && Array.isArray(it.batches) && it.batches.length > 0) {
           initialBatches = it.batches.map((b, bIdx, arr) => {
             let bNum = b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch);
+            if (cleanFull.length > 8 && bNum.startsWith(`BATCH-${oldShort}-`)) {
+              bNum = bNum.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`);
+            }
             if (usedBatchTracker.has(bNum) && bNum !== baseBatch) {
               bNum = `${baseBatch}-${String.fromCharCode(65 + bIdx)}`;
             }

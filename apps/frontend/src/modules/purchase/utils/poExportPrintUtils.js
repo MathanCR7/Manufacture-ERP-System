@@ -142,7 +142,7 @@ export function normalizePOData(rawInput = {}) {
     const batches = Array.isArray(it.batches) && it.batches.length > 0
       ? it.batches.map((b, bIdx) => ({
           batchIndex: bIdx + 1,
-          batchNumber: b.batchNumber || it.batchNumber || `BATCH-${(it.code || 'RM').slice(0, 8)}-00${bIdx + 1}`,
+          batchNumber: b.batchNumber || it.batchNumber || `BATCH-${(it.name || it.code || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24)}-00${bIdx + 1}`,
           quantity: parseFloat(b.quantity ?? b.batchQuantity) || qty,
           weight: b.weight || it.weight || '',
           mfgBatchNo: b.mfgBatchNo || it.mfgBatchNo || '',

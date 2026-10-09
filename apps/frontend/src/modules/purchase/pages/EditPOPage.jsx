@@ -273,7 +273,7 @@ export default function EditPOPage({ id: propId, onBack }) {
   }, [rawMaterials, nonInventoryItems, lowStockIds, rmStock]);
 
   const getInitBatch = (name) => {
-    const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+    const clean = (name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
     return `BATCH-${clean || 'RM'}-001`;
   };
 
@@ -287,7 +287,12 @@ export default function EditPOPage({ id: propId, onBack }) {
       const initialBatchMfg = po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : '';
       const initialBatchExp = po.expDate ? (typeof po.expDate === 'string' && po.expDate.includes('T') ? po.expDate.split('T')[0] : (po.expiryDate ? (typeof po.expiryDate === 'string' && po.expiryDate.includes('T') ? po.expiryDate.split('T')[0] : po.expiryDate) : '')) : '';
       const initialBatchQty = po.batchQuantity ? parseFloat(po.batchQuantity) : q;
-      const baseBatch = (po.baseBatchNumber || po.batchNumber || getInitBatch(po.name)).replace(/-[A-Z]$/, '');
+      let baseBatch = (po.baseBatchNumber || po.batchNumber || getInitBatch(po.name)).replace(/-[A-Z]$/, '');
+      const cleanFull = (po.name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24) || 'RM';
+      const oldShort = cleanFull.slice(0, 8);
+      if (cleanFull.length > 8 && baseBatch.startsWith(`BATCH-${oldShort}-`)) {
+        baseBatch = baseBatch.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`);
+      }
       initialItems = [{
         id: po.rmId || 'item-1',
         rmId: po.rmId || '',
@@ -329,19 +334,30 @@ export default function EditPOPage({ id: propId, onBack }) {
         const itemMfgBatch = it.mfgBatchNo || (idx === 0 ? po.mfgBatchNo || '' : '');
         const itemMfgDate = it.mfgDate ? (typeof it.mfgDate === 'string' && it.mfgDate.includes('T') ? it.mfgDate.split('T')[0] : it.mfgDate) : (idx === 0 && po.mfgDate ? (typeof po.mfgDate === 'string' && po.mfgDate.includes('T') ? po.mfgDate.split('T')[0] : po.mfgDate) : '');
         const itemExpDate = it.expDate ? (typeof it.expDate === 'string' && it.expDate.includes('T') ? it.expDate.split('T')[0] : it.expDate) : (idx === 0 && (po.expDate || po.expiryDate) ? (typeof (po.expDate || po.expiryDate) === 'string' && (po.expDate || po.expiryDate).includes('T') ? (po.expDate || po.expiryDate).split('T')[0] : (po.expDate || po.expiryDate)) : '');
-        const baseBatch = (it.baseBatchNumber || it.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
+        let baseBatch = (it.baseBatchNumber || it.batchNumber || getInitBatch(it.name)).replace(/-[A-Z]$/, '');
+        const cleanFull = (it.name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24) || 'RM';
+        const oldShort = cleanFull.slice(0, 8);
+        if (cleanFull.length > 8 && baseBatch.startsWith(`BATCH-${oldShort}-`)) {
+          baseBatch = baseBatch.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`);
+        }
 
         const itemBatches = Array.isArray(it.batches) && it.batches.length > 0
-          ? it.batches.map((b, bIdx, arr) => ({
-              id: b.id || 'batch-' + (it.id || idx) + '-' + bIdx,
-              batchNumber: b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch),
-              quantity: parseFloat(b.quantity ?? b.batchQuantity) || 0,
-              batchQuantity: parseFloat(b.batchQuantity ?? b.quantity) || 0,
-              weight: b.weight || '',
-              mfgBatchNo: b.mfgBatchNo || '',
-              mfgDate: b.mfgDate ? (typeof b.mfgDate === 'string' && b.mfgDate.includes('T') ? b.mfgDate.split('T')[0] : b.mfgDate) : '',
-              expDate: b.expDate ? (typeof b.expDate === 'string' && b.expDate.includes('T') ? b.expDate.split('T')[0] : b.expDate) : '',
-            }))
+          ? it.batches.map((b, bIdx, arr) => {
+              let bNum = b.batchNumber || (arr.length > 1 ? `${baseBatch}-${String.fromCharCode(65 + bIdx)}` : baseBatch);
+              if (cleanFull.length > 8 && bNum.startsWith(`BATCH-${oldShort}-`)) {
+                bNum = bNum.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`);
+              }
+              return {
+                id: b.id || 'batch-' + (it.id || idx) + '-' + bIdx,
+                batchNumber: bNum,
+                quantity: parseFloat(b.quantity ?? b.batchQuantity) || 0,
+                batchQuantity: parseFloat(b.batchQuantity ?? b.quantity) || 0,
+                weight: b.weight || '',
+                mfgBatchNo: b.mfgBatchNo || '',
+                mfgDate: b.mfgDate ? (typeof b.mfgDate === 'string' && b.mfgDate.includes('T') ? b.mfgDate.split('T')[0] : b.mfgDate) : '',
+                expDate: b.expDate ? (typeof b.expDate === 'string' && b.expDate.includes('T') ? b.expDate.split('T')[0] : b.expDate) : '',
+              };
+            })
           : [
               {
                 id: 'batch-' + (it.id || idx) + '-1',

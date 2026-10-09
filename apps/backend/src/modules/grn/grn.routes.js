@@ -488,8 +488,13 @@ router.post('/receive',
 
               // Create or increment InventoryBatch per item
               let batchNum = item.batchNumber?.trim();
+              const cleanRM = (item.rmName || rm.name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+              const oldShort = cleanRM.slice(0, 8);
+              if (batchNum && cleanRM.length > 8 && batchNum.startsWith(`BATCH-${oldShort}-`)) {
+                batchNum = batchNum.replace(new RegExp(`^BATCH-${oldShort}-`, 'i'), `BATCH-${cleanRM}-`);
+              }
               if (!batchNum) {
-                const auto = await getNextBatchForRM(item.rmId, item.rmName);
+                const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
                 batchNum = auto.batchNumber;
               }
 
@@ -512,7 +517,7 @@ router.post('/receive',
                   const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
                   uniqueBatchNum = auto.batchNumber;
                   while (await tx.inventoryBatch.findUnique({ where: { batchNumber: uniqueBatchNum } })) {
-                    const cleanCode = (rm.code || item.rmId || 'RM').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
+                    const cleanCode = (rm.name || item.rmName || rm.code || item.rmId || 'RM').replace(/[^a-zA-Z0-9]/g, '').slice(0, 24);
                     uniqueBatchNum = `${batchNum}-${cleanCode}-${Date.now().toString().slice(-4)}`;
                   }
                 }
@@ -1048,6 +1053,11 @@ router.post('/lab-test',
               }
 
               let batchNum = item.batchNumber;
+              const cleanRM = (item.rmName || rm?.name || grn.po?.name || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+              const oldShort = cleanRM.slice(0, 8);
+              if (batchNum && cleanRM.length > 8 && batchNum.startsWith(`BATCH-${oldShort}-`)) {
+                batchNum = batchNum.replace(new RegExp(`^BATCH-${oldShort}-`, 'i'), `BATCH-${cleanRM}-`);
+              }
               if (!batchNum) {
                 const auto = await getNextBatchForRM(item.rmId, item.rmName, tx);
                 batchNum = auto.batchNumber;
