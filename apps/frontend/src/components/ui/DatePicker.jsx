@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { format } from 'date-fns';
 import { CalendarIcon, Clock, AlertCircle, Copy, Check } from 'lucide-react';
 import { twMerge } from 'tailwind-merge';
@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button';
 
 /**
  * Validates and parses multiple date formats:
- * - DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
+ * - DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY, DD MM YYYY
+ * - Pure digits: DDMMYYYY (e.g. 12122002, 12122026), DDMMYY (e.g. 121226), DDMM (e.g. 1212)
+ * - 2-digit years (e.g. 12-12-26 -> 12-12-2026)
  * - YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
  * - ISO string or Date object
  */
@@ -19,12 +21,13 @@ export function parseDateInput(input) {
   const str = String(input).trim();
   if (!str) return null;
 
-  // Case 1: DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY
-  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})(?:\s+(\d{1,2}):(\d{1,2}))?$/);
+  // Case 1: DD-MM-YYYY or DD/MM/YYYY or DD.MM.YYYY or DD MM YYYY (with optional HH:mm)
+  const dmyMatch = str.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})(?:\s+(\d{1,2}):(\d{1,2}))?$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
     const month = parseInt(dmyMatch[2], 10);
-    const year = parseInt(dmyMatch[3], 10);
+    let year = parseInt(dmyMatch[3], 10);
+    if (year < 100) year = 2000 + year; // 2-digit year support (26 -> 2026)
     const hours = dmyMatch[4] ? parseInt(dmyMatch[4], 10) : 0;
     const mins = dmyMatch[5] ? parseInt(dmyMatch[5], 10) : 0;
 
@@ -43,8 +46,35 @@ export function parseDateInput(input) {
     return null;
   }
 
-  // Case 2: YYYY-MM-DD or YYYY/MM/DD
-  const ymdMatch = str.split('T')[0].match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  // Case 2: Pure digits continuous input: DDMMYYYY (8 digits), DDMMYY (6 digits), or DDMM (4 digits)
+  const cleanDigits = str.replace(/\D/g, '');
+  if (cleanDigits.length === 8 || cleanDigits.length === 6 || cleanDigits.length === 4) {
+    const day = parseInt(cleanDigits.slice(0, 2), 10);
+    const month = parseInt(cleanDigits.slice(2, 4), 10);
+    let year;
+    if (cleanDigits.length === 8) {
+      year = parseInt(cleanDigits.slice(4, 8), 10);
+    } else if (cleanDigits.length === 6) {
+      const yr2 = parseInt(cleanDigits.slice(4, 6), 10);
+      year = yr2 < 50 ? 2000 + yr2 : 1900 + yr2;
+    } else {
+      year = new Date().getFullYear(); // e.g. 2026
+    }
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2150) {
+      const testDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+      if (
+        testDate.getFullYear() === year &&
+        testDate.getMonth() === month - 1 &&
+        testDate.getDate() === day
+      ) {
+        return testDate;
+      }
+    }
+  }
+
+  // Case 3: YYYY-MM-DD or YYYY/MM/DD
+  const ymdMatch = str.split('T')[0].match(/^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})$/);
   if (ymdMatch) {
     const year = parseInt(ymdMatch[1], 10);
     const month = parseInt(ymdMatch[2], 10);
@@ -65,15 +95,12 @@ export function parseDateInput(input) {
     return null;
   }
 
-  // Case 3: Generic Date parse
-  const d = new Date(str);
-  if (!isNaN(d.getTime())) {
-    return d;
-  }
-
   return null;
 }
 
+/**
+ * Formats a Date object to standard display string
+ */
 export function formatDateToDisplay(date, showTime = false) {
   if (!date) return '';
   const d = date instanceof Date ? date : new Date(date);
@@ -82,6 +109,77 @@ export function formatDateToDisplay(date, showTime = false) {
     return format(d, 'dd-MM-yyyy HH:mm');
   }
   return format(d, 'dd-MM-yyyy');
+}
+
+/**
+ * Smart typing formatter matching BatchDateInput concept:
+ * - Automatically injects hyphens as user types digits:
+ *   '12' -> '12-'
+ *   '1212' -> '12-12-'
+ *   '12122002' -> '12-12-2002'
+ *   '12122026' -> '12-12-2026'
+ * - Single digits like '7' remain '7' without false auto-completions!
+ * - Replaces '/' and '.' with '-'
+ * - Supports deleting with Backspace without getting stuck on hyphens
+ */
+export function formatTypingDate(rawVal, prevVal = '', showTime = false) {
+  if (!rawVal) return '';
+
+  const isDeleting = prevVal && rawVal.length < prevVal.length;
+  // If user is actively backspacing, allow natural character removal
+  if (isDeleting) {
+    return rawVal;
+  }
+
+  // If time is enabled and user typed space or time
+  if (showTime && (rawVal.includes(' ') || rawVal.length > 10)) {
+    const cleanStr = rawVal.replace(/[/.]/g, '-');
+    const spaceIdx = cleanStr.indexOf(' ');
+    if (spaceIdx !== -1) {
+      const datePart = cleanStr.slice(0, spaceIdx);
+      const timePart = cleanStr.slice(spaceIdx + 1);
+      const formattedDate = formatTypingDate(datePart, '', false);
+      return `${formattedDate} ${timePart}`.slice(0, 16);
+    }
+  }
+
+  // Replace separators with '-'
+  const normalized = rawVal.replace(/[/.\s]/g, '-');
+
+  // Extract all digits
+  const digits = normalized.replace(/\D/g, '');
+
+  if (digits.length === 0) return '';
+  if (digits.length === 1) return digits; // E.g. '7' remains '7'
+  if (digits.length === 2) {
+    return `${digits}-`;
+  }
+  if (digits.length === 3) {
+    return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  }
+  if (digits.length === 4) {
+    return `${digits.slice(0, 2)}-${digits.slice(2)}-`;
+  }
+  if (digits.length <= 8) {
+    const dd = digits.slice(0, 2);
+    const mm = digits.slice(2, 4);
+    const yyyy = digits.slice(4, 8);
+    return `${dd}-${mm}-${yyyy}`;
+  }
+
+  // If showTime and user types more than 8 digits:
+  if (showTime && digits.length > 8) {
+    const dd = digits.slice(0, 2);
+    const mm = digits.slice(2, 4);
+    const yyyy = digits.slice(4, 8);
+    const timeDigits = digits.slice(8, 12);
+    if (timeDigits.length <= 2) {
+      return `${dd}-${mm}-${yyyy} ${timeDigits}`;
+    }
+    return `${dd}-${mm}-${yyyy} ${timeDigits.slice(0, 2)}:${timeDigits.slice(2, 4)}`;
+  }
+
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
 }
 
 export default function DatePicker({
@@ -106,13 +204,17 @@ export default function DatePicker({
   const [textVal, setTextVal] = useState(() => formatDateToDisplay(dateValue, showTime));
   const [error, setError] = useState(null);
   const [copied, setCopied] = useState(false);
+  const isFocusedRef = useRef(false);
 
   // Local hours & minutes states
   const [hours, setHours] = useState(dateValue ? dateValue.getHours() : new Date().getHours());
   const [minutes, setMinutes] = useState(dateValue ? dateValue.getMinutes() : new Date().getMinutes());
 
-  // Keep display in sync with external value
+  // Keep display in sync with external value ONLY when user is NOT actively typing
   useEffect(() => {
+    if (isFocusedRef.current) {
+      return; // Do not clobber active typing input!
+    }
     if (dateValue) {
       setTextVal(formatDateToDisplay(dateValue, showTime));
       setHours(dateValue.getHours());
@@ -185,7 +287,7 @@ export default function DatePicker({
     handleTimeChange(hours, m);
   };
 
-  // Direct paste handler: accepts dd-mm-yyyy, yyyy-mm-dd, etc.
+  // Direct paste handler: accepts raw digits (12122002, 12122026), dd-mm-yyyy, yyyy-mm-dd, etc.
   const handlePaste = (e) => {
     e.preventDefault();
     const pasted = e.clipboardData.getData('text').trim();
@@ -196,7 +298,8 @@ export default function DatePicker({
       return;
     }
 
-    const parsed = parseDateInput(pasted);
+    const formatted = formatTypingDate(pasted, '', showTime);
+    const parsed = parseDateInput(formatted) || parseDateInput(pasted);
     if (parsed) {
       if (typeof disabled === 'function' && disabled(parsed)) {
         setError('This date is not permitted (check date restrictions)');
@@ -207,25 +310,29 @@ export default function DatePicker({
       setTextVal(formatDateToDisplay(parsed, showTime));
       onChange?.(parsed);
     } else {
-      setTextVal(pasted);
+      setTextVal(formatted || pasted);
       setError('Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
     }
   };
 
-  // Manual typing change
+  // Manual typing change with BatchDateInput concept (only validates when full date is ready)
   const handleInputChange = (e) => {
-    const val = e.target.value;
-    setTextVal(val);
-
-    if (!val.trim()) {
+    const raw = e.target.value;
+    if (!raw.trim()) {
+      setTextVal('');
       setError(null);
       onChange?.(null);
       return;
     }
 
-    // Attempt auto-parsing when minimum full date format is completed
-    if (val.trim().length >= 10) {
-      const parsed = parseDateInput(val);
+    // Auto-mask digits to dd-mm-yyyy format as user types
+    const formatted = formatTypingDate(raw, textVal, showTime);
+    setTextVal(formatted);
+
+    // Only validate and fire onChange when 8 digits or 10 chars completed
+    const cleanDigits = formatted.replace(/\D/g, '');
+    if (cleanDigits.length >= 8 || formatted.length >= 10) {
+      const parsed = parseDateInput(formatted);
       if (parsed) {
         if (typeof disabled === 'function' && disabled(parsed)) {
           setError('This date is not permitted (check date restrictions)');
@@ -233,12 +340,24 @@ export default function DatePicker({
         }
         setError(null);
         onChange?.(parsed);
+      } else {
+        setError('Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
       }
+    } else {
+      // While user is still typing digits (e.g. '7', '12-', '12-12-'), clear error and do NOT fire premature onChange
+      setError(null);
     }
   };
 
-  // Validate on blur
+  // Focus handler: mark as focused and select all for convenient editing
+  const handleFocus = (e) => {
+    isFocusedRef.current = true;
+    e.target.select();
+  };
+
+  // Validate on blur and format cleanly
   const handleBlur = () => {
+    isFocusedRef.current = false;
     if (!textVal.trim()) {
       setError(null);
       onChange?.(null);
@@ -291,17 +410,19 @@ export default function DatePicker({
           <CalendarIcon className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
         </div>
 
-        {/* Text Input for Typing & Copy-Paste */}
+        {/* Text Input for Typing & Copy-Paste with Auto-masking */}
         <input
           type="text"
           value={textVal}
           onChange={handleInputChange}
+          onFocus={handleFocus}
           onPaste={handlePaste}
           onBlur={handleBlur}
           placeholder={placeholder || (showTime ? 'dd-mm-yyyy hh:mm' : 'dd-mm-yyyy')}
           disabled={isDisabled}
+          maxLength={showTime ? 16 : 10}
           className="w-full h-full bg-transparent px-1.5 py-1 text-xs font-semibold font-mono text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 focus:outline-none tracking-wide"
-          title="Type or paste date in dd-mm-yyyy format"
+          title="Type digits (e.g. 12122026 or 12-12-2026) to automatically format"
         />
 
         {/* Copy Quick Button (if has date) */}

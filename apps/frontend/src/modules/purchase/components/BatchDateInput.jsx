@@ -3,7 +3,9 @@ import { Calendar, AlertCircle, Copy, Check } from 'lucide-react';
 
 /**
  * Validates and parses multiple date formats:
- * - DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
+ * - DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY, DD MM YYYY
+ * - Pure digits: DDMMYYYY (e.g. 12122002, 12122026), DDMMYY (e.g. 121226), DDMM (e.g. 1212)
+ * - 2-digit years (e.g. 12-12-26 -> 12-12-2026)
  * - YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
  * - ISO string
  * 
@@ -14,12 +16,13 @@ export function validateAndParseDate(input) {
   const str = String(input).trim();
   if (!str) return { valid: true, empty: true, display: '', iso: '' };
 
-  // Case 1: DD-MM-YYYY / DD/MM/YYYY / DD.MM.YYYY
-  const dmyMatch = str.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  // Case 1: DD-MM-YYYY / DD/MM/YYYY / DD.MM.YYYY / DD MM YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
     const month = parseInt(dmyMatch[2], 10);
-    const year = parseInt(dmyMatch[3], 10);
+    let year = parseInt(dmyMatch[3], 10);
+    if (year < 100) year = 2000 + year; // 2-digit year support: 26 -> 2026
 
     if (month < 1 || month > 12) {
       return { valid: false, error: 'Month must be between 01 and 12' };
@@ -27,7 +30,7 @@ export function validateAndParseDate(input) {
     if (day < 1 || day > 31) {
       return { valid: false, error: 'Day must be between 01 and 31' };
     }
-    if (year < 1900 || year > 2100) {
+    if (year < 1900 || year > 2150) {
       return { valid: false, error: 'Year must be a 4-digit year (e.g. 2026)' };
     }
 
@@ -49,8 +52,41 @@ export function validateAndParseDate(input) {
     };
   }
 
-  // Case 2: YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD
-  const ymdMatch = str.split('T')[0].match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  // Case 2: Pure digits continuous input: DDMMYYYY (8 digits), DDMMYY (6 digits), or DDMM (4 digits)
+  const cleanDigits = str.replace(/\D/g, '');
+  if (cleanDigits.length === 8 || cleanDigits.length === 6 || cleanDigits.length === 4) {
+    const day = parseInt(cleanDigits.slice(0, 2), 10);
+    const month = parseInt(cleanDigits.slice(2, 4), 10);
+    let year;
+    if (cleanDigits.length === 8) {
+      year = parseInt(cleanDigits.slice(4, 8), 10);
+    } else if (cleanDigits.length === 6) {
+      const yr2 = parseInt(cleanDigits.slice(4, 6), 10);
+      year = yr2 < 50 ? 2000 + yr2 : 1900 + yr2;
+    } else {
+      year = new Date().getFullYear();
+    }
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 1900 && year <= 2150) {
+      const testDate = new Date(year, month - 1, day);
+      if (
+        testDate.getFullYear() === year &&
+        testDate.getMonth() === month - 1 &&
+        testDate.getDate() === day
+      ) {
+        const dd = String(day).padStart(2, '0');
+        const mm = String(month).padStart(2, '0');
+        return {
+          valid: true,
+          display: `${dd}-${mm}-${year}`,
+          iso: `${year}-${mm}-${dd}`,
+        };
+      }
+    }
+  }
+
+  // Case 3: YYYY-MM-DD / YYYY/MM/DD / YYYY.MM.DD
+  const ymdMatch = str.split('T')[0].match(/^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})$/);
   if (ymdMatch) {
     const year = parseInt(ymdMatch[1], 10);
     const month = parseInt(ymdMatch[2], 10);
@@ -62,7 +98,7 @@ export function validateAndParseDate(input) {
     if (day < 1 || day > 31) {
       return { valid: false, error: 'Day must be between 01 and 31' };
     }
-    if (year < 1900 || year > 2100) {
+    if (year < 1900 || year > 2150) {
       return { valid: false, error: 'Year must be a 4-digit year (e.g. 2026)' };
     }
 
@@ -84,7 +120,7 @@ export function validateAndParseDate(input) {
     };
   }
 
-  // Case 3: Try parsing as generic Date string
+  // Case 4: Try parsing as generic Date string
   const d = new Date(str);
   if (!isNaN(d.getTime())) {
     const year = d.getFullYear();
@@ -99,7 +135,7 @@ export function validateAndParseDate(input) {
     };
   }
 
-  return { valid: false, error: 'Format must be dd-mm-yyyy (e.g. 23-09-2026)' };
+  return { valid: false, error: 'Format must be dd-mm-yyyy (e.g. 24-09-2026)' };
 }
 
 /**
@@ -112,8 +148,49 @@ export function formatToDisplay(val) {
 }
 
 /**
+ * Smart typing formatter for BatchDateInput:
+ * Automatically injects hyphens as user types digits:
+ * '12' -> '12-'
+ * '1212' -> '12-12-'
+ * '12122002' -> '12-12-2002'
+ * '12122026' -> '12-12-2026'
+ */
+export function formatTypingDate(rawVal, prevVal = '') {
+  if (!rawVal) return '';
+
+  const isDeleting = prevVal && rawVal.length < prevVal.length;
+  if (isDeleting) {
+    return rawVal;
+  }
+
+  const normalized = rawVal.replace(/[/.\s]/g, '-');
+  const digits = normalized.replace(/\D/g, '');
+
+  if (digits.length === 0) return '';
+  if (digits.length === 1) return digits;
+  if (digits.length === 2) {
+    return `${digits}-`;
+  }
+  if (digits.length === 3) {
+    return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+  }
+  if (digits.length === 4) {
+    return `${digits.slice(0, 2)}-${digits.slice(2)}-`;
+  }
+  if (digits.length <= 8) {
+    const dd = digits.slice(0, 2);
+    const mm = digits.slice(2, 4);
+    const yyyy = digits.slice(4, 8);
+    return `${dd}-${mm}-${yyyy}`;
+  }
+
+  return `${digits.slice(0, 2)}-${digits.slice(2, 4)}-${digits.slice(4, 8)}`;
+}
+
+/**
  * BatchDateInput:
- * - Supports direct copy-pasting of DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD
+ * - Automatically masks and formats raw digit typing (e.g. 12122002 -> 12-12-2002, 12122026 -> 12-12-2026)
+ * - Supports direct copy-pasting of DDMMYYYY, DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD
  * - Validates date format & real calendar dates (leap years, 28/30/31 day limits)
  * - Offers a built-in calendar picker button
  * - Quick copy button and click-to-select-all
@@ -132,7 +209,7 @@ export default function BatchDateInput({
   const [copied, setCopied] = useState(false);
   const hiddenDateRef = useRef(null);
 
-  // Sync state if external value changes (and not currently focused on input)
+  // Sync state if external value changes
   useEffect(() => {
     const formatted = formatToDisplay(value);
     setTextVal(formatted);
@@ -151,34 +228,43 @@ export default function BatchDateInput({
       return;
     }
 
-    const res = validateAndParseDate(pasted);
+    const formatted = formatTypingDate(pasted, '');
+    const res = validateAndParseDate(formatted);
     if (res.valid && !res.empty) {
       setTextVal(res.display);
       setError(null);
       onChange?.(res.iso);
     } else {
-      setTextVal(pasted);
-      setError(res.error || 'Invalid date format. Use dd-mm-yyyy');
+      setTextVal(formatted || pasted);
+      setError(res.error || 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
     }
   };
 
   const handleChange = (e) => {
-    const val = e.target.value;
-    setTextVal(val);
-
-    if (!val.trim()) {
+    const raw = e.target.value;
+    if (!raw.trim()) {
+      setTextVal('');
       setError(null);
       onChange?.('');
       return;
     }
 
-    // If 8-10 chars entered (e.g. 15-09-2026), validate immediately
-    if (val.length >= 8) {
-      const res = validateAndParseDate(val);
+    // Auto-mask digits to dd-mm-yyyy as user types
+    const formatted = formatTypingDate(raw, textVal);
+    setTextVal(formatted);
+
+    // If 8 digits completed (or 10 chars with hyphens), validate immediately
+    const cleanDigits = formatted.replace(/\D/g, '');
+    if (cleanDigits.length >= 8 || formatted.length >= 10) {
+      const res = validateAndParseDate(formatted);
       if (res.valid && !res.empty) {
         setError(null);
         onChange?.(res.iso);
+      } else {
+        setError(res.error || 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
       }
+    } else {
+      setError(null);
     }
   };
 
@@ -195,7 +281,7 @@ export default function BatchDateInput({
       setError(null);
       onChange?.(res.iso);
     } else {
-      setError(res.error || 'Invalid format: expected dd-mm-yyyy');
+      setError(res.error || 'Invalid date format. Use dd-mm-yyyy (e.g. 24-09-2026)');
     }
   };
 
@@ -250,7 +336,8 @@ export default function BatchDateInput({
         onFocus={(e) => e.target.select()}
         placeholder={placeholder}
         disabled={disabled}
-        title={error ? `${title}: ${error}` : `${title} (format: dd-mm-yyyy, click or Ctrl+C to copy)`}
+        maxLength={10}
+        title={error ? `${title}: ${error}` : `${title} (type digits e.g. 12122026 to auto-format)`}
         className={`w-full h-full min-h-[26px] text-xs font-mono font-medium pl-2.5 pr-9 rounded-lg border transition-colors ${
           error
             ? 'border-rose-400 bg-rose-50/70 text-rose-700 dark:border-rose-600 dark:bg-rose-950/40 dark:text-rose-300 focus:ring-1 focus:ring-rose-500'
