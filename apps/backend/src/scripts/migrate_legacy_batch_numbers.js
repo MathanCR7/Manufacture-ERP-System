@@ -2,7 +2,7 @@ const prisma = require('../database/prisma');
 
 /**
  * Migration Script: Upgrades legacy truncated batch numbers (e.g. BATCH-PACKINGR-001)
- * to full descriptive batch numbers (e.g. BATCH-PACKINGROLL170MM-001).
+ * to full descriptive, independent batch numbers (e.g. BATCH-PACKINGROLL170MM-001 and BATCH-PACKINGROLL130MM-001).
  *
  * Safe & Non-Destructive:
  * - Does NOT change quantities, dates, or inventory links.
@@ -13,78 +13,116 @@ async function migrateLegacyBatches(dryRun = false) {
   console.log(`📦 BATCH NUMBER MODERNIZATION SCRIPT (Dry Run: ${dryRun})`);
   console.log(`======================================================\n`);
 
+  // Fetch all inventory batches in chronological order
   const batches = await prisma.inventoryBatch.findMany({
     orderBy: { createdAt: 'asc' }
   });
 
   console.log(`Found ${batches.length} total inventory batches to check.\n`);
-  let updatedCount = 0;
+
+  // Track sequences per unique raw material clean name
+  // Map: cleanName -> { seqCounter, baseMap: { oldBaseBatch -> newBaseBatch } }
+  const materialSeqMap = new Map();
+  const batchRenameMap = new Map(); // oldBatchNumber -> newBatchNumber
 
   for (const b of batches) {
     const rawName = b.rawMaterialName || '';
-    const cleanFull = rawName.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+    const cleanFull = (rawName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
     const oldShort = cleanFull.slice(0, 8);
 
-    if (cleanFull.length > 8 && b.batchNumber.startsWith(`BATCH-${oldShort}-`)) {
-      const newBatchNumber = b.batchNumber.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`);
-      console.log(`[RENAME] Batch ${b.id}:`);
-      console.log(`   Material: "${rawName}"`);
-      console.log(`   Old Batch: ${b.batchNumber}  ->  New Batch: ${newBatchNumber}`);
+    // Extract sub-batch suffix (e.g. "-A", "-B") if present
+    const subMatch = b.batchNumber.match(/-([A-Z])$/);
+    const subSuffix = subMatch ? `-${subMatch[1]}` : '';
+    const oldBaseBatch = b.batchNumber.replace(/-[A-Z]$/, '');
 
-      if (!dryRun) {
-        // 1. Update InventoryBatch
-        await prisma.inventoryBatch.update({
-          where: { id: b.id },
-          data: { batchNumber: newBatchNumber }
-        });
+    // Check if this batch used the old truncated prefix or needs upgrading
+    const isOldTruncated = cleanFull.length > 8 && (
+      oldBaseBatch.startsWith(`BATCH-${oldShort}-`) ||
+      oldBaseBatch.startsWith(`BATCH-${oldShort}`)
+    );
 
-        // 2. Update GRNReceiveItem if linked
-        await prisma.gRNReceiveItem.updateMany({
-          where: { batchNumber: b.batchNumber },
-          data: { batchNumber: newBatchNumber }
-        });
-
-        // 3. Update RawMaterialPO items JSON if applicable
-        if (b.poId) {
-          const po = await prisma.rawMaterialPO.findUnique({ where: { id: b.poId } });
-          if (po && Array.isArray(po.items)) {
-            const updatedItems = po.items.map(it => {
-              let changed = false;
-              let itemCopy = { ...it };
-              if (itemCopy.batchNumber === b.batchNumber) {
-                itemCopy.batchNumber = newBatchNumber;
-                changed = true;
-              }
-              if (itemCopy.baseBatchNumber === b.batchNumber || (itemCopy.baseBatchNumber && itemCopy.baseBatchNumber.startsWith(`BATCH-${oldShort}-`))) {
-                itemCopy.baseBatchNumber = itemCopy.baseBatchNumber.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`);
-                changed = true;
-              }
-              if (Array.isArray(itemCopy.batches)) {
-                itemCopy.batches = itemCopy.batches.map(subB => {
-                  if (subB.batchNumber === b.batchNumber || (subB.batchNumber && subB.batchNumber.startsWith(`BATCH-${oldShort}-`))) {
-                    return {
-                      ...subB,
-                      batchNumber: subB.batchNumber.replace(`BATCH-${oldShort}-`, `BATCH-${cleanFull}-`)
-                    };
-                  }
-                  return subB;
-                });
-              }
-              return itemCopy;
-            });
-
-            await prisma.rawMaterialPO.update({
-              where: { id: po.id },
-              data: { items: updatedItems }
-            });
-          }
-        }
+    if (isOldTruncated) {
+      if (!materialSeqMap.has(cleanFull)) {
+        materialSeqMap.set(cleanFull, { counter: 0, baseMap: new Map() });
       }
-      updatedCount++;
+      const matInfo = materialSeqMap.get(cleanFull);
+
+      let newBaseBatch;
+      if (matInfo.baseMap.has(oldBaseBatch)) {
+        newBaseBatch = matInfo.baseMap.get(oldBaseBatch);
+      } else {
+        matInfo.counter++;
+        newBaseBatch = `BATCH-${cleanFull}-${String(matInfo.counter).padStart(3, '0')}`;
+        matInfo.baseMap.set(oldBaseBatch, newBaseBatch);
+      }
+
+      const newBatchNumber = `${newBaseBatch}${subSuffix}`;
+
+      if (newBatchNumber !== b.batchNumber) {
+        batchRenameMap.set(b.id, {
+          batch: b,
+          oldBatchNumber: b.batchNumber,
+          newBatchNumber,
+          rawName,
+        });
+      }
     }
   }
 
-  // Also check all unreceived or active PO items
+  console.log(`Batches to modernize: ${batchRenameMap.size}\n`);
+
+  let updatedCount = 0;
+  for (const [id, item] of batchRenameMap.entries()) {
+    console.log(`[RENAME] ${item.rawName}`);
+    console.log(`   ${item.oldBatchNumber}  -->  ${item.newBatchNumber}`);
+
+    if (!dryRun) {
+      // 1. Update InventoryBatch
+      await prisma.inventoryBatch.update({
+        where: { id },
+        data: { batchNumber: item.newBatchNumber }
+      });
+
+      // 2. Update GRNReceiveItem if linked
+      await prisma.gRNReceiveItem.updateMany({
+        where: { batchNumber: item.oldBatchNumber },
+        data: { batchNumber: item.newBatchNumber }
+      });
+
+      // 3. Update RawMaterialPO items JSON if linked
+      if (item.batch.poId) {
+        const po = await prisma.rawMaterialPO.findUnique({ where: { id: item.batch.poId } });
+        if (po && Array.isArray(po.items)) {
+          const updatedItems = po.items.map(it => {
+            let itCopy = { ...it };
+            if (itCopy.batchNumber === item.oldBatchNumber) {
+              itCopy.batchNumber = item.newBatchNumber;
+            }
+            if (itCopy.baseBatchNumber === item.oldBatchNumber.replace(/-[A-Z]$/, '')) {
+              itCopy.baseBatchNumber = item.newBatchNumber.replace(/-[A-Z]$/, '');
+            }
+            if (Array.isArray(itCopy.batches)) {
+              itCopy.batches = itCopy.batches.map(subB => {
+                if (subB.batchNumber === item.oldBatchNumber) {
+                  return { ...subB, batchNumber: item.newBatchNumber };
+                }
+                return subB;
+              });
+            }
+            return itCopy;
+          });
+
+          await prisma.rawMaterialPO.update({
+            where: { id: po.id },
+            data: { items: updatedItems }
+          });
+        }
+      }
+    }
+    updatedCount++;
+  }
+
+  // Also modernize unreceived or active POs
   const pos = await prisma.rawMaterialPO.findMany({
     where: { status: { in: ['PENDING', 'ORDERED', 'PARTIALLY_RECEIVED', 'APPROVED'] } }
   });
@@ -131,7 +169,7 @@ async function migrateLegacyBatches(dryRun = false) {
   }
 
   console.log(`\n======================================================`);
-  console.log(`✅ COMPLETE: ${updatedCount} inventory batches and ${updatedPoCount} PO records updated.`);
+  console.log(`✅ COMPLETE: ${updatedCount} inventory batches and ${updatedPoCount} PO records modernized.`);
   console.log(`======================================================\n`);
 }
 
