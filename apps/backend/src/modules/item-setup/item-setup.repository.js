@@ -36,18 +36,74 @@ class ItemSetupRepository {
 
   // Non Inventory Item
   async createNonInventoryItem(data) {
-    const { name, code, category, unitId, ratePerUnit } = data;
+    const { 
+      name, 
+      code, 
+      category, 
+      unitId, 
+      ratePerUnit,
+      hsnCode,
+      description,
+      consumptionUnit,
+      hasAlternateUom,
+      alternateUom,
+      baseUomQty,
+      alternateUomQty,
+      conversionFactor
+    } = data;
     return prisma.nonInventoryItem.create({
-      data: { name, code, category, unitId, ratePerUnit }
+      data: { 
+        name, 
+        code, 
+        category, 
+        unitId, 
+        ratePerUnit,
+        hsnCode,
+        description,
+        consumptionUnit,
+        hasAlternateUom: Boolean(hasAlternateUom),
+        alternateUom: alternateUom || null,
+        baseUomQty: baseUomQty || 1.0,
+        alternateUomQty: alternateUomQty || 1.0,
+        conversionFactor: conversionFactor || 1.0
+      }
     });
   }
   async getNonInventoryItems() { return prisma.nonInventoryItem.findMany({ orderBy: { createdAt: 'desc' } }); }
   async getNonInventoryItemById(id) { return prisma.nonInventoryItem.findUnique({ where: { id } }); }
   async updateNonInventoryItem(id, data) {
-    const { name, code, category, unitId, ratePerUnit } = data;
+    const { 
+      name, 
+      code, 
+      category, 
+      unitId, 
+      ratePerUnit,
+      hsnCode,
+      description,
+      consumptionUnit,
+      hasAlternateUom,
+      alternateUom,
+      baseUomQty,
+      alternateUomQty,
+      conversionFactor
+    } = data;
     return prisma.nonInventoryItem.update({
       where: { id },
-      data: { name, code, category, unitId, ratePerUnit }
+      data: { 
+        name, 
+        code, 
+        category, 
+        unitId, 
+        ratePerUnit,
+        hsnCode,
+        description,
+        consumptionUnit,
+        hasAlternateUom: Boolean(hasAlternateUom),
+        alternateUom: alternateUom || null,
+        baseUomQty: baseUomQty || 1.0,
+        alternateUomQty: alternateUomQty || 1.0,
+        conversionFactor: conversionFactor || 1.0
+      }
     });
   }
   async deleteNonInventoryItem(id) { return prisma.nonInventoryItem.delete({ where: { id } }); }
@@ -61,8 +117,26 @@ class ItemSetupRepository {
     };
     return prisma.productCategory.create({ data: formattedData });
   }
-  async getProductCategories() { return prisma.productCategory.findMany({ orderBy: { createdAt: 'desc' }, include: { products: true } }); }
-  async getProductCategoryById(id) { return prisma.productCategory.findUnique({ where: { id }, include: { products: true } }); }
+  async getProductCategories() { 
+    return prisma.productCategory.findMany({ 
+      orderBy: { createdAt: 'desc' }, 
+      include: { 
+        subcategories: true,
+        finishedProducts: { select: { id: true, code: true, name: true, sku: true } },
+        products: { select: { id: true, code: true, name: true } }
+      } 
+    }); 
+  }
+  async getProductCategoryById(id) { 
+    return prisma.productCategory.findUnique({ 
+      where: { id }, 
+      include: { 
+        subcategories: true,
+        finishedProducts: { select: { id: true, code: true, name: true, sku: true } },
+        products: { select: { id: true, code: true, name: true } }
+      } 
+    }); 
+  }
   async updateProductCategory(id, data) {
     const formattedData = {
       ...data,

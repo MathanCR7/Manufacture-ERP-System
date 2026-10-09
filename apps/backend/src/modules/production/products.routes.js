@@ -2281,7 +2281,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
   }
 });
 
-// DELETE /api/products/:id - Try Hard Delete, fallback to Soft Delete
+// DELETE /api/products/:id - Strict Reference Checking & Audit Logging
 router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req, res, next) => {
   try {
     const id = req.params.id;
@@ -2293,21 +2293,122 @@ router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async 
       return res.status(404).json({ error: 'Product not found' });
     }
 
-    try {
-      // Attempt hard delete first
-      await prisma.finishedProduct.delete({
-        where: { id }
-      });
-    } catch (e) {
-      // Fallback to soft delete if referenced by other tables (foreign key violation)
-      await prisma.finishedProduct.update({
-        where: { id },
-        data: { deletedAt: new Date() }
+    // 1. Check Sales / Billing references (Customer Orders, Invoices, POS, Quotations)
+    const orderItems = await prisma.customerOrderItem.findMany({
+      where: { productId: id },
+      include: {
+        order: {
+          select: { id: true, referenceNo: true, docNo: true, type: true, status: true }
+        }
+      }
+    });
+
+    // 2. Check Production Batches
+    const batches = await prisma.productionBatchNew.findMany({
+      where: { productId: id },
+      select: { id: true, referenceNo: true, batchNo: true, status: true }
+    });
+
+    // 3. Check Stock Movements
+    const stockMovements = await prisma.productStockMovement.findMany({
+      where: { productId: id },
+      select: { id: true, type: true, quantity: true },
+      take: 5
+    });
+
+    // 4. Check Wastages
+    const wastages = await prisma.productWastage.findMany({
+      where: { productId: id },
+      select: { id: true, referenceNo: true }
+    });
+
+    const orderRefs = [];
+    const seenOrderNos = new Set();
+    for (const item of orderItems) {
+      if (item.order) {
+        const orderNo = item.order.docNo || item.order.referenceNo || item.order.id;
+        if (!seenOrderNos.has(orderNo)) {
+          seenOrderNos.add(orderNo);
+          orderRefs.push({
+            id: item.order.id,
+            referenceNo: orderNo,
+            type: item.order.type || 'Sales Document',
+            status: item.order.status
+          });
+        }
+      }
+    }
+
+    const hasReferences = orderRefs.length > 0 || batches.length > 0 || stockMovements.length > 0 || wastages.length > 0;
+
+    if (hasReferences) {
+      const reasons = [];
+      if (orderRefs.length > 0) {
+        reasons.push(`${orderRefs.length} Sales/Billing document(s) [${orderRefs.map(o => `${o.referenceNo} (${o.type})`).slice(0, 5).join(', ')}${orderRefs.length > 5 ? '...' : ''}]`);
+      }
+      if (batches.length > 0) {
+        reasons.push(`${batches.length} Production Batch(es) [${batches.map(b => b.referenceNo || b.batchNo).slice(0, 5).join(', ')}${batches.length > 5 ? '...' : ''}]`);
+      }
+      if (stockMovements.length > 0) {
+        reasons.push(`Historical inventory movements`);
+      }
+      if (wastages.length > 0) {
+        reasons.push(`${wastages.length} Product Wastage log(s)`);
+      }
+
+      return res.status(409).json({
+        error: 'PRODUCT_IN_USE',
+        message: `Cannot delete product "${existing.code || existing.sku || 'PROD'} - ${existing.name}" because it is already used in: ${reasons.join('; ')}.`,
+        references: {
+          orders: orderRefs,
+          batches: batches.map(b => ({ referenceNo: b.referenceNo || b.batchNo, status: b.status })),
+          stockMovementsCount: stockMovements.length,
+          wastages: wastages.map(w => w.referenceNo)
+        }
       });
     }
 
-    res.status(204).send();
+    // Safe to delete: Delete child records first in a transaction, then the finished product
+    await prisma.$transaction([
+      prisma.productBOM.deleteMany({ where: { productId: id } }),
+      prisma.productNonInventoryCost.deleteMany({ where: { productId: id } }),
+      prisma.productStage.deleteMany({ where: { productId: id } }),
+      prisma.productStockLevel.deleteMany({ where: { productId: id } }),
+      prisma.finishedProduct.delete({ where: { id } })
+    ]);
+
+    // Record in AuditLog
+    try {
+      let userId = req.user?.id;
+      if (!userId) {
+        const firstUser = await prisma.user.findFirst({ select: { id: true } });
+        userId = firstUser ? firstUser.id : null;
+      }
+      if (userId) {
+        await prisma.auditLog.create({
+          data: {
+            userId,
+            action: 'DELETE_PRODUCT',
+            tableName: 'products',
+            recordId: id,
+            oldValue: existing,
+            newValue: null,
+            ip: req.ip || req.connection?.remoteAddress || '127.0.0.1'
+          }
+        });
+      }
+    } catch (auditErr) {
+      console.error('[AuditLog Error]', auditErr.message);
+    }
+
+    res.status(200).json({ message: 'Product deleted successfully' });
   } catch (error) {
+    if (error.code === 'P2003') {
+      return res.status(409).json({
+        error: 'PRODUCT_IN_USE',
+        message: 'Cannot delete product because it is referenced by other database records.'
+      });
+    }
     next(error);
   }
 });

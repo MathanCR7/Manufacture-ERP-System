@@ -390,22 +390,140 @@ export default function ProductCategoryListPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['product-categories'] });
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== editId));
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Category Deleted</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Category deleted successfully and recorded in audit log.</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        customClass: {
+          popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
+    },
+    onError: (err) => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const data = err.response?.data;
+      const subcats = data?.subcategories || [];
+      const prods = data?.products || [];
+
+      if (subcats.length > 0 || prods.length > 0) {
+        Swal.fire({
+          title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Main Category</span>',
+          html: `
+            <div class="text-left text-xs space-y-2.5 mt-2">
+              <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+                ${data.message || 'This category is already interlinked with subcategories and/or products.'}
+              </div>
+              ${subcats.length > 0 ? `
+                <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Linked Subcategories (${subcats.length}):</div>
+                <div class="max-h-28 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-900">
+                  ${subcats.map(s => `
+                    <div class="flex items-center justify-between text-xs py-0.5 border-b border-slate-200/50 dark:border-slate-800/50 last:border-0">
+                      <span class="font-bold text-indigo-600 dark:text-indigo-400">${s.name}</span>
+                      <span class="text-[10px] font-mono text-slate-400">${s.code || ''}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+              ${prods.length > 0 ? `
+                <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mt-2">Linked Finished Products (${prods.length}):</div>
+                <div class="max-h-28 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-900">
+                  ${prods.map(p => `
+                    <div class="flex items-center justify-between text-xs py-0.5 border-b border-slate-200/50 dark:border-slate-800/50 last:border-0">
+                      <span class="font-bold text-slate-700 dark:text-slate-200">${p.name}</span>
+                      <span class="text-[10px] font-mono font-bold text-indigo-500">${p.code || ''}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                You must remove or reassign all linked subcategories and products before this main category can be deleted.
+              </p>
+            </div>
+          `,
+          icon: 'error',
+          confirmButtonText: 'Understood',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
+        Swal.fire({
+          title: 'Cannot Delete Category',
+          text: data?.message || err.message || 'Failed to delete product category.',
+          icon: 'error',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      }
     }
   });
 
   const handleDelete = (item) => {
     const isDark = document.documentElement.classList.contains('dark');
-    const productCount = item.products?.length || 0;
-    const warningText = productCount > 0 
-      ? `This category contains ${productCount} finished product(s). Deleting it will detach the category association from them.` 
-      : "You won't be able to revert this action!";
+    const subcats = item.subcategories || [];
+    const prods = item.finishedProducts || item.products || [];
+
+    if (subcats.length > 0 || prods.length > 0) {
+      Swal.fire({
+        title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Main Category</span>',
+        html: `
+          <div class="text-left text-xs space-y-2.5 mt-2">
+            <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+              Category <strong class="text-slate-900 dark:text-white">"${item.name}"</strong> cannot be deleted because it is already interlinked with <strong>${subcats.length} subcategory(s)</strong> and <strong>${prods.length} product(s)</strong>.
+            </div>
+            ${subcats.length > 0 ? `
+              <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Linked Subcategories (${subcats.length}):</div>
+              <div class="max-h-28 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-900">
+                ${subcats.map(s => `
+                  <div class="flex items-center justify-between text-xs py-0.5 border-b border-slate-200/50 dark:border-slate-800/50 last:border-0">
+                    <span class="font-bold text-indigo-600 dark:text-indigo-400">${s.name}</span>
+                    <span class="text-[10px] font-mono text-slate-400">${s.code || ''}</span>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+            ${prods.length > 0 ? `
+              <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mt-2">Linked Finished Products (${prods.length}):</div>
+              <div class="max-h-28 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-900">
+                ${prods.map(p => `
+                  <div class="flex items-center justify-between text-xs py-0.5 border-b border-slate-200/50 dark:border-slate-800/50 last:border-0">
+                    <span class="font-bold text-slate-700 dark:text-slate-200">${p.name}</span>
+                    <span class="text-[10px] font-mono font-bold text-indigo-500">${p.code || p.sku || ''}</span>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              You must remove or reassign all linked subcategories and products before this main category can be deleted.
+            </p>
+          </div>
+        `,
+        icon: 'error',
+        confirmButtonText: 'Understood',
+        confirmButtonColor: '#4f46e5',
+        background: isDark ? '#1e293b' : '#ffffff',
+        color: isDark ? '#f8fafc' : '#0f172a'
+      });
+      return;
+    }
 
     Swal.fire({
       title: 'Delete Category?',
       html: `
         <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Are you sure you want to delete <strong class="text-slate-900 dark:text-slate-100">"${item.name}"</strong>?
-          <p class="text-amber-600 dark:text-amber-400 font-medium mt-2 text-[11px]">${warningText}</p>
+          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This action cannot be undone and will be recorded in the audit log.</p>
         </div>
       `,
       icon: 'warning',
@@ -426,24 +544,6 @@ export default function ProductCategoryListPage() {
     }).then((result) => {
       if (result.isConfirmed) {
         deleteMutation.mutate(item.id);
-
-        Swal.fire({
-          title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Category Deleted</span>`,
-          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">"${item.name}" has been deleted successfully.</p>`,
-          icon: 'success',
-          iconColor: '#10b981',
-          toast: true,
-          position: 'top-end',
-          showConfirmButton: false,
-          timer: 3000,
-          timerProgressBar: true,
-          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          color: isDark ? '#f8fafc' : '#0f172a',
-          customClass: {
-            popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
-            timerProgressBar: 'bg-emerald-500'
-          }
-        });
       }
     });
   };
@@ -453,7 +553,7 @@ export default function ProductCategoryListPage() {
     const isDark = document.documentElement.classList.contains('dark');
     const result = await Swal.fire({
       title: 'Bulk Delete Categories?',
-      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">You are about to delete <strong>${selectedIds.length}</strong> product categories. This operation is permanent!</p>`,
+      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">You are about to delete <strong>${selectedIds.length}</strong> product categories. Categories linked to subcategories or products cannot be deleted.</p>`,
       icon: 'warning',
       iconColor: '#f59e0b',
       showCancelButton: true,
@@ -472,11 +572,27 @@ export default function ProductCategoryListPage() {
     });
 
     if (result.isConfirmed) {
-      try {
-        await Promise.all(selectedIds.map(id => api.delete(`/item-setup/product-category/${id}`)));
-        setSelectedIds([]);
-        queryClient.invalidateQueries({ queryKey: ['product-categories'] });
-        
+      let failed = 0;
+      for (const id of selectedIds) {
+        try {
+          await api.delete(`/item-setup/product-category/${id}`);
+        } catch (err) {
+          failed++;
+        }
+      }
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ['product-categories'] });
+      
+      if (failed > 0) {
+        Swal.fire({
+          title: 'Bulk Delete Partially Completed',
+          html: `<p class="text-xs text-slate-600 dark:text-slate-400">${failed} category(s) could not be deleted because they are interlinked with subcategories or products.</p>`,
+          icon: 'warning',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
         Swal.fire({
           title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Bulk Deletion Successful</span>`,
           html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Selected product categories were deleted.</p>`,
@@ -494,8 +610,6 @@ export default function ProductCategoryListPage() {
             timerProgressBar: 'bg-emerald-500'
           }
         });
-      } catch (err) {
-        console.error(err);
       }
     }
   };

@@ -87,7 +87,7 @@ const UOM_PRESETS = [
 ];
 
 // Searchable UOM Dropdown Component
-function UomSelect({ value, onChange, error }) {
+function UomSelect({ value, onChange, error, disabled }) {
   return (
     <SearchSelect
       value={value}
@@ -95,8 +95,9 @@ function UomSelect({ value, onChange, error }) {
       options={UOM_OPTIONS}
       placeholder="Select UOM..."
       searchPlaceholder="Search UOM..."
+      disabled={disabled}
       error={!!error}
-      triggerClassName="text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg h-8 font-medium"
+      triggerClassName={`text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg h-8 font-medium ${disabled ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-slate-900' : ''}`}
     />
   );
 }
@@ -341,6 +342,9 @@ function RawMaterialForm({ editId, onBack }) {
     );
   }
 
+  const isPurchased = isEditMode && Boolean(existingData?.hasPurchases);
+  const poNumbers = existingData?.purchaseOrders || [];
+
   return (
     <div className="w-full max-w-5xl px-3 sm:px-5 py-2.5 space-y-2.5 mx-auto transition-all duration-200">
       {/* Sleek Header */}
@@ -366,12 +370,31 @@ function RawMaterialForm({ editId, onBack }) {
         </div>
       </div>
 
+      {/* PO Purchased Locked Warning Banner */}
+      {isPurchased && (
+        <div className="p-3 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-100 shadow-2xs">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <div className="font-bold flex items-center gap-1.5 text-amber-950 dark:text-amber-200">
+              <span>Purchase Order History Detected</span>
+              <span className="px-1.5 py-0.2 bg-amber-200 dark:bg-amber-900/60 rounded text-[10px] font-mono text-amber-900 dark:text-amber-300">
+                PO: {poNumbers.join(', ')}
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+              This raw material has already been purchased in Purchase Orders. Core fields (Name, Code, Category, Primary Unit, Standard Rate, Opening Stock, HSN) are locked to maintain procurement and ledger integrity. <strong>Only Alternate Unit of Measure (UOM) & Conversion Rate and notes can be edited.</strong>
+            </p>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit(handleFormSubmit)}>
         <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs overflow-visible">
           <CardHeader className="px-3.5 py-2 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30">
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
               Material Specifications & Pricing
+              {isPurchased && <span className="ml-auto text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">🔒 Core Specs Locked</span>}
             </div>
           </CardHeader>
           <CardContent className="p-3.5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -382,7 +405,7 @@ function RawMaterialForm({ editId, onBack }) {
               <input
                 {...register('code', { required: 'RM Code is required' })}
                 readOnly
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none h-8 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-slate-50/60"
+                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none h-8 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-slate-50/60 cursor-not-allowed"
               />
             </div>
 
@@ -391,7 +414,8 @@ function RawMaterialForm({ editId, onBack }) {
               <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Category *</label>
               <select
                 {...register('categoryId', { required: 'Category is required' })}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 font-medium h-8"
+                disabled={isPurchased}
+                className={`w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 font-medium h-8 ${isPurchased ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
               >
                 <option value="">Select Category...</option>
                 {categories?.map((cat) => (
@@ -411,14 +435,15 @@ function RawMaterialForm({ editId, onBack }) {
                     e.target.value = e.target.value.toUpperCase();
                   }
                 })}
+                disabled={isPurchased}
                 style={{ textTransform: 'uppercase' }}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs"
+                className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs ${isPurchased ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                 placeholder="E.G. REFINED SUGAR, WHEAT FLOUR"
               />
               {errors.name && <span className="text-[11px] text-rose-500 font-medium block">{errors.name.message}</span>}
 
               {/* Similar Duplicate Warn overlay */}
-              {nameMatches.length > 0 && (
+              {!isPurchased && nameMatches.length > 0 && (
                 <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start gap-2 animate__animated animate__fadeIn">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
@@ -438,8 +463,9 @@ function RawMaterialForm({ editId, onBack }) {
               <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Unit of Measure (UOM) *</label>
               <UomSelect
                 value={selectedUom}
-                onChange={(val) => setValue('unitId', val)}
+                onChange={(val) => !isPurchased && setValue('unitId', val)}
                 error={errors.unitId}
+                disabled={isPurchased}
               />
               {errors.unitId && <span className="text-[11px] text-rose-500 font-medium block">{errors.unitId.message}</span>}
             </div>
@@ -447,13 +473,17 @@ function RawMaterialForm({ editId, onBack }) {
             {/* HSN Code Field */}
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">HSN Code</label>
-              <HsnSelect
-                value={selectedHsn}
-                onChange={(val, matchesDesc) => {
-                  setValue('hsnCode', val);
-                  setHasHsnDescription(matchesDesc);
-                }}
-              />
+              <div className={isPurchased ? 'opacity-70 pointer-events-none' : ''}>
+                <HsnSelect
+                  value={selectedHsn}
+                  onChange={(val, matchesDesc) => {
+                    if (!isPurchased) {
+                      setValue('hsnCode', val);
+                      setHasHsnDescription(matchesDesc);
+                    }
+                  }}
+                />
+              </div>
             </div>
 
             {/* Rate Per Unit */}
@@ -462,8 +492,9 @@ function RawMaterialForm({ editId, onBack }) {
               <input
                 type="number"
                 step="0.01"
+                disabled={isPurchased}
                 {...register('ratePerUnit', { required: 'Rate is required', min: 0 })}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-mono text-xs font-bold"
+                className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-mono text-xs font-bold ${isPurchased ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                 placeholder="0.00"
               />
               <span className="text-[10px] text-slate-400 block leading-tight">
@@ -478,9 +509,9 @@ function RawMaterialForm({ editId, onBack }) {
               <input
                 type="number"
                 step="0.01"
-                disabled={isEditMode}
+                disabled={isEditMode || isPurchased}
                 {...register('openingStock', { min: 0 })}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 h-8 font-mono text-xs font-bold bg-slate-50/60 disabled:opacity-75"
+                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 h-8 font-mono text-xs font-bold bg-slate-50/60 disabled:opacity-75 cursor-not-allowed"
                 placeholder="0.00"
               />
             </div>
@@ -771,20 +802,113 @@ export default function RawMaterialListPage() {
     mutationFn: async (id) => {
       await api.delete(`/item-setup/raw-material/${id}`);
     },
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['rm-materials'] });
-      setSelectedIds(prev => prev.filter(selectedId => selectedId !== editId));
+      setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Material Deleted</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Raw material profile deleted and recorded in audit log.</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        customClass: {
+          popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
+    },
+    onError: (err) => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const data = err.response?.data;
+      const poList = data?.purchaseOrders || [];
+
+      if (poList.length > 0) {
+        Swal.fire({
+          title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Raw Material</span>',
+          html: `
+            <div class="text-left text-xs space-y-2.5 mt-2">
+              <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+                ${data.message || 'This raw material is linked to Purchase Orders and cannot be deleted.'}
+              </div>
+              <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Associated Purchase Orders (${poList.length}):</div>
+              <div class="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-slate-50 dark:bg-slate-900">
+                ${poList.map(po => `
+                  <div class="flex items-center justify-between text-xs py-1 border-b border-slate-200/60 dark:border-slate-800/60 last:border-0 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                    <span>${po}</span>
+                    <span class="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-medium">Purchased Record</span>
+                  </div>
+                `).join('')}
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                Raw materials that have active or historical purchase order records cannot be deleted to protect accounting and inventory history.
+              </p>
+            </div>
+          `,
+          icon: 'error',
+          confirmButtonText: 'Understood',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
+        Swal.fire({
+          title: 'Cannot Delete Material',
+          text: data?.message || err.message || 'Failed to delete raw material.',
+          icon: 'error',
+          confirmButtonColor: '#4f46e5'
+        });
+      }
     }
   });
 
   const handleDelete = (item) => {
     const isDark = document.documentElement.classList.contains('dark');
+    const poList = item.purchaseOrders || [];
+
+    if (item.hasPurchases || poList.length > 0) {
+      Swal.fire({
+        title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Raw Material</span>',
+        html: `
+          <div class="text-left text-xs space-y-2.5 mt-2">
+            <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+              Material <strong class="text-slate-900 dark:text-white">"${item.name}" (${item.code})</strong> has already been purchased in <strong>${poList.length || 'active'} Purchase Order(s)</strong>.
+            </div>
+            <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Associated Purchase Orders:</div>
+            <div class="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-slate-50 dark:bg-slate-900">
+              ${poList.map(po => `
+                <div class="flex items-center justify-between text-xs py-1 border-b border-slate-200/60 dark:border-slate-800/60 last:border-0 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                  <span>${po}</span>
+                  <span class="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-medium">Purchased Record</span>
+                </div>
+              `).join('')}
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              Items with purchase order history cannot be deleted. You can configure its Alternate Unit of Measure (UOM) & Conversion Rate instead.
+            </p>
+          </div>
+        `,
+        icon: 'error',
+        confirmButtonText: 'Understood',
+        confirmButtonColor: '#4f46e5',
+        background: isDark ? '#1e293b' : '#ffffff',
+        color: isDark ? '#f8fafc' : '#0f172a'
+      });
+      return;
+    }
+
     Swal.fire({
       title: 'Delete Raw Material?',
       html: `
         <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Are you sure you want to delete <strong class="text-slate-900 dark:text-slate-100">"${item.name}" (${item.code})</strong>?
-          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This action cannot be undone.</p>
+          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This action cannot be undone and will be logged in the audit log.</p>
         </div>
       `,
       icon: 'warning',
@@ -805,24 +929,6 @@ export default function RawMaterialListPage() {
     }).then((result) => {
       if (result.isConfirmed) {
         deleteMutation.mutate(item.id);
-        
-        Swal.fire({
-          title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Material Deleted</span>`,
-          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Raw material profile has been removed.</p>`,
-          icon: 'success',
-          iconColor: '#10b981',
-          toast: true,
-          position: 'top-end',
-          showConfirmButton: false,
-          timer: 3000,
-          timerProgressBar: true,
-          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          color: isDark ? '#f8fafc' : '#0f172a',
-          customClass: {
-            popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
-            timerProgressBar: 'bg-emerald-500'
-          }
-        });
       }
     });
   };

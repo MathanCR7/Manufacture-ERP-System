@@ -2180,6 +2180,85 @@ export default function ProductListPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products'] });
       setSelectedIds(prev => prev.filter(x => x !== editId));
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Product Removed</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Finished product configuration deleted and recorded in audit log.</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        customClass: {
+          popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
+    },
+    onError: (err) => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const data = err.response?.data;
+      const refs = data?.references || {};
+      const orders = refs.orders || [];
+      const batches = refs.batches || [];
+      const movements = refs.stockMovements || 0;
+      const wastages = refs.wastages || 0;
+
+      if (orders.length > 0 || batches.length > 0 || movements > 0 || wastages > 0) {
+        Swal.fire({
+          title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Product</span>',
+          html: `
+            <div class="text-left text-xs space-y-2.5 mt-2">
+              <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+                ${data.message || 'This product is already billed or referenced in transactions.'}
+              </div>
+              ${orders.length > 0 ? `
+                <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Associated Sales / Billing Orders (${orders.length}):</div>
+                <div class="max-h-28 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-900">
+                  ${orders.map(orderNo => `
+                    <div class="flex items-center justify-between text-xs py-0.5 border-b border-slate-200/50 dark:border-slate-800/50 last:border-0 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <span>${orderNo}</span>
+                      <span class="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-medium">Billed Transaction</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+              ${batches.length > 0 ? `
+                <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mt-2">Associated Production Batches (${batches.length}):</div>
+                <div class="max-h-24 overflow-y-auto space-y-1 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-slate-50 dark:bg-slate-900">
+                  ${batches.map(batchNo => `
+                    <div class="flex items-center justify-between text-xs py-0.5 border-b border-slate-200/50 dark:border-slate-800/50 last:border-0 font-mono text-emerald-600 dark:text-emerald-400">
+                      <span>${batchNo}</span>
+                      <span class="text-[10px] text-slate-400 font-sans font-medium">Manufactured Batch</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                Products with sales invoices, quotations, POS, or production history cannot be deleted to preserve financial audit integrity.
+              </p>
+            </div>
+          `,
+          icon: 'error',
+          confirmButtonText: 'Understood',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
+        Swal.fire({
+          title: 'Cannot Delete Product',
+          text: data?.message || err.message || 'Failed to delete product formulation.',
+          icon: 'error',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      }
     }
   });
 
@@ -2189,8 +2268,8 @@ export default function ProductListPage() {
       title: 'Delete Product Configuration?',
       html: `
         <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          Are you sure you want to delete <strong class="text-slate-900 dark:text-slate-100">"${item.name}" (${item.code})</strong>?
-          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This will archive all recipe specifications.</p>
+          Are you sure you want to delete <strong class="text-slate-900 dark:text-slate-100">"${item.name}" (${item.code || item.sku || ''})</strong>?
+          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This action cannot be undone and will be recorded in the audit log.</p>
         </div>
       `,
       icon: 'warning',
@@ -2210,27 +2289,7 @@ export default function ProductListPage() {
       buttonsStyling: false
     }).then((result) => {
       if (result.isConfirmed) {
-        deleteMutation.mutate(item.id, {
-          onSuccess: () => {
-            Swal.fire({
-              title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Product Removed</span>`,
-              html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Finished product configuration deleted.</p>`,
-              icon: 'success',
-              iconColor: '#10b981',
-              toast: true,
-              position: 'top-end',
-              showConfirmButton: false,
-              timer: 2500,
-              timerProgressBar: true,
-              background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-              color: isDark ? '#f8fafc' : '#0f172a',
-              customClass: {
-                popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
-                timerProgressBar: 'bg-emerald-500'
-              }
-            });
-          }
-        });
+        deleteMutation.mutate(item.id);
       }
     });
   };
@@ -2240,7 +2299,7 @@ export default function ProductListPage() {
     const isDark = document.documentElement.classList.contains('dark');
     const result = await Swal.fire({
       title: 'Bulk Delete Products?',
-      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">You are about to delete <strong>${selectedIds.length}</strong> product formulations. This operation cannot be undone!</p>`,
+      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">You are about to delete <strong>${selectedIds.length}</strong> product formulations. Products with transaction history cannot be deleted.</p>`,
       icon: 'warning',
       iconColor: '#f59e0b',
       showCancelButton: true,
@@ -2259,11 +2318,27 @@ export default function ProductListPage() {
     });
 
     if (result.isConfirmed) {
-      try {
-        await Promise.all(selectedIds.map(id => api.delete(`/products/${id}`)));
-        setSelectedIds([]);
-        queryClient.invalidateQueries({ queryKey: ['products'] });
+      let failed = 0;
+      for (const id of selectedIds) {
+        try {
+          await api.delete(`/products/${id}`);
+        } catch (err) {
+          failed++;
+        }
+      }
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
 
+      if (failed > 0) {
+        Swal.fire({
+          title: 'Bulk Delete Partially Completed',
+          html: `<p class="text-xs text-slate-600 dark:text-slate-400">${failed} product(s) could not be deleted because they are referenced in sales invoices, POS, or production batches.</p>`,
+          icon: 'warning',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
         Swal.fire({
           title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Bulk Deletion Successful</span>`,
           html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Selected product configurations removed.</p>`,
@@ -2281,8 +2356,6 @@ export default function ProductListPage() {
             timerProgressBar: 'bg-emerald-500'
           }
         });
-      } catch (err) {
-        console.error(err);
       }
     }
   };

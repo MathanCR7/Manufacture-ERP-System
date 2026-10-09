@@ -98,17 +98,46 @@ class ProductSubcategoryController {
       }
 
       // Prevent deletion if products exist
-      const productCount = await prisma.finishedProduct.count({
-        where: { subcategoryId: id }
+      const linkedProducts = await prisma.finishedProduct.findMany({
+        where: { subcategoryId: id },
+        select: { id: true, code: true, name: true, sku: true }
       });
 
-      if (productCount > 0) {
-        return res.status(400).json({
-          message: `Cannot delete subcategory '${subcategory.name}' because ${productCount} product(s) are assigned to it.`
+      if (linkedProducts.length > 0) {
+        const prodSummary = linkedProducts.map(p => `${p.code || p.sku || 'PROD'} - ${p.name}`).join(', ');
+        return res.status(409).json({
+          error: 'SUBCATEGORY_IN_USE',
+          message: `Cannot delete subcategory "${subcategory.name}" (${subcategory.code}) because ${linkedProducts.length} product(s) are assigned to it: ${prodSummary}. Please reassign or delete these products first.`,
+          products: linkedProducts
         });
       }
 
       await repo.delete(id);
+
+      // Audit Log Record
+      try {
+        let userId = req.user?.id;
+        if (!userId) {
+          const firstUser = await prisma.user.findFirst({ select: { id: true } });
+          userId = firstUser ? firstUser.id : null;
+        }
+        if (userId) {
+          await prisma.auditLog.create({
+            data: {
+              userId,
+              action: 'DELETE_PRODUCT_SUBCATEGORY',
+              tableName: 'product_subcategories',
+              recordId: id,
+              oldValue: subcategory,
+              newValue: null,
+              ip: req.ip || req.connection?.remoteAddress || '127.0.0.1'
+            }
+          });
+        }
+      } catch (auditErr) {
+        console.error('[AuditLog Error]', auditErr.message);
+      }
+
       res.status(200).json({ message: 'Subcategory deleted successfully' });
     } catch (err) {
       next(err);

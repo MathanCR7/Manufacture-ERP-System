@@ -563,14 +563,22 @@ model RMStockAdjustment {
 }
 
 model NonInventoryItem {
-  id          String   @id @default(uuid())
-  name        String
-  code        String   @unique
-  category    String?
-  unitId      String?
-  ratePerUnit Decimal  @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(uuid())
+  name             String
+  code             String   @unique
+  category         String?
+  unitId           String?
+  ratePerUnit      Decimal  @default(0)
+  hsnCode          String?
+  description      String?  @db.Text
+  consumptionUnit  String?
+  hasAlternateUom  Boolean  @default(false)
+  alternateUom     String?
+  baseUomQty       Decimal  @default(1.0)
+  alternateUomQty  Decimal  @default(1.0)
+  conversionFactor Decimal  @default(1.0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   productNonInventoryCosts ProductNonInventoryCost[]
 }
 

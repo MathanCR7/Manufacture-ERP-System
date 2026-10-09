@@ -20,7 +20,13 @@ import {
   ArrowDown,
   RotateCcw,
   Boxes,
-  Calendar
+  Calendar,
+  Scale,
+  Sparkles,
+  ArrowRightLeft,
+  HelpCircle,
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
@@ -53,8 +59,21 @@ const UOM_OPTIONS = [
   'unit', 'lot', 'assortment'
 ];
 
+const UOM_PRESETS = [
+  // Packing / Volume / Count
+  { label: '1 Box = 10 pcs', category: 'Packing', base: 'box', alt: 'pcs', baseQty: 1, altQty: 10 },
+  { label: '1 Box = 20 pcs', category: 'Packing', base: 'box', alt: 'pcs', baseQty: 1, altQty: 20 },
+  { label: '1 Carton = 10 Box', category: 'Packing', base: 'carton', alt: 'box', baseQty: 1, altQty: 10 },
+  { label: '1 Packet = 50 pcs', category: 'Count', base: 'pack', alt: 'pcs', baseQty: 1, altQty: 50 },
+  { label: '1 Dozen = 12 pcs', category: 'Count', base: 'dozen', alt: 'pcs', baseQty: 1, altQty: 12 },
+  { label: '1 kg = 1000 gm', category: 'Weight', base: 'kg', alt: 'gm', baseQty: 1, altQty: 1000 },
+  { label: '1 Liter = 1000 ml', category: 'Volume', base: 'liter', alt: 'ml', baseQty: 1, altQty: 1000 },
+  { label: '1 Roll = 100 Meter', category: 'Length', base: 'roll', alt: 'meter', baseQty: 1, altQty: 100 },
+  { label: '1 Drum = 200 Liter', category: 'Custom', base: 'drum', alt: 'liter', baseQty: 1, altQty: 200 }
+];
+
 // Searchable UOM Dropdown Component
-function UomSelect({ value, onChange, error }) {
+function UomSelect({ value, onChange, error, disabled }) {
   return (
     <SearchSelect
       value={value}
@@ -62,8 +81,9 @@ function UomSelect({ value, onChange, error }) {
       options={UOM_OPTIONS}
       placeholder="Select UOM..."
       searchPlaceholder="Search UOM..."
+      disabled={disabled}
       error={!!error}
-      triggerClassName="text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg h-8 font-medium"
+      triggerClassName={`text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg h-8 font-medium ${disabled ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-slate-900' : ''}`}
     />
   );
 }
@@ -102,10 +122,27 @@ function NonInventoryItemForm({ editId, onBack }) {
   const queryClient = useQueryClient();
 
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm({
-    defaultValues: { unitId: 'pcs', ratePerUnit: 0, code: '' }
+    defaultValues: { 
+      unitId: 'pcs', 
+      ratePerUnit: 0, 
+      code: '',
+      hasAlternateUom: false,
+      alternateUom: '',
+      baseUomQty: 1,
+      alternateUomQty: 1,
+      description: ''
+    }
   });
 
   const selectedUom = watch('unitId');
+  const hasAlternateUom = watch('hasAlternateUom');
+  const alternateUom = watch('alternateUom');
+  const baseUomQty = watch('baseUomQty') || 1;
+  const alternateUomQty = watch('alternateUomQty') || 1;
+
+  const calculatedFactor = (Number(alternateUomQty) > 0 && Number(baseUomQty) > 0)
+    ? (Number(alternateUomQty) / Number(baseUomQty))
+    : 1;
 
   const { data: allNonInventoryItems } = useQuery({
     queryKey: ['non-inventory-items-list'],
@@ -163,13 +200,31 @@ function NonInventoryItemForm({ editId, onBack }) {
   });
 
   useEffect(() => {
-    if (existingData) reset(existingData);
+    if (existingData) {
+      let unitValue = existingData.unitId ? existingData.unitId.toLowerCase() : 'pcs';
+      if (unitValue === 'ltr') unitValue = 'liter';
+      const normalizedData = {
+        ...existingData,
+        unitId: unitValue,
+        hasAlternateUom: Boolean(existingData.hasAlternateUom),
+        alternateUom: existingData.alternateUom || existingData.consumptionUnit || '',
+        baseUomQty: existingData.baseUomQty != null ? Number(existingData.baseUomQty) : 1,
+        alternateUomQty: existingData.alternateUomQty != null ? Number(existingData.alternateUomQty) : 1
+      };
+      reset(normalizedData);
+    }
   }, [existingData, reset]);
 
   const mutation = useMutation({
     mutationFn: async (data) => {
       data.ratePerUnit = parseFloat(data.ratePerUnit) || 0;
       data.name = data.name.toUpperCase().replace(/[^A-Z ]/g, '').trim().replace(/\s+/g, ' ');
+      data.hasAlternateUom = Boolean(data.hasAlternateUom);
+      if (data.hasAlternateUom && data.alternateUom) {
+        data.baseUomQty = parseFloat(data.baseUomQty) || 1;
+        data.alternateUomQty = parseFloat(data.alternateUomQty) || 1;
+        data.conversionFactor = data.alternateUomQty / data.baseUomQty;
+      }
       if (isEditMode) return (await api.put(`/item-setup/non-inventory-item/${editId}`, data)).data;
       return (await api.post('/item-setup/non-inventory-item', data)).data;
     },
@@ -254,6 +309,9 @@ function NonInventoryItemForm({ editId, onBack }) {
     );
   }
 
+  const isPurchased = isEditMode && Boolean(existingData?.hasPurchases);
+  const poNumbers = existingData?.purchaseOrders || [];
+
   return (
     <div className="w-full max-w-4xl px-3 sm:px-5 py-2.5 space-y-2.5 mx-auto transition-all duration-200">
       {/* Sleek Header */}
@@ -279,12 +337,31 @@ function NonInventoryItemForm({ editId, onBack }) {
         </div>
       </div>
 
+      {/* PO Purchased Locked Warning Banner */}
+      {isPurchased && (
+        <div className="p-3 rounded-xl bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-100 shadow-2xs">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <div className="font-bold flex items-center gap-1.5 text-amber-950 dark:text-amber-200">
+              <span>Purchase Order History Detected</span>
+              <span className="px-1.5 py-0.2 bg-amber-200 dark:bg-amber-900/60 rounded text-[10px] font-mono text-amber-900 dark:text-amber-300">
+                PO: {poNumbers.join(', ')}
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-relaxed">
+              This non-inventory item has already been purchased in Purchase Orders. Core fields (Item Name, Code, Primary Unit, Standard Rate, Opening Stock) are locked to maintain procurement history. <strong>Only Alternate Unit of Measure (UOM) & Conversion Rate and notes can be edited.</strong>
+            </p>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit(onSubmit)}>
         <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs overflow-visible">
           <CardHeader className="px-3.5 py-2 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30">
             <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300">
               <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
               Item Configuration
+              {isPurchased && <span className="ml-auto text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wide">🔒 Core Specs Locked</span>}
             </div>
           </CardHeader>
           <CardContent className="p-3.5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
@@ -295,7 +372,7 @@ function NonInventoryItemForm({ editId, onBack }) {
               <input
                 {...register('code', { required: 'Code is required' })}
                 readOnly
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none h-8 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-slate-50/60"
+                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none h-8 font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-slate-50/60 cursor-not-allowed"
               />
             </div>
 
@@ -318,6 +395,7 @@ function NonInventoryItemForm({ editId, onBack }) {
                     return true;
                   }
                 })}
+                disabled={isPurchased}
                 onChange={(e) => {
                   const upper = e.target.value.toUpperCase().replace(/[^A-Z ]/g, '');
                   setValue('name', upper, { shouldValidate: true });
@@ -343,13 +421,13 @@ function NonInventoryItemForm({ editId, onBack }) {
                     e.preventDefault();
                   }
                 }}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs uppercase tracking-wide"
+                className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs uppercase tracking-wide ${isPurchased ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                 placeholder="e.g. MACHINE MAINTENANCE SERVICE, FREIGHT CHARGES"
               />
               {errors.name && <span className="text-[11px] text-rose-500 font-medium block">{errors.name.message}</span>}
 
               {/* Similar Duplicate Warn overlay */}
-              {nameMatches.length > 0 && (
+              {!isPurchased && nameMatches.length > 0 && (
                 <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start gap-2 animate__animated animate__fadeIn">
                   <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                   <div>
@@ -369,8 +447,9 @@ function NonInventoryItemForm({ editId, onBack }) {
               <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Unit of Measure (UOM) *</label>
               <UomSelect
                 value={selectedUom}
-                onChange={(val) => setValue('unitId', val)}
+                onChange={(val) => !isPurchased && setValue('unitId', val)}
                 error={errors.unitId}
+                disabled={isPurchased}
               />
               {errors.unitId && <span className="text-[11px] text-rose-500 font-medium block">{errors.unitId.message}</span>}
             </div>
@@ -381,8 +460,9 @@ function NonInventoryItemForm({ editId, onBack }) {
               <input
                 type="number"
                 step="0.01"
+                disabled={isPurchased}
                 {...register('ratePerUnit', { required: 'Rate is required', min: 0 })}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-mono text-xs font-bold"
+                className={`w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-mono text-xs font-bold ${isPurchased ? 'opacity-70 cursor-not-allowed bg-slate-100 dark:bg-slate-800' : ''}`}
                 placeholder="0.00"
               />
               {errors.ratePerUnit && <span className="text-[11px] text-rose-500 font-medium block">{errors.ratePerUnit.message}</span>}
@@ -394,9 +474,9 @@ function NonInventoryItemForm({ editId, onBack }) {
               <input
                 type="number"
                 step="0.01"
-                disabled={isEditMode}
+                disabled={isEditMode || isPurchased}
                 {...register('openingStock', { min: 0 })}
-                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 h-8 font-mono text-xs font-bold bg-slate-50/60 disabled:opacity-75"
+                className="w-full px-2.5 py-1.5 border border-slate-200 rounded-lg dark:bg-slate-950 dark:border-slate-800 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 h-8 font-mono text-xs font-bold bg-slate-50/60 disabled:opacity-75 cursor-not-allowed"
                 placeholder="0.00"
               />
             </div>
@@ -412,6 +492,152 @@ function NonInventoryItemForm({ editId, onBack }) {
               />
             </div>
 
+          </CardContent>
+        </Card>
+
+        {/* Alternate UOM & Conversion Engine Card */}
+        <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xs overflow-visible mt-2.5">
+          <CardHeader className="px-3.5 py-2.5 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/30 flex flex-row items-center justify-between">
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200">
+              <span className={`w-2 h-2 rounded-full transition-colors ${hasAlternateUom ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+              <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span>Alternate Unit of Measure (UOM) & Conversion Rate</span>
+            </div>
+
+            {/* Toggle Switch */}
+            <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+              <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                {hasAlternateUom ? 'Enabled' : 'Disabled'}
+              </span>
+              <input
+                type="checkbox"
+                {...register('hasAlternateUom')}
+                className="sr-only peer"
+              />
+              <div className="w-8 h-4.5 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all dark:border-slate-600 peer-checked:bg-indigo-600 relative"></div>
+            </label>
+          </CardHeader>
+
+          <CardContent className="p-3.5 space-y-3 text-xs">
+            {!hasAlternateUom ? (
+              <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 text-slate-500 dark:text-slate-400">
+                <HelpCircle className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                <div className="text-[11px] leading-relaxed">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Single UOM Active: </span>
+                  This non-inventory item is measured solely in <strong>{selectedUom ? selectedUom.toUpperCase() : 'its Base Unit'}</strong>. Enable this option if you purchase in one packaging unit (e.g. <em>Box</em> or <em>Carton</em>) but count or allocate in another unit (e.g. <em>Pieces</em>, <em>Packets</em>, or <em>Meters</em>).
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3.5 animate__animated animate__fadeIn">
+                {/* 1. Quick Presets */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-amber-500" />
+                      Quick Conversion Presets
+                    </span>
+                    <span className="text-[10px] text-slate-400">Click to apply common ratio</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {UOM_PRESETS.map((preset, idx) => {
+                      const isMatch = selectedUom && (
+                        preset.base.toLowerCase() === selectedUom.toLowerCase() ||
+                        preset.alt.toLowerCase() === selectedUom.toLowerCase()
+                      );
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => {
+                            setValue('alternateUom', preset.alt);
+                            setValue('baseUomQty', preset.baseQty);
+                            setValue('alternateUomQty', preset.altQty);
+                            if (preset.base.toLowerCase() !== (selectedUom || '').toLowerCase()) {
+                              setValue('unitId', preset.base);
+                            }
+                          }}
+                          className={`text-[10px] px-2 py-1 rounded-md font-semibold transition-all border cursor-pointer ${
+                            isMatch
+                              ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-950/40 dark:text-indigo-300 dark:border-indigo-800'
+                              : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800'
+                          }`}
+                        >
+                          <span className="opacity-60 mr-1 text-[9px]">[{preset.category}]</span>
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* 2. Visual Equivalence Ratio Builder */}
+                <div className="p-3 bg-gradient-to-r from-indigo-50/70 via-purple-50/40 to-slate-50 dark:from-indigo-950/30 dark:via-purple-950/20 dark:to-slate-950/30 rounded-xl border border-indigo-100 dark:border-indigo-900/50 space-y-2">
+                  <div className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200 flex items-center justify-between">
+                    <span>Equivalence Conversion Equation</span>
+                    <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
+                      Ratio: {baseUomQty} {selectedUom || 'Base'} = {alternateUomQty} {alternateUom || 'Alt'}
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Primary/Base Unit Qty */}
+                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
+                      <span className="text-[10px] text-slate-400 font-bold">QTY</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.000001"
+                        {...register('baseUomQty', { required: 'Base quantity required', min: 0.000001 })}
+                        className="w-16 text-center font-mono font-bold text-xs bg-transparent focus:outline-none text-slate-800 dark:text-white"
+                        placeholder="1"
+                      />
+                      <span className="font-extrabold text-[11px] uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200">
+                        {selectedUom || 'Base'}
+                      </span>
+                    </div>
+
+                    <div className="text-slate-400 flex items-center font-bold px-1 text-sm">
+                      <ArrowRightLeft className="w-4 h-4 text-indigo-500" />
+                    </div>
+
+                    {/* Equals Alternate Qty */}
+                    <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-3xs">
+                      <span className="text-[10px] text-slate-400 font-bold">EQUALS</span>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0.000001"
+                        {...register('alternateUomQty', { required: 'Alt quantity required', min: 0.000001 })}
+                        className="w-16 text-center font-mono font-bold text-xs bg-transparent focus:outline-none text-slate-800 dark:text-white"
+                        placeholder="1"
+                      />
+                    </div>
+
+                    {/* Alternate UOM Dropdown */}
+                    <div className="w-36">
+                      <UomSelect
+                        value={alternateUom}
+                        onChange={(val) => setValue('alternateUom', val)}
+                        error={errors.alternateUom}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 3. Live Calculated Conversion Result Banner */}
+                  <div className="pt-2 border-t border-indigo-100/80 dark:border-indigo-900/40 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 font-semibold">
+                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        Effective Factor: <strong>1 {selectedUom || 'Base'} = {calculatedFactor.toLocaleString(undefined, { maximumFractionDigits: 6 })} {alternateUom || 'Alt'}</strong>
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                      Multiplier: ×{calculatedFactor.toFixed(4)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -468,17 +694,112 @@ export default function NonInventoryItemListPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['non-inventory-items'] });
       setSelectedIds(prev => prev.filter(selectedId => selectedId !== editId));
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Item Deleted</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Non-inventory item has been removed and recorded in the audit log.</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        customClass: {
+          popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
+    },
+    onError: (err) => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const data = err.response?.data;
+      const poList = data?.purchaseOrders || [];
+
+      if (poList.length > 0) {
+        Swal.fire({
+          title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Non-Inventory Item</span>',
+          html: `
+            <div class="text-left text-xs space-y-2.5 mt-2">
+              <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+                ${data.message || 'This item has already been purchased in Purchase Order(s).'}
+              </div>
+              <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Associated Purchase Orders:</div>
+              <div class="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-slate-50 dark:bg-slate-900">
+                ${poList.map(po => `
+                  <div class="flex items-center justify-between text-xs py-1 border-b border-slate-200/60 dark:border-slate-800/60 last:border-0 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                    <span>${po}</span>
+                    <span class="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-medium">Purchased Record</span>
+                  </div>
+                `).join('')}
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                Items with purchase order history cannot be deleted. You can configure Alternate Unit of Measure (UOM) & Conversion Rate instead.
+              </p>
+            </div>
+          `,
+          icon: 'error',
+          confirmButtonText: 'Understood',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
+        Swal.fire({
+          title: 'Cannot Delete Item',
+          text: data?.message || err.message || 'Failed to delete non-inventory item.',
+          icon: 'error',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      }
     }
   });
 
   const handleDelete = (item) => {
     const isDark = document.documentElement.classList.contains('dark');
+    const poList = item.purchaseOrders || [];
+
+    if (item.hasPurchases || poList.length > 0) {
+      Swal.fire({
+        title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Non-Inventory Item</span>',
+        html: `
+          <div class="text-left text-xs space-y-2.5 mt-2">
+            <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+              Item <strong class="text-slate-900 dark:text-white">"${item.name}" (${item.code})</strong> has already been purchased in <strong>${poList.length || 'active'} Purchase Order(s)</strong>.
+            </div>
+            <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Associated Purchase Orders:</div>
+            <div class="max-h-40 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-slate-50 dark:bg-slate-900">
+              ${poList.map(po => `
+                <div class="flex items-center justify-between text-xs py-1 border-b border-slate-200/60 dark:border-slate-800/60 last:border-0 font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                  <span>${po}</span>
+                  <span class="text-[10px] text-amber-600 dark:text-amber-400 font-sans font-medium">Purchased Record</span>
+                </div>
+              `).join('')}
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              Items with purchase order history cannot be deleted. You can configure Alternate Unit of Measure (UOM) & Conversion Rate instead.
+            </p>
+          </div>
+        `,
+        icon: 'error',
+        confirmButtonText: 'Understood',
+        confirmButtonColor: '#4f46e5',
+        background: isDark ? '#1e293b' : '#ffffff',
+        color: isDark ? '#f8fafc' : '#0f172a'
+      });
+      return;
+    }
+
     Swal.fire({
       title: 'Delete Non-Inventory Item?',
       html: `
         <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Are you sure you want to delete <strong class="text-slate-900 dark:text-slate-100">"${item.name}" (${item.code})</strong>?
-          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This action cannot be undone.</p>
+          <p class="text-rose-600 dark:text-rose-400 font-medium mt-1.5 text-[11px]">This action cannot be undone and will be logged in the audit log.</p>
         </div>
       `,
       icon: 'warning',
@@ -499,24 +820,6 @@ export default function NonInventoryItemListPage() {
     }).then((result) => {
       if (result.isConfirmed) {
         deleteMutation.mutate(item.id);
-        
-        Swal.fire({
-          title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Item Deleted</span>`,
-          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Non-inventory item has been removed.</p>`,
-          icon: 'success',
-          iconColor: '#10b981',
-          toast: true,
-          position: 'top-end',
-          showConfirmButton: false,
-          timer: 3000,
-          timerProgressBar: true,
-          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          color: isDark ? '#f8fafc' : '#0f172a',
-          customClass: {
-            popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
-            timerProgressBar: 'bg-emerald-500'
-          }
-        });
       }
     });
   };
@@ -526,7 +829,7 @@ export default function NonInventoryItemListPage() {
     const isDark = document.documentElement.classList.contains('dark');
     const result = await Swal.fire({
       title: 'Bulk Delete Items?',
-      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">You are about to delete <strong>${selectedIds.length}</strong> non-inventory items. This operation is permanent!</p>`,
+      html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">You are about to delete <strong>${selectedIds.length}</strong> non-inventory items. Items with purchase orders cannot be deleted.</p>`,
       icon: 'warning',
       iconColor: '#f59e0b',
       showCancelButton: true,
@@ -545,11 +848,31 @@ export default function NonInventoryItemListPage() {
     });
 
     if (result.isConfirmed) {
-      try {
-        await Promise.all(selectedIds.map(id => api.delete(`/item-setup/non-inventory-item/${id}`)));
-        setSelectedIds([]);
-        queryClient.invalidateQueries({ queryKey: ['non-inventory-items'] });
-        
+      let failed = 0;
+      let errorMessages = [];
+      for (const id of selectedIds) {
+        try {
+          await api.delete(`/item-setup/non-inventory-item/${id}`);
+        } catch (err) {
+          failed++;
+          if (err.response?.data?.message) {
+            errorMessages.push(err.response.data.message);
+          }
+        }
+      }
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ['non-inventory-items'] });
+      
+      if (failed > 0) {
+        Swal.fire({
+          title: 'Bulk Delete Partially Completed',
+          html: `<p class="text-xs text-slate-600 dark:text-slate-400">${failed} item(s) could not be deleted because they are referenced in purchase orders or other records.</p>`,
+          icon: 'warning',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
         Swal.fire({
           title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Bulk Deletion Successful</span>`,
           html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Selected non-inventory items removed.</p>`,
@@ -561,14 +884,8 @@ export default function NonInventoryItemListPage() {
           timer: 3000,
           timerProgressBar: true,
           background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          color: isDark ? '#f8fafc' : '#0f172a',
-          customClass: {
-            popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
-            timerProgressBar: 'bg-emerald-500'
-          }
+          color: isDark ? '#f8fafc' : '#0f172a'
         });
-      } catch (err) {
-        console.error(err);
       }
     }
   };
@@ -957,8 +1274,17 @@ export default function NonInventoryItemListPage() {
                             {item.name}
                           </span>
                         </TableCell>
-                        <TableCell className="py-2 px-3 text-slate-600 dark:text-slate-400 font-semibold uppercase text-[11px]">
-                          {item.unitId}
+                        <TableCell className="py-2 px-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-slate-700 dark:text-slate-300 font-bold uppercase text-[11px]">
+                              {item.unitId}
+                            </span>
+                            {item.hasAlternateUom && item.alternateUom && (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-200/60 dark:border-emerald-800/50 w-fit">
+                                1 {item.unitId} = {Number(item.conversionFactor || (item.alternateUomQty / item.baseUomQty) || 1).toLocaleString()} {item.alternateUom}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="py-2 px-3 text-right font-mono font-bold text-slate-900 dark:text-white">
                           ₹{parseFloat(item.ratePerUnit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

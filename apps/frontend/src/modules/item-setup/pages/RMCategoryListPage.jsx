@@ -349,25 +349,114 @@ export default function RMCategoryListPage() {
     mutationFn: async (id) => {
       await api.delete(`/item-setup/rm-category/${id}`);
     },
-    onSuccess: () => {
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ['rm-categories'] });
-      setSelectedIds(prev => prev.filter(selectedId => selectedId !== editId));
+      setSelectedIds(prev => prev.filter(selectedId => selectedId !== id));
+      const isDark = document.documentElement.classList.contains('dark');
+      Swal.fire({
+        title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Category Deleted</span>`,
+        html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Category deleted successfully and recorded in audit log.</p>`,
+        icon: 'success',
+        iconColor: '#10b981',
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+        background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+        color: isDark ? '#f8fafc' : '#0f172a',
+        customClass: {
+          popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
+          timerProgressBar: 'bg-emerald-500'
+        }
+      });
+    },
+    onError: (err) => {
+      const isDark = document.documentElement.classList.contains('dark');
+      const data = err.response?.data;
+      const rawMaterials = data?.rawMaterials || [];
+
+      if (rawMaterials.length > 0) {
+        Swal.fire({
+          title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Category</span>',
+          html: `
+            <div class="text-left text-xs space-y-2.5 mt-2">
+              <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+                ${data.message || 'This raw material category is in use and cannot be deleted.'}
+              </div>
+              <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Linked Raw Materials (${rawMaterials.length}):</div>
+              <div class="max-h-48 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-slate-50 dark:bg-slate-900">
+                ${rawMaterials.map(rm => `
+                  <div class="flex items-center justify-between text-xs py-1 border-b border-slate-200/60 dark:border-slate-800/60 last:border-0">
+                    <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">${rm.code || 'RM'}</span>
+                    <span class="font-medium text-slate-800 dark:text-slate-200 truncate ml-2">${rm.name}</span>
+                  </div>
+                `).join('')}
+              </div>
+              <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                Please reassign or delete these raw materials before deleting this category.
+              </p>
+            </div>
+          `,
+          icon: 'error',
+          confirmButtonText: 'Understood',
+          confirmButtonColor: '#4f46e5',
+          background: isDark ? '#1e293b' : '#ffffff',
+          color: isDark ? '#f8fafc' : '#0f172a'
+        });
+      } else {
+        Swal.fire({
+          title: 'Cannot Delete Category',
+          text: data?.message || err.message || 'Failed to delete category.',
+          icon: 'error',
+          confirmButtonColor: '#4f46e5'
+        });
+      }
     }
   });
 
   const handleDelete = (item) => {
     const isDark = document.documentElement.classList.contains('dark');
-    const itemCount = item.rawMaterials?.length || 0;
-    const warningText = itemCount > 0 
-      ? `This category is mapped to ${itemCount} raw material(s). Deleting it will remove the category reference from them.` 
-      : "You won't be able to revert this action!";
+    const linkedRMs = item.rawMaterials || [];
+
+    // If there are already linked raw materials, block immediately with informative dialog!
+    if (linkedRMs.length > 0) {
+      Swal.fire({
+        title: '<span class="text-base font-bold text-rose-600 dark:text-rose-400">Cannot Delete Category</span>',
+        html: `
+          <div class="text-left text-xs space-y-2.5 mt-2">
+            <div class="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-medium">
+              Category <strong class="text-slate-900 dark:text-white">"${item.name}"</strong> is already in use by <strong>${linkedRMs.length} Raw Material(s)</strong>.
+            </div>
+            <div class="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Linked Raw Materials:</div>
+            <div class="max-h-48 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 bg-slate-50 dark:bg-slate-900">
+              ${linkedRMs.map(rm => `
+                <div class="flex items-center justify-between text-xs py-1 border-b border-slate-200/60 dark:border-slate-800/60 last:border-0">
+                  <span class="font-mono font-bold text-indigo-600 dark:text-indigo-400">${rm.code || 'RM'}</span>
+                  <span class="font-medium text-slate-800 dark:text-slate-200 truncate ml-2">${rm.name}</span>
+                </div>
+              `).join('')}
+            </div>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">
+              You cannot delete this category because raw material category is already used. Please reassign or delete the linked raw materials in the Raw Material page first.
+            </p>
+          </div>
+        `,
+        icon: 'error',
+        confirmButtonText: 'Understood',
+        confirmButtonColor: '#4f46e5',
+        background: isDark ? '#1e293b' : '#ffffff',
+        color: isDark ? '#f8fafc' : '#0f172a'
+      });
+      return;
+    }
 
     Swal.fire({
       title: 'Delete Category?',
       html: `
         <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Are you sure you want to delete <strong class="text-slate-900 dark:text-slate-100">"${item.name}"</strong>?
-          <p class="text-amber-600 dark:text-amber-400 font-medium mt-2 text-[11px]">${warningText}</p>
+          <p class="text-rose-600 dark:text-rose-400 font-medium mt-2 text-[11px]">This operation will be recorded in the audit log.</p>
         </div>
       `,
       icon: 'warning',
@@ -388,24 +477,6 @@ export default function RMCategoryListPage() {
     }).then((result) => {
       if (result.isConfirmed) {
         deleteMutation.mutate(item.id);
-        
-        Swal.fire({
-          title: `<span class="font-bold text-sm text-slate-800 dark:text-slate-100">Category Deleted</span>`,
-          html: `<p class="text-xs text-slate-500 dark:text-slate-400 mt-1">"${item.name}" has been deleted successfully.</p>`,
-          icon: 'success',
-          iconColor: '#10b981',
-          toast: true,
-          position: 'top-end',
-          showConfirmButton: false,
-          timer: 3000,
-          timerProgressBar: true,
-          background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          color: isDark ? '#f8fafc' : '#0f172a',
-          customClass: {
-            popup: 'rounded-xl border border-emerald-100 dark:border-emerald-950 shadow-lg p-3.5',
-            timerProgressBar: 'bg-emerald-500'
-          }
-        });
       }
     });
   };
