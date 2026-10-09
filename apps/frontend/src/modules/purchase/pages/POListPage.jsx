@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import useAuthStore from '@/app/store/authStore';
 import { format } from 'date-fns';
@@ -107,9 +107,16 @@ function StatusAdvanceButton({ po }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, borderClass, bgClass, iconColorClass, isLoading }) {
+function StatCard({ icon: Icon, label, value, borderClass, bgClass, iconColorClass, isLoading, onClick }) {
   return (
-    <div className={`bg-white dark:bg-slate-900 rounded-xl border p-3 shadow-2xs flex items-center gap-3 transition-all duration-200 hover:-translate-y-0.5 ${borderClass}`}>
+    <div 
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      className={`bg-white dark:bg-slate-900 rounded-xl border p-3 shadow-2xs flex items-center gap-3 transition-all duration-200 select-none ${
+        onClick ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md active:scale-[0.98]' : ''
+      } ${borderClass}`}
+    >
       <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${bgClass}`}>
         <Icon className={`w-4.5 h-4.5 ${iconColorClass}`} />
       </div>
@@ -403,12 +410,18 @@ function PaymentStatusCell({ po, onOpenSummary }) {
 
 export default function POListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const user = useAuthStore(s => s.user);
 
-  // Search & Filter State
+  // Search & Filter State (Supports ?status=PENDING or ?status=DRAFT from URL)
+  const initialUrlStatus = (searchParams.get('status') || '').toUpperCase();
+  const defaultStatus = (initialUrlStatus === 'DRAFT' || initialUrlStatus === 'PENDING')
+    ? 'PENDING'
+    : (initialUrlStatus && initialUrlStatus !== 'ALL' ? initialUrlStatus : 'ALL');
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState(defaultStatus);
   const [paymentFilter, setPaymentFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('recent');
   const [paymentModalPO, setPaymentModalPO] = useState(null);
@@ -517,7 +530,9 @@ export default function POListPage() {
         (po.items && Array.isArray(po.items) && po.items.some(it => (it.name || it.materialName || '').toLowerCase().includes(term)))
       );
 
-      const matchesStatus = statusFilter === 'ALL' || po.status === statusFilter;
+      const matchesStatus = statusFilter === 'ALL' || 
+        po.status === statusFilter ||
+        ((statusFilter === 'PENDING' || statusFilter === 'DRAFT') && (po.status === 'PENDING' || po.status === 'DRAFT'));
       const matchesPayment = paymentFilter === 'ALL' || po.paymentStatus === paymentFilter;
 
       return matchesSearch && matchesStatus && matchesPayment;
@@ -560,7 +575,7 @@ export default function POListPage() {
 
   const totalAmount = augmentedPos.reduce((s, p) => s + Number(p.totalAmount || 0), 0);
   const totalPaid = augmentedPos.reduce((s, p) => s + Number(p.paidAmount || 0), 0);
-  const pendingCount = augmentedPos.filter(p => p.status === 'PENDING').length;
+  const pendingCount = augmentedPos.filter(p => p.status === 'PENDING' || p.status === 'DRAFT').length;
 
   const isFilterActive = searchTerm !== '' || statusFilter !== 'ALL' || paymentFilter !== 'ALL' || sortBy !== 'recent';
 
@@ -570,7 +585,35 @@ export default function POListPage() {
     setPaymentFilter('ALL');
     setSortBy('recent');
     setCurrentPage(1);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.delete('status');
+      return next;
+    }, { replace: true });
   };
+
+  // Sync statusFilter changes with URL query string
+  useEffect(() => {
+    if (statusFilter && statusFilter !== 'ALL') {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        if (next.get('status') !== statusFilter) {
+          next.set('status', statusFilter);
+          return next;
+        }
+        return prev;
+      }, { replace: true });
+    } else {
+      setSearchParams(prev => {
+        if (prev.has('status')) {
+          const next = new URLSearchParams(prev);
+          next.delete('status');
+          return next;
+        }
+        return prev;
+      }, { replace: true });
+    }
+  }, [statusFilter, setSearchParams]);
 
   // Header quick sort toggles
   const handleToggleSortDate = () => {
@@ -644,6 +687,11 @@ export default function POListPage() {
           bgClass="bg-indigo-50/80 dark:bg-indigo-950/30" 
           iconColorClass="text-indigo-600 dark:text-indigo-400" 
           isLoading={isLoading}
+          onClick={() => {
+            setStatusFilter('ALL');
+            setPaymentFilter('ALL');
+            setCurrentPage(1);
+          }}
         />
         <StatCard 
           icon={Clock} 
@@ -653,6 +701,10 @@ export default function POListPage() {
           bgClass="bg-amber-50/80 dark:bg-amber-950/30" 
           iconColorClass="text-amber-600 dark:text-amber-400" 
           isLoading={isLoading}
+          onClick={() => {
+            setStatusFilter(prev => (prev === 'PENDING' || prev === 'DRAFT') ? 'ALL' : 'PENDING');
+            setCurrentPage(1);
+          }}
         />
         <StatCard 
           icon={CheckCircle2} 
@@ -662,6 +714,10 @@ export default function POListPage() {
           bgClass="bg-emerald-50/80 dark:bg-emerald-950/30" 
           iconColorClass="text-emerald-600 dark:text-emerald-400" 
           isLoading={isLoading}
+          onClick={() => {
+            setPaymentFilter(prev => prev === 'PAID' ? 'ALL' : 'PAID');
+            setCurrentPage(1);
+          }}
         />
         <StatCard 
           icon={TrendingUp} 
@@ -671,6 +727,7 @@ export default function POListPage() {
           bgClass="bg-purple-50/80 dark:bg-purple-950/30" 
           iconColorClass="text-purple-600 dark:text-purple-400" 
           isLoading={isLoading}
+          onClick={handleResetFilters}
         />
       </div>
 
