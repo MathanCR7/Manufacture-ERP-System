@@ -153,6 +153,25 @@ class ProductionTemplateController {
         return res.status(404).json({ error: 'Production template not found' });
       }
 
+      // Enrich raw materials with alternate UOM metadata
+      const rmIds = template.lines.filter(l => !l.isOverhead).map(l => l.rawMaterialId);
+      const rms = await prisma.rawMaterial.findMany({
+        where: { id: { in: rmIds } },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          hasAlternateUom: true,
+          alternateUom: true,
+          baseUomQty: true,
+          alternateUomQty: true,
+          conversionFactor: true,
+          consumptionUnit: true,
+          unitId: true
+        }
+      });
+      const rmMap = new Map(rms.map(r => [r.id, r]));
+
       res.json({
         ...template,
         outputQty: Number(template.outputQty),
@@ -163,12 +182,20 @@ class ProductionTemplateController {
         overheadAmt: Number(template.overheadAmt),
         grandTotal: Number(template.grandTotal),
         costPerUnit: Number(template.costPerUnit),
-        lines: template.lines.map(l => ({
-          ...l,
-          quantity: Number(l.quantity),
-          rate: Number(l.rate),
-          total: Number(l.total)
-        }))
+        lines: template.lines.map(l => {
+          const rm = rmMap.get(l.rawMaterialId) || {};
+          return {
+            ...l,
+            quantity: Number(l.quantity),
+            rate: Number(l.rate),
+            total: Number(l.total),
+            hasAlternateUom: Boolean(rm.hasAlternateUom),
+            alternateUom: rm.alternateUom || null,
+            baseUomQty: Number(rm.baseUomQty || 1),
+            alternateUomQty: Number(rm.alternateUomQty || 1),
+            conversionFactor: Number(rm.conversionFactor || 1)
+          };
+        })
       });
     } catch (err) {
       next(err);

@@ -70,7 +70,12 @@ export default function ProductionTemplateFormPage() {
         category: rm.category?.name || 'Raw Material',
         defaultUom: rm.consumptionUnit || rm.unitId || 'Kg',
         defaultRate: Number(rm.ratePerUnit || 0),
-        isOverhead: false
+        isOverhead: false,
+        hasAlternateUom: Boolean(rm.hasAlternateUom),
+        alternateUom: rm.alternateUom || null,
+        baseUomQty: Number(rm.baseUomQty || 1),
+        alternateUomQty: Number(rm.alternateUomQty || 1),
+        conversionFactor: Number(rm.conversionFactor || 1)
       });
     });
 

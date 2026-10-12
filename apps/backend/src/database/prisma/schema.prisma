@@ -1041,6 +1041,7 @@ model FinishedProduct {
   updatedAt             DateTime                    @updatedAt @map("updated_at")
 
   // Dynamic Specification & Classification
+  baseId                String?                     @map("base_id")
   subcategoryId         String?                     @map("subcategory_id")
   sku                   String?                     @unique
   barcode               String?                     @unique
@@ -1086,6 +1087,7 @@ model FinishedProduct {
   campaigns           SalesCampaign[]
   returnItems         SalesReturnItem[]
   learnedRecipe       ProductLearnedRecipe?
+  base                BaseMaster?                 @relation(fields: [baseId], references: [id])
 
   @@map("products")
 }
@@ -2310,6 +2312,7 @@ model BaseMaster {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
 
   templates   ProductionTemplate[]
+  products    FinishedProduct[]
 
   @@map("base_master")
 }

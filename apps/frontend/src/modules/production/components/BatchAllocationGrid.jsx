@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { api } from '@/lib/axios';
 import { 
   Tag, Boxes, RefreshCw, Plus, Minus, Trash2, Check, AlertTriangle, 
-  HelpCircle, Calendar, ShieldCheck, Database, X, ArrowRight, Layers
+  HelpCircle, Calendar, ShieldCheck, Database, X, ArrowRight, Layers, ArrowLeftRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -90,7 +90,7 @@ export default function BatchAllocationGrid({
             poTotAmt = Number(rateRes.data.poTotalAmount || poTotAmt);
           }
         } catch (e) {
-          // Fallback
+          // Fallback to lot rates
         }
 
         // Exact proportional division: (allocated / original) * total
@@ -130,13 +130,49 @@ export default function BatchAllocationGrid({
     setLotModalOpen(false);
   };
 
-  // Handle manual required quantity change
-  const handleQtyChange = (index, value) => {
+  // Helper: Convert between Base UOM and Alternate UOM
+  // Formula: baseQty * (alternateUomQty / baseUomQty) = altQty
+  const calculateAltQty = (baseQty, row) => {
+    const factor = Number(row.conversionFactor || 1);
+    const baseRatio = Number(row.baseUomQty || 1);
+    const altRatio = Number(row.alternateUomQty || (factor > 0 ? factor : 1));
+    if (baseRatio <= 0) return baseQty;
+    return Number((Number(baseQty || 0) * (altRatio / baseRatio)).toFixed(3));
+  };
+
+  const calculateBaseQtyFromAlt = (altQty, row) => {
+    const factor = Number(row.conversionFactor || 1);
+    const baseRatio = Number(row.baseUomQty || 1);
+    const altRatio = Number(row.alternateUomQty || (factor > 0 ? factor : 1));
+    if (altRatio <= 0) return altQty;
+    return Number((Number(altQty || 0) * (baseRatio / altRatio)).toFixed(4));
+  };
+
+  // Toggle active entry UOM between Base UOM and Alternate UOM
+  const handleToggleUom = (index) => {
     const updated = [...rawMaterials];
     const row = { ...updated[index] };
-    const qty = Number(value || 0);
-    row.requiredQty = qty;
-    row.totalCost = Number((qty * Number(row.unitRate || 0)).toFixed(2));
+    if (!row.hasAlternateUom || !row.alternateUom) return;
+
+    const currentMode = row.activeEntryMode || 'BASE';
+    row.activeEntryMode = currentMode === 'BASE' ? 'ALT' : 'BASE';
+    updated[index] = row;
+    onUpdateRawMaterials(updated);
+  };
+
+  // Handle quantity change (supports typing in either Base or Alternate UOM)
+  const handleQtyChange = (index, value, mode = 'BASE') => {
+    const updated = [...rawMaterials];
+    const row = { ...updated[index] };
+    const num = Number(value || 0);
+
+    let baseQty = num;
+    if (mode === 'ALT') {
+      baseQty = calculateBaseQtyFromAlt(num, row);
+    }
+
+    row.requiredQty = baseQty;
+    row.totalCost = Number((baseQty * Number(row.unitRate || 0)).toFixed(2));
     updated[index] = row;
     onUpdateRawMaterials(updated);
   };
@@ -164,15 +200,20 @@ export default function BatchAllocationGrid({
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-4">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs space-y-4">
       
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <Tag className="w-4 h-4 text-indigo-500" />
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">
-            Step D & E: Raw Material Allocation & Live PO Costing
-          </h2>
+          <div>
+            <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">
+              Step D & E: Raw Material Allocation, Alternate UOM & Live PO Costing
+            </h2>
+            <p className="text-[11px] text-slate-400">
+              Formulation scaled automatically with live FEFO lot allocations & alternate unit conversions.
+            </p>
+          </div>
         </div>
 
         <Button
@@ -181,26 +222,26 @@ export default function BatchAllocationGrid({
           size="sm"
           disabled={disabled || refreshingPrices}
           onClick={onRefreshPrices}
-          className="rounded-xl border-slate-200 dark:border-slate-800 h-8 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50"
+          className="rounded-xl border-slate-200 dark:border-slate-800 h-8 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshingPrices ? 'animate-spin' : ''}`} />
           Refresh Live PO Rates
         </Button>
       </div>
 
-      {/* Grid */}
-      <div className="overflow-x-auto">
+      {/* Grid Table */}
+      <div className="overflow-x-auto rounded-2xl border border-slate-100 dark:border-slate-800">
         <table className="w-full text-left border-collapse text-xs">
           <thead>
             <tr className="bg-slate-50/75 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              <th className="py-2.5 px-3 w-12 text-center">#</th>
-              <th className="py-2.5 px-3 min-w-[200px]">Key Raw Material / Cost Head</th>
-              <th className="py-2.5 px-3 w-28 text-center">Required Qty</th>
-              <th className="py-2.5 px-3 w-20 text-center">UOM</th>
-              <th className="py-2.5 px-3 min-w-[220px]">Stock Batch / Lot Allocation</th>
-              <th className="py-2.5 px-3 w-32 text-right">PO Rate (₹)</th>
-              <th className="py-2.5 px-3 w-32 text-right">Line Total (₹)</th>
-              <th className="py-2.5 px-3 w-16 text-center">Del</th>
+              <th className="py-3 px-3 w-10 text-center">#</th>
+              <th className="py-3 px-3 min-w-[200px]">Key Raw Material / Cost Head</th>
+              <th className="py-3 px-3 w-44 text-center">Required Quantity</th>
+              <th className="py-3 px-3 w-28 text-center">UOM & Alternate</th>
+              <th className="py-3 px-3 min-w-[220px]">Stock Batch / Lot Allocation</th>
+              <th className="py-3 px-3 w-28 text-right">PO Rate (₹)</th>
+              <th className="py-3 px-3 w-32 text-right">Line Total (₹)</th>
+              <th className="py-3 px-3 w-12 text-center">Del</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -208,6 +249,10 @@ export default function BatchAllocationGrid({
               const allocatedList = Array.isArray(row.allocatedBatches) ? row.allocatedBatches : [];
               const totalAllocated = allocatedList.reduce((s, b) => s + Number(b.allocatedQty || 0), 0);
               const isFulfilled = totalAllocated >= Number(row.requiredQty || 0) && totalAllocated > 0;
+
+              const hasAlt = Boolean(row.hasAlternateUom && row.alternateUom);
+              const isAltMode = row.activeEntryMode === 'ALT';
+              const altQtyValue = calculateAltQty(row.requiredQty, row);
 
               return (
                 <tr key={row.rmId || index} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
@@ -227,22 +272,73 @@ export default function BatchAllocationGrid({
                     </span>
                   </td>
 
-                  {/* Required Quantity */}
+                  {/* Required Quantity (Supports editing in Base or Alternate UOM) */}
                   <td className="py-2.5 px-3 text-center">
-                    <Input
-                      type="number"
-                      step="any"
-                      min="0"
-                      disabled={disabled}
-                      value={row.requiredQty}
-                      onChange={(e) => handleQtyChange(index, e.target.value)}
-                      className="h-8 text-center font-mono font-bold text-xs rounded-lg"
-                    />
+                    <div className="space-y-1">
+                      {isAltMode ? (
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            disabled={disabled}
+                            value={altQtyValue}
+                            onChange={(e) => handleQtyChange(index, e.target.value, 'ALT')}
+                            className="h-8 text-center font-mono font-bold text-xs rounded-lg border-indigo-300 dark:border-indigo-800 bg-indigo-50/30 dark:bg-indigo-950/20 text-indigo-700 dark:text-indigo-300"
+                          />
+                          <span className="text-[9px] font-mono text-slate-400 block pt-0.5">
+                            ≈ {Number(row.requiredQty).toFixed(2)} {row.selectedUom} (Base)
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="relative">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            disabled={disabled}
+                            value={row.requiredQty}
+                            onChange={(e) => handleQtyChange(index, e.target.value, 'BASE')}
+                            className="h-8 text-center font-mono font-bold text-xs rounded-lg text-slate-900 dark:text-white"
+                          />
+                          {hasAlt && (
+                            <span className="text-[9px] font-mono text-indigo-600 dark:text-indigo-400 block pt-0.5">
+                              ≈ {altQtyValue} {row.alternateUom} (Alt)
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
 
-                  {/* UOM */}
-                  <td className="py-2.5 px-3 text-center font-mono font-bold text-slate-600 dark:text-slate-300">
-                    {row.selectedUom}
+                  {/* UOM & Alternate UOM Switcher */}
+                  <td className="py-2.5 px-3 text-center">
+                    {hasAlt ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => handleToggleUom(index)}
+                          className={`px-2 py-0.5 rounded-lg border text-[10px] font-mono font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                            isAltMode
+                              ? 'bg-indigo-100 dark:bg-indigo-950 border-indigo-300 text-indigo-700 dark:text-indigo-300'
+                              : 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300'
+                          }`}
+                          title={`Click to switch entry between ${row.selectedUom} and ${row.alternateUom}`}
+                        >
+                          <ArrowLeftRight className="w-2.5 h-2.5 text-indigo-500" />
+                          <span>{isAltMode ? row.alternateUom : row.selectedUom}</span>
+                        </button>
+                        
+                        <span className="text-[9px] font-mono text-slate-400">
+                          Alt: {row.alternateUom}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="font-mono font-bold text-slate-600 dark:text-slate-300">
+                        {row.selectedUom}
+                      </span>
+                    )}
                   </td>
 
                   {/* Batch Allocation */}
@@ -348,124 +444,101 @@ export default function BatchAllocationGrid({
 
             <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
               {loadingLots ? (
-                <div className="py-8 text-center text-slate-400">
-                  <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
-                  Loading available lots from warehouse...
+                <div className="p-8 text-center text-xs font-bold text-slate-400">
+                  <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-500" />
+                  Checking active inventory batches in warehouse...
                 </div>
               ) : availableLots.length === 0 ? (
-                <div className="p-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-xs text-slate-400">
-                  No specific warehouse lots found for this item. General warehouse stock will be consumed.
+                <div className="p-6 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-2">
+                  <AlertTriangle className="w-6 h-6 text-amber-500 mx-auto" />
+                  <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    No active inventory lots found for this raw material.
+                  </p>
+                  <p className="text-[11px] text-slate-400">
+                    Material will be drawn from general warehouse stock using standard PO rate.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {availableLots.map((lot, lIdx) => {
-                    const avail = Number(lot.netQty || lot.availableQty || 0);
-                    const alloc = Number(lotAllocations[lot.id] || 0);
-                    const isEarliest = lIdx === 0;
+                  <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between">
+                    <span>Available Lots (Sorted by FEFO Expiry):</span>
+                    <span>Required: {rawMaterials[activeItemIndex]?.requiredQty} {rawMaterials[activeItemIndex]?.selectedUom}</span>
+                  </div>
 
-                    return (
-                      <div 
-                        key={lot.id}
-                        className={`p-3.5 rounded-2xl border transition-all ${
-                          alloc > 0 
-                            ? 'border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/40 ring-1 ring-indigo-400' 
-                            : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="space-y-1">
+                  <div className="space-y-2">
+                    {availableLots.map((lot) => {
+                      const avail = Number(lot.availableQty || lot.netQty || 0);
+                      const currentAlloc = lotAllocations[lot.id] || '';
+
+                      return (
+                        <div 
+                          key={lot.id}
+                          className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 flex items-center justify-between gap-3"
+                        >
+                          <div className="space-y-1 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="font-mono font-black text-xs text-slate-900 dark:text-white">
+                              <span className="font-mono font-black text-xs text-indigo-600 dark:text-indigo-400">
                                 {lot.internalBatchNo}
                               </span>
-                              {isEarliest && (
-                                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  🥇 Earliest Expiry (FEFO)
+                              {lot.supplierBatchNo && (
+                                <span className="font-mono text-[9px] text-slate-400">
+                                  (Supp: {lot.supplierBatchNo})
                                 </span>
                               )}
                             </div>
 
-                            <div className="flex items-center gap-2 text-[10px] text-slate-500 font-mono">
-                              <span>In Stock: <strong className="text-slate-800 dark:text-slate-200">{avail} {rawMaterials[activeItemIndex]?.selectedUom}</strong></span>
+                            <div className="flex items-center gap-3 text-[10px] text-slate-500 font-mono flex-wrap">
+                              <span>Available: <strong>{avail} {rawMaterials[activeItemIndex]?.selectedUom}</strong></span>
                               <span>•</span>
-                              <span>Exp: {lot.expiryDate ? new Date(lot.expiryDate).toLocaleDateString('en-GB') : 'No Expiry'}</span>
-                              {lot.supplierBatchNo && (
-                                <>
-                                  <span>•</span>
-                                  <span>Sup Batch: {lot.supplierBatchNo}</span>
-                                </>
-                              )}
+                              <span>PO: <strong>{lot.poReferenceNo || 'PO-GRN'}</strong></span>
+                              <span>•</span>
+                              <span>Expiry: <strong>{lot.expiryDate ? new Date(lot.expiryDate).toLocaleDateString() : 'N/A'}</strong></span>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            <div className="inline-flex items-center border border-slate-300 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-900 p-0.5 shadow-2xs">
-                              <button
-                                type="button"
-                                onClick={() => handleSetLotQty(lot.id, Math.max(0, alloc - 1), avail)}
-                                disabled={alloc <= 0}
-                                className="w-6 h-6 flex items-center justify-center rounded-lg bg-slate-50 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-30 cursor-pointer"
-                              >
-                                <Minus className="w-3 h-3" />
-                              </button>
-                              <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                max={avail}
-                                value={alloc || ''}
-                                onChange={(e) => handleSetLotQty(lot.id, e.target.value, avail)}
-                                placeholder="0"
-                                className="w-14 h-6 p-0 text-center font-bold text-xs bg-transparent border-0 focus-visible:ring-0 font-mono text-indigo-700 dark:text-indigo-300"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleSetLotQty(lot.id, Math.min(avail, alloc + 1), avail)}
-                                disabled={alloc >= avail}
-                                className="w-6 h-6 flex items-center justify-center rounded-lg bg-slate-50 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-30 cursor-pointer"
-                              >
-                                <Plus className="w-3 h-3" />
-                              </button>
-                            </div>
-
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleSetLotQty(lot.id, avail, avail)}
-                              className="h-7 px-2 text-[10px] font-bold rounded-lg border-indigo-200 text-indigo-600"
-                            >
-                              Max
-                            </Button>
+                          <div className="w-28">
+                            <label className="text-[9px] font-bold text-slate-400 block">Allocate Qty</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              max={avail}
+                              step="any"
+                              value={currentAlloc}
+                              onChange={(e) => handleSetLotQty(lot.id, e.target.value, avail)}
+                              placeholder={`0 / ${avail}`}
+                              className="h-8 text-center font-mono font-bold text-xs rounded-xl"
+                            />
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="px-6 py-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <span className="text-xs font-bold text-indigo-600">
-                Required: {rawMaterials[activeItemIndex]?.requiredQty} {rawMaterials[activeItemIndex]?.selectedUom}
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
+                Total Allocated: {Object.values(lotAllocations).reduce((s, v) => s + Number(v || 0), 0)} {rawMaterials[activeItemIndex]?.selectedUom}
               </span>
 
               <div className="flex items-center gap-2">
                 <Button 
                   type="button" 
                   variant="outline" 
+                  size="sm" 
                   onClick={() => setLotModalOpen(false)}
                   className="rounded-xl"
                 >
                   Cancel
                 </Button>
                 <Button 
-                  type="button"
+                  type="button" 
+                  size="sm" 
                   onClick={handleSaveAllocations}
                   className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
                 >
-                  Confirm Allocations
+                  Confirm Lot Allocations
                 </Button>
               </div>
             </div>

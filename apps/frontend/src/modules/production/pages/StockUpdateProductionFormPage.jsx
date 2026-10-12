@@ -121,7 +121,12 @@ export default function StockUpdateProductionFormPage() {
           rateSource: l.rateSource || 'PO_LATEST',
           isOverhead: l.isOverhead,
           totalCost: Number((scaledQty * rate).toFixed(2)),
-          allocatedBatches: []
+          allocatedBatches: [],
+          hasAlternateUom: Boolean(l.hasAlternateUom),
+          alternateUom: l.alternateUom || null,
+          baseUomQty: Number(l.baseUomQty || 1),
+          alternateUomQty: Number(l.alternateUomQty || 1),
+          conversionFactor: Number(l.conversionFactor || 1)
         };
       });
 
@@ -392,6 +397,8 @@ export default function StockUpdateProductionFormPage() {
           onChangeSubcategory={setSelectedSubcategoryId}
           selectedProducts={selectedProducts}
           onUpdateProducts={setSelectedProducts}
+          selectedBaseId={selectedBaseId}
+          selectedBaseName={selectedBaseName}
         />
       )}
 

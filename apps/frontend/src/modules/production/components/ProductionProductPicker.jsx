@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
-import { Package, Plus, Trash2, Tag, Layers, Check } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Package, Plus, Trash2, Tag, Layers, Check, Database, Search, Filter, Sparkles } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import ProductionSearchSelect from './ProductionSearchSelect';
 
 export default function ProductionProductPicker({
   categories = [],
@@ -13,17 +14,44 @@ export default function ProductionProductPicker({
   onChangeSubcategory,
   selectedProducts = [],
   onUpdateProducts,
+  selectedBaseId = '',
+  selectedBaseName = '',
   disabled = false
 }) {
+  // Filter mode: 'BASE_ONLY' or 'ALL_PRODUCTS'
+  const [filterMode, setFilterMode] = useState('BASE_ONLY');
+  const [productSearchTerm, setProductSearchTerm] = useState('');
+
   // Cascading filter for subcategories
   const filteredSubcategories = useMemo(() => {
     if (!selectedCategoryId) return subcategories;
     return subcategories.filter(s => s.categoryId === selectedCategoryId);
   }, [subcategories, selectedCategoryId]);
 
-  // Cascading filter for products
-  const filteredProducts = useMemo(() => {
-    let list = products;
+  // Products filtered by Category, Subcategory, and Base
+  const baseFilteredProducts = useMemo(() => {
+    return products.filter(p => {
+      // Check base assignment
+      const pBaseId = p.baseId || p.specifications?.baseId;
+      const pBaseName = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
+      const currentBaseName = (selectedBaseName || '').toUpperCase();
+
+      const matchesBase = 
+        (selectedBaseId && pBaseId === selectedBaseId) ||
+        (currentBaseName && pBaseName.includes(currentBaseName)) ||
+        // Fallbacks for known seed bases
+        (currentBaseName.includes('KULFI') && (p.specifications?.group?.toLowerCase().includes('kulfi') || p.code?.startsWith('K'))) ||
+        (currentBaseName.includes('FD') && (p.specifications?.group?.toLowerCase().includes('fd') || p.code?.startsWith('BFD'))) ||
+        (currentBaseName.includes('ICE CREAM') && (p.specifications?.group?.toLowerCase().includes('gallon') || p.code?.startsWith('BG') || p.specifications?.group?.toLowerCase().includes('popsicle')));
+
+      return matchesBase;
+    });
+  }, [products, selectedBaseId, selectedBaseName]);
+
+  // Active pool of products (either Base-specific or All)
+  const activeProductsPool = useMemo(() => {
+    let list = filterMode === 'BASE_ONLY' && selectedBaseId ? baseFilteredProducts : products;
+
     if (selectedCategoryId) {
       list = list.filter(p => p.categoryId === selectedCategoryId);
     }
@@ -31,7 +59,54 @@ export default function ProductionProductPicker({
       list = list.filter(p => p.subcategoryId === selectedSubcategoryId);
     }
     return list;
-  }, [products, selectedCategoryId, selectedSubcategoryId]);
+  }, [filterMode, selectedBaseId, baseFilteredProducts, products, selectedCategoryId, selectedSubcategoryId]);
+
+  // Options for Category SearchSelect
+  const categoryOptions = useMemo(() => {
+    return [
+      { value: '', label: 'All Categories (e.g. Classic Cream Gallon)...' },
+      ...categories.map(c => ({
+        value: c.id,
+        label: c.name,
+        subLabel: c.code || null
+      }))
+    ];
+  }, [categories]);
+
+  // Options for Subcategory SearchSelect
+  const subcategoryOptions = useMemo(() => {
+    return [
+      { value: '', label: 'All Sub Categories...' },
+      ...filteredSubcategories.map(s => ({
+        value: s.id,
+        label: s.name,
+        subLabel: s.code || null
+      }))
+    ];
+  }, [filteredSubcategories]);
+
+  // Options for Product SearchSelect
+  const productOptions = useMemo(() => {
+    return activeProductsPool.map(p => {
+      const series = p.specifications?.series || p.brand || 'BG';
+      const group = p.specifications?.group || p.category?.name || 'Gallon';
+      const baseName = p.base?.name || p.specifications?.baseName || (
+        p.code?.startsWith('K') ? 'KULFI BASE' : 
+        p.code?.startsWith('BFD') ? 'FD BASE' : 'ICE CREAM BASE'
+      );
+      const isAlreadyAdded = selectedProducts.some(sp => sp.productId === p.id);
+
+      return {
+        value: p.id,
+        label: p.name,
+        subLabel: p.code,
+        badge: baseName,
+        extra: `Series: ${series} • Group: ${group} • ${p.specifications?.sizeML || ''} ${isAlreadyAdded ? '✓ Added' : ''}`,
+        disabled: isAlreadyAdded,
+        raw: p
+      };
+    });
+  }, [activeProductsPool, selectedProducts]);
 
   // Handle adding a product to selected list
   const handleAddProduct = (productId) => {
@@ -41,10 +116,10 @@ export default function ProductionProductPicker({
 
     if (selectedProducts.some(p => p.productId === productId)) return;
 
-    // Check specs or fallback attributes
     const series = prod.specifications?.series || prod.brand || 'BG';
-    const group = prod.specifications?.groupName || prod.category?.name || 'Gallon';
+    const group = prod.specifications?.group || prod.category?.name || 'Gallon';
     const factor = Number(prod.specifications?.factor || 1.0);
+    const baseName = prod.base?.name || prod.specifications?.baseName || selectedBaseName || 'ICE CREAM BASE';
 
     onUpdateProducts([
       ...selectedProducts,
@@ -55,6 +130,7 @@ export default function ProductionProductPicker({
         series,
         group,
         factor,
+        baseName,
         plannedQty: 100,
         unit: prod.unit?.abbreviation || 'Nos'
       }
@@ -74,96 +150,165 @@ export default function ProductionProductPicker({
   };
 
   return (
-    <div className="space-y-4 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs">
-      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-        <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-          <Package className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Step C: Select Category, Sub Category & Finished Products</span>
-          <span className="text-rose-500">*</span>
-        </label>
-        <span className="text-[11px] text-slate-400 font-semibold">
-          Multi-product batch allocation enabled
-        </span>
+    <div className="space-y-4 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs">
+      
+      {/* Step Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 gap-2">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+            <Package className="w-4 h-4" />
+          </div>
+          <div>
+            <label className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
+              <span>Step C: Select Category, Sub Category & Finished Products</span>
+              <span className="text-rose-500">*</span>
+            </label>
+            <p className="text-[11px] text-slate-400">
+              Pick products formulated under <strong className="text-indigo-600 dark:text-indigo-400 font-black">{selectedBaseName || 'Selected Base'}</strong>
+            </p>
+          </div>
+        </div>
+
+        {/* Base Filter Toggle */}
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => setFilterMode('BASE_ONLY')}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              filterMode === 'BASE_ONLY'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <Database className="w-3 h-3 text-indigo-500" />
+            <span>{selectedBaseName || 'Base'} Products ({baseFilteredProducts.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilterMode('ALL_PRODUCTS')}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+              filterMode === 'ALL_PRODUCTS'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            <span>All Products ({products.length})</span>
+          </button>
+        </div>
       </div>
 
+      {/* 3 Searchable Dropdowns (Category, Subcategory, Products) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Category */}
+        
+        {/* Category Searchable Dropdown */}
         <div className="space-y-1">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Category</Label>
-          <select
+          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+            1. Category
+          </Label>
+          <ProductionSearchSelect
+            options={categoryOptions}
             value={selectedCategoryId}
-            disabled={disabled}
-            onChange={(e) => {
-              onChangeCategory(e.target.value);
+            onChange={(val) => {
+              onChangeCategory(val);
               onChangeSubcategory('');
             }}
-            className="w-full h-10 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">All Categories (e.g. Classic Cream Gallon)...</option>
-            {categories.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+            placeholder="Search & Select Category..."
+            searchPlaceholder="Type to search categories..."
+            disabled={disabled}
+            emptyMessage="No matching categories."
+          />
         </div>
 
-        {/* Sub Category */}
+        {/* Sub Category Searchable Dropdown */}
         <div className="space-y-1">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Sub Category</Label>
-          <select
+          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+            2. Sub Category
+          </Label>
+          <ProductionSearchSelect
+            options={subcategoryOptions}
             value={selectedSubcategoryId}
+            onChange={(val) => onChangeSubcategory(val)}
+            placeholder="Search & Select Sub Category..."
+            searchPlaceholder="Type to search subcategories..."
             disabled={disabled}
-            onChange={(e) => onChangeSubcategory(e.target.value)}
-            className="w-full h-10 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="">All Sub Categories...</option>
-            {filteredSubcategories.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
+            emptyMessage="No matching subcategories."
+          />
         </div>
 
-        {/* Product Dropdown Selector to add */}
+        {/* Product Searchable Dropdown */}
         <div className="space-y-1">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Add Product / Item</Label>
-          <select
+          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+            <span>3. Add Finished Product</span>
+            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
+              {activeProductsPool.length} available
+            </span>
+          </Label>
+          <ProductionSearchSelect
+            options={productOptions}
+            value=""
+            onChange={(prodId) => handleAddProduct(prodId)}
+            placeholder="+ Search & Add Product (e.g. Vanilla)..."
+            searchPlaceholder="Type product name, code (e.g. BG101), series..."
             disabled={disabled}
-            onChange={(e) => {
-              handleAddProduct(e.target.value);
-              e.target.value = '';
-            }}
-            className="w-full h-10 px-3 bg-indigo-50/50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="">+ Add Product to Batch (e.g. Vanilla)...</option>
-            {filteredProducts.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.code})
-              </option>
-            ))}
-          </select>
+            emptyMessage="No products match your search or filter."
+            renderOption={(opt, isSelected) => (
+              <div className="flex-1 truncate">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-extrabold text-slate-900 dark:text-white">
+                    {opt.label}
+                  </span>
+                  <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                    {opt.subLabel}
+                  </span>
+                  {opt.badge && (
+                    <span className="font-mono text-[9px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-extrabold">
+                      {opt.badge}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                  {opt.extra}
+                </p>
+              </div>
+            )}
+          />
         </div>
       </div>
 
       {/* Selected Products List */}
       {selectedProducts.length > 0 ? (
-        <div className="space-y-2 pt-2">
-          <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-            Target Products in this Batch:
-          </span>
+        <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+              Finished Products to be Produced in this Batch ({selectedProducts.length}):
+            </span>
+            <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+              Total Planned Output: <strong className="text-indigo-600 dark:text-indigo-400">
+                {selectedProducts.reduce((sum, p) => sum + Number(p.plannedQty || 0), 0)} Nos
+              </strong>
+            </span>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {selectedProducts.map((p) => (
               <div 
                 key={p.productId}
-                className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 flex items-center justify-between gap-3 shadow-2xs"
+                className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 flex items-center justify-between gap-3 shadow-2xs hover:border-indigo-200 transition-colors"
               >
-                <div className="space-y-1 flex-1">
+                <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-extrabold text-sm text-slate-900 dark:text-white">
+                    <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
                       {p.name}
                     </span>
                     <span className="font-mono text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
                       {p.code}
                     </span>
+                    {p.baseName && (
+                      <span className="font-mono text-[9px] font-black px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                        {p.baseName}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 text-[10px] text-slate-500 dark:text-slate-400 font-mono flex-wrap">
@@ -175,7 +320,7 @@ export default function ProductionProductPicker({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <div className="w-24">
                     <Label className="text-[9px] font-bold text-slate-400 block">Planned Qty</Label>
                     <Input
@@ -203,8 +348,9 @@ export default function ProductionProductPicker({
           </div>
         </div>
       ) : (
-        <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400">
-          No products selected yet. Pick a product from the dropdown above to allocate production.
+        <div className="p-5 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400 bg-slate-50/40 dark:bg-slate-900/40 space-y-1">
+          <p className="font-bold text-slate-600 dark:text-slate-300">No products added yet.</p>
+          <p className="text-[11px]">Use the search bar dropdown above to select products to produce in this batch.</p>
         </div>
       )}
     </div>

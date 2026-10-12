@@ -1464,6 +1464,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
       where: includeDeleted ? undefined : { deletedAt: null },
       include: {
         category: true,
+        base: true,
         subcategory: {
           include: {
             specTemplate: {
