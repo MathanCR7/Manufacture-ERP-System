@@ -153,24 +153,56 @@ class ProductionTemplateController {
         return res.status(404).json({ error: 'Production template not found' });
       }
 
-      // Enrich raw materials with alternate UOM metadata
-      const rmIds = template.lines.filter(l => !l.isOverhead).map(l => l.rawMaterialId);
-      const rms = await prisma.rawMaterial.findMany({
-        where: { id: { in: rmIds } },
-        select: {
-          id: true,
-          code: true,
-          name: true,
-          hasAlternateUom: true,
-          alternateUom: true,
-          baseUomQty: true,
-          alternateUomQty: true,
-          conversionFactor: true,
-          consumptionUnit: true,
-          unitId: true
+      // Enrich raw materials with alternate UOM metadata from RawMaterial master
+      const [allRms, allUoms] = await Promise.all([
+        prisma.rawMaterial.findMany({
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            hasAlternateUom: true,
+            alternateUom: true,
+            baseUomQty: true,
+            alternateUomQty: true,
+            conversionFactor: true,
+            consumptionUnit: true,
+            unitId: true,
+            ratePerUnit: true
+          }
+        }),
+        prisma.uOM.findMany({
+          select: {
+            id: true,
+            name: true,
+            abbreviation: true
+          }
+        })
+      ]);
+
+      const uomMap = new Map();
+      for (const u of allUoms) {
+        uomMap.set(u.id, u.abbreviation || u.name);
+      }
+
+      const resolveUomLabel = (val, fallback = 'Kg') => {
+        if (!val) return fallback;
+        if (uomMap.has(val)) return uomMap.get(val);
+        // If it looks like a UUID (36 chars with hyphens), fallback
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) {
+          return fallback;
         }
-      });
-      const rmMap = new Map(rms.map(r => [r.id, r]));
+        return val;
+      };
+
+      const rmById = new Map();
+      const rmByCode = new Map();
+      const rmByName = new Map();
+
+      for (const r of allRms) {
+        rmById.set(r.id, r);
+        if (r.code) rmByCode.set(r.code.toUpperCase(), r);
+        if (r.name) rmByName.set(r.name.trim().toLowerCase(), r);
+      }
 
       res.json({
         ...template,
@@ -183,17 +215,33 @@ class ProductionTemplateController {
         grandTotal: Number(template.grandTotal),
         costPerUnit: Number(template.costPerUnit),
         lines: template.lines.map(l => {
-          const rm = rmMap.get(l.rawMaterialId) || {};
+          let rm = rmById.get(l.rawMaterialId) ||
+                   (l.rawMaterialId ? rmByCode.get(l.rawMaterialId.toUpperCase()) : null) ||
+                   (l.rawMaterialName ? rmByName.get(l.rawMaterialName.trim().toLowerCase()) : null) || {};
+
+          const hasAlt = Boolean(rm.hasAlternateUom);
+          const rawBase = rm.unitId || rm.consumptionUnit || l.uom || 'Kg';
+          const baseUom = resolveUomLabel(rawBase, l.uom || 'Kg');
+          const altUom = resolveUomLabel(rm.alternateUom, null);
+          const bQty = Number(rm.baseUomQty || 1);
+          const aQty = Number(rm.alternateUomQty || 1);
+          const factor = Number(rm.conversionFactor || (aQty / (bQty || 1)));
+
           return {
             ...l,
+            rawMaterialId: rm.id || l.rawMaterialId,
+            rawMaterialCode: rm.code || 'RM',
+            rawMaterialName: l.rawMaterialName || rm.name,
             quantity: Number(l.quantity),
             rate: Number(l.rate),
             total: Number(l.total),
-            hasAlternateUom: Boolean(rm.hasAlternateUom),
-            alternateUom: rm.alternateUom || null,
-            baseUomQty: Number(rm.baseUomQty || 1),
-            alternateUomQty: Number(rm.alternateUomQty || 1),
-            conversionFactor: Number(rm.conversionFactor || 1)
+            hasAlternateUom: hasAlt,
+            baseUom: baseUom,
+            alternateUom: altUom,
+            baseUomQty: bQty,
+            alternateUomQty: aQty,
+            conversionFactor: factor,
+            catalogRate: Number(rm.ratePerUnit || l.rate)
           };
         })
       });

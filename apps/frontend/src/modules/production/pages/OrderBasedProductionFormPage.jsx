@@ -55,18 +55,22 @@ export default function OrderBasedProductionFormPage() {
 
   // Raw Material Lines
   const [rawMaterials, setRawMaterials] = useState([]);
+  const [rawMaterialMasters, setRawMaterialMasters] = useState([]);
+  const [uomMasters, setUomMasters] = useState([]);
 
   useEffect(() => {
     const init = async () => {
       try {
         setLoading(true);
-        const [bRes, tplRes, ordRes, prodRes, catRes, subRes] = await Promise.all([
+        const [bRes, tplRes, ordRes, prodRes, catRes, subRes, rmRes, uomRes] = await Promise.all([
           api.get('/production/bases'),
           api.get('/production/templates'),
           api.get('/sales/list').catch(() => api.get('/orders')),
           api.get('/products'),
           api.get('/item-setup/product-category').catch(() => ({ data: [] })),
-          api.get('/product-subcategories').catch(() => ({ data: [] }))
+          api.get('/product-subcategories').catch(() => ({ data: [] })),
+          api.get('/item-setup/raw-material').catch(() => ({ data: [] })),
+          api.get('/uom').catch(() => ({ data: [] }))
         ]);
 
         setBases(bRes.data || []);
@@ -75,6 +79,8 @@ export default function OrderBasedProductionFormPage() {
         setProducts(prodRes.data?.data || prodRes.data || []);
         setCategories(catRes.data || []);
         setSubcategories(subRes.data || []);
+        setRawMaterialMasters(rmRes.data || []);
+        setUomMasters(uomRes.data || []);
 
         const activeBases = (bRes.data || []).filter(b => b.status === 'ACTIVE');
         if (activeBases.length > 0) {
@@ -89,6 +95,22 @@ export default function OrderBasedProductionFormPage() {
 
     init();
   }, []);
+
+  // Map of UOM ID to Abbreviation / Name
+  const uomLookup = useMemo(() => {
+    const map = new Map();
+    uomMasters.forEach(u => {
+      if (u.id) map.set(u.id, u.abbreviation || u.name);
+    });
+    return map;
+  }, [uomMasters]);
+
+  const resolveUomString = (val, fallback = 'Kg') => {
+    if (!val) return fallback;
+    if (uomLookup.has(val)) return uomLookup.get(val);
+    if (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) return fallback;
+    return val;
+  };
 
   // When selectedOrderId changes, fetch order items
   useEffect(() => {
@@ -149,22 +171,47 @@ export default function OrderBasedProductionFormPage() {
       const loadedLines = (tpl.lines || []).map(l => {
         const scaledQty = Number((Number(l.quantity) * scalingFactor).toFixed(4));
         const rate = Number(l.rate || 0);
+
+        const rm = rawMaterialMasters.find(r =>
+          r.id === l.rawMaterialId ||
+          (r.code && r.code.toUpperCase() === (l.rawMaterialId || '').toUpperCase()) ||
+          (r.name && r.name.trim().toLowerCase() === (l.rawMaterialName || '').trim().toLowerCase())
+        ) || {};
+
+        const hasAlt = Boolean(rm.hasAlternateUom !== undefined ? rm.hasAlternateUom : l.hasAlternateUom);
+        const rawBase = rm.unitId || rm.consumptionUnit || l.baseUom || l.uom || 'Kg';
+        const baseUom = resolveUomString(rawBase, l.uom || 'Kg');
+        const altUom = resolveUomString(rm.alternateUom || l.alternateUom, null);
+        const bQty = Number(rm.baseUomQty || l.baseUomQty || 1);
+        const aQty = Number(rm.alternateUomQty || l.alternateUomQty || 1);
+        const factor = Number(rm.conversionFactor || l.conversionFactor || (aQty / (bQty || 1)));
+        const altRate = factor > 0 ? Number((rate / factor).toFixed(4)) : rate;
+        const altQty = Number((scaledQty * factor).toFixed(3));
+        const isAlt = Boolean(hasAlt && l.uom && altUom && l.uom.toLowerCase() === altUom.toLowerCase());
+
         return {
-          rmId: l.rawMaterialId,
-          rmName: l.rawMaterialName,
+          rmId: rm.id || l.rawMaterialId,
+          rmCode: rm.code || l.rawMaterialCode || 'RM',
+          rmName: l.rawMaterialName || rm.name,
           baseTemplateQty: Number(l.quantity),
-          requiredQty: scaledQty,
-          selectedUom: l.uom,
-          unitRate: rate,
+          baseRequiredQty: scaledQty,
+          altRequiredQty: altQty,
+          requiredQty: isAlt ? altQty : scaledQty,
+          baseUom: baseUom,
+          selectedUom: isAlt ? altUom : baseUom,
+          activeEntryMode: isAlt ? 'ALT' : 'BASE',
+          unitRate: isAlt ? altRate : rate,
+          baseRate: rate,
+          altRate: altRate,
           rateSource: l.rateSource || 'PO_LATEST',
           isOverhead: l.isOverhead,
           totalCost: Number((scaledQty * rate).toFixed(2)),
           allocatedBatches: [],
-          hasAlternateUom: Boolean(l.hasAlternateUom),
-          alternateUom: l.alternateUom || null,
-          baseUomQty: Number(l.baseUomQty || 1),
-          alternateUomQty: Number(l.alternateUomQty || 1),
-          conversionFactor: Number(l.conversionFactor || 1)
+          hasAlternateUom: hasAlt,
+          alternateUom: altUom,
+          baseUomQty: bQty,
+          alternateUomQty: aQty,
+          conversionFactor: factor
         };
       });
 
@@ -182,13 +229,20 @@ export default function OrderBasedProductionFormPage() {
 
     setRawMaterials(prev => {
       return prev.map(line => {
-        const baseQ = line.baseTemplateQty !== undefined ? line.baseTemplateQty : line.requiredQty;
-        const newQty = Number((baseQ * scalingFactor).toFixed(4));
-        const rate = Number(line.unitRate || 0);
+        const baseQ = line.baseTemplateQty !== undefined ? line.baseTemplateQty : (line.baseRequiredQty || line.requiredQty);
+        const newBaseQty = Number((baseQ * scalingFactor).toFixed(4));
+        const factor = Number(line.conversionFactor || 1);
+        const newAltQty = Number((newBaseQty * factor).toFixed(3));
+        const isAlt = line.activeEntryMode === 'ALT';
+        const rate = isAlt ? Number(line.altRate || 0) : Number(line.baseRate || line.unitRate || 0);
+        const currentQty = isAlt ? newAltQty : newBaseQty;
+
         return {
           ...line,
-          requiredQty: newQty,
-          totalCost: Number((newQty * rate).toFixed(2))
+          baseRequiredQty: newBaseQty,
+          altRequiredQty: newAltQty,
+          requiredQty: currentQty,
+          totalCost: Number((currentQty * rate).toFixed(2))
         };
       });
     });
@@ -202,14 +256,22 @@ export default function OrderBasedProductionFormPage() {
         rawMaterials.map(async (rm) => {
           if (rm.isOverhead) return rm;
           try {
-            const res = await api.get(`/purchase/live-rate?rawMaterialId=${rm.rmId}&targetUom=${rm.selectedUom}`);
+            const res = await api.get(`/purchase/live-rate?rawMaterialId=${rm.rmId}&targetUom=${rm.baseUom || rm.selectedUom}`);
             if (res.data && res.data.rate > 0) {
-              const newRate = Number(res.data.rate);
+              const newBaseRate = Number(res.data.rate);
+              const factor = Number(rm.conversionFactor || 1);
+              const newAltRate = factor > 0 ? Number((newBaseRate / factor).toFixed(4)) : newBaseRate;
+              const isAlt = rm.activeEntryMode === 'ALT';
+              const currentRate = isAlt ? newAltRate : newBaseRate;
+              const currentQty = isAlt ? Number(rm.altRequiredQty || rm.requiredQty || 0) : Number(rm.baseRequiredQty || rm.requiredQty || 0);
+
               return {
                 ...rm,
-                unitRate: newRate,
+                baseRate: newBaseRate,
+                altRate: newAltRate,
+                unitRate: currentRate,
                 rateSource: res.data.source || 'PO_LATEST',
-                totalCost: Number((Number(rm.requiredQty || 0) * newRate).toFixed(2))
+                totalCost: Number((currentQty * currentRate).toFixed(2))
               };
             }
           } catch {

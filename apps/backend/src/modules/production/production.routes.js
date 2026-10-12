@@ -949,10 +949,15 @@ const getBatchesForRawMaterial = async (rmId) => {
         grn: {
           include: {
             items: true,
-            po: true
+            po: {
+              include: { supplier: true }
+            }
           }
         },
-        po: true
+        po: {
+          include: { supplier: true }
+        },
+        uom: true
       },
       orderBy: [
         { expiryDate: 'asc' },
@@ -974,7 +979,12 @@ const getBatchesForRawMaterial = async (rmId) => {
       },
       include: {
         grn: {
-          include: { po: true }
+          include: {
+            po: {
+              include: { supplier: true }
+            },
+            items: true
+          }
         }
       },
       orderBy: [
@@ -986,21 +996,58 @@ const getBatchesForRawMaterial = async (rmId) => {
     const formatted = [];
     const seenBatchNumbers = new Set();
 
+    // Clean Raw Material name for standardized Our Batch auto-generation
+    const rawClean = (rm?.name || rm?.code || 'RM')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 24);
+
     // 1. Batches from InventoryBatch
     for (const b of batches) {
-      const grnItem = b.grn?.items?.find(it => it.rmId === rmId || (rm && (it.rmId === rm.id || it.rmId === rm.code)));
-      const bNum = b.batchNumber;
-      if (!seenBatchNumbers.has(bNum)) {
-        seenBatchNumbers.add(bNum);
+      const grnItem = b.grn?.items?.find(it => 
+        (it.batchNumber && it.batchNumber === b.batchNumber) || 
+        it.rmId === rmId || 
+        (rm && (it.rmId === rm.id || it.rmId === rm.code))
+      );
+
+      const grnRef = b.grn?.referenceNo || 'GRN-DIRECT';
+      const grnSeq = (grnRef.replace(/[^0-9]/g, '') || '001').padStart(3, '0');
+
+      // Auto-generate or preserve descriptive internal Our Batch
+      let ourBatchNo = b.batchNumber;
+      if (!ourBatchNo || ourBatchNo.startsWith('GRN-GRN-') || ourBatchNo.startsWith('wh-')) {
+        ourBatchNo = `BATCH-${rawClean}-${grnSeq}`;
+      }
+
+      if (!seenBatchNumbers.has(ourBatchNo)) {
+        seenBatchNumbers.add(ourBatchNo);
+
+        const supplierMfgBatch = b.mfgBatchNo || grnItem?.mfgBatchNo || b.po?.mfgBatchNo || 'BATCH-01';
+        const batchQty = grnItem?.batchQuantity ? Number(grnItem.batchQuantity) : 1;
+        const weightVal = b.weight || grnItem?.weight || b.po?.weight || '25 kg / 50';
+        const mfgDate = b.mfgDate || grnItem?.mfgDate || b.createdAt;
+        const expiryDate = b.expiryDate || grnItem?.expiryDate || new Date(new Date(mfgDate).getTime() + 180 * 24 * 60 * 60 * 1000);
+        const poRef = b.po?.referenceNo || b.po?.poNumber || b.grn?.po?.referenceNo || b.grn?.po?.poNumber || 'PO-GRN';
+        const suppName = b.po?.supplier?.name || b.grn?.po?.supplier?.name || 'SUP-LOT-DIRECT';
+        const avail = Number(b.netQty || 0);
+
         formatted.push({
           id: b.id,
-          internalBatchNo: b.batchNumber,
-          supplierBatchNo: grnItem?.batchNumber || b.po?.poNumber || `SUP-LOT-${b.batchNumber.slice(-4)}`,
-          mfgDate: b.mfgDate || grnItem?.mfgDate || b.createdAt,
-          expiryDate: b.expiryDate || grnItem?.expiryDate || new Date(new Date(b.mfgDate || b.createdAt).getTime() + 180 * 24 * 60 * 60 * 1000),
-          netQty: Number(b.netQty),
+          internalBatchNo: ourBatchNo,
+          supplierBatchNo: supplierMfgBatch,
+          mfgBatchNo: supplierMfgBatch,
+          batchQty: batchQty,
+          weight: weightVal,
+          mfgDate: mfgDate,
+          expiryDate: expiryDate,
+          netQty: avail,
+          availableQty: avail,
           storageLocation: b.storageLocation || 'Main Godown',
-          grnRef: b.grn?.referenceNo || b.po?.poNumber || '',
+          grnNumber: grnRef,
+          grnRef: grnRef,
+          poNumber: poRef,
+          poReferenceNo: poRef,
+          supplierName: suppName,
           source: 'PURCHASE_GRN'
         });
       }
@@ -1008,18 +1055,43 @@ const getBatchesForRawMaterial = async (rmId) => {
 
     // 2. Batches from GRNReceiveItems if not duplicated
     for (const gi of grnItems) {
-      const bNum = gi.batchNumber || `GRN-${gi.grn?.referenceNo || 'LOT'}-${gi.id.slice(0, 4)}`;
-      if (!seenBatchNumbers.has(bNum)) {
-        seenBatchNumbers.add(bNum);
+      const grnRef = gi.grn?.referenceNo || 'GRN-DIRECT';
+      const grnSeq = (grnRef.replace(/[^0-9]/g, '') || '001').padStart(3, '0');
+
+      let ourBatchNo = gi.batchNumber;
+      if (!ourBatchNo || ourBatchNo.startsWith('GRN-GRN-') || ourBatchNo.startsWith('GRN-')) {
+        ourBatchNo = `BATCH-${rawClean}-${grnSeq}`;
+      }
+
+      if (!seenBatchNumbers.has(ourBatchNo)) {
+        seenBatchNumbers.add(ourBatchNo);
+
+        const supplierMfgBatch = gi.mfgBatchNo || gi.grn?.po?.mfgBatchNo || 'BATCH-01';
+        const batchQty = gi.batchQuantity ? Number(gi.batchQuantity) : 1;
+        const weightVal = gi.weight || '25 kg / 50';
+        const mfgDate = gi.mfgDate || gi.createdAt || new Date();
+        const expiryDate = gi.expiryDate || new Date(new Date(mfgDate).getTime() + 180 * 24 * 60 * 60 * 1000);
+        const poRef = gi.grn?.po?.referenceNo || gi.grn?.po?.poNumber || 'PO-GRN';
+        const suppName = gi.grn?.po?.supplier?.name || 'SUP-LOT-DIRECT';
+        const avail = Number(gi.actualReceivedQty || 0);
+
         formatted.push({
           id: gi.id,
-          internalBatchNo: bNum,
-          supplierBatchNo: gi.batchNumber || gi.grn?.po?.poNumber || 'SUP-LOT-DIRECT',
-          mfgDate: gi.mfgDate || gi.createdAt,
-          expiryDate: gi.expiryDate || new Date(new Date(gi.mfgDate || gi.createdAt).getTime() + 180 * 24 * 60 * 60 * 1000),
-          netQty: Number(gi.actualReceivedQty || 0),
+          internalBatchNo: ourBatchNo,
+          supplierBatchNo: supplierMfgBatch,
+          mfgBatchNo: supplierMfgBatch,
+          batchQty: batchQty,
+          weight: weightVal,
+          mfgDate: mfgDate,
+          expiryDate: expiryDate,
+          netQty: avail,
+          availableQty: avail,
           storageLocation: 'Central Receiving Store',
-          grnRef: gi.grn?.referenceNo || gi.grn?.po?.poNumber || '',
+          grnNumber: grnRef,
+          grnRef: grnRef,
+          poNumber: poRef,
+          poReferenceNo: poRef,
+          supplierName: suppName,
           source: 'PURCHASE_GRN'
         });
       }
@@ -1027,18 +1099,26 @@ const getBatchesForRawMaterial = async (rmId) => {
 
     // 3. Fallback: Synthesize active warehouse lot for every material with warehouse inventory
     if (formatted.length === 0) {
-      const cleanCode = (rm?.code || rm?.name || 'RM').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase();
       const mDate = rm?.createdAt || new Date();
       const expDate = new Date(new Date(mDate).getTime() + 365 * 24 * 60 * 60 * 1000);
+      const stock = Math.max(1, Number(rm?.currentStock || 100));
       formatted.push({
         id: `wh-${rm?.id || rmId}`,
-        internalBatchNo: `LOT-${cleanCode}-001`,
-        supplierBatchNo: `SUP-GEN-${cleanCode.slice(-4) || '001'}`,
+        internalBatchNo: `BATCH-${rawClean}-001`,
+        supplierBatchNo: 'BATCH-01',
+        mfgBatchNo: 'BATCH-01',
+        batchQty: 1,
+        weight: '25 kg / 50',
         mfgDate: mDate,
         expiryDate: expDate,
-        netQty: Math.max(1, Number(rm?.currentStock || 100)),
+        netQty: stock,
+        availableQty: stock,
         storageLocation: 'Primary Warehouse',
-        grnRef: 'OPENING-STOCK',
+        grnNumber: 'GRN-OPENING',
+        grnRef: 'GRN-OPENING',
+        poNumber: 'PO-OPENING',
+        poReferenceNo: 'PO-OPENING',
+        supplierName: 'SUP-LOT-DIRECT',
         source: 'WAREHOUSE_LOT'
       });
     }
@@ -1069,13 +1149,18 @@ const attachFefoLotToItem = async (rawItem, rmId) => {
 
     for (const lot of lots) {
       if (remainingNeeded <= 0) break;
-      const avail = Number(lot.netQty || 0);
+      const avail = Number(lot.netQty || lot.availableQty || 0);
       if (avail <= 0) continue;
       const take = Number(Math.min(avail, remainingNeeded).toFixed(4));
       allocatedBatches.push({
         batchId: lot.id,
         internalBatchNo: lot.internalBatchNo,
         supplierBatchNo: lot.supplierBatchNo,
+        mfgBatchNo: lot.mfgBatchNo || lot.supplierBatchNo,
+        batchQty: lot.batchQty || 1,
+        weight: lot.weight,
+        grnNumber: lot.grnNumber,
+        poNumber: lot.poNumber,
         mfgDate: lot.mfgDate,
         expiryDate: lot.expiryDate,
         allocatedQty: take,
@@ -1091,10 +1176,15 @@ const attachFefoLotToItem = async (rawItem, rmId) => {
         batchId: earliest.id,
         internalBatchNo: earliest.internalBatchNo,
         supplierBatchNo: earliest.supplierBatchNo,
+        mfgBatchNo: earliest.mfgBatchNo || earliest.supplierBatchNo,
+        batchQty: earliest.batchQty || 1,
+        weight: earliest.weight,
+        grnNumber: earliest.grnNumber,
+        poNumber: earliest.poNumber,
         mfgDate: earliest.mfgDate,
         expiryDate: earliest.expiryDate,
         allocatedQty: reqQty,
-        availableQty: Number(earliest.netQty || 0),
+        availableQty: Number(earliest.netQty || earliest.availableQty || 0),
         uom: cleanUom
       });
     }
@@ -1110,6 +1200,11 @@ const attachFefoLotToItem = async (rawItem, rmId) => {
       allocatedBatchId: first.batchId,
       internalBatchNo: combinedSummary,
       supplierBatchNo: first.supplierBatchNo,
+      mfgBatchNo: first.mfgBatchNo || first.supplierBatchNo,
+      batchQty: first.batchQty || 1,
+      weight: first.weight,
+      grnNumber: first.grnNumber,
+      poNumber: first.poNumber,
       mfgDate: first.mfgDate,
       expiryDate: first.expiryDate,
       lotNetQty: allocatedBatches.reduce((s, b) => s + b.allocatedQty, 0)
@@ -1119,8 +1214,13 @@ const attachFefoLotToItem = async (rawItem, rmId) => {
   // Fallback default warehouse lot
   const defLot = {
     batchId: `wh-${rmId}`,
-    internalBatchNo: `LOT-RM-001`,
-    supplierBatchNo: `SUP-LOT-001`,
+    internalBatchNo: `BATCH-RM-001`,
+    supplierBatchNo: `BATCH-01`,
+    mfgBatchNo: `BATCH-01`,
+    batchQty: 1,
+    weight: '25 kg / 50',
+    grnNumber: 'GRN-OPENING',
+    poNumber: 'PO-OPENING',
     mfgDate: new Date(),
     expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
     allocatedQty: reqQty,
