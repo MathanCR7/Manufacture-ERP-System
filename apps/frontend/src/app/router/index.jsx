@@ -97,6 +97,17 @@ const ProductionsPage = lazy(() => import('@/modules/production/pages/Production
 const ProductionRequirementPage = lazy(() => import('@/modules/production/pages/ProductionRequirementPage'));
 const AddProductionPage = lazy(() => import('@/modules/production/pages/AddProductionPage'));
 
+// Production Redesign (Base Master, Templates, Standard, Order-Based, Stock-Update)
+const BaseMasterPage = lazy(() => import('@/modules/production/pages/BaseMasterPage'));
+const ProductionTemplateListPage = lazy(() => import('@/modules/production/pages/ProductionTemplateListPage'));
+const ProductionTemplateFormPage = lazy(() => import('@/modules/production/pages/ProductionTemplateFormPage'));
+const StandardProductionListPage = lazy(() => import('@/modules/production/pages/StandardProductionListPage'));
+const StandardProductionFormPage = lazy(() => import('@/modules/production/pages/StandardProductionFormPage'));
+const OrderBasedProductionListPage = lazy(() => import('@/modules/production/pages/OrderBasedProductionListPage'));
+const OrderBasedProductionFormPage = lazy(() => import('@/modules/production/pages/OrderBasedProductionFormPage'));
+const StockUpdateProductionListPage = lazy(() => import('@/modules/production/pages/StockUpdateProductionListPage'));
+const StockUpdateProductionFormPage = lazy(() => import('@/modules/production/pages/StockUpdateProductionFormPage'));
+
 // Sales Module Pages
 const SalesBillingPage = lazy(() => import('@/modules/sales/pages/SalesBillingPage'));
 const SalesOrderSAPPage = lazy(() => import('@/modules/sales/pages/SalesOrderSAPPage'));
@@ -440,9 +451,28 @@ const AppRouter = () => {
 
             {/* Production */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
-              <Route path="/production/batches" element={<ProductionsPage />} />
+              {/* Masters */}
+              <Route path="/production/masters/base" element={<BaseMasterPage />} />
+
+              {/* Templates */}
+              <Route path="/production/templates" element={<ProductionTemplateListPage />} />
+              <Route path="/production/templates/add" element={<ProductionTemplateFormPage />} />
+              <Route path="/production/templates/:id/edit" element={<ProductionTemplateFormPage />} />
+
+              {/* Batches Redesign */}
+              <Route path="/production/standard" element={<StandardProductionListPage />} />
+              <Route path="/production/standard/add" element={<StandardProductionFormPage />} />
+              <Route path="/production/order-based" element={<OrderBasedProductionListPage />} />
+              <Route path="/production/order-based/add" element={<OrderBasedProductionFormPage />} />
+              <Route path="/production/stock-update" element={<StockUpdateProductionListPage />} />
+              <Route path="/production/stock-update/add" element={<StockUpdateProductionFormPage />} />
+
+              {/* Legacy / Direct Batch Redirects */}
+              <Route path="/production/batches" element={<Navigate to="/production/standard" replace />} />
+              <Route path="/production/add" element={<Navigate to="/production/standard/add" replace />} />
+
+              {/* Existing Sub-pages */}
               <Route path="/production/requirements" element={<ProductionRequirementPage />} />
-              <Route path="/production/add" element={<AddProductionPage />} />
               <Route path="/production/loss" element={<ProductionLossPage />} />
               <Route path="/production/loss-report" element={<LossReportPage />} />
               <Route path="/production/qc-queue" element={<QCQueuePage />} />

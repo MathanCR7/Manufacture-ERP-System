@@ -2297,3 +2297,69 @@ model IndustryTypeMaster {
   @@index([name])
   @@map("IndustryTypeMaster")
 }
+
+// ─────────────────────── Redesigned Production Models ───────────────────────
+
+model BaseMaster {
+  id          String   @id @default(uuid())
+  code        String   @unique @db.VarChar(20)
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.Text
+  status      String   @default("ACTIVE") @db.VarChar(20)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  templates   ProductionTemplate[]
+
+  @@map("base_master")
+}
+
+model ProductionTemplate {
+  id            String   @id @default(uuid())
+  code          String   @unique @db.VarChar(50)
+  name          String   @db.VarChar(200)
+  baseId        String   @map("base_id")
+  categoryId    String?  @map("category_id")
+  subCategoryId String?  @map("sub_category_id")
+  outputQty     Decimal  @default(2000) @map("output_qty")
+  outputUom     String   @default("Nos") @map("output_uom") @db.VarChar(20)
+  wastagePct    Decimal  @default(6.00) @map("wastage_pct")
+  overheadPct   Decimal  @default(10.00) @map("overhead_pct")
+  subTotal      Decimal  @default(0) @map("sub_total")
+  wastageAmt    Decimal  @default(0) @map("wastage_amt")
+  overheadAmt   Decimal  @default(0) @map("overhead_amt")
+  grandTotal    Decimal  @default(0) @map("grand_total")
+  costPerUnit   Decimal  @default(0) @map("cost_per_unit")
+  sopSteps      Json?    @map("sop_steps")
+  status        String   @default("ACTIVE") @db.VarChar(20)
+  createdBy     String?  @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+
+  base          BaseMaster               @relation(fields: [baseId], references: [id])
+  lines         ProductionTemplateLine[]
+
+  @@map("production_templates")
+}
+
+model ProductionTemplateLine {
+  id                 String   @id @default(uuid())
+  templateId         String   @map("template_id")
+  seqNo              Int      @map("seq_no")
+  itemType           String   @default("RAW_MATERIAL") @map("item_type") @db.VarChar(30)
+  rawMaterialId      String   @map("raw_material_id")
+  rawMaterialName    String   @map("raw_material_name") @db.VarChar(200)
+  quantity           Decimal
+  uom                String   @db.VarChar(20)
+  rate               Decimal  @default(0)
+  rateSource         String?  @default("PO_LATEST") @map("rate_source") @db.VarChar(50)
+  rateOverrideReason String?  @map("rate_override_reason") @db.Text
+  total              Decimal  @default(0)
+  isOverhead         Boolean  @default(false) @map("is_overhead")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+
+  template           ProductionTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@map("production_template_lines")
+}

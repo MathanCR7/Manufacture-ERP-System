@@ -26,6 +26,7 @@ router.use('/backups', require('../modules/backup/backup.routes'));
 router.use('/', rmRoutes);
 
 router.use('/po', require('../modules/purchase/po.routes'));
+router.get('/purchase/live-rate', authMiddleware, (req, res, next) => require('../modules/production/liveRate.controller').getLiveRate(req, res, next));
 router.use('/rm-quotations', require('../modules/purchase/rm-quotation.routes'));
 router.use('/grn', require('../modules/grn/grn.routes'));
 

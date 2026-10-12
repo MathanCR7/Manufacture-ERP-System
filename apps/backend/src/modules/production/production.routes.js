@@ -798,6 +798,34 @@ router.get('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+const baseMasterController = require('./baseMaster.controller');
+const productionTemplateController = require('./productionTemplate.controller');
+const liveRateController = require('./liveRate.controller');
+const productionBatchRedesignController = require('./productionBatchRedesign.controller');
+
+// ── Base Master Routes ──
+router.get('/bases', authenticateToken, (req, res, next) => baseMasterController.getAll(req, res, next));
+router.get('/bases/:id', authenticateToken, (req, res, next) => baseMasterController.getById(req, res, next));
+router.post('/bases', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => baseMasterController.create(req, res, next));
+router.put('/bases/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => baseMasterController.update(req, res, next));
+router.delete('/bases/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => baseMasterController.delete(req, res, next));
+
+// ── Production Template Routes ──
+router.get('/templates', authenticateToken, (req, res, next) => productionTemplateController.getAll(req, res, next));
+router.get('/templates/:id', authenticateToken, (req, res, next) => productionTemplateController.getById(req, res, next));
+router.post('/templates', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => productionTemplateController.create(req, res, next));
+router.put('/templates/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => productionTemplateController.update(req, res, next));
+router.post('/templates/:id/duplicate', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => productionTemplateController.duplicate(req, res, next));
+router.delete('/templates/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => productionTemplateController.delete(req, res, next));
+
+// ── Live PO Rate Route ──
+router.get('/live-rate', authenticateToken, (req, res, next) => liveRateController.getLiveRate(req, res, next));
+
+// ── Redesigned Production Batch Endpoints (Standard, Order-Based, Stock-Update) ──
+router.get('/batches-redesign', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatches(req, res, next));
+router.post('/batches-redesign', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.createBatch(req, res, next));
+router.patch('/batches-redesign/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateStatus(req, res, next));
+
 // ─────────────────────── Production Base Templates & Dynamic Recipes ───────────────────────
 
 // GET /api/production/base-templates - Fetch subcategory base recipe templates
