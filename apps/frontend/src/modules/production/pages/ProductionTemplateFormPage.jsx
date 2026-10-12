@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import CostingSummaryFooter from '../components/CostingSummaryFooter';
+import ProductionSearchSelect from '../components/ProductionSearchSelect';
 import Swal from 'sweetalert2';
 
 export default function ProductionTemplateFormPage() {
@@ -94,6 +95,28 @@ export default function ProductionTemplateFormPage() {
 
     return list;
   }, [rawMaterials, nonInventoryItems]);
+
+  // Options formatted for ProductionSearchSelect dropdowns
+  const materialOptions = useMemo(() => {
+    return allSelectableMaterials.map(m => ({
+      value: m.id,
+      label: m.name,
+      subLabel: m.code,
+      badge: m.type === 'RAW_MATERIAL' ? '🌾 Raw Material' : '⚡ Overhead',
+      extra: `Category: ${m.category} • Default Rate: ₹${m.defaultRate} / ${m.defaultUom}`,
+      type: m.type,
+      raw: m
+    }));
+  }, [allSelectableMaterials]);
+
+  const baseOptions = useMemo(() => {
+    return bases.map(b => ({
+      value: b.id,
+      label: b.name,
+      subLabel: b.code,
+      badge: b.status === 'ACTIVE' ? 'Active' : 'Inactive'
+    }));
+  }, [bases]);
 
   // Load masters & template (if edit)
   useEffect(() => {
@@ -467,22 +490,18 @@ export default function ProductionTemplateFormPage() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           
-          {/* Base Name (Required) */}
+          {/* Base Name (Required) with Search Bar */}
           <div className="space-y-1">
             <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
               Base Name <span className="text-rose-500">*</span>
             </Label>
-            <select
+            <ProductionSearchSelect
+              options={baseOptions}
               value={formData.baseId}
-              onChange={(e) => setFormData(prev => ({ ...prev, baseId: e.target.value }))}
-              className="w-full h-10 px-3 bg-white dark:bg-slate-900 border border-indigo-300 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              required
-            >
-              <option value="">Select Base (ICE CREAM BASE / KULFI BASE)...</option>
-              {bases.map(b => (
-                <option key={b.id} value={b.id}>{b.name} ({b.code})</option>
-              ))}
-            </select>
+              onChange={(val) => setFormData(prev => ({ ...prev, baseId: val }))}
+              placeholder="Search & select base (e.g. ICE CREAM BASE)..."
+              searchPlaceholder="Type base name or code (e.g. ICB, KLB)..."
+            />
           </div>
 
           {/* Template Name (Required) */}
@@ -641,25 +660,34 @@ export default function ProductionTemplateFormPage() {
                     </div>
                   </td>
 
-                  {/* Material Searchable Dropdown */}
+                  {/* Material Searchable Dropdown with Embedded Search Bar */}
                   <td className="py-2 px-3">
-                    <select
+                    <ProductionSearchSelect
+                      options={materialOptions}
                       value={row.rawMaterialId}
-                      onChange={(e) => handleMaterialChange(index, e.target.value)}
-                      className="w-full h-8 px-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    >
-                      <option value="">Select Raw Material / Cost Head...</option>
-                      <optgroup label="🌾 Raw Materials">
-                        {allSelectableMaterials.filter(m => m.type === 'RAW_MATERIAL').map(m => (
-                          <option key={m.id} value={m.id}>{m.name} ({m.code})</option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="⚡ Overheads, Energy & Labor">
-                        {allSelectableMaterials.filter(m => m.type === 'OVERHEAD').map(m => (
-                          <option key={m.id} value={m.id}>{m.name} ({m.code})</option>
-                        ))}
-                      </optgroup>
-                    </select>
+                      onChange={(materialId) => handleMaterialChange(index, materialId)}
+                      placeholder="Search & select raw material / cost head..."
+                      searchPlaceholder="Type material name or code (e.g. Milk, Sugar, Flavor)..."
+                      className="min-w-[260px]"
+                      renderOption={(opt) => (
+                        <div className="flex-1 truncate">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-extrabold text-slate-900 dark:text-white">
+                              {opt.label}
+                            </span>
+                            <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              {opt.subLabel}
+                            </span>
+                            <span className="font-mono text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400">
+                              {opt.badge}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                            {opt.extra}
+                          </p>
+                        </div>
+                      )}
+                    />
 
                     {row.rateSource && (
                       <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
