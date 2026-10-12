@@ -168,6 +168,50 @@ class ItemSetupRepository {
   async getProductById(id) { return prisma.product.findUnique({ where: { id } }); }
   async updateProduct(id, data) { return prisma.product.update({ where: { id }, data }); }
   async deleteProduct(id) { return prisma.product.delete({ where: { id } }); }
+
+  // Expense Category (Expense Master)
+  async createExpenseCategory(data) {
+    const formattedData = {
+      ...data,
+      name: data.name ? data.name.trim() : data.name,
+      code: data.code ? data.code.trim().toUpperCase() : undefined,
+      status: data.status || 'ACTIVE'
+    };
+    return prisma.expenseCategory.create({ data: formattedData });
+  }
+  async getExpenseCategories() {
+    return prisma.expenseCategory.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: { expenses: true }
+        }
+      }
+    });
+  }
+  async getExpenseCategoryById(id) {
+    return prisma.expenseCategory.findUnique({
+      where: { id },
+      include: {
+        expenses: {
+          take: 10,
+          select: { id: true, title: true, amount: true, date: true }
+        },
+        _count: {
+          select: { expenses: true }
+        }
+      }
+    });
+  }
+  async updateExpenseCategory(id, data) {
+    const { id: _, createdAt, updatedAt, expenses, _count, ...updateData } = data;
+    if (updateData.name) updateData.name = updateData.name.trim();
+    if (updateData.code) updateData.code = updateData.code.trim().toUpperCase();
+    return prisma.expenseCategory.update({ where: { id }, data: updateData });
+  }
+  async deleteExpenseCategory(id) {
+    return prisma.expenseCategory.delete({ where: { id } });
+  }
 }
 
 module.exports = new ItemSetupRepository();

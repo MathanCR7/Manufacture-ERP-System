@@ -52,6 +52,7 @@ const NonInventoryItemListPage = lazy(() => import('@/modules/item-setup/pages/N
 const ProductCategoryListPage = lazy(() => import('@/modules/item-setup/pages/ProductCategoryListPage'));
 const ProductListPage = lazy(() => import('@/modules/item-setup/pages/ProductListPage'));
 const TaxSettingsPage = lazy(() => import('@/modules/item-setup/pages/TaxSettingsPage'));
+const ExpenseMasterListPage = lazy(() => import('@/modules/item-setup/pages/ExpenseMasterListPage'));
 
 const AuditLogListPage = lazy(() => import('@/modules/admin/pages/AuditLogListPage'));
 const NotificationAuditPanel = lazy(() => import('@/modules/admin/pages/NotificationAuditPanel'));
@@ -339,12 +340,13 @@ const AppRouter = () => {
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT']} />}>
               <Route path="/setup/rm-category" element={<RMCategoryListPage />} />
             </Route>
-            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
+            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT']} />}>
               <Route path="/setup/raw-material" element={<RawMaterialListPage />} />
               <Route path="/setup/non-inventory" element={<NonInventoryItemListPage />} />
               <Route path="/setup/product-category" element={<ProductCategoryListPage />} />
               <Route path="/setup/product" element={<ProductListPage />} />
               <Route path="/setup/tax" element={<TaxSettingsPage />} />
+              <Route path="/setup/expense-master" element={<ExpenseMasterListPage />} />
             </Route>
             
             {/* Purchase Orders (View) */}

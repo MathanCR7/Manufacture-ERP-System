@@ -61,12 +61,47 @@ app.get('/', (req, res) => {
   });
 });
 
-// Static file serving for uploads (receipts, proof images, documents)
+// Static file serving for uploads (receipts, proof images, documents) with invoice fallback
 app.use('/uploads', (req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.removeHeader('Content-Security-Policy');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Access-Control-Allow-Origin', '*');
+
+  try {
+    const fs = require('fs');
+    const uploadsDir = path.join(__dirname, '../uploads');
+    const reqPath = decodeURIComponent(req.path || '').split('?')[0];
+
+    // 1. If requested /payments/invoice_PO-XXXXXX... and not in payments, check invoices/PO-XXXXXX/
+    if (reqPath.startsWith('/payments/invoice_PO-') || reqPath.startsWith('/payments/PO-')) {
+      const directPath = path.join(uploadsDir, reqPath);
+      if (!fs.existsSync(directPath)) {
+        const match = reqPath.match(/(PO-[A-Za-z0-9_-]+)/);
+        if (match) {
+          const poRef = match[1];
+          const filename = path.basename(reqPath);
+          const altPath = path.join(uploadsDir, 'invoices', poRef, filename);
+          if (fs.existsSync(altPath)) {
+            return res.sendFile(altPath);
+          }
+        }
+      }
+    }
+
+    // 2. If requested /invoices/PO-XXXXXX/... and not in invoices, check payments/
+    if (reqPath.startsWith('/invoices/')) {
+      const directPath = path.join(uploadsDir, reqPath);
+      if (!fs.existsSync(directPath)) {
+        const filename = path.basename(reqPath);
+        const altPath = path.join(uploadsDir, 'payments', filename);
+        if (fs.existsSync(altPath)) {
+          return res.sendFile(altPath);
+        }
+      }
+    }
+  } catch (_) {}
+
   next();
 }, express.static(path.join(__dirname, '../uploads'), {
   setHeaders: (res) => {

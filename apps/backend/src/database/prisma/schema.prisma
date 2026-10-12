@@ -487,17 +487,36 @@ model Customer {
 }
 
 model Expense {
-  id          String   @id @default(uuid())
-  title       String
-  amount      Decimal
-  category    String
-  date        DateTime
-  notes       String?  @db.Text
-  createdBy   String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String           @id @default(uuid())
+  title           String
+  amount          Decimal
+  category        String
+  categoryId      String?
+  expenseCategory ExpenseCategory? @relation(fields: [categoryId], references: [id])
+  date            DateTime
+  notes           String?          @db.Text
+  attachments     String?          @db.Text
+  createdBy       String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   user User @relation(fields: [createdBy], references: [id])
+
+  @@index([categoryId])
+}
+
+model ExpenseCategory {
+  id          String    @id @default(uuid())
+  code        String?   @unique
+  name        String
+  description String?   @db.Text
+  status      String    @default("ACTIVE") // ACTIVE / INACTIVE
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  expenses    Expense[]
+
+  @@index([name])
 }
 
 model RMCategory {

@@ -845,13 +845,14 @@ const MENU_GROUPS = [
     id: 'itemSetup',
     title: 'Item Setup',
     icon: Settings,
-    roles: ['MAIN_MASTER', 'SUPERVISOR'],
+    roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'],
     items: [
       { name: '🏷️ RM Category', path: '/setup/rm-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🌾 Raw Material', path: '/setup/raw-material', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🚫 Non Inventory', path: '/setup/non-inventory', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
       { name: '🗂️ Product Category', path: '/setup/product-category', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
-      { name: '📦 Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] }
+      { name: '📦 Product', path: '/setup/product', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      { name: '💳 Expense Master', path: '/setup/expense-master', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PURCHASE_ACCOUNTANT', 'ACCOUNTANT'] }
     ]
   },
   {

@@ -573,7 +573,7 @@ export function UpdatePaymentSettlementModal({ po: modalData, initialEditIndex =
                   <span>Payment Mode / Channel</span>
                   <span className="text-[10px] text-slate-400">Choose mode</span>
                 </Label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                   {ACTIVE_PAYMENT_MODES.map((mode) => {
                     const Icon = mode.icon;
                     const isSelected = instMode === mode.id;

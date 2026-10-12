@@ -894,6 +894,79 @@ class ItemSetupController {
 
     // ─────────────────────── 5. Legacy Product (if called via /item-setup/product) ───
     this.Product = createCrudController('Product', 'Products');
+
+    // ─────────────────────── 6. Expense Category (Expense Master) ─────────────
+    this.ExpenseCategory = {
+      ...createCrudController('ExpenseCategory', 'ExpenseCategories'),
+      update: async (req, res, next) => {
+        try {
+          const id = req.params.id;
+          const existing = await prisma.expenseCategory.findUnique({ where: { id } });
+          if (!existing) return res.status(404).json({ message: 'Expense category not found' });
+
+          const result = await ItemSetupRepository.updateExpenseCategory(id, req.body);
+
+          // If name changed, sync expense.category text for historical and backwards compatibility
+          if (req.body.name && req.body.name.trim() !== existing.name) {
+            await prisma.expense.updateMany({
+              where: { categoryId: id },
+              data: { category: req.body.name.trim() }
+            }).catch(err => console.warn('[ItemSetup] Could not sync expense category names:', err.message));
+          }
+
+          res.json(result);
+        } catch (error) { next(error); }
+      },
+      delete: async (req, res, next) => {
+        try {
+          const id = req.params.id;
+          const category = await prisma.expenseCategory.findUnique({ where: { id } });
+          if (!category) {
+            return res.status(404).json({ message: 'Expense category not found' });
+          }
+
+          // Check if any expenses are acquired / linked to this category
+          const referencingExpenses = await prisma.expense.findMany({
+            where: {
+              OR: [
+                { categoryId: id },
+                { category: category.name }
+              ]
+            },
+            select: { id: true, title: true, amount: true, date: true }
+          });
+
+          if (referencingExpenses.length > 0) {
+            const expCount = referencingExpenses.length;
+            const expSummary = referencingExpenses.slice(0, 3).map(e => `"${e.title}" (₹${Number(e.amount).toLocaleString('en-IN')})`).join(', ');
+            const moreSuffix = expCount > 3 ? ` and ${expCount - 3} more` : '';
+
+            return res.status(409).json({
+              error: 'CATEGORY_IN_USE',
+              message: `Cannot delete Expense Master "${category.name}" because it is currently acquired by ${expCount} expense record(s): ${expSummary}${moreSuffix}. Please reassign or delete these expenses first before deleting this category.`,
+              count: expCount,
+              expenses: referencingExpenses
+            });
+          }
+
+          // Safe to delete
+          await ItemSetupRepository.deleteExpenseCategory(id);
+
+          // Log in AuditLog
+          await logDeletionAudit(req, 'DELETE_EXPENSE_CATEGORY', 'ExpenseCategory', id, category);
+
+          return res.status(200).json({ message: 'Expense category deleted successfully' });
+        } catch (error) {
+          if (error.code === 'P2003') {
+            return res.status(409).json({
+              error: 'CATEGORY_IN_USE',
+              message: 'Cannot delete Expense Master category because it is referenced by other database records.'
+            });
+          }
+          next(error);
+        }
+      }
+    };
   }
 }
 
