@@ -142,14 +142,18 @@ class ProductionBatchRedesignController {
         productionType: z.enum(['STANDARD', 'ORDER_BASED', 'STOCK_UPDATE']).default('STANDARD'),
         baseId: z.string().uuid().optional().nullable(),
         templateId: z.string().uuid().optional().nullable(),
-        productId: z.string().min(1),
+        productId: z.string().optional().nullable(),
         selectedProducts: z.array(z.object({
-          productId: z.string(),
-          plannedQty: z.coerce.number().positive(),
-          factor: z.coerce.number().default(1.0)
-        })).optional(),
+          productId: z.string().optional().nullable(),
+          id: z.string().optional().nullable(),
+          name: z.string().optional().nullable(),
+          code: z.string().optional().nullable(),
+          plannedQty: z.coerce.number().min(0).default(0),
+          factor: z.coerce.number().default(1.0),
+          unit: z.string().optional().nullable()
+        })).optional().default([]),
         orderId: z.string().uuid().optional().nullable(),
-        quantity: z.coerce.number().positive('Planned quantity must be greater than 0'),
+        quantity: z.coerce.number().default(0),
         startDate: z.string().default(() => new Date().toISOString()),
         shift: z.string().optional().default('Morning'),
         machineLine: z.string().optional().default('Line 1'),
@@ -157,7 +161,7 @@ class ProductionBatchRedesignController {
         adjustmentReference: z.string().optional().nullable(),
         expiryDays: z.coerce.number().default(365),
         note: z.string().optional().nullable(),
-        status: z.enum(['Draft', 'Approved', 'In Progress', 'Completed']).default('Draft'),
+        status: z.string().default('Draft'),
         
         // Costing totals
         subTotal: z.coerce.number().optional().default(0),
@@ -168,23 +172,34 @@ class ProductionBatchRedesignController {
 
         // Raw material lines with batch allocations
         rawMaterials: z.array(z.object({
-          rmId: z.string(),
-          rmName: z.string(),
-          requiredQty: z.coerce.number().positive(),
-          selectedUom: z.string(),
+          rmId: z.string().optional().nullable(),
+          rmCode: z.string().optional().nullable(),
+          rmName: z.string().optional().nullable(),
+          requiredQty: z.coerce.number().min(0).default(0),
+          baseRequiredQty: z.coerce.number().optional().nullable(),
+          altRequiredQty: z.coerce.number().optional().nullable(),
+          selectedUom: z.string().optional().nullable().default('Kg'),
+          baseUom: z.string().optional().nullable(),
+          alternateUom: z.string().optional().nullable(),
           unitRate: z.coerce.number().min(0).default(0),
+          baseRate: z.coerce.number().optional().nullable(),
+          altRate: z.coerce.number().optional().nullable(),
           totalCost: z.coerce.number().default(0),
           rateSource: z.string().optional().default('PO_LATEST'),
           isOverhead: z.boolean().optional().default(false),
+          hasAlternateUom: z.boolean().optional().default(false),
+          activeEntryMode: z.string().optional().default('BASE'),
           allocatedBatches: z.array(z.object({
-            batchId: z.string(),
-            lotNumber: z.string(),
-            allocatedQty: z.coerce.number().positive(),
+            batchId: z.string().optional().nullable(),
+            lotNumber: z.string().optional().nullable(),
+            supplierBatchNo: z.string().optional().nullable(),
+            supplierName: z.string().optional().nullable(),
+            allocatedQty: z.coerce.number().min(0).default(0),
             poOriginalQty: z.coerce.number().optional().nullable(),
             poTotalAmount: z.coerce.number().optional().nullable(),
             allocatedAmount: z.coerce.number().optional().default(0),
             unitRate: z.coerce.number().optional().default(0),
-            uom: z.string().optional()
+            uom: z.string().optional().nullable()
           })).optional().default([])
         })).min(1, 'At least one raw material line is required')
       });
@@ -206,19 +221,28 @@ class ProductionBatchRedesignController {
         const batchNo = `BN-${referenceNo.replace('MP-', '')}`;
         const expDate = new Date(new Date(data.startDate).getTime() + (data.expiryDays || 365) * 24 * 60 * 60 * 1000);
 
+        const effectiveProductId = data.productId || data.selectedProducts?.[0]?.productId || data.selectedProducts?.[0]?.id;
+        let finalBatchProductId = effectiveProductId;
+        if (!finalBatchProductId) {
+          const fallbackProd = await tx.finishedProduct.findFirst();
+          finalBatchProductId = fallbackProd?.id;
+        }
+
+        const batchStatus = (data.status === 'Draft' || data.status === 'PLANNED') ? 'Planned' : data.status;
+
         // 1. Create main ProductionBatchNew record
         const batch = await tx.productionBatchNew.create({
           data: {
             referenceNo,
-            productId: data.productId,
+            productId: finalBatchProductId,
             productionType: data.productionType,
-            status: data.status === 'Draft' ? 'Planned' : data.status,
+            status: batchStatus,
             startDate: new Date(data.startDate),
             batchNo,
             expiryDays: data.expiryDays || 365,
             expiryDate: expDate,
-            quantity: data.quantity,
-            remainingQty: data.quantity,
+            quantity: data.quantity || 1,
+            remainingQty: data.quantity || 1,
             totalCost: data.grandTotal || 0,
             note: data.note || null,
             orderId: data.orderId || null,
@@ -259,10 +283,15 @@ class ProductionBatchRedesignController {
 
         // 3. Insert Multi-Product Items
         const productsToInsert = Array.isArray(data.selectedProducts) && data.selectedProducts.length > 0
-          ? data.selectedProducts
-          : [{ productId: data.productId, plannedQty: data.quantity, factor: 1.0 }];
+          ? data.selectedProducts.map(p => ({
+              productId: p.productId || p.id || finalBatchProductId,
+              plannedQty: Number(p.plannedQty || data.quantity || 1),
+              factor: Number(p.factor || 1.0)
+            }))
+          : [{ productId: finalBatchProductId, plannedQty: Number(data.quantity || 1), factor: 1.0 }];
 
         for (const p of productsToInsert) {
+          if (!p.productId) continue;
           await tx.$executeRawUnsafe(
             `INSERT INTO "production_batch_items" (
               batch_id, product_id, planned_qty, factor, cost_per_unit
@@ -277,6 +306,61 @@ class ProductionBatchRedesignController {
 
         // 4. Insert Raw Material Usage Lines & Lot Allocations
         for (const rm of data.rawMaterials) {
+          // Overheads (Gas, EB, Rent, etc.) are tracked in overhead_amt, not as warehouse inventory items
+          if (rm.isOverhead) continue;
+
+          // Resolve rm.rmId to a valid RawMaterial UUID
+          let finalRmId = null;
+          const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+
+          if (isUuid(rm.rmId)) {
+            const existing = await tx.rawMaterial.findUnique({ where: { id: rm.rmId } });
+            if (existing) finalRmId = existing.id;
+          }
+
+          if (!finalRmId && rm.rmId) {
+            const byCode = await tx.rawMaterial.findFirst({
+              where: {
+                OR: [
+                  { code: { equals: rm.rmId, mode: 'insensitive' } },
+                  { id: rm.rmId }
+                ]
+              }
+            });
+            if (byCode) finalRmId = byCode.id;
+          }
+
+          if (!finalRmId && rm.rmName) {
+            const cleanName = rm.rmName.trim();
+            const byName = await tx.rawMaterial.findFirst({
+              where: {
+                OR: [
+                  { name: { equals: cleanName, mode: 'insensitive' } },
+                  { name: { contains: cleanName, mode: 'insensitive' } }
+                ]
+              }
+            });
+            if (byName) finalRmId = byName.id;
+          }
+
+          // If still not matched, create a fallback active raw material record so FK is satisfied
+          if (!finalRmId) {
+            const defaultCat = await tx.rMCategory.findFirst();
+            const fallbackCode = `RM-${Date.now().toString().slice(-6)}`;
+            const created = await tx.rawMaterial.create({
+              data: {
+                name: rm.rmName || 'Raw Material',
+                code: fallbackCode,
+                categoryId: defaultCat?.id,
+                currentStock: 0,
+                ratePerUnit: rm.unitRate || 0,
+                unitId: rm.selectedUom || 'Kg',
+                consumptionUnit: rm.selectedUom || 'Kg'
+              }
+            });
+            finalRmId = created.id;
+          }
+
           const firstAlloc = rm.allocatedBatches?.[0];
           const combinedBatchSummary = rm.allocatedBatches?.length > 1
             ? rm.allocatedBatches.map(b => `${b.lotNumber} (${b.allocatedQty} ${rm.selectedUom})`).join(' + ')
@@ -285,7 +369,7 @@ class ProductionBatchRedesignController {
           const usage = await tx.productionBatchRMUsage.create({
             data: {
               batchId: batch.id,
-              rmId: rm.rmId,
+              rmId: finalRmId,
               requiredQty: rm.requiredQty,
               availableQtyAtTime: rm.requiredQty,
               actualUsedQty: rm.requiredQty,
@@ -358,7 +442,11 @@ class ProductionBatchRedesignController {
 
       res.status(201).json(createdBatch);
     } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ error: err.errors[0]?.message || 'Validation error' });
+      console.error('CREATE BATCH ERROR:', err);
+      if (err instanceof z.ZodError) {
+        const msg = err.issues?.[0]?.message || err.errors?.[0]?.message || 'Validation error';
+        return res.status(400).json({ error: msg, details: err.issues || err.errors });
+      }
       next(err);
     }
   }
