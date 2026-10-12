@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
@@ -7,22 +7,28 @@ import { format } from 'date-fns';
 import Swal from 'sweetalert2';
 import {
   Plus, Search, Eye, Edit, Trash2, ChevronRight, ChevronDown,
-  CheckCircle2, Clock, Package, TrendingUp, AlertCircle, FileText,
-  RotateCcw, X, CreditCard, Loader2, ArrowUpDown, ArrowUp, ArrowDown,
-  Image as ImageIcon, Lock, Printer, Download, Paperclip, FileCheck
+  CheckCircle2, Clock, Package, TrendingUp, FileText,
+  RotateCcw, X, ArrowUpDown, ArrowUp, ArrowDown,
+  Image as ImageIcon, Printer, Download, Paperclip, FileCheck,
+  FileSpreadsheet, CheckSquare
 } from 'lucide-react';
 import { 
   UpdatePaymentSettlementModal, 
   PaymentSettlementDetailsModal 
 } from '../components/PaymentSettlementManager';
 import { SupplierInvoiceModal } from '../components/SupplierInvoiceManager';
-import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
+import { ImagePreviewModal } from '../components/PaymentFieldsSection';
 import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
 import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
+import POExportModal from '../components/POExportModal';
+import { 
+  generatePOTablePDF, 
+  generatePOTableExcel, 
+  getDefaultSelectedFields 
+} from '../utils/poTableExportEngine';
 import useCompanyStore from '@/app/store/companyStore';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Input } from '@/components/ui/input';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -136,229 +142,6 @@ function StatCard({ icon: Icon, label, value, borderClass, bgClass, iconColorCla
 // Payment modals are managed via UpdatePaymentSettlementModal & PaymentSettlementDetailsModal in PaymentSettlementManager
 
 
-function PaymentSummaryModal() {
-  return null;
-}
-
-function _OldPaymentSummaryModal_Unused({ po, onClose, onEditPayment, onPreviewImage }) {
-  if (!po) return null;
-
-  const total = Number(po.totalAmount || po.amount || 0);
-  const paid = Number(po.paidAmount || 0);
-  const due = Math.max(0, total - paid);
-  const currentStatus = po.paymentStatus || (paid >= total && total > 0 ? 'PAID' : paid > 0 ? 'PARTIALLY_PAID' : 'UNPAID');
-
-  const modeObj = PAYMENT_MODES.find(m => m.id === po.paymentMode) || (po.paymentMode ? { label: po.paymentMode } : null);
-  const ModeIcon = modeObj?.icon || CreditCard;
-
-  const statusConfig = {
-    PAID: {
-      label: 'Fully Paid',
-      badge: 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800',
-      dot: 'bg-emerald-500',
-    },
-    PARTIALLY_PAID: {
-      label: 'Partial Advance Settled',
-      badge: 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800',
-      dot: 'bg-indigo-500',
-    },
-    UNPAID: {
-      label: 'Unpaid / Payment Due',
-      badge: 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
-      dot: 'bg-amber-500',
-    },
-  }[currentStatus] || {
-    label: currentStatus,
-    badge: 'bg-slate-100 text-slate-700 border-slate-200',
-    dot: 'bg-slate-400',
-  };
-
-  const proofUrl = po.paymentImage ? resolvePaymentImageUrl(po.paymentImage) : null;
-
-  React.useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <div 
-        className="w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden transform transition-all cursor-default"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="p-4 sm:p-5 bg-gradient-to-r from-slate-50 to-indigo-50/40 dark:from-slate-900 dark:to-slate-800/80 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600/10 dark:bg-indigo-400/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-200/50 dark:border-indigo-800/50 shrink-0">
-              <CreditCard className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-extrabold text-sm sm:text-base text-slate-900 dark:text-white">
-                  Payment Settlement Details
-                </h3>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300">
-                  {po.referenceNo}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate max-w-[250px]">
-                Supplier: <span className="font-semibold text-slate-700 dark:text-slate-300">{po.supplierName || po.supplier?.name || '—'}</span>
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-4 sm:p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-          {/* Status Chip */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Settlement Status</span>
-            <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-xs font-extrabold ${statusConfig.badge}`}>
-              <span className={`w-2 h-2 rounded-full ${statusConfig.dot}`} />
-              <span>{statusConfig.label}</span>
-            </div>
-          </div>
-
-          {/* 3 Metric Cards */}
-          <div className="grid grid-cols-3 gap-2">
-            <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 text-center">
-              <span className="text-[10px] font-bold text-slate-400 block uppercase">Total Payable</span>
-              <span className="text-xs sm:text-sm font-extrabold font-mono text-slate-900 dark:text-slate-100 mt-0.5 block truncate">
-                ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/70 dark:border-emerald-800/60 text-center">
-              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 block uppercase">Amount Paid</span>
-              <span className="text-xs sm:text-sm font-extrabold font-mono text-emerald-700 dark:text-emerald-300 mt-0.5 block truncate">
-                ₹{paid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="p-2.5 rounded-xl bg-rose-50/70 dark:bg-rose-950/40 border border-rose-200/70 dark:border-rose-800/60 text-center">
-              <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 block uppercase">Balance Due</span>
-              <span className="text-xs sm:text-sm font-extrabold font-mono text-rose-700 dark:text-rose-300 mt-0.5 block truncate">
-                ₹{due.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </div>
-          </div>
-
-          {/* Payment Details Box */}
-          <div className="p-3 rounded-xl bg-slate-50/90 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-2 text-xs">
-            <div className="flex items-center justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
-              <span className="text-slate-500 font-medium">Payment Mode</span>
-              <span className="font-bold text-slate-800 dark:text-slate-200 inline-flex items-center gap-1.5">
-                <ModeIcon className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                {modeObj?.label || (paid > 0 ? 'Not specified' : '—')}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
-              <span className="text-slate-500 font-medium">Bank Reference / UTR</span>
-              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                {po.paymentRef || (paid > 0 ? 'Not provided' : '—')}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
-              <span className="text-slate-500 font-medium">Payment Date</span>
-              <span className="font-mono text-slate-700 dark:text-slate-300">
-                {po.paymentDate ? format(new Date(po.paymentDate), 'dd-MM-yyyy') : (paid > 0 ? 'Recorded' : '—')}
-              </span>
-            </div>
-
-            {po.paymentNotes && (
-              <div className="pt-1">
-                <span className="text-slate-500 font-medium block mb-1">Notes / Remarks</span>
-                <p className="text-slate-700 dark:text-slate-300 italic bg-white dark:bg-slate-900 p-2 rounded-lg border border-slate-200/60 dark:border-slate-800 text-[11px]">
-                  "{po.paymentNotes}"
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Payment Proof Preview Box */}
-          <div className="space-y-1.5">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Payment Proof / Voucher</span>
-            {proofUrl ? (
-              <div className="p-3 rounded-xl border border-emerald-200/80 dark:border-emerald-900/60 bg-emerald-50/40 dark:bg-emerald-950/20 flex items-center justify-between gap-3">
-                <div 
-                  className="flex items-center gap-3 cursor-pointer group"
-                  onClick={() => onPreviewImage(proofUrl, `Payment Receipt — ${po.referenceNo}`)}
-                >
-                  <div className="relative w-12 h-12 rounded-lg overflow-hidden border border-emerald-300 dark:border-emerald-700 shrink-0 bg-white shadow-2xs group-hover:ring-2 group-hover:ring-emerald-500 transition-all">
-                    <img 
-                      src={proofUrl} 
-                      alt="Payment Receipt" 
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 block group-hover:underline">
-                      Receipt Photo Attached
-                    </span>
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 block mt-0.5">
-                      Click image or button to zoom
-                    </span>
-                  </div>
-                </div>
-
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => onPreviewImage(proofUrl, `Payment Receipt — ${po.referenceNo}`)}
-                  className="h-8 text-xs font-bold border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 gap-1.5 shrink-0 cursor-pointer"
-                >
-                  <Eye className="w-3.5 h-3.5" />
-                  View Photo
-                </Button>
-              </div>
-            ) : (
-              <div className="p-3 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-slate-400 text-xs">
-                No receipt photo or transfer proof uploaded yet.
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer Actions */}
-        <div className="p-3 sm:p-4 bg-slate-50/80 dark:bg-slate-900/80 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            className="rounded-xl text-xs h-9 cursor-pointer"
-          >
-            Close
-          </Button>
-          <Button
-            type="button"
-            onClick={() => {
-              onClose();
-              onEditPayment(po, currentStatus);
-            }}
-            className="rounded-xl text-xs h-9 font-bold px-4 bg-indigo-600 hover:bg-indigo-700 text-white gap-1.5 shadow-sm cursor-pointer"
-          >
-            <Edit className="w-3.5 h-3.5" />
-            Update Payment
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function PaymentStatusCell({ po, onOpenSummary }) {
   const total = Number(po.totalAmount || po.amount || 0);
   const paid = Number(po.paidAmount || 0);
@@ -430,6 +213,12 @@ export default function POListPage() {
   const [previewImage, setPreviewImage] = useState(null);
   const [invoiceModalPO, setInvoiceModalPO] = useState(null);
 
+  // Row Selection State & Export Modal State (null = All POs selected by default)
+  const [selectedPoIds, setSelectedPoIds] = useState(null);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportModalFormat, setExportModalFormat] = useState('PDF');
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -457,7 +246,7 @@ export default function POListPage() {
   const handleExportPDF = async (po) => {
     try {
       let fullPo = po;
-      if (!po.supplier?.address || !po.supplier?.gstin || !po.items || !Array.isArray(po.items) || po.items.length === 0) {
+      if (!po.inventoryBatches || po.inventoryBatches.length === 0 || !po.supplier?.address || !po.items) {
         try {
           const res = await api.get(`/rm/po/${po.id}`);
           if (res.data) fullPo = res.data;
@@ -466,7 +255,13 @@ export default function POListPage() {
         }
       }
       await useCompanyStore.getState().fetchCompany();
-      generatePurchaseOrderPDF(fullPo);
+      await generatePOTablePDF({
+        pos: [fullPo],
+        fields: getDefaultSelectedFields(),
+        downloadedTime: new Date(),
+        company: useCompanyStore.getState().company,
+        includeDossiers: true
+      });
     } catch (err) {
       console.error('Error generating PDF:', err);
       generatePurchaseOrderPDF(po);
@@ -476,7 +271,7 @@ export default function POListPage() {
   const handleExportExcel = async (po) => {
     try {
       let fullPo = po;
-      if (!po.supplier?.address || !po.supplier?.gstin || !po.items || !Array.isArray(po.items) || po.items.length === 0) {
+      if (!po.inventoryBatches || po.inventoryBatches.length === 0 || !po.supplier?.address || !po.items) {
         try {
           const res = await api.get(`/rm/po/${po.id}`);
           if (res.data) fullPo = res.data;
@@ -485,7 +280,12 @@ export default function POListPage() {
         }
       }
       await useCompanyStore.getState().fetchCompany();
-      exportPurchaseOrderToExcel(fullPo);
+      await generatePOTableExcel({
+        pos: [fullPo],
+        fields: getDefaultSelectedFields(),
+        downloadedTime: new Date(),
+        company: useCompanyStore.getState().company
+      });
     } catch (err) {
       console.error('Error exporting Excel:', err);
       exportPurchaseOrderToExcel(po);
@@ -508,11 +308,6 @@ export default function POListPage() {
       };
     });
   }, [pos]);
-
-  // Reset pagination to first page when search filters or sorting change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, statusFilter, paymentFilter, sortBy]);
 
   // Filter Logic
   const filteredPOs = useMemo(() => {
@@ -574,6 +369,63 @@ export default function POListPage() {
     const startIndex = (currentPage - 1) * itemsPerPage;
     return sortedPOs.slice(startIndex, startIndex + itemsPerPage);
   }, [sortedPOs, currentPage, itemsPerPage]);
+
+  // Row Selection logic: null means "All POs selected by default"
+  const isRowSelected = (id) => selectedPoIds === null || selectedPoIds.has(id);
+  const selectedCount = selectedPoIds === null ? sortedPOs.length : selectedPoIds.size;
+
+  const handleToggleSelectRow = (id) => {
+    setSelectedPoIds(prev => {
+      const currentSet = prev === null ? new Set(sortedPOs.map(p => p.id)) : new Set(prev);
+      if (currentSet.has(id)) currentSet.delete(id);
+      else currentSet.add(id);
+      return currentSet;
+    });
+  };
+
+  const handleToggleSelectAllVisible = () => {
+    const visibleIds = paginatedPOs.map(p => p.id);
+    const areAllVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => isRowSelected(id));
+    setSelectedPoIds(prev => {
+      const currentSet = prev === null ? new Set(sortedPOs.map(p => p.id)) : new Set(prev);
+      if (areAllVisibleSelected) {
+        visibleIds.forEach(id => currentSet.delete(id));
+      } else {
+        visibleIds.forEach(id => currentSet.add(id));
+      }
+      return currentSet;
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    setSelectedPoIds(null); // Resets to all selected
+  };
+
+  const handleClearSelection = () => {
+    setSelectedPoIds(new Set());
+  };
+
+  const selectedPOsList = useMemo(() => {
+    if (selectedPoIds === null) return sortedPOs;
+    return sortedPOs.filter(p => selectedPoIds.has(p.id));
+  }, [sortedPOs, selectedPoIds]);
+
+  const handleOpenExportModal = (format = 'PDF') => {
+    if (selectedCount === 0) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'No POs Selected',
+        text: 'Please select at least 1 Purchase Order using the checkboxes.',
+        timer: 2500,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
+      return;
+    }
+    setExportModalFormat(format);
+    setIsExportModalOpen(true);
+  };
 
   const totalAmount = augmentedPos.reduce((s, p) => s + Number(p.totalAmount || 0), 0);
   const totalPaid = augmentedPos.reduce((s, p) => s + Number(p.paidAmount || 0), 0);
@@ -668,15 +520,100 @@ export default function POListPage() {
           </div>
         </div>
 
-        {canAddPurchase && (
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          {/* Select All Button near Add Purchase */}
+          {isSelectionMode ? (
+            <Button
+              onClick={() => {
+                if (selectedCount === sortedPOs.length && sortedPOs.length > 0) {
+                  handleClearSelection();
+                } else {
+                  handleSelectAllFiltered();
+                }
+              }}
+              variant="outline"
+              className="h-8 px-2.5 bg-white dark:bg-slate-900 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 active:scale-95"
+              title={selectedCount === sortedPOs.length ? "Deselect all purchase orders" : `Select all ${sortedPOs.length} purchase orders`}
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>
+                {selectedCount === sortedPOs.length && sortedPOs.length > 0
+                  ? `Deselect All (${selectedCount})`
+                  : `Select All (${sortedPOs.length})`}
+              </span>
+            </Button>
+          ) : (
+            <Button
+              onClick={() => {
+                setIsSelectionMode(true);
+                handleSelectAllFiltered();
+              }}
+              variant="outline"
+              className="h-8 px-2.5 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 active:scale-95"
+              title="Show checkboxes and select all purchase orders"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-slate-500" />
+              <span>Select All</span>
+            </Button>
+          )}
+
+          {/* Export PDF Button - solid red matching Add Purchase style (Single instance on page) */}
           <Button
-            onClick={() => navigate('/purchase-orders/create')}
-            className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 self-start sm:self-auto active:scale-95"
+            onClick={() => {
+              if (!isSelectionMode) {
+                setIsSelectionMode(true);
+                setExportModalFormat('PDF');
+              } else {
+                handleOpenExportModal('PDF');
+              }
+            }}
+            className="h-8 px-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 active:scale-95"
+            title={!isSelectionMode ? "Show checkboxes to select POs for PDF export" : `Export ${selectedCount} selected POs to PDF`}
           >
-            <Plus className="w-3.5 h-3.5" />
-            Add Purchase
+            <Printer className="w-3.5 h-3.5" />
+            <span>{isSelectionMode ? `Export PDF (${selectedCount})` : 'Export PDF'}</span>
           </Button>
-        )}
+
+          {/* Export Excel Button - solid green matching Add Purchase style (Single instance on page) */}
+          <Button
+            onClick={() => {
+              if (!isSelectionMode) {
+                setIsSelectionMode(true);
+                setExportModalFormat('EXCEL');
+              } else {
+                handleOpenExportModal('EXCEL');
+              }
+            }}
+            className="h-8 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 active:scale-95"
+            title={!isSelectionMode ? "Show checkboxes to select POs for Excel export" : `Export ${selectedCount} selected POs to Excel`}
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>{isSelectionMode ? `Export Excel (${selectedCount})` : 'Export Excel'}</span>
+          </Button>
+
+          {/* Hide Checkboxes when in selection mode */}
+          {isSelectionMode && (
+            <Button
+              onClick={() => setIsSelectionMode(false)}
+              variant="ghost"
+              className="h-8 px-2.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-xs font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0"
+              title="Hide table checkboxes"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Hide Checkboxes</span>
+            </Button>
+          )}
+
+          {canAddPurchase && (
+            <Button
+              onClick={() => navigate('/purchase-orders/create')}
+              className="h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-3xs transition-all cursor-pointer inline-flex items-center gap-1.5 shrink-0 active:scale-95"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Purchase</span>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Stat Cards Grid */}
@@ -852,10 +789,11 @@ export default function POListPage() {
           </div>
 
           {/* Table: Compact Professional ERP Layout with Balanced Column Widths */}
-          {/* Width distribution: SN 35px | Date 80px | PO Ref 90px | Supplier 120px | Purchase Status 150px | Grand Total 95px | Paid 90px | Due 90px | Payment Status 105px | Action 130px (min 125px) */}
+          {/* Width distribution: Checkbox 32px | SN 35px | Date 80px | PO Ref 90px | Supplier 120px | Purchase Status 150px | Grand Total 95px | Paid 90px | Due 90px | Payment Status 105px | Action 130px (min 125px) */}
           <div className="w-full overflow-x-auto">
             <Table className="w-full table-fixed text-xs border-collapse">
               <colgroup>
+                {isSelectionMode && <col style={{ width: '32px' }} />}
                 <col style={{ width: '35px' }} />
                 <col style={{ width: '80px' }} />
                 <col style={{ width: '90px' }} />
@@ -869,6 +807,19 @@ export default function POListPage() {
               </colgroup>
               <TableHeader className="bg-slate-50/90 dark:bg-slate-950/70 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 select-none">
                 <TableRow className="dark:border-slate-800">
+                  {/* 0. Select All Checkbox: displayed only when Export PDF/Excel is clicked */}
+                  {isSelectionMode && (
+                    <TableHead className="py-2 px-1 text-center w-[32px] min-w-[32px]">
+                      <input
+                        type="checkbox"
+                        checked={paginatedPOs.length > 0 && paginatedPOs.every(p => isRowSelected(p.id))}
+                        onChange={handleToggleSelectAllVisible}
+                        className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer align-middle"
+                        title="Select/Deselect visible rows"
+                      />
+                    </TableHead>
+                  )}
+
                   {/* 1. SN: 35px */}
                   <TableHead className="py-2 px-1 text-center text-[10px] uppercase tracking-wider font-extrabold w-[35px] min-w-[35px]">
                     SN
@@ -985,14 +936,14 @@ export default function POListPage() {
                 {isLoading ? (
                   Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i} className="border-b border-slate-100 dark:border-slate-800">
-                      {Array.from({ length: 10 }).map((__, j) => (
+                      {Array.from({ length: isSelectionMode ? 11 : 10 }).map((__, j) => (
                         <TableCell key={j} className="py-2 px-2.5"><Skeleton className="h-4.5 w-full rounded" /></TableCell>
                       ))}
                     </TableRow>
                   ))
                 ) : paginatedPOs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="h-44 text-center py-10 text-slate-400 dark:text-slate-500 font-medium">
+                    <TableCell colSpan={isSelectionMode ? 11 : 10} className="h-44 text-center py-10 text-slate-400 dark:text-slate-500 font-medium">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <FileText className="w-7 h-7 text-slate-300 dark:text-slate-600" />
                         <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">No purchase orders found</p>
@@ -1008,6 +959,18 @@ export default function POListPage() {
                         key={po.id} 
                         className="hover:bg-indigo-50/30 dark:hover:bg-slate-800/40 transition-colors group"
                       >
+                        {/* 0. Row Checkbox (only displayed when Export PDF/Excel is clicked) */}
+                        {isSelectionMode && (
+                          <TableCell className="py-2 px-1 text-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={isRowSelected(po.id)}
+                              onChange={() => handleToggleSelectRow(po.id)}
+                              className="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer align-middle"
+                            />
+                          </TableCell>
+                        )}
+
                         {/* 1. SN */}
                         <TableCell className="py-2 px-1 text-center font-bold text-slate-400 text-[10px] select-none truncate">
                           {computedIdx}
@@ -1364,6 +1327,21 @@ export default function POListPage() {
             refetch();
             queryClient.invalidateQueries({ queryKey: ['pos'] });
           }}
+        />
+      )}
+
+      {/* PO Export Modal (Interactive Header/Detail Checkboxes, Live Download Timestamp, PDF & ExcelJS) */}
+      {isExportModalOpen && (
+        <POExportModal
+          key={`po-export-modal-${exportModalFormat}-${selectedCount}`}
+          isOpen={isExportModalOpen}
+          onClose={() => {
+            setIsExportModalOpen(false);
+            setIsSelectionMode(false); // Automatically hide checkboxes whenever modal is closed
+          }}
+          allPOs={sortedPOs}
+          selectedPOs={selectedPOsList}
+          defaultFormat={exportModalFormat}
         />
       )}
     </div>

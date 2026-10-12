@@ -1,29 +1,91 @@
 const fs = require('fs');
 const path = require('path');
 
-const UPLOADS_DIR = path.join(__dirname, '../../uploads/payments');
+const BASE_UPLOADS_DIR = path.join(__dirname, '../../uploads');
+const UPLOADS_DIR = path.join(BASE_UPLOADS_DIR, 'payments');
+const INVOICES_DIR = path.join(BASE_UPLOADS_DIR, 'invoices');
 
-// Ensure the directory exists on startup
+// Ensure the directories exist on startup
 try {
   if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   }
+  if (!fs.existsSync(INVOICES_DIR)) {
+    fs.mkdirSync(INVOICES_DIR, { recursive: true });
+  }
 } catch (err) {
-  console.error('Failed to create payment uploads directory:', err);
+  console.error('Failed to create payment/invoice uploads directories:', err);
+}
+
+/**
+ * Ensures a dedicated folder exists for a specific PO:
+ * apps/backend/uploads/invoices/{cleanPoRef}/
+ */
+function getPoInvoiceDir(poRefOrId) {
+  const cleanRef = String(poRefOrId || 'PO').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const dir = path.join(INVOICES_DIR, cleanRef);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  return { dir, cleanRef };
 }
 
 /**
  * Deletes any existing file (receipt, PO, or order attachment) from the server uploads disk.
- * Supports absolute URLs, relative paths, query strings, and plain filenames.
+ * Supports absolute URLs, relative paths, query strings, and PO subdirectories.
  *
- * @param {string|null} imagePath - Stored path or URL (e.g. /uploads/payments/order_100100001_1791203006388.pdf or http://localhost:5173/uploads/payments/...)
+ * @param {string|null} imagePath - Stored path or URL
  * @returns {boolean} - True if file was deleted, false otherwise
  */
 function deletePaymentImageFromDisk(imagePath) {
-  if (!imagePath || typeof imagePath !== 'string') return false;
+  if (!imagePath) return false;
+
+  // Handle array of file items or strings
+  if (Array.isArray(imagePath)) {
+    let deletedCount = 0;
+    for (const item of imagePath) {
+      const p = typeof item === 'string' ? item : (item?.url || null);
+      if (p && deletePaymentImageFromDisk(p)) deletedCount++;
+    }
+    return deletedCount > 0;
+  }
+
+  if (typeof imagePath !== 'string') return false;
+
+  // Handle JSON stringified array
+  const trimmed = imagePath.trim();
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        let deletedCount = 0;
+        for (const item of parsed) {
+          const p = typeof item === 'string' ? item : (item?.url || null);
+          if (p && deletePaymentImageFromDisk(p)) deletedCount++;
+        }
+        return deletedCount > 0;
+      }
+    } catch (_) {
+      // Not valid JSON, proceed as regular path
+    }
+  }
 
   try {
-    const cleanUrl = imagePath.split('?')[0].trim();
+    const cleanUrl = trimmed.split('?')[0].trim();
+
+    // Check if it's within /uploads/invoices/
+    if (cleanUrl.includes('/uploads/invoices/') || cleanUrl.includes('\\uploads\\invoices\\')) {
+      const rel = cleanUrl.includes('/uploads/invoices/')
+        ? cleanUrl.split('/uploads/invoices/').pop()
+        : cleanUrl.split('\\uploads\\invoices\\').pop();
+      const fullPath = path.join(INVOICES_DIR, rel);
+      if (fs.existsSync(fullPath)) {
+        fs.unlinkSync(fullPath);
+        console.log(`[Storage] Deleted invoice file from INVOICES_DIR: ${rel}`);
+        return true;
+      }
+    }
+
     let filename = '';
 
     if (cleanUrl.includes('/uploads/payments/')) {
@@ -53,6 +115,44 @@ function deletePaymentImageFromDisk(imagePath) {
   } catch (err) {
     console.error('Error deleting file from disk:', err);
     return false;
+  }
+}
+
+/**
+ * Renames an existing supplier invoice file on disk to a new clean name while preserving extension.
+ *
+ * @param {string} oldUrl - Existing URL on server
+ * @param {string} newFileName - New name
+ * @param {string} [poRefOrId='PO'] - PO reference number
+ * @returns {string} - Updated URL or original URL if rename failed
+ */
+function renameInvoiceFileOnDisk(oldUrl, newFileName, poRefOrId = 'PO') {
+  if (!oldUrl || !newFileName || typeof oldUrl !== 'string') return oldUrl;
+  try {
+    const cleanUrl = oldUrl.split('?')[0].trim();
+    if (!cleanUrl.includes('/uploads/invoices/') && !cleanUrl.includes('\\uploads\\invoices\\')) {
+      return oldUrl;
+    }
+    const rel = cleanUrl.includes('/uploads/invoices/')
+      ? cleanUrl.split('/uploads/invoices/').pop()
+      : cleanUrl.split('\\uploads\\invoices\\').pop();
+    const currentFullPath = path.join(INVOICES_DIR, rel);
+    if (!fs.existsSync(currentFullPath)) return oldUrl;
+
+    const ext = path.extname(currentFullPath) || (newFileName.includes('.') ? path.extname(newFileName) : '.pdf');
+    const cleanBase = path.basename(newFileName).replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (!cleanBase) return oldUrl;
+
+    const { dir: poFolder, cleanRef } = getPoInvoiceDir(poRefOrId);
+    const newFilename = `${cleanBase}_${Date.now()}${ext.toLowerCase()}`;
+    const newFullPath = path.join(poFolder, newFilename);
+
+    fs.renameSync(currentFullPath, newFullPath);
+    console.log(`[Storage] Renamed invoice file: ${rel} -> ${newFilename}`);
+    return `/uploads/invoices/${cleanRef}/${newFilename}?t=${Date.now()}`;
+  } catch (err) {
+    console.error('Error renaming invoice file on disk:', err);
+    return oldUrl;
   }
 }
 
@@ -205,15 +305,17 @@ function saveOrderAttachmentBufferToDisk(buffer, originalname = 'photo.jpg', ord
 }
 
 /**
- * Saves a supplier invoice file (PDF or image) to apps/backend/uploads/payments/
- * Automatically deletes oldFilePath if replaced to prevent server disk bloat.
+ * Saves a supplier invoice file (PDF or image) to apps/backend/uploads/invoices/{poRef}/
+ * Automatically creates a dedicated subfolder for the PO.
+ * Automatically deletes oldFilePath if replaced.
  *
- * @param {string} fileData - Base64 Data URL (data:application/pdf;base64,... or data:image/...;base64,...)
- * @param {string} poRefOrId - PO reference number or ID
+ * @param {string} fileData - Base64 Data URL
+ * @param {string} [poRefOrId='PO'] - PO reference number or ID
  * @param {string|null} [oldFilePath=null] - Previous invoice file to delete on replacement
+ * @param {string|null} [customFileName=null] - Optional custom name for the file
  * @returns {string|null} - URL path with timestamp query parameter
  */
-function saveSupplierInvoiceToDisk(fileData, poRefOrId = 'PO', oldFilePath = null) {
+function saveSupplierInvoiceToDisk(fileData, poRefOrId = 'PO', oldFilePath = null, customFileName = null) {
   if (!fileData || typeof fileData !== 'string') return null;
 
   const trimmed = fileData.trim();
@@ -240,16 +342,23 @@ function saveSupplierInvoiceToDisk(fileData, poRefOrId = 'PO', oldFilePath = nul
   else if (mimeType.includes('webp')) ext = 'webp';
   else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg';
 
-  const cleanRef = String(poRefOrId || 'PO').replace(/[^a-zA-Z0-9_-]/g, '_');
-  const filename = `invoice_${cleanRef}_${Date.now()}.${ext}`;
-  const targetPath = path.join(UPLOADS_DIR, filename);
+  const { dir: poFolder, cleanRef } = getPoInvoiceDir(poRefOrId);
+
+  let baseName = `invoice_${cleanRef}`;
+  if (customFileName && typeof customFileName === 'string') {
+    const rawClean = path.basename(customFileName).replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (rawClean) baseName = rawClean;
+  }
+
+  const filename = `${baseName}_${Date.now()}.${ext}`;
+  const targetPath = path.join(poFolder, filename);
 
   try {
     const buffer = Buffer.from(base64Data, 'base64');
     fs.writeFileSync(targetPath, buffer);
-    console.log(`[Storage] Saved supplier invoice to UPLOADS_DIR: ${filename}`);
+    console.log(`[Storage] Saved supplier invoice to PO folder: uploads/invoices/${cleanRef}/${filename}`);
 
-    return `/uploads/payments/${filename}?t=${Date.now()}`;
+    return `/uploads/invoices/${cleanRef}/${filename}?t=${Date.now()}`;
   } catch (err) {
     console.error('Error writing supplier invoice file to disk:', err);
     return null;
@@ -261,6 +370,10 @@ module.exports = {
   saveOrderAttachmentToDisk,
   saveOrderAttachmentBufferToDisk,
   saveSupplierInvoiceToDisk,
+  renameInvoiceFileOnDisk,
   deletePaymentImageFromDisk,
+  getPoInvoiceDir,
   UPLOADS_DIR,
+  INVOICES_DIR,
+  BASE_UPLOADS_DIR,
 };

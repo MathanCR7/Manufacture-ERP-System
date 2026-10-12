@@ -4,7 +4,7 @@ const { generateRmId } = require('../../utils/rmIdGenerator');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
 const workflowNotifications = require('../notifications/workflow.notifications');
 const { receivePOAndProcess, cleanupPOReceiptsAndBatches, autoHealMultiItemGrnBatches } = require('../grn/grn.helper');
-const { savePaymentImageToDisk, saveSupplierInvoiceToDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
+const { savePaymentImageToDisk, saveSupplierInvoiceToDisk, renameInvoiceFileOnDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
 
 const isUuid = (value) => {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -99,7 +99,19 @@ exports.getPOs = async (req, res, next) => {
       include: {
         uom: true,
         supplier: true,
-        user: { select: { name: true, email: true } }
+        user: { select: { name: true, email: true } },
+        inventoryBatches: {
+          include: { uom: true },
+          orderBy: { createdAt: 'desc' }
+        },
+        grnReceives: {
+          include: {
+            items: true,
+            inventoryBatches: true,
+            labTest: true
+          },
+          orderBy: { createdAt: 'desc' }
+        }
       }
     });
 
@@ -128,6 +140,7 @@ exports.getPOs = async (req, res, next) => {
       expectedDelivery: po.expectedDelivery,
       status: po.status,
       createdAt: po.createdAt,
+      updatedAt: po.updatedAt || po.createdAt,
       subtotal: po.subtotal,
       orderTax: po.orderTax,
       discount: po.discount,
@@ -173,7 +186,9 @@ exports.getPOs = async (req, res, next) => {
       vehicleNumber: po.vehicleNumber,
       ewayBillNo: po.ewayBillNo,
       ewayBillDate: po.ewayBillDate,
-      tillDate: po.tillDate
+      tillDate: po.tillDate,
+      inventoryBatches: po.inventoryBatches || [],
+      grnReceives: po.grnReceives || []
     }));
 
     res.json(formattedPos);
@@ -3184,8 +3199,14 @@ exports.uploadPaymentImage = async (req, res, next) => {
 exports.updatePOSupplierInvoice = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { invoiceFile, supplierInvoiceFile, supplierInvoiceNo, supplierInvoiceDate } = req.body;
-    const incomingFile = invoiceFile !== undefined ? invoiceFile : supplierInvoiceFile;
+    const { 
+      invoiceFile, 
+      supplierInvoiceFile, 
+      invoiceFiles, 
+      removedFiles, 
+      supplierInvoiceNo, 
+      supplierInvoiceDate 
+    } = req.body;
 
     const po = await prisma.rawMaterialPO.findFirst({
       where: {
@@ -3200,6 +3221,7 @@ exports.updatePOSupplierInvoice = async (req, res, next) => {
       return res.status(404).json({ error: 'Purchase Order not found' });
     }
 
+    const cleanRef = String(po.referenceNo || po.id || 'PO').replace(/[^a-zA-Z0-9_-]/g, '_');
     const updateData = {};
 
     if (supplierInvoiceNo !== undefined) {
@@ -3210,23 +3232,94 @@ exports.updatePOSupplierInvoice = async (req, res, next) => {
       updateData.supplierInvoiceDate = supplierInvoiceDate ? new Date(supplierInvoiceDate) : null;
     }
 
-    if (incomingFile !== undefined) {
-      if (incomingFile && typeof incomingFile === 'string' && incomingFile.startsWith('data:')) {
-        // Save new file (PDF or image) and delete old file if one existed
-        const savedPath = saveSupplierInvoiceToDisk(
-          incomingFile,
-          po.referenceNo || po.id,
-          po.supplierInvoiceFile
-        );
-        updateData.supplierInvoiceFile = savedPath;
-      } else if (incomingFile === null || incomingFile === '') {
-        // User explicitly removed attachment -> wipe old file from disk!
+    // 1. Prune explicitly removed files from disk
+    if (Array.isArray(removedFiles) && removedFiles.length > 0) {
+      for (const remPath of removedFiles) {
+        if (typeof remPath === 'string') {
+          deletePaymentImageFromDisk(remPath);
+        }
+      }
+    }
+
+    // 2. Handle Multi-file uploads / updates
+    if (Array.isArray(invoiceFiles)) {
+      const processedFiles = [];
+
+      for (const item of invoiceFiles) {
+        if (!item) continue;
+        let fileUrl = item.url || null;
+        let fileName = (item.name || `Invoice_${cleanRef}`).trim();
+        let fileType = item.type || (fileUrl && fileUrl.toLowerCase().includes('.pdf') ? 'application/pdf' : 'image/jpeg');
+        let fileSize = item.size || 'Attached file';
+        const idVal = item.id || `file_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+        const uploadedAtVal = item.uploadedAt || new Date().toISOString();
+
+        // If file has a new base64 payload, save to disk in dedicated PO folder: uploads/invoices/{cleanRef}/
+        if (item.dataUrl && typeof item.dataUrl === 'string' && item.dataUrl.startsWith('data:')) {
+          const savedPath = saveSupplierInvoiceToDisk(item.dataUrl, cleanRef, null, fileName);
+          if (savedPath) {
+            fileUrl = savedPath;
+            if (item.dataUrl.startsWith('data:application/pdf')) {
+              fileType = 'application/pdf';
+            } else {
+              fileType = 'image/jpeg';
+            }
+          }
+        } else if (fileUrl && item.isRenamed && fileName) {
+          // File was renamed by user on disk
+          const renamedUrl = renameInvoiceFileOnDisk(fileUrl, fileName, cleanRef);
+          if (renamedUrl) fileUrl = renamedUrl;
+        }
+
+        if (fileUrl) {
+          processedFiles.push({
+            id: idVal,
+            name: fileName,
+            url: fileUrl,
+            size: fileSize,
+            type: fileType,
+            uploadedAt: uploadedAtVal
+          });
+        }
+      }
+
+      if (processedFiles.length === 0) {
+        // All files were removed -> purge old files from disk
         if (po.supplierInvoiceFile) {
           deletePaymentImageFromDisk(po.supplierInvoiceFile);
         }
         updateData.supplierInvoiceFile = null;
-      } else if (typeof incomingFile === 'string' && (incomingFile.startsWith('/uploads/') || incomingFile.startsWith('http'))) {
-        updateData.supplierInvoiceFile = incomingFile;
+      } else {
+        updateData.supplierInvoiceFile = JSON.stringify(processedFiles);
+      }
+    } else {
+      // 3. Fallback: Legacy single-file mode
+      const incomingFile = invoiceFile !== undefined ? invoiceFile : supplierInvoiceFile;
+      if (incomingFile !== undefined) {
+        if (incomingFile && typeof incomingFile === 'string' && incomingFile.startsWith('data:')) {
+          const savedPath = saveSupplierInvoiceToDisk(
+            incomingFile,
+            cleanRef,
+            po.supplierInvoiceFile
+          );
+          const isPdf = incomingFile.startsWith('data:application/pdf') || (savedPath && savedPath.toLowerCase().includes('.pdf'));
+          const singleItem = [{
+            id: `file_${Date.now()}`,
+            name: `Supplier_Invoice_${cleanRef}.${isPdf ? 'pdf' : 'jpg'}`,
+            url: savedPath,
+            size: 'Attached file',
+            type: isPdf ? 'application/pdf' : 'image/jpeg',
+            uploadedAt: new Date().toISOString()
+          }];
+          updateData.supplierInvoiceFile = JSON.stringify(singleItem);
+        } else if (incomingFile === null || incomingFile === '') {
+          if (po.supplierInvoiceFile) {
+            deletePaymentImageFromDisk(po.supplierInvoiceFile);
+          }
+          updateData.supplierInvoiceFile = null;
+        } else if (typeof incomingFile === 'string' && (incomingFile.startsWith('/uploads/') || incomingFile.startsWith('http'))) {
+          updateData.supplierInvoiceFile = incomingFile;
+        }
       }
     }
 
@@ -3241,7 +3334,7 @@ exports.updatePOSupplierInvoice = async (req, res, next) => {
 
     res.json({
       success: true,
-      message: 'Supplier invoice updated successfully',
+      message: 'Supplier invoice documents updated successfully',
       po: {
         ...updated,
         supplierName: updated.supplier?.name || updated.supplier?.contactPerson || '—',

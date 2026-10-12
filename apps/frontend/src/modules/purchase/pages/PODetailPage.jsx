@@ -1,29 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { format } from 'date-fns';
 import {
-  ArrowLeft, Trash2, User, Calendar, FileText, IndianRupee, Printer, Edit,
+  ArrowLeft, Trash2, User, Calendar, FileText, IndianRupee, Edit,
   QrCode, Package, FlaskConical, CheckCircle2, XCircle, AlertTriangle,
   Clock, ChevronRight, Truck, Tag, BarChart3, ShieldCheck, PackageCheck,
-  Copy, Check, ExternalLink, Boxes, RefreshCw, Scale,
-  CreditCard, Wallet, Image as ImageIcon, ZoomIn, UploadCloud, Eye, X, Loader2, AlertCircle,
+  Copy, Check, Boxes, RefreshCw, Scale,
+  Image as ImageIcon, UploadCloud, Eye,
   RotateCcw, Undo2, Download, Phone, Mail, MapPin, Building, Building2,
-  Paperclip, FileCheck
+  Paperclip
 } from 'lucide-react';
-import Swal from 'sweetalert2';
 import { 
   UpdatePaymentSettlementModal, 
   PaymentSettlementCardView 
 } from '../components/PaymentSettlementManager';
 import { 
   SupplierInvoiceModal, 
-  InvoiceFilePreviewModal, 
-  resolveInvoiceFileUrl, 
-  isPdfDocument 
+  InvoiceViewerToolModal 
 } from '../components/SupplierInvoiceManager';
-import PaymentFieldsSection, { ImagePreviewModal, PAYMENT_MODES, resolvePaymentImageUrl } from '../components/PaymentFieldsSection';
+import {
+  parseInvoiceFiles,
+  downloadInvoiceFile,
+  isPdfDocument
+} from '../utils/supplierInvoiceUtils';
+import { ImagePreviewModal } from '../components/PaymentFieldsSection';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,8 +35,7 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
-import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
-import { generatePurchaseOrderPDF } from '../utils/purchaseOrderPdfGenerator';
+import POExportModal from '../components/POExportModal';
 import GstCalculationModal, { calculateGstBreakdown } from '../components/GstCalculationModal';
 import useCompanyStore from '@/app/store/companyStore';
 
@@ -67,198 +68,6 @@ function LifecycleStep({ step, active, done, icon: Icon }) {
   );
 }
 
-function DetailPaymentModal() {
-  return null;
-}
-
-function _Unused_DetailPaymentModal({ po, onClose, onUpdated }) {
-  const total = Number(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount || 0);
-  const existingPaid = Number(po.paidAmount !== undefined && po.paidAmount !== null ? po.paidAmount : (po.paymentStatus === 'PAID' ? total : 0));
-
-  let resolvedInitialStatus = po.paymentStatus;
-  if (!resolvedInitialStatus) {
-    resolvedInitialStatus = existingPaid >= total && total > 0 ? 'PAID' : existingPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID';
-  }
-
-  const [paidInput, setPaidInput] = useState(existingPaid.toString());
-  const [paymentStatusMode, setPaymentStatusMode] = useState(resolvedInitialStatus);
-  const [paymentMode, setPaymentMode] = useState(po.paymentMode || 'BANK_TRANSFER');
-  const [paymentRef, setPaymentRef] = useState(po.paymentRef || '');
-  const [paymentImage, setPaymentImage] = useState(po.paymentImage || null);
-  const [paymentNotes, setPaymentNotes] = useState(po.paymentNotes || '');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    let finalPaid = parseFloat(paidInput);
-    let resolvedStatus = paymentStatusMode;
-
-    if (paymentStatusMode === 'UNPAID') {
-      finalPaid = 0;
-      resolvedStatus = 'UNPAID';
-    } else if (paymentStatusMode === 'PAID') {
-      finalPaid = total;
-      resolvedStatus = 'PAID';
-    } else {
-      if (isNaN(finalPaid) || finalPaid <= 0) {
-        setError('Please enter a valid partial amount greater than 0.');
-        return;
-      }
-      if (finalPaid >= total) {
-        setError(`Partial amount must be less than Grand Total (₹${total.toLocaleString('en-IN')}). Select 'Full Paid' if settling in full.`);
-        return;
-      }
-      resolvedStatus = 'PARTIALLY_PAID';
-    }
-
-    setIsSubmitting(true);
-    try {
-      await api.patch(`/rm/po/${po.id}/payment`, {
-        paymentStatus: resolvedStatus,
-        paidAmount: finalPaid,
-        paymentMode: resolvedStatus === 'UNPAID' ? null : paymentMode,
-        paymentRef: resolvedStatus === 'UNPAID' ? null : paymentRef,
-        paymentImage: resolvedStatus === 'UNPAID' ? null : paymentImage,
-        paymentNotes: resolvedStatus === 'UNPAID' ? null : paymentNotes,
-      });
-
-      Swal.fire({
-        toast: true,
-        position: 'top-end',
-        icon: 'success',
-        title: `Payment Updated for ${po.referenceNo || po.rmId}`,
-        html: `<span class="text-xs">Status: <b>${resolvedStatus}</b> · Paid: <b>₹${finalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</b></span>`,
-        showConfirmButton: false,
-        timer: 3000,
-        timerProgressBar: true
-      });
-
-      onUpdated();
-      onClose();
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.error || 'Failed to update payment status. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  React.useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div 
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-150"
-      onClick={onClose}
-    >
-      <div 
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200/80 dark:border-slate-800 w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/70 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/50">
-              <CreditCard className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-slate-900 dark:text-white truncate">Update Payment Settlement</h3>
-                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-indigo-100/70 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
-                  {po.referenceNo || po.rmId}
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                Supplier: <span className="font-semibold text-slate-700 dark:text-slate-300">{po.supplier?.name || 'N/A'}</span>
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 h-8 w-8"
-          >
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Content Body - Scrollable */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-5 overflow-y-auto flex-1 space-y-4">
-          <PaymentFieldsSection
-            paymentStatus={paymentStatusMode}
-            setPaymentStatus={setPaymentStatusMode}
-            paidAmount={paidInput}
-            setPaidAmount={setPaidInput}
-            paymentMode={paymentMode}
-            setPaymentMode={setPaymentMode}
-            paymentRef={paymentRef}
-            setPaymentRef={setPaymentRef}
-            paymentImage={paymentImage}
-            setPaymentImage={setPaymentImage}
-            paymentNotes={paymentNotes}
-            setPaymentNotes={setPaymentNotes}
-            totalAmount={total}
-            isCompact={true}
-          />
-
-          {error && (
-            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs font-semibold flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div className="pt-3 flex items-center justify-end gap-2 border-t border-slate-100 dark:border-slate-800">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="rounded-xl text-xs h-9 cursor-pointer"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className={`rounded-xl text-xs h-9 font-bold px-4 shadow-sm cursor-pointer text-white ${
-                paymentStatusMode === 'UNPAID'
-                  ? 'bg-amber-600 hover:bg-amber-700'
-                  : paymentStatusMode === 'PAID'
-                  ? 'bg-emerald-600 hover:bg-emerald-700'
-                  : 'bg-indigo-600 hover:bg-indigo-700'
-              }`}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                  {paymentStatusMode === 'UNPAID'
-                    ? 'Save as Unpaid'
-                    : paymentStatusMode === 'PAID'
-                    ? 'Save Full Payment'
-                    : 'Save Partial Payment'}
-                </>
-              )}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 export default function PODetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -271,6 +80,8 @@ export default function PODetailPage() {
   const [previewImage, setPreviewImage] = useState(null);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [previewInvoiceModal, setPreviewInvoiceModal] = useState(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportModalFormat, setExportModalFormat] = useState('PDF');
   const fetchCompany = useCompanyStore((s) => s.fetchCompany);
 
   useEffect(() => {
@@ -399,9 +210,7 @@ export default function PODetailPage() {
     (Array.isArray(grn?.items) && grn.items.length > 0 && grn.items.every(i => i.labTestRequired === false));
 
   const hasBatches = Array.isArray(batches) && batches.length > 0;
-  const hasPO = true;
   const hasGRN = !!grn;
-  const hasLabTest = !!labTest;
   const labApproved = labTest?.overallDecision === 'APPROVED' || (!isLabExempt && grn?.status === 'LAB_APPROVED');
   const labRejected = labTest?.overallDecision === 'REJECTED' || grn?.status === 'LAB_REJECTED';
 
@@ -770,18 +579,24 @@ export default function PODetailPage() {
 
           <Button 
             variant="outline" 
-            onClick={() => exportPurchaseOrderToExcel(po)} 
-            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 gap-2 font-semibold cursor-pointer"
-            title="Export Purchase Order to Excel (.xlsx) with all items and batches"
+            onClick={() => {
+              setExportModalFormat('EXCEL');
+              setIsExportModalOpen(true);
+            }} 
+            className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-300 gap-2 font-semibold cursor-pointer shadow-3xs"
+            title="Export Purchase Order to Excel (.xlsx) with all items, batches, and audit timestamps"
           >
             <Download className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> Export Excel
           </Button>
 
           <Button 
             variant="outline" 
-            onClick={() => generatePurchaseOrderPDF(po)} 
-            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 gap-2 font-semibold cursor-pointer"
-            title="Download complete Purchase Order PDF with all details"
+            onClick={() => {
+              setExportModalFormat('PDF');
+              setIsExportModalOpen(true);
+            }} 
+            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 gap-2 font-semibold cursor-pointer shadow-3xs"
+            title="Download complete Purchase Order PDF with all details, batches, and live timestamps"
           >
             <Download className="w-4 h-4 text-indigo-600 dark:text-indigo-400" /> Download PDF
           </Button>
@@ -1370,91 +1185,104 @@ export default function PODetailPage() {
                 </Button>
               </div>
 
-              {po.supplierInvoiceFile ? (
-                <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-gradient-to-r from-emerald-50/60 to-white dark:from-emerald-950/20 dark:to-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-3xs">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
-                      isPdfDocument(po.supplierInvoiceFile) 
-                        ? 'bg-rose-500 text-white' 
-                        : 'bg-indigo-600 text-white'
-                    }`}>
-                      {isPdfDocument(po.supplierInvoiceFile) ? (
-                        <FileText className="w-5 h-5" />
-                      ) : (
-                        <ImageIcon className="w-5 h-5" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-                          {po.supplierInvoiceNo ? `Invoice #${po.supplierInvoiceNo}` : 'Supplier Invoice Document'}
-                        </span>
-                        <span className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider ${
-                          isPdfDocument(po.supplierInvoiceFile)
-                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                            : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                        }`}>
-                          {isPdfDocument(po.supplierInvoiceFile) ? 'PDF' : 'IMAGE'}
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Attached
-                        </span>
+              {/* Supplier Invoice Document Banner */}
+              {(() => {
+                const invoiceFiles = parseInvoiceFiles(po.supplierInvoiceFile, po.referenceNo || po.rmId);
+                const hasDocs = invoiceFiles.length > 0;
+                if (!hasDocs) {
+                  return (
+                    <div 
+                      onClick={() => setInvoiceModalOpen(true)}
+                      className="p-3.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex items-center justify-between gap-3 cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors group"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-indigo-500 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-950/50 transition-colors">
+                          <Paperclip className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                            No supplier invoice file attached
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            Click to upload original supplier tax invoice (PDF, JPG, PNG, WEBP)
+                          </p>
+                        </div>
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
-                        {po.supplierInvoiceDate ? `Dated ${format(new Date(po.supplierInvoiceDate), 'dd MMM yyyy')}` : 'Document uploaded on server'}
-                      </p>
+                      <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 group-hover:underline flex items-center gap-1 shrink-0">
+                        <UploadCloud className="w-3 h-3" />
+                        Upload Now
+                      </span>
                     </div>
-                  </div>
+                  );
+                }
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setPreviewInvoiceModal(po.supplierInvoiceFile)}
-                      className="h-8 text-xs font-semibold px-2.5 rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 gap-1.5 cursor-pointer shadow-3xs"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      Preview
-                    </Button>
-                    <a
-                      href={resolveInvoiceFileUrl(po.supplierInvoiceFile)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      download={`Supplier_Invoice_${po.referenceNo || 'PO'}.${isPdfDocument(po.supplierInvoiceFile) ? 'pdf' : 'jpg'}`}
-                      className="h-8 text-xs font-semibold px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-3xs"
-                      title="Download Invoice"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      Download
-                    </a>
-                  </div>
-                </div>
-              ) : (
-                <div 
-                  onClick={() => setInvoiceModalOpen(true)}
-                  className="p-3.5 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex items-center justify-between gap-3 cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors group"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400 group-hover:text-indigo-500 group-hover:bg-indigo-50 dark:group-hover:bg-indigo-950/50 transition-colors">
-                      <Paperclip className="w-4 h-4" />
+                const primaryDoc = invoiceFiles[0];
+                const isPrimaryPdf = primaryDoc ? isPdfDocument(primaryDoc.name || primaryDoc.url) : false;
+
+                return (
+                  <div className="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-gradient-to-r from-emerald-50/60 to-white dark:from-emerald-950/20 dark:to-slate-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-3xs">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+                        isPrimaryPdf 
+                          ? 'bg-rose-500 text-white' 
+                          : 'bg-indigo-600 text-white'
+                      }`}>
+                        {isPrimaryPdf ? (
+                          <FileText className="w-5 h-5" />
+                        ) : (
+                          <ImageIcon className="w-5 h-5" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
+                            {po.supplierInvoiceNo ? `Invoice #${po.supplierInvoiceNo}` : primaryDoc.name}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[9.5px] font-black uppercase tracking-wider ${
+                            isPrimaryPdf
+                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                              : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                          }`}>
+                            {isPrimaryPdf ? 'PDF' : 'IMAGE'}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle2 className="w-3 h-3" />
+                            {invoiceFiles.length > 1 ? `${invoiceFiles.length} Docs Attached` : 'Attached'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {po.supplierInvoiceDate ? `Dated ${format(new Date(po.supplierInvoiceDate), 'dd MMM yyyy')}` : 'Saved in dedicated PO folder'}
+                          {invoiceFiles.length > 1 && ` • ${invoiceFiles.map(f => f.name).join(', ')}`}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                        No supplier invoice file attached
-                      </p>
-                      <p className="text-[10px] text-slate-400">
-                        Click to upload original supplier tax invoice (PDF, JPG, PNG, WEBP)
-                      </p>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPreviewInvoiceModal(invoiceFiles)}
+                        className="h-8 text-xs font-semibold px-2.5 rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 gap-1.5 cursor-pointer shadow-3xs"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        Preview Tool
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => downloadInvoiceFile(primaryDoc, po.referenceNo || po.rmId)}
+                        className="h-8 text-xs font-semibold px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-3xs"
+                        title="Download Invoice File"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download
+                      </Button>
                     </div>
                   </div>
-                  <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 group-hover:underline flex items-center gap-1 shrink-0">
-                    <UploadCloud className="w-3 h-3" />
-                    Upload Now
-                  </span>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
 
@@ -1901,10 +1729,10 @@ export default function PODetailPage() {
         />
       )}
 
-      {/* Supplier Invoice Document Fullscreen Preview Modal */}
+      {/* Supplier Invoice Document Fullscreen Viewer Tool Modal */}
       {previewInvoiceModal && (
-        <InvoiceFilePreviewModal
-          src={previewInvoiceModal}
+        <InvoiceViewerToolModal
+          files={Array.isArray(previewInvoiceModal) ? previewInvoiceModal : parseInvoiceFiles(previewInvoiceModal, po.referenceNo || po.rmId)}
           title="Supplier Tax Invoice Document"
           poReference={po.referenceNo || po.rmId}
           invoiceNo={po.supplierInvoiceNo}
@@ -1924,6 +1752,15 @@ export default function PODetailPage() {
           }}
         />
       )}
+
+      {/* PO Export Modal (Interactive Header/Detail Checkboxes, Live Download Timestamp, PDF & ExcelJS) */}
+      <POExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        allPOs={po ? [po] : []}
+        selectedPOs={po ? [po] : []}
+        defaultFormat={exportModalFormat}
+      />
     </div>
   );
 }
