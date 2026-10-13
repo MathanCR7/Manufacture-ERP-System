@@ -4,10 +4,10 @@ const prisma = require('../../database/prisma');
 const lineSchema = z.object({
   seqNo: z.number().int().optional(),
   itemType: z.string().optional().default('RAW_MATERIAL'),
-  rawMaterialId: z.string().min(1),
-  rawMaterialName: z.string().min(1),
+  rawMaterialId: z.string().optional().nullable().transform(val => (val && val.trim()) ? val : `ovh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`),
+  rawMaterialName: z.string().min(1, 'Item name is required'),
   quantity: z.coerce.number().positive('Quantity must be greater than 0'),
-  uom: z.string().min(1),
+  uom: z.string().min(1, 'UOM is required'),
   rate: z.coerce.number().min(0).default(0),
   rateSource: z.string().optional().default('PO_LATEST'),
   rateOverrideReason: z.string().optional().nullable(),

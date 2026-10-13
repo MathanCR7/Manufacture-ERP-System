@@ -3,14 +3,39 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   FileText, ArrowLeft, Plus, Trash2, ArrowUp, ArrowDown, Database, 
-  Sparkles, Save, Check, RefreshCw, AlertCircle, Info, Calculator, Tag
+  Sparkles, Save, Check, RefreshCw, AlertCircle, Info, Calculator, Tag,
+  Layers, Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import CostingSummaryFooter from '../components/CostingSummaryFooter';
 import ProductionSearchSelect from '../components/ProductionSearchSelect';
+import UomSearchSelect from '@/components/ui/UomSearchSelect';
+import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
+
+const formatCurrency = (val) => {
+  return Number(val || 0).toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+};
+
+// 11 Standard Overhead Lines from Image 2
+const STANDARD_EXCEL_OVERHEADS = [
+  { rawMaterialName: 'Gas', quantity: 15, uom: 'Kg', rate: 170.11, total: 2551.58, isOverhead: true },
+  { rawMaterialName: 'EB', quantity: 50, uom: 'Unit', rate: 15.00, total: 750.00, isOverhead: true },
+  { rawMaterialName: 'Rent', quantity: 1, uom: 'Day', rate: 1166.67, total: 1166.67, isOverhead: true },
+  { rawMaterialName: 'Resource', quantity: 700, uom: 'Nos', rate: 4.00, total: 2800.00, isOverhead: true },
+  { rawMaterialName: 'RO Water Clean', quantity: 6, uom: 'Nos', rate: 20.00, total: 120.00, isOverhead: true },
+  { rawMaterialName: 'Stick Cost', quantity: 2000, uom: 'Nos', rate: 0.25, total: 500.00, isOverhead: true },
+  { rawMaterialName: 'Item Packing Cost', quantity: 2000, uom: 'Nos', rate: 0.30, total: 600.00, isOverhead: true },
+  { rawMaterialName: 'Over Packing Cover', quantity: 2000, uom: 'Nos', rate: 0.20, total: 400.00, isOverhead: true },
+  { rawMaterialName: 'Lable and Printing Cost', quantity: 2000, uom: 'Nos', rate: 0.10, total: 200.00, isOverhead: true },
+  { rawMaterialName: 'Machine and Mould Cost', quantity: 1, uom: 'Nos', rate: 0, total: 0, isOverhead: true },
+  { rawMaterialName: 'Storage / Holding Cost', quantity: 1, uom: 'Nos', rate: 0, total: 0, isOverhead: true }
+];
 
 export default function ProductionTemplateFormPage() {
   const { id } = useParams();
@@ -26,6 +51,17 @@ export default function ProductionTemplateFormPage() {
   const [subcategories, setSubcategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Role visibility
+  const currentUser = useAuthStore(s => s.user);
+  const isProductionRole = useMemo(() => {
+    if (!currentUser) return false;
+    const role = (currentUser.role || '').toUpperCase();
+    const email = (currentUser.email || '').toLowerCase();
+    if (role === 'MAIN_MASTER' || role === 'ADMIN' || role === 'SUPERVISOR') return false;
+    return role === 'PRODUCTION_STAFF' || role === 'OPERATOR' || role.includes('PRODUCTION') || email.includes('production');
+  }, [currentUser]);
+  const canViewCosting = !isProductionRole;
 
   // Template Form State
   const [formData, setFormData] = useState({
@@ -213,7 +249,7 @@ export default function ProductionTemplateFormPage() {
     };
   }, [lines, formData.wastagePct, formData.overheadPct, formData.outputQty]);
 
-  // Handle adding new empty line
+  // Handle adding new empty raw material line
   const handleAddRow = () => {
     setLines(prev => {
       const nextSeq = prev.length + 1;
@@ -234,6 +270,65 @@ export default function ProductionTemplateFormPage() {
           isOverhead: false
         }
       ];
+    });
+  };
+
+  // Handle adding overhead line (manual entry)
+  const handleAddOverheadRow = () => {
+    setLines(prev => {
+      const nextSeq = prev.length + 1;
+      return [
+        ...prev,
+        {
+          id: `ovh-${Date.now()}`,
+          seqNo: nextSeq,
+          itemType: 'OVERHEAD',
+          rawMaterialId: '',
+          rawMaterialName: 'New Overhead Cost',
+          quantity: 1,
+          uom: 'Nos',
+          rate: 0,
+          rateSource: 'MANUAL_ENTRY',
+          rateOverrideReason: 'Operational Overhead',
+          total: 0,
+          isOverhead: true
+        }
+      ];
+    });
+  };
+
+  // Apply all 11 standard overheads from Image 2
+  const handleApplyStandardExcelOverheads = () => {
+    setLines(prev => {
+      const existingNames = new Set(prev.map(l => (l.rawMaterialName || '').toLowerCase().trim()));
+      const newItems = STANDARD_EXCEL_OVERHEADS.filter(o => !existingNames.has(o.rawMaterialName.toLowerCase().trim()));
+      if (newItems.length === 0) {
+        Swal.fire({ title: 'Notice', text: 'All standard overhead lines are already added to this template.', icon: 'info' });
+        return prev;
+      }
+      let seq = prev.length + 1;
+      const mapped = newItems.map(item => ({
+        id: `ovh-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        seqNo: seq++,
+        itemType: 'OVERHEAD',
+        rawMaterialId: '',
+        rawMaterialName: item.rawMaterialName,
+        quantity: item.quantity,
+        uom: item.uom,
+        rate: item.rate,
+        rateSource: 'EXCEL_STANDARD',
+        rateOverrideReason: 'Excel Costing Preset',
+        total: item.total,
+        isOverhead: true
+      }));
+      return [...prev, ...mapped];
+    });
+
+    Swal.fire({
+      title: 'Standard Overheads Added',
+      text: 'Gas, EB, Rent, Resource, RO Water, Stick & Packing expenses successfully added.',
+      icon: 'success',
+      timer: 1500
     });
   };
 
@@ -344,12 +439,12 @@ export default function ProductionTemplateFormPage() {
     // Validate lines
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
-      if (!l.rawMaterialId) {
-        Swal.fire({ title: 'Validation', text: `Please select a raw material for Row #${i + 1}.`, icon: 'warning' });
+      if (!l.rawMaterialName && !l.rawMaterialId) {
+        Swal.fire({ title: 'Validation', text: `Please select or enter an item name for Row #${i + 1}.`, icon: 'warning' });
         return;
       }
       if (Number(l.quantity) <= 0) {
-        Swal.fire({ title: 'Validation', text: `Quantity for "${l.rawMaterialName}" must be greater than 0.`, icon: 'warning' });
+        Swal.fire({ title: 'Validation', text: `Quantity for "${l.rawMaterialName || `Row #${i + 1}`}" must be greater than 0.`, icon: 'warning' });
         return;
       }
     }
@@ -366,16 +461,16 @@ export default function ProductionTemplateFormPage() {
       status: formData.status,
       lines: lines.map((l, idx) => ({
         seqNo: idx + 1,
-        itemType: l.itemType,
-        rawMaterialId: l.rawMaterialId,
-        rawMaterialName: l.rawMaterialName,
+        itemType: l.itemType || (l.isOverhead ? 'OVERHEAD' : 'RAW_MATERIAL'),
+        rawMaterialId: l.rawMaterialId || `ovh-${idx + 1}-${Date.now()}`,
+        rawMaterialName: l.rawMaterialName || 'Operational Expense',
         quantity: Number(l.quantity),
-        uom: l.uom,
-        rate: Number(l.rate),
-        rateSource: l.rateSource,
+        uom: l.uom || 'Nos',
+        rate: Number(l.rate || 0),
+        rateSource: l.rateSource || 'MANUAL_ENTRY',
         rateOverrideReason: l.rateOverrideReason || null,
-        total: Number(l.total),
-        isOverhead: l.isOverhead
+        total: Number(l.total || (Number(l.quantity) * Number(l.rate || 0))),
+        isOverhead: Boolean(l.isOverhead)
       }))
     };
 
@@ -548,13 +643,15 @@ export default function ProductionTemplateFormPage() {
           {/* Output UOM */}
           <div className="space-y-1">
             <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-              Output UOM
+              Target Output UOM
             </Label>
-            <Input
+            <UomSearchSelect
               value={formData.outputUom}
-              onChange={(e) => setFormData(prev => ({ ...prev, outputUom: e.target.value }))}
-              className="h-10 rounded-xl font-bold"
-              placeholder="Nos, Gallon, Pack..."
+              onChange={(val) => setFormData(prev => ({ ...prev, outputUom: val }))}
+              extraOptions={uoms}
+              placeholder="Select Target UOM..."
+              searchPlaceholder="Search UOM (Nos, Box, Liter, Pack)..."
+              triggerClassName="h-10 rounded-xl font-bold bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
             />
           </div>
 
@@ -595,166 +692,233 @@ export default function ProductionTemplateFormPage() {
         </div>
       </div>
 
-      {/* ── DYNAMIC RAW MATERIAL GRID ── */}
+      {/* ── DYNAMIC RAW MATERIAL & OVERHEAD GRID ── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Tag className="w-4 h-4 text-indigo-500" />
-            <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 dark:text-white">
-              2. Formulation Ingredients & Cost Heads ({lines.length} lines)
-            </h2>
+        {/* Section Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                Raw Material Formulation & Costing Lines
+                <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+                  {lines.length} {lines.length === 1 ? 'item' : 'items'}
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Units fetched from Item Setup (/setup/raw-material) with manual operational overheads (Gas, EB, Rent, Packing...)
+              </p>
+            </div>
           </div>
 
-          <Button
-            type="button"
-            onClick={handleAddRow}
-            size="sm"
-            className="rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:hover:bg-indigo-900 dark:text-indigo-300 font-bold h-8 text-xs border border-indigo-200 dark:border-indigo-800"
-          >
-            <Plus className="w-3.5 h-3.5 mr-1" />
-            + Add Line Item
-          </Button>
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleApplyStandardExcelOverheads}
+              className="rounded-xl border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 font-bold text-xs h-9 hover:bg-amber-100 dark:hover:bg-amber-900/50 cursor-pointer shadow-2xs"
+              title="Add 11 Standard Expenses from Image 2: Gas, EB, Rent, Resource, RO Water, Stick, Packing, Labels, Mould..."
+            >
+              <Zap className="w-3.5 h-3.5 mr-1.5 text-amber-600" />
+              ⚡ Add Standard Overheads from Excel
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddOverheadRow}
+              className="rounded-xl border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 font-bold text-xs h-9 hover:bg-slate-50 dark:hover:bg-slate-850 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1 text-purple-600" />
+              + Add Overhead / Packing Line
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleAddRow}
+              className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs h-9 shadow-2xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" />
+              + Add Raw Material
+            </Button>
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-slate-50/75 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <th className="py-2.5 px-3 w-16 text-center">Seq No</th>
-                <th className="py-2.5 px-3 min-w-[240px]">Key Raw Material / Cost Head</th>
-                <th className="py-2.5 px-3 w-28 text-center">Quantity</th>
-                <th className="py-2.5 px-3 w-24 text-center">UOM</th>
-                <th className="py-2.5 px-3 w-32 text-right">Rate (₹)</th>
-                <th className="py-2.5 px-3 w-32 text-right">Total (₹)</th>
-                <th className="py-2.5 px-3 w-24 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {lines.map((row, index) => (
-                <tr key={row.id || index} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                  
-                  {/* Seq No & Reorder buttons */}
-                  <td className="py-2 px-3 text-center">
-                    <div className="flex items-center justify-center gap-1 font-mono font-bold text-slate-500">
-                      <span>{row.seqNo}</span>
-                      <div className="flex flex-col">
-                        <button
-                          type="button"
-                          onClick={() => handleMoveRow(index, -1)}
-                          disabled={index === 0}
-                          className="text-slate-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
-                          title="Move Up"
-                        >
-                          <ArrowUp className="w-2.5 h-2.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleMoveRow(index, 1)}
-                          disabled={index === lines.length - 1}
-                          className="text-slate-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
-                          title="Move Down"
-                        >
-                          <ArrowDown className="w-2.5 h-2.5" />
-                        </button>
+        {/* Lines Table */}
+        <div className="border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-2xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50/90 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <th className="py-3 px-3 text-center w-16">#</th>
+                  <th className="py-3 px-3 w-32">Type</th>
+                  <th className="py-3 px-3 min-w-[280px]">Item / Cost Description</th>
+                  <th className="py-3 px-3 text-right w-28">Quantity</th>
+                  <th className="py-3 px-3 w-40 min-w-[140px]">UOM</th>
+                  {canViewCosting ? (
+                    <>
+                      <th className="py-3 px-3 text-right w-32">Rate (₹)</th>
+                      <th className="py-3 px-3 text-right w-32">Total (₹)</th>
+                    </>
+                  ) : null}
+                  <th className="py-3 px-3 text-center w-16">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {lines.map((row, idx) => (
+                  <tr 
+                    key={row.id || idx} 
+                    className="hover:bg-slate-50/60 dark:hover:bg-slate-850/40 transition-colors"
+                  >
+                    {/* Seq & Reorder */}
+                    <td className="py-2.5 px-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <span className="font-mono font-bold text-slate-400 text-xs w-4">
+                          {row.seqNo || (idx + 1)}
+                        </span>
+                        <div className="flex flex-col">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() => handleMoveRow(idx, -1)}
+                            className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
+                            title="Move Up"
+                          >
+                            <ArrowUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === lines.length - 1}
+                            onClick={() => handleMoveRow(idx, 1)}
+                            className="p-0.5 text-slate-400 hover:text-indigo-600 disabled:opacity-20 cursor-pointer"
+                            title="Move Down"
+                          >
+                            <ArrowDown className="w-3 h-3" />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </td>
+                    </td>
 
-                  {/* Material Searchable Dropdown with Embedded Search Bar */}
-                  <td className="py-2 px-3">
-                    <ProductionSearchSelect
-                      options={materialOptions}
-                      value={row.rawMaterialId}
-                      onChange={(materialId) => handleMaterialChange(index, materialId)}
-                      placeholder="Search & select raw material / cost head..."
-                      searchPlaceholder="Type material name or code (e.g. Milk, Sugar, Flavor)..."
-                      className="min-w-[260px]"
-                      renderOption={(opt) => (
-                        <div className="flex-1 truncate">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-extrabold text-slate-900 dark:text-white">
-                              {opt.label}
+                    {/* Type Badge */}
+                    <td className="py-2.5 px-3">
+                      {row.isOverhead || row.itemType === 'OVERHEAD' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-850">
+                          <Zap className="w-2.5 h-2.5 text-purple-600" />
+                          Overhead
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-850">
+                          🌾 Ingredient
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Item Name / ProductionSearchSelect */}
+                    <td className="py-2.5 px-3">
+                      {row.isOverhead && !row.rawMaterialId ? (
+                        <div className="space-y-1">
+                          <Input
+                            value={row.rawMaterialName}
+                            onChange={(e) => handleFieldChange(idx, 'rawMaterialName', e.target.value)}
+                            placeholder="e.g. Gas, EB, Rent, Stick Cost, Packing..."
+                            className="h-9 rounded-xl font-bold text-xs bg-purple-50/30 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800"
+                          />
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            Manual operational expense / service line
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <ProductionSearchSelect
+                            value={row.rawMaterialId}
+                            onChange={(val) => handleMaterialChange(idx, val)}
+                            options={materialOptions}
+                            placeholder="Search raw material or catalog item..."
+                          />
+                          {row.rateOverrideReason && (
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium block">
+                              Source: {row.rateOverrideReason}
                             </span>
-                            <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                              {opt.subLabel}
-                            </span>
-                            <span className="font-mono text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400">
-                              {opt.badge}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
-                            {opt.extra}
-                          </p>
+                          )}
                         </div>
                       )}
-                    />
+                    </td>
 
-                    {row.rateSource && (
-                      <span className="text-[9px] font-mono text-slate-400 block mt-0.5">
-                        Source: {row.rateSource}
-                      </span>
-                    )}
-                  </td>
+                    {/* Quantity */}
+                    <td className="py-2.5 px-3 text-right">
+                      <Input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={row.quantity}
+                        onChange={(e) => handleFieldChange(idx, 'quantity', e.target.value)}
+                        className="h-9 w-24 ml-auto rounded-xl font-mono font-bold text-right text-xs"
+                      />
+                    </td>
 
-                  {/* Quantity */}
-                  <td className="py-2 px-3 text-center">
-                    <Input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={row.quantity}
-                      onChange={(e) => handleFieldChange(index, 'quantity', e.target.value)}
-                      className="h-8 text-center font-mono font-bold text-xs rounded-lg"
-                    />
-                  </td>
+                    {/* UOM */}
+                    <td className="py-2.5 px-3 min-w-[140px]">
+                      <UomSearchSelect
+                        value={row.uom}
+                        onChange={(val) => handleFieldChange(idx, 'uom', val)}
+                        extraOptions={uoms}
+                        placeholder="Select UOM..."
+                        searchPlaceholder="Search UOM..."
+                        size="sm"
+                        triggerClassName="h-9 rounded-xl font-mono font-bold text-xs bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                      />
+                    </td>
 
-                  {/* UOM */}
-                  <td className="py-2 px-3 text-center">
-                    <Input
-                      value={row.uom}
-                      onChange={(e) => handleFieldChange(index, 'uom', e.target.value)}
-                      className="h-8 text-center font-bold text-xs rounded-lg"
-                      placeholder="UOM"
-                    />
-                  </td>
+                    {/* Rate & Total (Hidden for Production Role) */}
+                    {canViewCosting ? (
+                      <>
+                        <td className="py-2.5 px-3 text-right">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={row.rate}
+                            onChange={(e) => handleFieldChange(idx, 'rate', e.target.value)}
+                            className="h-9 w-28 ml-auto rounded-xl font-mono font-bold text-right text-xs"
+                          />
+                          <span className="text-[9px] text-slate-400 block font-mono mt-0.5">
+                            {row.rateSource || 'MANUAL'}
+                          </span>
+                        </td>
 
-                  {/* Rate */}
-                  <td className="py-2 px-3 text-right">
-                    <Input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={row.rate}
-                      onChange={(e) => handleFieldChange(index, 'rate', e.target.value)}
-                      className="h-8 text-right font-mono font-bold text-xs rounded-lg text-indigo-700 dark:text-indigo-400"
-                    />
-                  </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white text-xs">
+                          ₹{formatCurrency(row.total)}
+                        </td>
+                      </>
+                    ) : null}
 
-                  {/* Line Total */}
-                  <td className="py-2 px-3 text-right font-mono font-extrabold text-slate-900 dark:text-white">
-                    ₹{Number(row.total || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
-
-                  {/* Delete button */}
-                  <td className="py-2 px-3 text-center">
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteRow(index)}
-                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                      title="Remove Row"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </td>
-
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    {/* Action */}
+                    <td className="py-2.5 px-3 text-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteRow(idx)}
+                        disabled={lines.length <= 1}
+                        className="h-8 w-8 p-0 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 cursor-pointer disabled:opacity-20"
+                        title="Delete line"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
-
-      {/* ── COSTING SUMMARY FOOTER ── */}
       <CostingSummaryFooter 
         subTotal={costingTotals.subTotal}
         wastagePct={formData.wastagePct}

@@ -3,13 +3,12 @@ import { api } from '@/lib/axios';
 import { 
   Tag, Boxes, RefreshCw, Plus, Minus, Trash2, Check, AlertTriangle, 
   HelpCircle, Calendar, ShieldCheck, Database, X, ArrowRight, Layers, ArrowLeftRight,
-  Search, Edit3, Filter, Copy, Scale, Sparkles, Calculator
+  Search, Edit3, Filter, Copy, Scale, Sparkles, Calculator, Sliders, CheckCircle2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
-
-// 18 Standard Conversion Presets (Categorized)
 const UOM_PRESETS = [
   // Volume
   { label: '1 Liter = 1000 ml', category: 'Volume', base: 'liter', alt: 'ml', baseQty: 1, altQty: 1000 },
@@ -59,6 +58,17 @@ export default function BatchAllocationGrid({
   refreshingPrices = false,
   disabled = false
 }) {
+  // ── USER ROLE & COSTING VISIBILITY ──
+  const currentUser = useAuthStore(s => s.user);
+  const isProductionRole = useMemo(() => {
+    if (!currentUser) return false;
+    const role = (currentUser.role || '').toUpperCase();
+    const email = (currentUser.email || '').toLowerCase();
+    if (role === 'MAIN_MASTER' || role === 'ADMIN' || role === 'SUPERVISOR') return false;
+    return role === 'PRODUCTION_STAFF' || role === 'OPERATOR' || role.includes('PRODUCTION') || email.includes('production');
+  }, [currentUser]);
+  const canViewCosting = !isProductionRole;
+
   // ── LOT ALLOCATION MODAL STATE ──
   const [activeItemIndex, setActiveItemIndex] = useState(null);
   const [lotModalOpen, setLotModalOpen] = useState(false);
@@ -68,6 +78,21 @@ export default function BatchAllocationGrid({
   const [selectedGrnFilter, setSelectedGrnFilter] = useState('ALL');
   const [lotSearchTerm, setLotSearchTerm] = useState('');
   const [manualSupplierBatches, setManualSupplierBatches] = useState({}); // { [lotId]: string }
+
+  // ── MANUAL OVERRIDE LOT FORM STATE ──
+  const [showManualOverrideForm, setShowManualOverrideForm] = useState(false);
+  const [overrideForm, setOverrideForm] = useState({
+    internalBatchNo: 'BATCH-MILKFAT4-001',
+    grnNumber: 'GRN-OPENING',
+    poNumber: 'PO-OPENING',
+    batchQty: 1,
+    weight: '25 kg / 50',
+    availableQty: 4840,
+    supplierBatchNo: 'BATCH-01',
+    mfgDate: '01-10-2026',
+    expiryDate: '01-10-2027',
+    supplierName: 'SUP-LOT-DIRECT'
+  });
 
   // ── CONVERSION RATE & SANDBOX MODAL STATE ──
   const [conversionModalOpen, setConversionModalOpen] = useState(false);
@@ -303,7 +328,6 @@ export default function BatchAllocationGrid({
     const updated = rawMaterials.filter((_, i) => i !== index);
     onUpdateRawMaterials(updated);
   };
-
   // ── LOT ALLOCATION MODAL LOGIC ──
   const openLotModal = async (index) => {
     const item = rawMaterials[index];
@@ -314,6 +338,27 @@ export default function BatchAllocationGrid({
     setLoadingLots(true);
     setSelectedGrnFilter('ALL');
     setLotSearchTerm('');
+
+    const rawClean = (item.rmName || item.rmCode || 'MILKFAT4')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 16);
+    const reqQty = Number(item.baseRequiredQty !== undefined ? item.baseRequiredQty : (item.requiredQty || 0));
+
+    // Preset sensible defaults matching Image 1
+    setOverrideForm({
+      internalBatchNo: `BATCH-${rawClean}-001`,
+      grnNumber: 'GRN-OPENING',
+      poNumber: 'PO-OPENING',
+      batchQty: 1,
+      weight: '25 kg / 50',
+      availableQty: Math.max(reqQty || 100, 4840),
+      supplierBatchNo: 'BATCH-01',
+      mfgDate: '01-10-2026',
+      expiryDate: '01-10-2027',
+      supplierName: 'SUP-LOT-DIRECT'
+    });
+    setShowManualOverrideForm(false);
 
     const currentAllocMap = {};
     const currentSupplierMap = {};
@@ -337,6 +382,56 @@ export default function BatchAllocationGrid({
     } finally {
       setLoadingLots(false);
     }
+  };
+
+  // Add / Apply Manual Override Lot
+  const handleAddManualOverrideLot = () => {
+    const lotId = `manual-${Date.now()}`;
+    const newLot = {
+      id: lotId,
+      internalBatchNo: overrideForm.internalBatchNo?.trim() || `BATCH-OVERRIDE-${Date.now().toString().slice(-4)}`,
+      grnNumber: overrideForm.grnNumber?.trim() || 'GRN-OPENING',
+      grnRef: overrideForm.grnNumber?.trim() || 'GRN-OPENING',
+      poNumber: overrideForm.poNumber?.trim() || 'Manual Override',
+      poReferenceNo: overrideForm.poNumber?.trim() || 'Manual Override',
+      batchQty: Number(overrideForm.batchQty || 1),
+      weight: overrideForm.weight || '25 kg / 50',
+      availableQty: Number(overrideForm.availableQty || 4840),
+      netQty: Number(overrideForm.availableQty || 4840),
+      supplierBatchNo: overrideForm.supplierBatchNo || 'BATCH-01',
+      mfgBatchNo: overrideForm.supplierBatchNo || 'BATCH-01',
+      mfgDate: overrideForm.mfgDate || '01-10-2026',
+      expiryDate: overrideForm.expiryDate || '01-10-2027',
+      supplierName: overrideForm.supplierName || 'SUP-LOT-DIRECT',
+      isManualOverride: true,
+      source: 'MANUAL_OVERRIDE'
+    };
+
+    setAvailableLots(prev => [newLot, ...prev.filter(l => l.internalBatchNo !== newLot.internalBatchNo)]);
+    setManualSupplierBatches(prev => ({
+      ...prev,
+      [lotId]: newLot.supplierBatchNo
+    }));
+
+    const item = rawMaterials[activeItemIndex];
+    const req = Number(item?.baseRequiredQty !== undefined ? item?.baseRequiredQty : (item?.requiredQty || 0));
+    const currentAllocSum = Object.values(lotAllocations).reduce((s, v) => s + Number(v || 0), 0);
+    const needed = Math.max(0, req - currentAllocSum);
+    const toAlloc = Math.min(newLot.availableQty, needed);
+    if (toAlloc > 0) {
+      setLotAllocations(prev => ({
+        ...prev,
+        [lotId]: toAlloc
+      }));
+    }
+
+    setShowManualOverrideForm(false);
+    Swal.fire({
+      title: 'Manual Override Lot Added',
+      text: `Lot ${newLot.internalBatchNo} added (${newLot.availableQty} ${item?.baseUom || item?.selectedUom || 'units'}). PO set to ${newLot.poNumber}.`,
+      icon: 'success',
+      timer: 1500
+    });
   };
 
   const handleSetLotQty = (lotId, value, maxAvail) => {
@@ -524,8 +619,8 @@ export default function BatchAllocationGrid({
               <th className="py-2.5 px-3 w-36 text-center">Required Qty</th>
               <th className="py-2.5 px-3 w-36 text-center">UOM / Alternate</th>
               <th className="py-2.5 px-3 min-w-[220px]">Assigned Lots</th>
-              <th className="py-2.5 px-3 w-28 text-right">Rate (₹)</th>
-              <th className="py-2.5 px-3 w-28 text-right">Total (₹)</th>
+              {canViewCosting && <th className="py-2.5 px-3 w-28 text-right">Rate (₹)</th>}
+              {canViewCosting && <th className="py-2.5 px-3 w-28 text-right">Total (₹)</th>}
               <th className="py-2.5 px-3 w-10 text-center"></th>
             </tr>
           </thead>
@@ -685,28 +780,32 @@ export default function BatchAllocationGrid({
                     </div>
                   </td>
 
-                  {/* Rate */}
-                  <td className="py-2.5 px-3 text-right">
-                    <div className="flex flex-col items-end">
-                      <Input
-                        type="number"
-                        step="any"
-                        min="0"
-                        disabled={disabled}
-                        value={displayRate}
-                        onChange={(e) => handleRateChange(index, e.target.value, isAltMode ? 'ALT' : 'BASE')}
-                        className="h-8 text-right font-mono font-bold text-xs rounded-lg w-24 text-indigo-700 dark:text-indigo-400"
-                      />
-                      <span className="text-[9px] font-mono text-slate-400 block pt-0.5">
-                        / {row.selectedUom}
-                      </span>
-                    </div>
-                  </td>
+                  {/* Rate (Hidden for production role) */}
+                  {canViewCosting && (
+                    <td className="py-2.5 px-3 text-right">
+                      <div className="flex flex-col items-end">
+                        <Input
+                          type="number"
+                          step="any"
+                          min="0"
+                          disabled={disabled}
+                          value={displayRate}
+                          onChange={(e) => handleRateChange(index, e.target.value, isAltMode ? 'ALT' : 'BASE')}
+                          className="h-8 text-right font-mono font-bold text-xs rounded-lg w-24 text-indigo-700 dark:text-indigo-400"
+                        />
+                        <span className="text-[9px] font-mono text-slate-400 block pt-0.5">
+                          / {row.selectedUom}
+                        </span>
+                      </div>
+                    </td>
+                  )}
 
-                  {/* Total */}
-                  <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white">
-                    ₹{Number(row.totalCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
+                  {/* Total (Hidden for production role) */}
+                  {canViewCosting && (
+                    <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                      ₹{Number(row.totalCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  )}
 
                   {/* Delete Row */}
                   <td className="py-2.5 px-3 text-center">
@@ -1067,10 +1166,10 @@ export default function BatchAllocationGrid({
             {/* GRN Selector, Search Bar & Status Progress */}
             <div className="p-4 sm:p-6 border-b border-slate-100 dark:border-slate-800 space-y-3.5 shrink-0 bg-slate-50/30 dark:bg-slate-900">
               
-              {/* Row 1: Source GRN Dropdown & Batch Search Input */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Row 1: Source GRN Dropdown, Batch Search Input & Manual Override Toggle */}
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                 {/* GRN Dropdown */}
-                <div>
+                <div className="sm:col-span-5">
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1 flex items-center gap-1.5">
                     <Layers className="w-3 h-3 text-indigo-500" />
                     Filter by GRN:
@@ -1090,7 +1189,7 @@ export default function BatchAllocationGrid({
                 </div>
 
                 {/* Search Bar */}
-                <div>
+                <div className="sm:col-span-4">
                   <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1 flex items-center gap-1.5">
                     <Search className="w-3 h-3 text-indigo-500" />
                     Search Batches:
@@ -1113,7 +1212,195 @@ export default function BatchAllocationGrid({
                     )}
                   </div>
                 </div>
+
+                {/* Manual Override Form Toggle Button */}
+                <div className="sm:col-span-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowManualOverrideForm(!showManualOverrideForm)}
+                    className={`w-full h-9 rounded-xl font-bold text-xs border cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs ${
+                      showManualOverrideForm
+                        ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                        : 'border-indigo-300 dark:border-indigo-700 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100'
+                    }`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{showManualOverrideForm ? 'Close Override Form' : '+ Manual Override'}</span>
+                  </Button>
+                </div>
               </div>
+
+              {/* Collapsible Manual Override Input Form */}
+              {showManualOverrideForm && (
+                <div className="p-4 rounded-2xl border-2 border-indigo-300 dark:border-indigo-700 bg-white dark:bg-slate-900 shadow-md space-y-3 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between border-b border-indigo-100 dark:border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                        <Tag className="w-3.5 h-3.5" />
+                      </span>
+                      <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider">
+                        Manual Lot Override & Opening Stock Entry
+                      </h4>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-medium">
+                      All fields optional • Pre-filled with smart defaults
+                    </span>
+                  </div>
+
+                  {/* 10 Fields Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        Our Batch:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.internalBatchNo}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, internalBatchNo: e.target.value }))}
+                        placeholder="BATCH-MILKFAT4-001"
+                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        GRN:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.grnNumber}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, grnNumber: e.target.value }))}
+                        placeholder="GRN-OPENING"
+                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        PO:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.poNumber}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, poNumber: e.target.value }))}
+                        placeholder="Manual Override"
+                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        Batch Qty:
+                      </label>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={overrideForm.batchQty}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, batchQty: e.target.value }))}
+                        placeholder="1"
+                        className="h-8 text-xs font-mono font-bold rounded-lg text-center"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        Weight:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.weight}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, weight: e.target.value }))}
+                        placeholder="25 kg / 50"
+                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        Available Qty:
+                      </label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={overrideForm.availableQty}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, availableQty: e.target.value }))}
+                        placeholder="4840"
+                        className="h-8 text-xs font-mono font-black text-indigo-600 rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        MFG Batch:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.supplierBatchNo}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, supplierBatchNo: e.target.value }))}
+                        placeholder="BATCH-01"
+                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        MFG Date:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.mfgDate}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, mfgDate: e.target.value }))}
+                        placeholder="01-10-2026"
+                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        Exp Date:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.expiryDate}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, expiryDate: e.target.value }))}
+                        placeholder="01-10-2027"
+                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
+                        Supplier:
+                      </label>
+                      <Input
+                        type="text"
+                        value={overrideForm.supplierName}
+                        onChange={(e) => setOverrideForm(prev => ({ ...prev, supplierName: e.target.value }))}
+                        placeholder="SUP-LOT-DIRECT"
+                        className="h-8 text-xs font-mono font-medium rounded-lg"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      When applied, this lot appears at the top for immediate allocation and will update on the RM Stock page.
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handleAddManualOverrideLot}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs rounded-xl shadow-xs cursor-pointer h-8"
+                    >
+                      <Check className="w-3.5 h-3.5 mr-1" />
+                      Apply Manual Override Lot
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {/* Row 2: Required vs Allocated Status Pill */}
               <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 shadow-2xs text-xs font-mono">
@@ -1206,13 +1493,17 @@ export default function BatchAllocationGrid({
                                 </span>
                               )}
                             </div>
-
                             <div className="flex items-center gap-2 flex-wrap font-mono">
+                              {lot.isManualOverride && (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 text-[10px] font-black border border-amber-300 dark:border-amber-800">
+                                  🛠 Manual Override
+                                </span>
+                              )}
                               <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800">
-                                GRN: {lot.grnNumber || lot.grnRef || 'Direct Stock'}
+                                GRN: {lot.grnNumber || lot.grnRef || 'GRN-OPENING'}
                               </span>
-                              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-semibold">
-                                PO: {lot.poNumber || lot.poReferenceNo || 'PO-GRN'}
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-bold border border-slate-200 dark:border-slate-700">
+                                PO: {lot.poNumber || lot.poReferenceNo || 'Manual Override'}
                               </span>
                             </div>
                           </div>

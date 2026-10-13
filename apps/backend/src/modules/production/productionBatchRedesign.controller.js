@@ -62,7 +62,11 @@ class ProductionBatchRedesignController {
             product: { include: { unit: true, category: true } },
             order: { include: { customer: true } },
             creator: { select: { name: true, email: true } },
-            rmUsages: true,
+            rmUsages: {
+              include: {
+                rawMaterial: true
+              }
+            },
           },
           orderBy: { createdAt: 'desc' },
           skip: (Number(page) - 1) * Number(limit),
@@ -117,6 +121,7 @@ class ProductionBatchRedesignController {
           adjustmentReason: extra.adjustment_reason || null,
           adjustmentReference: extra.adjustment_reference || null,
           rawMaterialsCount: b.rmUsages?.length || 0,
+          rmUsages: b.rmUsages || [],
           createdAt: b.createdAt
         };
       });
@@ -193,13 +198,22 @@ class ProductionBatchRedesignController {
             batchId: z.string().optional().nullable(),
             lotNumber: z.string().optional().nullable(),
             supplierBatchNo: z.string().optional().nullable(),
+            mfgBatchNo: z.string().optional().nullable(),
+            batchQty: z.coerce.number().optional().nullable(),
+            weight: z.string().optional().nullable(),
+            mfgDate: z.any().optional().nullable(),
+            expiryDate: z.any().optional().nullable(),
+            grnNumber: z.string().optional().nullable(),
+            poNumber: z.string().optional().nullable(),
             supplierName: z.string().optional().nullable(),
             allocatedQty: z.coerce.number().min(0).default(0),
+            availableQty: z.coerce.number().optional().nullable(),
             poOriginalQty: z.coerce.number().optional().nullable(),
             poTotalAmount: z.coerce.number().optional().nullable(),
             allocatedAmount: z.coerce.number().optional().default(0),
             unitRate: z.coerce.number().optional().default(0),
-            uom: z.string().optional().nullable()
+            uom: z.string().optional().nullable(),
+            isManualOverride: z.boolean().optional().default(false)
           })).optional().default([])
         })).min(1, 'At least one raw material line is required')
       });
@@ -385,6 +399,55 @@ class ProductionBatchRedesignController {
           // Insert granular batch allocations with proportional PO division
           if (Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
             for (const alloc of rm.allocatedBatches) {
+              let targetBatchId = alloc.batchId;
+
+              // If manual override lot or warehouse lot not yet in InventoryBatch, persist to InventoryBatch
+              const isManualOrOpening = !targetBatchId || targetBatchId.startsWith('manual-') || targetBatchId.startsWith('wh-') || alloc.isManualOverride;
+              if (isManualOrOpening) {
+                const batchNum = alloc.lotNumber || `BATCH-MANUAL-${Date.now().toString().slice(-6)}`;
+                const existingLot = await tx.inventoryBatch.findFirst({
+                  where: {
+                    rawMaterialId: finalRmId,
+                    batchNumber: batchNum
+                  }
+                });
+
+                if (existingLot) {
+                  targetBatchId = existingLot.id;
+                } else {
+                  const mDate = alloc.mfgDate ? new Date(alloc.mfgDate) : new Date();
+                  const eDate = alloc.expiryDate ? new Date(alloc.expiryDate) : new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+                  const initialStock = Number(alloc.availableQty || alloc.allocatedQty || 100);
+
+                  const newLot = await tx.inventoryBatch.create({
+                    data: {
+                      rawMaterialId: finalRmId,
+                      batchNumber: batchNum,
+                      supplierBatchNo: alloc.supplierBatchNo || alloc.mfgBatchNo || 'BATCH-01',
+                      mfgBatchNo: alloc.mfgBatchNo || alloc.supplierBatchNo || 'BATCH-01',
+                      mfgDate: mDate,
+                      expiryDate: eDate,
+                      initialQty: initialStock,
+                      netQty: initialStock,
+                      weight: alloc.weight || '25 kg / 50',
+                      grnNumber: alloc.grnNumber || 'GRN-OPENING',
+                      poNumber: alloc.poNumber || 'Manual Override',
+                      storageLocation: 'Primary Warehouse',
+                      status: 'AVAILABLE'
+                    }
+                  });
+                  targetBatchId = newLot.id;
+
+                  // Update raw material current stock so RM Stock page updates
+                  await tx.rawMaterial.update({
+                    where: { id: finalRmId },
+                    data: {
+                      currentStock: { increment: initialStock }
+                    }
+                  });
+                }
+              }
+
               const poOrigQty = Number(alloc.poOriginalQty || alloc.allocatedQty || 1);
               const poTotAmt = Number(alloc.poTotalAmount || (alloc.allocatedQty * alloc.unitRate));
               // Proportional math: (allocated / original) * total
@@ -399,7 +462,7 @@ class ProductionBatchRedesignController {
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
                 batch.id,
                 usage.id,
-                alloc.batchId || null,
+                targetBatchId,
                 alloc.lotNumber || 'WAREHOUSE-LOT',
                 alloc.allocatedQty,
                 poOrigQty,
@@ -414,15 +477,13 @@ class ProductionBatchRedesignController {
 
         // 5. If STOCK_UPDATE and status is Approved/Completed, apply immediate inventory adjustments
         if (data.productionType === 'STOCK_UPDATE' && (data.status === 'Approved' || data.status === 'Completed')) {
-          // Increment product finished goods stock
           await tx.finishedProduct.update({
-            where: { id: data.productId },
+            where: { id: finalBatchProductId },
             data: {
               currentStock: { increment: data.quantity }
             }
           });
 
-          // Deduct allocated raw materials from inventory batches
           for (const rm of data.rawMaterials) {
             for (const alloc of (rm.allocatedBatches || [])) {
               if (alloc.batchId && !alloc.batchId.startsWith('wh-')) {
@@ -451,31 +512,112 @@ class ProductionBatchRedesignController {
     }
   }
 
-  // PATCH /api/production/batches/:id/status
+  // PATCH /api/production/batches-redesign/:id/status
   async updateStatus(req, res, next) {
     try {
       const { id } = req.params;
-      const { status } = req.body;
+      const { status, actualOutput, rmUsages, note } = req.body;
 
-      const batch = await prisma.productionBatchNew.findUnique({ where: { id } });
-      if (!batch) return res.status(404).json({ error: 'Production batch not found' });
-
-      const updated = await prisma.productionBatchNew.update({
+      const batch = await prisma.productionBatchNew.findUnique({
         where: { id },
-        data: {
-          status,
-          ...(status === 'Completed' ? { completeDate: new Date() } : {})
+        include: {
+          rmUsages: true
         }
       });
+      if (!batch) return res.status(404).json({ error: 'Production batch not found' });
 
-      // Update approval status in extended table
-      await prisma.$executeRawUnsafe(
-        `UPDATE "production_batches" SET approval_status = $1 WHERE id = $2`,
-        status, id
-      );
+      const finalYield = actualOutput !== undefined && actualOutput !== null ? Number(actualOutput) : Number(batch.quantity);
 
-      res.json(updated);
+      const result = await prisma.$transaction(async (tx) => {
+        const updateData = {
+          status,
+          ...(status === 'Completed' ? {
+            completeDate: new Date(),
+            actualOutput: finalYield,
+            remainingQty: finalYield
+          } : {})
+        };
+
+        const updated = await tx.productionBatchNew.update({
+          where: { id },
+          data: updateData
+        });
+
+        // Update approval status & actual yield in extended table
+        await tx.$executeRawUnsafe(
+          `UPDATE "production_batches" SET 
+            approval_status = $1,
+            actual_output = $2
+          WHERE id = $3`,
+          status,
+          finalYield,
+          id
+        );
+
+        // When completing production: Reduce RM Stock and increment Finished Goods stock
+        if (status === 'Completed') {
+          // 1. Increment Finished Product stock by actual yield
+          if (batch.productId) {
+            await tx.finishedProduct.update({
+              where: { id: batch.productId },
+              data: {
+                currentStock: { increment: finalYield }
+              }
+            });
+          }
+
+          // 2. Reduce consumed quantities from Raw Material Stock and allocated inventory batches
+          for (const usage of batch.rmUsages) {
+            const customRm = Array.isArray(rmUsages) ? rmUsages.find(r => r.rmId === usage.rmId) : null;
+            const consumedQty = customRm?.actualUsedQty !== undefined 
+              ? Number(customRm.actualUsedQty) 
+              : Number(usage.actualUsedQty || usage.requiredQty || 0);
+
+            // Update usage record with actual used quantity
+            await tx.productionBatchRMUsage.update({
+              where: { id: usage.id },
+              data: { actualUsedQty: consumedQty }
+            });
+
+            // Decrement from RawMaterial currentStock
+            if (usage.rmId && consumedQty > 0) {
+              await tx.rawMaterial.update({
+                where: { id: usage.rmId },
+                data: {
+                  currentStock: { decrement: consumedQty }
+                }
+              });
+            }
+
+            // Decrement from InventoryBatch lots allocated to this usage
+            const allocations = await tx.$queryRawUnsafe(
+              `SELECT inventory_batch_id, allocated_qty FROM "production_batch_allocations" WHERE usage_id = $1`,
+              usage.id
+            );
+
+            for (const alloc of allocations) {
+              if (alloc.inventory_batch_id && Number(alloc.allocated_qty) > 0) {
+                await tx.inventoryBatch.updateMany({
+                  where: { id: alloc.inventory_batch_id },
+                  data: {
+                    netQty: { decrement: Number(alloc.allocated_qty) }
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        return updated;
+      });
+
+      res.json({
+        message: status === 'Completed' ? 'Production completed and stock successfully updated' : `Batch status updated to ${status}`,
+        batch: result,
+        actualYield: finalYield
+      });
     } catch (err) {
+      console.error('Update batch status error:', err);
       next(err);
     }
   }

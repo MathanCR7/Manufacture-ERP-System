@@ -18,9 +18,29 @@ export default function ProductionProductPicker({
   selectedBaseName = '',
   disabled = false
 }) {
-  // Filter mode: 'BASE_ONLY' or 'ALL_PRODUCTS'
-  const [filterMode, setFilterMode] = useState('BASE_ONLY');
+  // Filter mode: 'SELECTED_BASE', 'ICE_CREAM', 'KULFI', 'FD', or 'ALL'
+  const [activeBaseTab, setActiveBaseTab] = useState('SELECTED_BASE');
   const [productSearchTerm, setProductSearchTerm] = useState('');
+
+  // Count products by base category
+  const baseCounts = useMemo(() => {
+    let ice = 0;
+    let kulfi = 0;
+    let fd = 0;
+    products.forEach(p => {
+      const bName = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
+      const grp = (p.specifications?.group || '').toLowerCase();
+      const code = (p.code || '').toUpperCase();
+      if (bName.includes('KULFI') || grp.includes('kulfi') || code.startsWith('K')) {
+        kulfi += 1;
+      } else if (bName.includes('FD') || grp.includes('fd') || code.startsWith('BFD')) {
+        fd += 1;
+      } else {
+        ice += 1;
+      }
+    });
+    return { ice, kulfi, fd, total: products.length };
+  }, [products]);
 
   // Cascading filter for subcategories
   const filteredSubcategories = useMemo(() => {
@@ -31,7 +51,6 @@ export default function ProductionProductPicker({
   // Products filtered by Category, Subcategory, and Base
   const baseFilteredProducts = useMemo(() => {
     return products.filter(p => {
-      // Check base assignment
       const pBaseId = p.baseId || p.specifications?.baseId;
       const pBaseName = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
       const currentBaseName = (selectedBaseName || '').toUpperCase();
@@ -39,7 +58,6 @@ export default function ProductionProductPicker({
       const matchesBase = 
         (selectedBaseId && pBaseId === selectedBaseId) ||
         (currentBaseName && pBaseName.includes(currentBaseName)) ||
-        // Fallbacks for known seed bases
         (currentBaseName.includes('KULFI') && (p.specifications?.group?.toLowerCase().includes('kulfi') || p.code?.startsWith('K'))) ||
         (currentBaseName.includes('FD') && (p.specifications?.group?.toLowerCase().includes('fd') || p.code?.startsWith('BFD'))) ||
         (currentBaseName.includes('ICE CREAM') && (p.specifications?.group?.toLowerCase().includes('gallon') || p.code?.startsWith('BG') || p.specifications?.group?.toLowerCase().includes('popsicle')));
@@ -48,9 +66,27 @@ export default function ProductionProductPicker({
     });
   }, [products, selectedBaseId, selectedBaseName]);
 
-  // Active pool of products (either Base-specific or All)
+  // Active pool of products based on activeBaseTab
   const activeProductsPool = useMemo(() => {
-    let list = filterMode === 'BASE_ONLY' && selectedBaseId ? baseFilteredProducts : products;
+    let list = products;
+    if (activeBaseTab === 'SELECTED_BASE' && selectedBaseId) {
+      list = baseFilteredProducts;
+    } else if (activeBaseTab === 'ICE_CREAM') {
+      list = products.filter(p => {
+        const b = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
+        return b.includes('ICE') || p.code?.startsWith('BG') || p.specifications?.group?.toLowerCase().includes('gallon');
+      });
+    } else if (activeBaseTab === 'KULFI') {
+      list = products.filter(p => {
+        const b = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
+        return b.includes('KULFI') || p.code?.startsWith('K') || p.specifications?.group?.toLowerCase().includes('kulfi');
+      });
+    } else if (activeBaseTab === 'FD') {
+      list = products.filter(p => {
+        const b = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
+        return b.includes('FD') || p.code?.startsWith('BFD') || p.specifications?.group?.toLowerCase().includes('fd');
+      });
+    }
 
     if (selectedCategoryId) {
       list = list.filter(p => p.categoryId === selectedCategoryId);
@@ -59,7 +95,7 @@ export default function ProductionProductPicker({
       list = list.filter(p => p.subcategoryId === selectedSubcategoryId);
     }
     return list;
-  }, [filterMode, selectedBaseId, baseFilteredProducts, products, selectedCategoryId, selectedSubcategoryId]);
+  }, [activeBaseTab, selectedBaseId, baseFilteredProducts, products, selectedCategoryId, selectedSubcategoryId]);
 
   // Options for Category SearchSelect
   const categoryOptions = useMemo(() => {
@@ -169,31 +205,69 @@ export default function ProductionProductPicker({
           </div>
         </div>
 
-        {/* Base Filter Toggle */}
-        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl self-start sm:self-auto">
+        {/* Base Filter Tabs */}
+        <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl self-start sm:self-auto flex-wrap">
+          {selectedBaseName && (
+            <button
+              type="button"
+              onClick={() => setActiveBaseTab('SELECTED_BASE')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                activeBaseTab === 'SELECTED_BASE'
+                  ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Database className="w-3 h-3 text-indigo-500" />
+              <span>Current {selectedBaseName} ({baseFilteredProducts.length})</span>
+            </button>
+          )}
+
           <button
             type="button"
-            onClick={() => setFilterMode('BASE_ONLY')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-              filterMode === 'BASE_ONLY'
+            onClick={() => setActiveBaseTab('ICE_CREAM')}
+            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+              activeBaseTab === 'ICE_CREAM'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
-            <Database className="w-3 h-3 text-indigo-500" />
-            <span>{selectedBaseName || 'Base'} Products ({baseFilteredProducts.length})</span>
+            🍦 Ice Cream ({baseCounts.ice})
           </button>
 
           <button
             type="button"
-            onClick={() => setFilterMode('ALL_PRODUCTS')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-              filterMode === 'ALL_PRODUCTS'
+            onClick={() => setActiveBaseTab('KULFI')}
+            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+              activeBaseTab === 'KULFI'
                 ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
                 : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
-            <span>All Products ({products.length})</span>
+            🍢 Kulfi ({baseCounts.kulfi})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveBaseTab('FD')}
+            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+              activeBaseTab === 'FD'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            ❄️ FD ({baseCounts.fd})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveBaseTab('ALL')}
+            className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+              activeBaseTab === 'ALL'
+                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+            }`}
+          >
+            📦 All ({baseCounts.total})
           </button>
         </div>
       </div>

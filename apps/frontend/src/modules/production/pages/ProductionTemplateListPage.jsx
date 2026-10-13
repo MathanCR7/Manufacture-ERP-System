@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
 
 export default function ProductionTemplateListPage() {
@@ -14,6 +15,17 @@ export default function ProductionTemplateListPage() {
   const [templates, setTemplates] = useState([]);
   const [bases, setBases] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Role visibility
+  const currentUser = useAuthStore(s => s.user);
+  const isProductionRole = useMemo(() => {
+    if (!currentUser) return false;
+    const role = (currentUser.role || '').toUpperCase();
+    const email = (currentUser.email || '').toLowerCase();
+    if (role === 'MAIN_MASTER' || role === 'ADMIN' || role === 'SUPERVISOR') return false;
+    return role === 'PRODUCTION_STAFF' || role === 'OPERATOR' || role.includes('PRODUCTION') || email.includes('production');
+  }, [currentUser]);
+  const canViewCosting = !isProductionRole;
   
   // Filters
   const [search, setSearch] = useState('');
@@ -219,9 +231,13 @@ export default function ProductionTemplateListPage() {
                 <th className="py-3.5 px-4">Base Master</th>
                 <th className="py-3.5 px-4 text-center">Output Target</th>
                 <th className="py-3.5 px-4 text-center">Lines</th>
-                <th className="py-3.5 px-4 text-right">Sub Total (₹)</th>
-                <th className="py-3.5 px-4 text-right">Grand Total (₹)</th>
-                <th className="py-3.5 px-4 text-right">Cost/Unit</th>
+                {canViewCosting ? (
+                  <>
+                    <th className="py-3.5 px-4 text-right">Sub Total (₹)</th>
+                    <th className="py-3.5 px-4 text-right">Grand Total (₹)</th>
+                    <th className="py-3.5 px-4 text-right">Cost/Unit</th>
+                  </>
+                ) : null}
                 <th className="py-3.5 px-4 text-center">Status</th>
                 <th className="py-3.5 px-4 text-right">Actions</th>
               </tr>
@@ -229,14 +245,14 @@ export default function ProductionTemplateListPage() {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={canViewCosting ? 10 : 7} className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
                     Loading production templates...
                   </td>
                 </tr>
               ) : filteredTemplates.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={canViewCosting ? 10 : 7} className="py-12 text-center text-slate-400">
                     No production templates found matching criteria.
                   </td>
                 </tr>
@@ -263,15 +279,19 @@ export default function ProductionTemplateListPage() {
                         {t.lineCount} Lines
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-700 dark:text-slate-300">
-                      ₹{formatCurrency(t.subTotal)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-indigo-700 dark:text-indigo-400">
-                      ₹{formatCurrency(t.grandTotal)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      ₹{Number(t.costPerUnit).toFixed(2)}
-                    </td>
+                    {canViewCosting ? (
+                      <>
+                        <td className="py-3.5 px-4 text-right font-mono text-slate-700 dark:text-slate-300">
+                          ₹{formatCurrency(t.subTotal)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-indigo-700 dark:text-indigo-400">
+                          ₹{formatCurrency(t.grandTotal)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          ₹{Number(t.costPerUnit).toFixed(2)}
+                        </td>
+                      </>
+                    ) : null}
                     <td className="py-3.5 px-4 text-center">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                         t.status === 'ACTIVE'

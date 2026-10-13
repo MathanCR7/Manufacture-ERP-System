@@ -3,16 +3,35 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   Factory, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
-  Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight 
+  Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
+  Package, Check, Layers, Lock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import BatchCompletionModal from '../components/BatchCompletionModal';
+import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
 
 export default function StandardProductionListPage() {
   const navigate = useNavigate();
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Role visibility (hide amounts for production role, allow admin to see all)
+  const currentUser = useAuthStore(s => s.user);
+  const isProductionRole = useMemo(() => {
+    if (!currentUser) return false;
+    const role = (currentUser.role || '').toUpperCase();
+    const email = (currentUser.email || '').toLowerCase();
+    if (role === 'MAIN_MASTER' || role === 'ADMIN' || role === 'SUPERVISOR') return false;
+    return role === 'PRODUCTION_STAFF' || role === 'OPERATOR' || role.includes('PRODUCTION') || email.includes('production');
+  }, [currentUser]);
+  const canViewCosting = !isProductionRole;
+
+  // Batch Completion Modal State
+  const [completionModalOpen, setCompletionModalOpen] = useState(false);
+  const [batchToComplete, setBatchToComplete] = useState(null);
+  const [completing, setCompleting] = useState(false);
   
   // Filters
   const [search, setSearch] = useState('');
@@ -49,6 +68,67 @@ export default function StandardProductionListPage() {
   useEffect(() => {
     fetchBatches();
   }, [statusFilter, fromDate, toDate]);
+
+  // Handle Starting a batch
+  const handleStartBatch = async (batch) => {
+    try {
+      await api.patch(`/production/batches-redesign/${batch.id}/status`, { status: 'In Progress' });
+      Swal.fire({
+        title: 'Batch Started',
+        text: `Batch #${batch.referenceNo || batch.batchNo} is now In Progress on the factory floor.`,
+        icon: 'success',
+        timer: 1500
+      });
+      fetchBatches();
+    } catch (err) {
+      console.error('Failed to start batch:', err);
+      Swal.fire({ title: 'Error', text: 'Failed to start batch.', icon: 'error' });
+    }
+  };
+
+  // Open Completion Modal
+  const handleOpenCompleteModal = (batch) => {
+    setBatchToComplete(batch);
+    setCompletionModalOpen(true);
+  };
+
+  // Submit actual yield and complete batch
+  const handleSubmitCompletion = async (batchId, payload) => {
+    try {
+      setCompleting(true);
+      await api.patch(`/production/batches-redesign/${batchId}/status`, {
+        status: 'Completed',
+        actualOutput: payload.actualOutput,
+        rmUsages: payload.rmUsages,
+        note: payload.note
+      });
+
+      setCompletionModalOpen(false);
+      setBatchToComplete(null);
+
+      Swal.fire({
+        title: 'Production Completed!',
+        html: `
+          <div style="text-align: left; font-size: 13px;">
+            <p><strong>✓ Actual Yield:</strong> ${payload.actualOutput} units credited to Finished Goods stock.</p>
+            <p><strong>✓ RM Stock Reduced:</strong> Ingredients deducted from RM stock and inventory batches.</p>
+            <p><strong>✓ Status:</strong> Sent to QC Verification Queue.</p>
+          </div>
+        `,
+        icon: 'success'
+      });
+      fetchBatches();
+    } catch (err) {
+      console.error('Batch completion error:', err);
+      Swal.fire({
+        title: 'Error',
+        text: err.response?.data?.error || 'Failed to complete production batch.',
+        icon: 'error'
+      });
+    } finally {
+      setCompleting(false);
+    }
+  };
 
   const filteredBatches = useMemo(() => {
     if (!search) return batches;
@@ -132,10 +212,21 @@ export default function StandardProductionListPage() {
         </div>
 
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Planned Total Cost</p>
-          <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-            ₹{formatCurrency(batches.reduce((s, b) => s + (b.totalCost || 0), 0))}
-          </h3>
+          {canViewCosting ? (
+            <>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Planned Total Cost</p>
+              <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
+                ₹{formatCurrency(batches.reduce((s, b) => s + (b.totalCost || 0), 0))}
+              </h3>
+            </>
+          ) : (
+            <>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Planned Total Units</p>
+              <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
+                {batches.reduce((s, b) => s + (Number(b.quantity) || 0), 0).toLocaleString()} Nos
+              </h3>
+            </>
+          )}
         </div>
       </div>
 
@@ -179,21 +270,26 @@ export default function StandardProductionListPage() {
                 <th className="py-3.5 px-4">Target Product</th>
                 <th className="py-3.5 px-4 text-center">Planned Qty</th>
                 <th className="py-3.5 px-4 text-center">Status</th>
-                <th className="py-3.5 px-4 text-right">Grand Total</th>
-                <th className="py-3.5 px-4 text-right">Cost/Unit</th>
+                {canViewCosting ? (
+                  <>
+                    <th className="py-3.5 px-4 text-right">Grand Total</th>
+                    <th className="py-3.5 px-4 text-right">Cost/Unit</th>
+                  </>
+                ) : null}
+                <th className="py-3.5 px-4 text-right">Operations & Yield</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
                     <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
                     Loading standard production batches...
                   </td>
                 </tr>
               ) : filteredBatches.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
                     No standard production batches found matching criteria.
                   </td>
                 </tr>
@@ -236,11 +332,54 @@ export default function StandardProductionListPage() {
                         {b.status}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-black text-slate-900 dark:text-white">
-                      ₹{formatCurrency(b.totalCost)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                      ₹{formatCurrency(b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0))}
+                    {canViewCosting ? (
+                      <>
+                        <td className="py-3.5 px-4 text-right font-mono font-black text-slate-900 dark:text-white">
+                          ₹{formatCurrency(b.totalCost)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          ₹{formatCurrency(b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0))}
+                        </td>
+                      </>
+                    ) : null}
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        {(b.status === 'Planned' || b.status === 'Draft') && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleStartBatch(b)}
+                            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-8 px-3 cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="Start manufacturing batch on floor"
+                          >
+                            <Play className="w-3 h-3 fill-current" />
+                            Start Batch
+                          </Button>
+                        )}
+
+                        {b.status === 'In Progress' && (
+                          <Button
+                            size="sm"
+                            onClick={() => handleOpenCompleteModal(b)}
+                            className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-8 px-3 cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="Record actual yield & complete production"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Complete & Yield
+                          </Button>
+                        )}
+
+                        {(b.status === 'Completed' || b.status === 'qc_passed') && (
+                          <div className="text-right">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                              <Check className="w-3 h-3" />
+                              Yield: {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              RM Stock Deducted
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -249,6 +388,18 @@ export default function StandardProductionListPage() {
           </table>
         </div>
       </div>
+
+      {/* ── BATCH COMPLETION & STOCK DEDUCTION MODAL ── */}
+      <BatchCompletionModal
+        isOpen={completionModalOpen}
+        onClose={() => {
+          setCompletionModalOpen(false);
+          setBatchToComplete(null);
+        }}
+        batch={batchToComplete}
+        onSubmit={handleSubmitCompletion}
+        submitting={completing}
+      />
 
     </div>
   );
