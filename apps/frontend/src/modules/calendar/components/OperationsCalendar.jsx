@@ -1133,17 +1133,17 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
               {scenarioChanges.length} staged adjustment{scenarioChanges.length !== 1 ? 's' : ''}
             </span>
           </div>
-          <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <div className="flex items-center gap-2 shrink-0 ml-auto w-full sm:w-auto justify-end">
             <button
               onClick={discardScenario}
-              className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-950 text-purple-200 hover:text-white transition cursor-pointer text-xs"
+              className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-950 text-purple-200 hover:text-white transition cursor-pointer text-xs flex-1 sm:flex-none text-center"
             >
               Discard Simulation
             </button>
             <Button
               onClick={commitScenarioToDatabase}
               size="sm"
-              className="h-7 px-3 rounded bg-amber-400 hover:bg-amber-300 text-purple-950 font-bold text-xs shadow-xs cursor-pointer"
+              className="h-7 px-3 rounded bg-amber-400 hover:bg-amber-300 text-purple-950 font-bold text-xs shadow-xs cursor-pointer flex-1 sm:flex-none text-center"
             >
               Commit Scenario to Database
             </Button>
@@ -1152,10 +1152,10 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       )}
 
       {/* 2. TOP BAR */}
-      <header className="min-h-[56px] py-2 px-2.5 sm:px-4 md:px-6 bg-white dark:bg-[#171d24] border-b border-slate-200 dark:border-slate-800 flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 sm:gap-3 z-10 shrink-0">
+      <header className="min-h-[56px] py-2 px-2.5 sm:px-4 md:px-6 bg-white dark:bg-[#171d24] border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:flex-nowrap items-stretch lg:items-center justify-between gap-2 sm:gap-3 z-10 shrink-0">
         
         {/* Brand & Period Nav */}
-        <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
+        <div className="flex items-center justify-between sm:justify-start gap-2 sm:gap-3 md:gap-4 min-w-0 w-full lg:w-auto">
           {/* Desktop Filter Rail Toggle */}
           <button
             onClick={() => setRailOpen(r => !r)}
@@ -1175,12 +1175,12 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             <span className="w-2 h-2 rounded-full bg-indigo-600 absolute -top-0.5 -right-0.5"></span>
           </button>
 
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <div className="p-1.5 sm:p-2 rounded-lg bg-indigo-600 text-white shadow-xs shrink-0">
               <CalendarIcon className="w-4 h-4" />
             </div>
             <div className="min-w-0">
-              <h1 className="font-bold text-sm md:text-base tracking-tight font-display flex items-center gap-1.5 sm:gap-2 leading-tight">
+              <h1 className="font-bold text-xs sm:text-sm md:text-base tracking-tight font-display flex items-center gap-1.5 sm:gap-2 leading-tight">
                 <span className="truncate">Operations Calendar</span>
                 <span className={`hidden md:inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border shrink-0 ${
                   isScenarioMode 
@@ -1197,38 +1197,40 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             </div>
           </div>
 
-          {/* Month Steppers */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#1f2732] p-0.5 sm:p-1 rounded-lg border border-slate-200 dark:border-slate-700/60 shrink-0">
-            <button
-              onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
-              title="Previous Month"
-            >
-              <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            </button>
-            <button
-              onClick={() => setCurrentDate(new Date())}
-              className="px-2 sm:px-2.5 h-6 sm:h-7 text-xs font-semibold rounded text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
-            >
-              Today
-            </button>
-            <button
-              onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
-              title="Next Month"
-            >
-              <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            </button>
-          </div>
+          {/* Month Steppers & Label */}
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0 ml-auto sm:ml-0">
+            <div className="flex items-center bg-slate-100 dark:bg-[#1f2732] p-0.5 sm:p-1 rounded-lg border border-slate-200 dark:border-slate-700/60 shrink-0">
+              <button
+                onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
+                className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
+                title="Previous Month"
+              >
+                <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+              <button
+                onClick={() => setCurrentDate(new Date())}
+                className="px-1.5 sm:px-2.5 h-6 sm:h-7 text-[11px] sm:text-xs font-semibold rounded text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                Today
+              </button>
+              <button
+                onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
+                className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
+                title="Next Month"
+              >
+                <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </button>
+            </div>
 
-          <div className="text-xs sm:text-sm md:text-base font-bold tracking-tight shrink-0 whitespace-nowrap min-w-[90px] sm:min-w-[120px]">
-            <span className="sm:hidden">{currentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
-            <span className="hidden sm:inline">{currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+            <div className="text-xs sm:text-sm md:text-base font-bold tracking-tight shrink-0 whitespace-nowrap min-w-[70px] sm:min-w-[120px] text-right sm:text-left">
+              <span className="sm:hidden">{currentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+              <span className="hidden sm:inline">{currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
+            </div>
           </div>
         </div>
 
         {/* View Switcher, Search, Scenario Mode & Export Actions */}
-        <div className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 sm:gap-2 md:gap-2.5 shrink-0 ml-auto">
+        <div className="flex items-center justify-between sm:justify-end gap-1.5 sm:gap-2 md:gap-2.5 shrink-0 w-full lg:w-auto lg:ml-auto overflow-x-auto pb-0.5 sm:pb-0">
           
           {/* Scenario Sandbox Mode Toggle */}
           <button
@@ -1242,7 +1244,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                 discardScenario();
               }
             }}
-            className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer shrink-0 ${
+            className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer shrink-0 ${
               isScenarioMode
                 ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-400 text-purple-800 dark:text-purple-300 shadow-xs'
                 : 'bg-slate-100 dark:bg-[#1f2732] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -1250,38 +1252,38 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             title="Toggle What-If Scenario Sandbox"
           >
             <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />
-            <span className="hidden sm:inline">{isScenarioMode ? 'Exit Scenario' : 'What-If Mode'}</span>
-            <span className="sm:hidden">{isScenarioMode ? 'Exit' : 'What-If'}</span>
+            <span className="hidden md:inline">{isScenarioMode ? 'Exit Scenario' : 'What-If Mode'}</span>
+            <span className="md:hidden">{isScenarioMode ? 'Exit' : 'What-If'}</span>
           </button>
 
           {/* View Switcher */}
           <div className="flex bg-slate-100 dark:bg-[#1f2732] p-0.5 sm:p-1 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs font-semibold shrink-0">
             <button
               onClick={() => setActiveView('month')}
-              className={`px-2.5 sm:px-3 py-1 rounded transition cursor-pointer ${activeView === 'month' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+              className={`px-2 sm:px-3 py-1 rounded transition cursor-pointer text-xs ${activeView === 'month' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
             >
               Month
             </button>
             <button
               onClick={() => setActiveView('list')}
-              className={`px-2.5 sm:px-3 py-1 rounded transition cursor-pointer ${activeView === 'list' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+              className={`px-2 sm:px-3 py-1 rounded transition cursor-pointer text-xs ${activeView === 'list' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
             >
               Agenda
             </button>
           </div>
 
           {/* Live Search */}
-          <div className="relative w-28 sm:w-36 md:w-40 xl:w-48 shrink-0">
-            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+          <div className="relative flex-1 sm:flex-none min-w-[70px] sm:w-36 md:w-40 xl:w-48 shrink-0">
+            <Search className="w-3.5 h-3.5 absolute left-2 sm:left-2.5 top-2 sm:top-2.5 text-slate-400" />
             <input
               type="text"
               placeholder="Search..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-7 py-1 sm:py-1.5 text-xs bg-slate-100 dark:bg-[#1f2732] border border-slate-200 dark:border-slate-700/60 rounded-lg outline-none focus:border-indigo-500 transition"
+              className="w-full pl-7 sm:pl-8 pr-6 sm:pr-7 py-1 sm:py-1.5 text-xs bg-slate-100 dark:bg-[#1f2732] border border-slate-200 dark:border-slate-700/60 rounded-lg outline-none focus:border-indigo-500 transition"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600">
+              <button onClick={() => setSearchQuery('')} className="absolute right-1.5 sm:right-2 top-1.5 sm:top-2 text-slate-400 hover:text-slate-600">
                 <X className="w-3 h-3" />
               </button>
             )}
@@ -1293,7 +1295,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             className="p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
             title="Export iCalendar (.ics) for Outlook & Google Calendar"
           >
-            <Download className="w-4 h-4" />
+            <Download className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           </button>
 
           {/* Live Refresh Button */}
@@ -1303,7 +1305,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             className="p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition cursor-pointer shrink-0"
             title="Refresh Live Data"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
           </button>
 
           {/* Fullscreen Toggle */}
@@ -1318,7 +1320,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           {/* New Event Button */}
           <Button
             onClick={() => openDrawer(null)}
-            className="h-7 sm:h-8 md:h-9 px-2.5 sm:px-3 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 flex items-center gap-1.5 text-xs font-semibold shadow-xs cursor-pointer shrink-0"
+            className="h-7 sm:h-8 md:h-9 px-2 sm:px-3 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 flex items-center gap-1 sm:gap-1.5 text-xs font-semibold shadow-xs cursor-pointer shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">New Event</span>
@@ -1374,7 +1376,21 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           {activeView === 'month' ? (
             /* Month Calendar Grid with responsive horizontal scroll support */
             <div className="flex-1 flex flex-col overflow-x-auto overflow-y-auto select-none min-w-0">
-              <div className="min-w-[680px] lg:min-w-0 flex-1 flex flex-col h-full">
+              {/* Mobile-only Swipe & Agenda helper hint */}
+              <div className="sm:hidden px-3 py-1.5 bg-indigo-50/70 dark:bg-indigo-950/40 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-[11px] text-indigo-700 dark:text-indigo-300 shrink-0">
+                <span className="flex items-center gap-1 font-medium">
+                  <span>↔️</span>
+                  <span>Swipe to view all days</span>
+                </span>
+                <button
+                  onClick={() => setActiveView('list')}
+                  className="font-bold underline text-indigo-600 dark:text-indigo-400 cursor-pointer"
+                >
+                  View Agenda &rarr;
+                </button>
+              </div>
+
+              <div className="min-w-[700px] sm:min-w-[760px] lg:min-w-0 flex-1 flex flex-col h-full">
                 
                 {/* Day Headers (Sun - Sat) */}
                 <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#171d24] text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 py-2 shrink-0">
@@ -1485,7 +1501,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                               e.stopPropagation();
                               openDrawer(null, cell.dateStr);
                             }}
-                            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition shrink-0"
+                            className="opacity-70 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition shrink-0"
                             title={`Add event on ${cell.dateStr}`}
                           >
                             <Plus className="w-3 h-3" />
@@ -1620,7 +1636,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             </div>
           ) : (
             /* List / Agenda View */
-            <div className="flex-1 overflow-y-auto p-4 md:p-6">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
               <div className="max-w-4xl mx-auto space-y-4">
                 {filteredEvents.length === 0 && (!showHolidays || holidays.length === 0) ? (
                   <div className="p-12 text-center text-slate-400 bg-white dark:bg-[#171d24] rounded-xl border border-slate-200 dark:border-slate-800">
@@ -1652,7 +1668,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
                       return (
                         <div key={dStr} className="bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs">
-                          <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-semibold">
+                          <div className="px-3 sm:px-4 py-2 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs font-semibold">
                             <span className="font-display font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                               {item.holidays.length > 0 && <span>🏛️</span>}
                               {dateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
@@ -1667,9 +1683,9 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                               <div
                                 key={`h-${h.date}-${hIdx}`}
                                 onClick={() => setSelectedHoliday(h)}
-                                className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 bg-emerald-50/40 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500 cursor-pointer hover:bg-emerald-50/80 transition"
+                                className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 bg-emerald-50/40 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500 cursor-pointer hover:bg-emerald-50/80 transition"
                               >
-                                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+                                <div className="flex flex-wrap sm:flex-nowrap items-start sm:items-center gap-2 sm:gap-3 min-w-0 flex-1">
                                   <span className="px-2 py-0.5 rounded text-[11px] font-bold shrink-0 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200">
                                     🏛️ Official Gazette
                                   </span>
@@ -1701,20 +1717,22 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                                 <div
                                   key={ev.id}
                                   onClick={() => openDrawer(ev.id)}
-                                  className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition border-l-4"
+                                  className="p-3 sm:p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-4 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition border-l-4"
                                   style={{ borderLeftColor: stat.color }}
                                 >
-                                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
-                                    <span className="px-2 py-0.5 rounded text-[11px] font-semibold shrink-0" style={{ backgroundColor: mod.bgColor, color: mod.color }}>
-                                      {mod.name}
-                                    </span>
-                                    {ev.time && (
-                                      <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/60 dark:border-indigo-800/50 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0">
-                                        <Clock className="w-2.5 h-2.5" />
-                                        {ev.time}
+                                  <div className="flex flex-wrap sm:flex-nowrap items-start sm:items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold shrink-0" style={{ backgroundColor: mod.bgColor, color: mod.color }}>
+                                        {mod.name}
                                       </span>
-                                    )}
-                                    <div className="min-w-0">
+                                      {ev.time && (
+                                        <span className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200/60 dark:border-indigo-800/50 px-1.5 py-0.5 rounded flex items-center gap-1 shrink-0">
+                                          <Clock className="w-2.5 h-2.5" />
+                                          {ev.time}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
                                       <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{ev.title}</div>
                                       <div className="text-[11px] font-mono text-slate-500 truncate">{details}</div>
                                     </div>
@@ -1744,7 +1762,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           <div className="relative w-full sm:max-w-md bg-white dark:bg-[#171d24] border-l border-slate-200 dark:border-slate-800 h-full flex flex-col shadow-2xl z-10 animate-in slide-in-from-right duration-200">
             
             {/* Drawer Header */}
-            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-[#1f2732]/40">
+            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-[#1f2732]/40">
               <div className="flex items-center gap-2.5">
                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: ERP_MODULES[formData.module]?.color }}></span>
                 <div>
@@ -1754,13 +1772,13 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                   <p className="text-[10px] text-slate-400 font-medium">Review and configure operational parameters</p>
                 </div>
               </div>
-              <button onClick={closeDrawer} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400">
+              <button onClick={closeDrawer} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Drawer Body Form */}
-            <form id="drawerForm" onSubmit={handleSave} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+            <form id="drawerForm" onSubmit={handleSave} className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3.5 sm:space-y-4 text-xs">
               
               {/* Conflict Guardrail Alerts */}
               {detectedConflicts.length > 0 && (
@@ -2075,7 +2093,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             </form>
 
             {/* Drawer Footer Actions */}
-            <div className="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#1f2732]/40 flex items-center justify-between gap-3">
+            <div className="p-3 sm:p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-[#1f2732]/40 flex items-center justify-between gap-2 sm:gap-3">
               {editingEventId ? (
                 <button
                   type="button"
@@ -2111,9 +2129,9 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
       {/* 5. DEPENDENCY CASCADE WARNING MODAL */}
       {pendingCascade && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
           <div className="fixed inset-0 bg-black/60 backdrop-blur-xs" onClick={() => setPendingCascade(null)}></div>
-          <div className="relative w-full max-w-lg bg-white dark:bg-[#171d24] border border-amber-300 dark:border-amber-700/60 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150 mx-3 sm:mx-auto">
+          <div className="relative w-full max-w-lg bg-white dark:bg-[#171d24] border border-amber-300 dark:border-amber-700/60 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150 mx-1 sm:mx-auto max-h-[90vh] overflow-y-auto">
             <div className="flex items-start gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl shrink-0">
                 <GitBranch className="w-5 h-5" />
@@ -2142,12 +2160,12 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-end gap-2 mt-5">
+            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 mt-4 sm:mt-5">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setPendingCascade(null)}
-                className="text-xs font-semibold cursor-pointer"
+                className="w-full sm:w-auto text-xs font-semibold cursor-pointer"
               >
                 Cancel
               </Button>
@@ -2155,14 +2173,14 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                 variant="outline"
                 size="sm"
                 onClick={() => executeReschedule(pendingCascade.targetEvent, pendingCascade.newDate, false)}
-                className="text-xs font-semibold cursor-pointer"
+                className="w-full sm:w-auto text-xs font-semibold cursor-pointer"
               >
                 Move Only This Stage
               </Button>
               <Button
                 size="sm"
                 onClick={() => executeReschedule(pendingCascade.targetEvent, pendingCascade.newDate, true)}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs cursor-pointer shadow-xs"
+                className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs cursor-pointer shadow-xs"
               >
                 Auto-Shift Downstream Operations
               </Button>
@@ -2173,9 +2191,9 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
       {/* 6. OFFICIAL GAZETTE HOLIDAY DETAIL MODAL */}
       {selectedHoliday && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={() => setSelectedHoliday(null)}></div>
-          <div className="relative w-full max-w-md bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150 mx-3 sm:mx-auto">
+          <div className="relative w-full max-w-md bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150 mx-1 sm:mx-auto max-h-[90vh] overflow-y-auto">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xl">
@@ -2229,15 +2247,15 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
       {/* 6. DAY DETAIL POPUP MODAL (When clicking + more button) */}
       {dayDetailModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
           <div 
             className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-150" 
             onClick={() => setDayDetailModal(null)}
           ></div>
-          <div className="relative w-full max-w-xl bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150 mx-3 sm:mx-auto">
+          <div className="relative w-full max-w-xl bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[90vh] sm:max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150 mx-1 sm:mx-auto">
             
             {/* Modal Header */}
-            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-[#1f2732]/50 shrink-0 gap-2">
+            <div className="px-3 sm:px-5 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-[#1f2732]/50 shrink-0 gap-2">
               <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                 <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
                   <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -2284,7 +2302,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             </div>
 
             {/* Modal Content / Event List */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+            <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3">
               
               {/* Gazette Holidays on this date */}
               {dayDetailModal.holidays.map((h, idx) => (
@@ -2294,7 +2312,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                     setDayDetailModal(null);
                     setSelectedHoliday(h);
                   }}
-                  className="p-3.5 rounded-xl border border-emerald-300 dark:border-emerald-700/60 bg-emerald-50/70 dark:bg-emerald-950/40 flex items-center justify-between gap-3 cursor-pointer hover:opacity-90 transition"
+                  className="p-3 sm:p-3.5 rounded-xl border border-emerald-300 dark:border-emerald-700/60 bg-emerald-50/70 dark:bg-emerald-950/40 flex items-center justify-between gap-3 cursor-pointer hover:opacity-90 transition"
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-xl">🏛️</span>
@@ -2311,16 +2329,16 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
               {/* Machine / Workload Shift Bar if High Load */}
               {dayDetailModal.load && dayDetailModal.load.totalMinutes > 0 && (
-                <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
+                <div className="p-2.5 sm:p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
-                    <Factory className="w-4 h-4 text-indigo-500" />
+                    <Factory className="w-4 h-4 text-indigo-500 shrink-0" />
                     <span className="font-semibold text-slate-700 dark:text-slate-300">Shift Queue Load:</span>
                     <span className="font-mono font-bold text-slate-900 dark:text-white">
                       {Math.round(dayDetailModal.load.totalMinutes / 60)}h {dayDetailModal.load.totalMinutes % 60}m across {dayDetailModal.load.jobCount} jobs
                     </span>
                   </div>
                   {dayDetailModal.load.totalMinutes > 480 && (
-                    <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded">
+                    <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950 px-2 py-0.5 rounded shrink-0">
                       ⚠️ Bottleneck
                     </span>
                   )}
@@ -2344,10 +2362,10 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                         setDayDetailModal(null);
                         openDrawer(ev.id);
                       }}
-                      className="p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-600 bg-white dark:bg-[#1a2028] shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col gap-2"
+                      className="p-2.5 sm:p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-600 bg-white dark:bg-[#1a2028] shadow-2xs hover:shadow-md transition cursor-pointer flex flex-col gap-2"
                       style={{ borderLeftWidth: '4px', borderLeftColor: stat.color }}
                     >
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center justify-between gap-2 sm:gap-3 flex-wrap sm:flex-nowrap">
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="px-2 py-0.5 rounded text-[11px] font-semibold shrink-0" style={{ backgroundColor: mod.bgColor, color: mod.color }}>
                             {mod.name}
@@ -2363,13 +2381,13 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                           </span>
                         </div>
 
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-center">
                           {ev.status}
                         </span>
                       </div>
 
                       {/* Relational details row */}
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                      <div className="flex flex-wrap items-center gap-x-2.5 sm:gap-x-3 gap-y-1 text-[10.5px] sm:text-[11px] text-slate-500 dark:text-slate-400">
                         {ev.referenceNo && (
                           <span className="font-mono font-semibold text-indigo-600 dark:text-indigo-400">
                             Ref: {ev.referenceNo}
@@ -2406,15 +2424,15 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
             </div>
 
             {/* Modal Footer */}
-            <div className="px-5 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-[#1f2732]/40 flex items-center justify-between shrink-0">
-              <div className="text-xs text-slate-400">
+            <div className="px-3 sm:px-5 py-2.5 sm:py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-[#1f2732]/40 flex items-center justify-between shrink-0">
+              <div className="text-[11px] sm:text-xs text-slate-400 truncate mr-2">
                 Click any operation to edit parameters or manage schedule
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setDayDetailModal(null)}
-                className="px-4 text-xs font-semibold cursor-pointer"
+                className="px-3 sm:px-4 text-xs font-semibold cursor-pointer shrink-0"
               >
                 Close
               </Button>
@@ -2425,12 +2443,12 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
       {/* 7. IN-APP POPUP CONFIRMATION DIALOG MODAL */}
       {confirmDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
           <div 
             className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-150" 
             onClick={() => setConfirmDialog(null)}
           ></div>
-          <div className="relative w-full max-w-md bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150">
+          <div className="relative w-full max-w-md bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150 mx-1 sm:mx-auto max-h-[90vh] overflow-y-auto">
             <div className="flex items-start gap-3.5 mb-4">
               <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-xl shrink-0 ${
                 confirmDialog.type === 'danger'
@@ -2463,19 +2481,19 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
               </button>
             </div>
 
-            <div className="mt-6 flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <div className="mt-5 sm:mt-6 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setConfirmDialog(null)}
-                className="px-4 text-xs font-semibold cursor-pointer border-slate-200 dark:border-slate-700"
+                className="w-full sm:w-auto px-4 text-xs font-semibold cursor-pointer border-slate-200 dark:border-slate-700"
               >
                 {confirmDialog.cancelText || 'Cancel'}
               </Button>
               <Button
                 size="sm"
                 onClick={confirmDialog.onConfirm}
-                className={`px-4 text-xs font-semibold cursor-pointer shadow-xs ${
+                className={`w-full sm:w-auto px-4 text-xs font-semibold cursor-pointer shadow-xs ${
                   confirmDialog.type === 'danger'
                     ? 'bg-rose-600 hover:bg-rose-700 text-white'
                     : confirmDialog.type === 'warning'
@@ -2491,7 +2509,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       )}
 
       {/* 8. TOAST NOTIFICATION CONTAINER */}
-      <div className="fixed bottom-6 right-6 flex flex-col gap-2 z-50 pointer-events-none">
+      <div className="fixed bottom-4 sm:bottom-6 right-3 sm:right-6 left-3 sm:left-auto max-w-sm sm:max-w-md flex flex-col gap-2 z-50 pointer-events-none">
         {toasts.map(t => (
           <div
             key={t.id}
