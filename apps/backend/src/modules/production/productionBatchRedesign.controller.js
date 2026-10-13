@@ -2,6 +2,7 @@ const { z } = require('zod');
 const prisma = require('../../database/prisma');
 const batchNumberService = require('./batchNumber.service');
 const productionCompletionService = require('./productionCompletion.service');
+const { getTaxSettingsData } = require('../setup/tax.controller');
 
 // Helper to generate unique MP-XXXXXX
 async function generateBatchReference(tx) {
@@ -942,21 +943,36 @@ class ProductionBatchRedesignController {
       const mfdStr = new Date(mfd).toISOString().split('T')[0];
       const expStr = new Date(expiryDate).toISOString().split('T')[0];
 
+      // Fetch Live Business Profile from /setup/tax (PostgreSQL Live Data)
+      let company = {};
+      try {
+        company = await getTaxSettingsData();
+      } catch (e) {
+        console.warn('Failed to load live tax settings, fallback to DB query:', e.message);
+      }
+
+      const companyName = company.companyName || 'Leonex';
+      const companyAddress = company.companyAddress || 'Factory / Registered Office Address';
+      const companyGstin = company.companyGstin || '33AAWCS2781F1ZZ';
+      const companyPan = company.companyPan || 'AAWCS2781F';
+      const companyMobile = company.companyMobile || '+91 99404 54154';
+
       const qrPayload = JSON.stringify({
+        batch: batchNo,
         product: batch.product?.name,
         code: batch.product?.code,
-        batch: batchNo,
         gtin: gtin,
         mfd: mfdStr,
         exp: expStr,
         mrp: Number(batch.salePrice || 0),
-        netWt: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`
+        netWt: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`,
+        mfgBy: companyName,
+        address: companyAddress,
+        gstin: companyGstin,
+        pan: companyPan,
+        mobile: companyMobile,
+        fssaiLic: companyPan
       });
-
-      let company = null;
-      try {
-        company = await prisma.companyDetails.findFirst();
-      } catch (e) {}
 
       res.json({
         batchId: batch.id,
@@ -970,9 +986,12 @@ class ProductionBatchRedesignController {
         mrp: Number(batch.salePrice || 0),
         netWeight: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`,
         storageConditions: 'Store in cool and dry place away from direct sunlight',
-        fssaiLicence: company?.companyPan || '10019043002678',
-        manufacturer: company?.companyName || 'ERP Manufacturing Facility',
-        address: company?.companyAddress || 'Factory Floor 1, Industrial Area',
+        fssaiLicence: companyPan,
+        manufacturer: companyName,
+        address: companyAddress,
+        gstin: companyGstin,
+        pan: companyPan,
+        mobile: companyMobile,
         qrPayload
       });
     } catch (err) {

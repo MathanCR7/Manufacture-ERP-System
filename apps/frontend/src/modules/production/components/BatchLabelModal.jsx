@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { X, Printer, QrCode, Tag, Check, Building, Calendar, ShieldCheck, AlertCircle } from 'lucide-react';
+import { X, Printer, QrCode, Tag, Check, Building, Calendar, ShieldCheck, AlertCircle, Phone } from 'lucide-react';
+import QRCode from 'react-qr-code';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
 
@@ -9,14 +10,25 @@ export default function BatchLabelModal({
   batchId
 }) {
   const [labelData, setLabelData] = useState(null);
+  const [companyProfile, setCompanyProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (isOpen && batchId) {
       setLoading(true);
-      api.get(`/production/batches-redesign/${batchId}/label`)
-        .then(res => setLabelData(res.data))
-        .catch(err => console.error('Failed to load batch label:', err))
+      Promise.all([
+        api.get(`/production/batches-redesign/${batchId}/label`),
+        api.get('/setup/tax').catch(() => ({ data: null }))
+      ])
+        .then(([labelRes, taxRes]) => {
+          setLabelData(labelRes.data);
+          if (taxRes && taxRes.data) {
+            setCompanyProfile(taxRes.data);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to load batch label:', err);
+        })
         .finally(() => setLoading(false));
     }
   }, [isOpen, batchId]);
@@ -26,6 +38,32 @@ export default function BatchLabelModal({
   const handlePrint = () => {
     window.print();
   };
+
+  // Live PostgreSQL Business Profile resolution directly from /setup/tax
+  const liveManufacturer = companyProfile?.companyName || labelData?.manufacturer || 'Leonex';
+  const liveAddress = companyProfile?.companyAddress || labelData?.address || 'Factory / Registered Office Address';
+  const liveLicNo = companyProfile?.companyPan || labelData?.fssaiLicence || 'AAWCS2781F';
+  const liveGstin = companyProfile?.companyGstin || labelData?.gstin || '33AAWCS2781F1ZZ';
+  const livePan = companyProfile?.companyPan || labelData?.pan || 'AAWCS2781F';
+  const liveMobile = companyProfile?.companyMobile || labelData?.mobile || '+91 99404 54154';
+
+  // Live GS1 Scannable QR Payload
+  const dynamicQrPayload = JSON.stringify({
+    batch: labelData?.batchNo,
+    product: labelData?.productName,
+    code: labelData?.productCode,
+    gtin: labelData?.gtin,
+    mfd: labelData?.mfd,
+    exp: labelData?.expiryDate,
+    mrp: Number(labelData?.mrp || 0),
+    netWt: labelData?.netWeight,
+    mfgBy: liveManufacturer,
+    address: liveAddress,
+    gstin: liveGstin,
+    pan: livePan,
+    mobile: liveMobile,
+    fssaiLic: liveLicNo
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150">
@@ -115,10 +153,15 @@ export default function BatchLabelModal({
                   </div>
                 </div>
 
-                {/* QR Code Graphic Representation */}
+                {/* QR Code Dynamic Scannable Representation */}
                 <div className="col-span-4 flex flex-col items-center justify-center border-l-2 border-slate-900 pl-3">
-                  <div className="w-20 h-20 bg-slate-950 p-1.5 rounded-lg flex items-center justify-center text-white">
-                    <QrCode className="w-16 h-16" />
+                  <div className="p-1.5 bg-white rounded-lg border border-slate-300 shadow-2xs flex items-center justify-center">
+                    <QRCode
+                      value={dynamicQrPayload}
+                      size={72}
+                      level="M"
+                      className="w-18 h-18"
+                    />
                   </div>
                   <span className="text-[8px] font-mono font-bold mt-1 text-center text-slate-500">
                     SCAN FOR TRACE
@@ -136,11 +179,14 @@ export default function BatchLabelModal({
                 </span>
               </div>
 
-              {/* Regulatory Footer */}
-              <div className="text-[9px] text-slate-600 space-y-0.5 pt-1 leading-tight border-t border-slate-200">
-                <p><strong>Storage:</strong> {labelData.storageConditions}</p>
-                <p><strong>FSSAI / Lic No:</strong> {labelData.fssaiLicence}</p>
-                <p><strong>Mfg by:</strong> {labelData.manufacturer}, {labelData.address}</p>
+              {/* Regulatory Live Company Profile Footer */}
+              <div className="text-[9.5px] text-slate-800 space-y-0.5 pt-1 leading-tight border-t border-slate-200">
+                <p><strong>Storage:</strong> {labelData.storageConditions || 'Store in cool and dry place away from direct sunlight'}</p>
+                <p><strong>FSSAI / Lic No:</strong> {liveLicNo}</p>
+                <p><strong>Mfg by:</strong> {liveManufacturer}, {liveAddress}</p>
+                <p className="text-[9px] text-slate-600">
+                  <strong>GSTIN:</strong> {liveGstin} • <strong>PAN:</strong> {livePan} • <strong>Mobile:</strong> {liveMobile}
+                </p>
               </div>
             </div>
           ) : (

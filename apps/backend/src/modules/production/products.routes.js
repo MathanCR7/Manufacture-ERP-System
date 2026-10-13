@@ -270,7 +270,7 @@ router.get('/search', authenticateToken, async (req, res, next) => {
         unit: { select: { id: true, name: true, abbreviation: true } },
         stockLevels: { select: { minLevel: true, maxLevel: true, reorderPoint: true } },
         stages: {
-          include: { stage: { select: { id: true, name: true, category: true, description: true } } },
+          include: { stage: { select: { id: true, name: true, description: true } } },
           orderBy: { sortOrder: 'asc' }
         }
       },

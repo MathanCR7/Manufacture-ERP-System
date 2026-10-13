@@ -2,7 +2,7 @@ const prisma = require('../../database/prisma');
 const crypto = require('crypto');
 
 const DEFAULT_SETTINGS = {
-  companyName: 'SUPERB FORMULATIONS PRIVATE LIMITED',
+  companyName: 'Leonex',
   companyAddress: 'Factory / Registered Office Address',
   companyGstin: '33AAWCS2781F1ZZ',
   companyPan: 'AAWCS2781F',
