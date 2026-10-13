@@ -451,14 +451,14 @@ const GRNListPage = () => {
               )}
 
               {/* Lab Status Filter */}
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
                 <select
                   value={filterLabStatus}
                   onChange={(e) => {
                     setFilterLabStatus(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                 >
                   <option value="ALL">Status: All</option>
                   <option value="LAB_APPROVED">Approved</option>
@@ -471,14 +471,14 @@ const GRNListPage = () => {
               </div>
 
               {/* Inventory Filter */}
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
                 <select
                   value={filterInvStatus}
                   onChange={(e) => {
                     setFilterInvStatus(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                 >
                   <option value="ALL">Inventory: All</option>
                   <option value="UPLOADED">Stock In Only</option>
@@ -488,13 +488,13 @@ const GRNListPage = () => {
               </div>
 
               {/* Date Pickers */}
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 flex-1 sm:flex-none w-full sm:w-auto">
                 <DatePicker
                   value={fromDate}
                   onChange={(d) => { setFromDate(d); setCurrentPage(1); }}
                   modalTitle="From Date"
                   placeholder="From Date"
-                  className="w-24 sm:w-28 text-xs h-8"
+                  className="flex-1 sm:w-28 text-xs h-8"
                   triggerClassName="h-8 text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg shadow-3xs"
                 />
                 <DatePicker
@@ -502,13 +502,13 @@ const GRNListPage = () => {
                   onChange={(d) => { setToDate(d); setCurrentPage(1); }}
                   modalTitle="To Date"
                   placeholder="To Date"
-                  className="w-24 sm:w-28 text-xs h-8"
+                  className="flex-1 sm:w-28 text-xs h-8"
                   triggerClassName="h-8 text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg shadow-3xs"
                 />
               </div>
 
               {/* Sort Dropdown (Styled identically to /purchase-orders) */}
-              <div className="relative flex items-center">
+              <div className="relative flex items-center flex-1 sm:flex-none min-w-[150px] w-full sm:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
                   <ArrowUpDown className="w-3.5 h-3.5" />
                 </span>
@@ -518,7 +518,7 @@ const GRNListPage = () => {
                     setSortBy(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Sort options"
                 >
                   <option value="recent">Sort: Date (Newest First)</option>
@@ -551,8 +551,8 @@ const GRNListPage = () => {
 
           {/* Table: Exact column structure requested with PO REF FIRST, THEN GRN REF! */}
           {/* Order: SN -> Date -> PO Ref -> GRN Ref -> Supplier -> Received Materials -> Invoice & LR -> Lab Status -> Inventory -> Actions */}
-          <div className="w-full overflow-x-auto lg:overflow-x-hidden">
-            <Table className="w-full table-fixed text-xs border-collapse">
+          <div className="w-full overflow-x-auto">
+            <Table className="w-full min-w-[980px] lg:min-w-full table-fixed text-xs border-collapse">
               <TableHeader className="bg-slate-50/90 dark:bg-slate-950/70 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 select-none">
                 <TableRow className="dark:border-slate-800">
                   {/* 1. SN: 3.5% */}
@@ -903,21 +903,29 @@ const GRNListPage = () => {
           </div>
 
           {/* Footer info & Pagination Controls */}
-          <div className="px-4 py-2.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 flex flex-col sm:flex-row justify-between items-center gap-3">
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium order-2 sm:order-1">
-              Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, sorted.length)} of {sorted.length} GRNs
+          <div className="px-3 sm:px-4 py-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="text-center sm:text-left">
+              {sorted.length > 0 ? (
+                <span>
+                  Showing <strong className="text-slate-700 dark:text-slate-200">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</strong> to <strong className="text-slate-700 dark:text-slate-200">{Math.min(currentPage * ITEMS_PER_PAGE, sorted.length)}</strong> of <strong className="text-slate-700 dark:text-slate-200">{sorted.length}</strong> GRNs
+                </span>
+              ) : (
+                <span>0 GRN records found</span>
+              )}
             </div>
 
-            <div className="order-1 sm:order-2">
-              <Pagination 
-                currentPage={currentPage} 
-                totalPages={totalPages} 
-                onPageChange={setCurrentPage} 
-              />
-            </div>
+            {totalPages > 1 && (
+              <div className="order-first sm:order-none">
+                <Pagination 
+                  currentPage={currentPage} 
+                  totalPages={totalPages} 
+                  onPageChange={setCurrentPage} 
+                />
+              </div>
+            )}
 
-            <div className="text-xs text-slate-400 font-medium order-3">
-              Active Filter Matches: {filtered.length} entries
+            <div className="text-[10px] text-slate-400 text-center sm:text-right">
+              Active Filter Matches: <strong className="text-slate-600 dark:text-slate-300">{filtered.length}</strong> entries
             </div>
           </div>
         </CardContent>

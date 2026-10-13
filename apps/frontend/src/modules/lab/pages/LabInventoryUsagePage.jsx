@@ -122,7 +122,7 @@ const LabInventoryUsagePage = () => {
           variant="outline"
           size="sm"
           onClick={() => navigate('/lab-inventory/list')}
-          className="text-xs rounded-xl h-8 gap-1.5"
+          className="w-full sm:w-auto text-xs rounded-xl h-8 gap-1.5"
         >
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Lab Inventory
         </Button>
@@ -394,8 +394,8 @@ const LabInventoryUsagePage = () => {
         ) : recentUsages.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-xs">No chemical usage logged yet.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[760px] lg:min-w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-750 bg-slate-50/60 dark:bg-slate-850/60 text-slate-500 font-bold uppercase tracking-widest text-[10px]">
                   <th className="px-4 py-2.5">Date</th>

@@ -454,7 +454,7 @@ export default function RMStockPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap self-start sm:self-auto w-full sm:w-auto justify-start sm:justify-end shrink-0">
           <Button
             variant="outline"
             size="sm"
@@ -656,16 +656,16 @@ export default function RMStockPage() {
             </div>
 
             {/* Filter Dropdowns & Sort Controls */}
-            <div className="flex items-center gap-1.5 flex-wrap justify-start lg:justify-end">
+            <div className="flex items-center gap-1.5 flex-wrap w-full lg:w-auto justify-start lg:justify-end">
               {/* Category Filter */}
-              <div className="relative flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto flex items-center">
                 <select
                   value={categoryFilter}
                   onChange={(e) => {
                     setCategoryFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Filter by Category"
                 >
                   <option value="ALL">All Categories</option>
@@ -679,14 +679,14 @@ export default function RMStockPage() {
               </div>
 
               {/* Stock Status Filter */}
-              <div className="relative flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto flex items-center">
                 <select
                   value={statusFilter}
                   onChange={(e) => {
                     setStatusFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Filter by Stock Status"
                 >
                   <option value="ALL">All Stock Status</option>
@@ -700,14 +700,14 @@ export default function RMStockPage() {
               </div>
 
               {/* Valuation Filter */}
-              <div className="relative flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto flex items-center">
                 <select
                   value={valuationFilter}
                   onChange={(e) => {
                     setValuationFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Filter by Valuation Status"
                 >
                   <option value="ALL">All Valuation</option>
@@ -720,7 +720,7 @@ export default function RMStockPage() {
               </div>
 
               {/* Sort Dropdown matching /setup/raw-material */}
-              <div className="relative flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[150px] w-full sm:w-auto flex items-center">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
                   <ArrowUpDown className="w-3.5 h-3.5" />
                 </span>
@@ -730,7 +730,7 @@ export default function RMStockPage() {
                     setSortBy(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Sort options"
                 >
                   <option value="code_asc">Sort: Code (RM-00001 First)</option>
@@ -757,7 +757,7 @@ export default function RMStockPage() {
               {isFilterActive && (
                 <button
                   onClick={handleResetFilters}
-                  className="h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors flex items-center gap-1 text-[11px] font-medium shrink-0 cursor-pointer"
+                  className="h-8 px-2 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 transition-colors flex items-center gap-1 text-[11px] font-medium shrink-0 cursor-pointer shadow-3xs"
                   title="Reset filters and sort"
                 >
                   <RotateCcw className="w-3 h-3" />
@@ -768,8 +768,8 @@ export default function RMStockPage() {
           </div>
 
           {/* Compact Table: SN -> Code -> Category -> Name -> Available Qty -> Floating Stock -> Derived Rate -> Stock Valuation -> History */}
-          <div className="overflow-x-auto">
-            <Table className="text-xs">
+          <div className="w-full overflow-x-auto">
+            <Table className="w-full min-w-[980px] lg:min-w-full text-xs">
               <TableHeader className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                 <TableRow className="border-b border-slate-200 dark:border-slate-800">
                   {/* 1. SN */}

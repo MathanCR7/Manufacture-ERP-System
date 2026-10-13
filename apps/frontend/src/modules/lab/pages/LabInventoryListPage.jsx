@@ -300,7 +300,7 @@ const LabInventoryListPage = () => {
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Reagents, chemicals, consumables, glassware & equipment</p>
         </div>
-        <div className="flex gap-2 w-full sm:w-auto justify-end">
+        <div className="flex gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
           <Button onClick={() => navigate('/lab-inventory/use')} variant="outline" size="sm" className="text-xs rounded-xl h-8">
             <Clock className="w-3.5 h-3.5 mr-1.5" /> Log Usage
           </Button>
@@ -335,8 +335,8 @@ const LabInventoryListPage = () => {
       )}
 
       {/* Filters Toolbar */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-sm flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row flex-wrap gap-2.5 sm:gap-3 items-stretch sm:items-center">
+        <div className="relative flex-1 min-w-[180px] w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             value={search}
@@ -349,7 +349,7 @@ const LabInventoryListPage = () => {
         <select
           value={filterCategory}
           onChange={e => setFilterCategory(e.target.value)}
-          className="border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-305 focus:outline-none focus:ring-2 focus:ring-purple-500/20 font-bold h-9 pr-8"
+          className="w-full sm:w-auto border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-305 focus:outline-none focus:ring-2 focus:ring-purple-500/20 font-bold h-9 pr-8"
         >
           <option value="">All Categories</option>
           {Object.keys(CATEGORY_COLORS).map(c => <option key={c} value={c}>{c.charAt(0) + c.slice(1).toLowerCase()}</option>)}
@@ -358,7 +358,7 @@ const LabInventoryListPage = () => {
         <select
           value={filterStatus}
           onChange={e => setFilterStatus(e.target.value)}
-          className="border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-305 focus:outline-none focus:ring-2 focus:ring-purple-500/20 font-bold h-9 pr-8"
+          className="w-full sm:w-auto border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-305 focus:outline-none focus:ring-2 focus:ring-purple-500/20 font-bold h-9 pr-8"
         >
           <option value="">All Statuses</option>
           {Object.entries(STATUS_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -376,8 +376,8 @@ const LabInventoryListPage = () => {
             <p className="text-xs mt-0.5 text-slate-400">Add reagents and glassware to track usage logs.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[850px] lg:min-w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-750 bg-slate-50/60 dark:bg-slate-850/60 text-slate-500 font-bold uppercase tracking-widest">
                   {['Item Name', 'Category', 'Current Stock', 'Min. Stock', 'UOM', 'Storage Storage', 'Expiry Date', 'Status', 'Lot #'].map(h => (

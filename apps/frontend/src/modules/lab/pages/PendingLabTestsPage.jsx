@@ -155,7 +155,7 @@ export default function PendingLabTestsPage() {
                 }`}
               >
                 {/* Card Title Bar */}
-                <div className={`px-4 py-2.5 flex items-center justify-between ${
+                <div className={`px-3 sm:px-4 py-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 ${
                   urgent
                     ? 'bg-rose-500/10 border-b border-rose-500/20'
                     : 'bg-slate-50/60 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800'
@@ -177,7 +177,7 @@ export default function PendingLabTestsPage() {
                 </div>
 
                 {/* Card Content Body */}
-                <div className="p-4 space-y-3.5">
+                <div className="p-3 sm:p-4 space-y-3.5">
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
                     <div>
                       <p className="text-[10px] text-slate-400 uppercase font-bold tracking-wider mb-0.5">PO Ref</p>
@@ -202,7 +202,7 @@ export default function PendingLabTestsPage() {
                   {/* Sub items List */}
                   <div className="space-y-1.5">
                     {grn.items?.map(item => (
-                      <div key={item.id} className="flex items-center justify-between text-[11px] p-2 bg-slate-50 dark:bg-slate-800/30 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div key={item.id} className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1.5 text-[11px] p-2 bg-slate-50 dark:bg-slate-800/30 rounded-lg border border-slate-100 dark:border-slate-800">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Package className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                           <span className="font-bold text-slate-750 dark:text-slate-350">{item.rmName}</span>
@@ -217,7 +217,7 @@ export default function PendingLabTestsPage() {
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-3 text-slate-500 font-medium">
+                        <div className="flex items-center gap-3 text-slate-500 font-medium flex-wrap">
                           <span>Expected: {Number(item.expectedQty).toFixed(2)}</span>
                           <span className="font-bold text-slate-750 dark:text-slate-250">
                             Recv: {Number(item.actualReceivedQty).toFixed(2)}
@@ -232,7 +232,7 @@ export default function PendingLabTestsPage() {
 
                   {/* Actions & Creator User details */}
                   <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="flex items-center gap-3 text-[10px] text-slate-400 font-semibold">
+                    <div className="flex items-center gap-3 text-[10px] text-slate-400 font-semibold flex-wrap">
                       <span className="flex items-center gap-1">
                         <User className="w-3 h-3" />
                         {grn.receiver?.name || 'Unknown Receiver'}
@@ -246,12 +246,12 @@ export default function PendingLabTestsPage() {
                       )}
                     </div>
                     
-                    <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+                    <div className="flex items-center gap-1.5 w-full sm:w-auto justify-start sm:justify-end flex-wrap">
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => navigate(`/grn/view/${grn.id}`)}
-                        className="h-8 text-xs gap-1 rounded-xl"
+                        className="flex-1 sm:flex-none h-8 text-xs gap-1 rounded-xl"
                       >
                         <Eye className="w-3.5 h-3.5" /> View GRN
                       </Button>
@@ -259,7 +259,7 @@ export default function PendingLabTestsPage() {
                         <Button
                           size="sm"
                           onClick={() => navigate(`/lab/test/${grn.id}`)}
-                          className="h-8 text-xs gap-1 bg-violet-600 hover:bg-violet-700 text-white rounded-xl active:scale-[0.98] transition-all font-semibold"
+                          className="flex-1 sm:flex-none h-8 text-xs gap-1 bg-violet-600 hover:bg-violet-700 text-white rounded-xl active:scale-[0.98] transition-all font-semibold"
                         >
                           <FlaskConical className="w-3.5 h-3.5" />
                           Record Lab Results

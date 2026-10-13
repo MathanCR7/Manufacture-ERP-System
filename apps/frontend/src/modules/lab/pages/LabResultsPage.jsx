@@ -361,10 +361,24 @@ export default function LabResultsPage() {
         )}
       </div>
 
-      {/* Desktop table view (visible only on screens md and larger) */}
+      {/* Mobile pagination controls (visible on screens smaller than md) */}
+      <div className="md:hidden pt-2 flex flex-col items-center gap-2">
+        <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium text-center">
+          Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length} lab records
+        </div>
+        {totalPages > 1 && (
+          <Pagination 
+            currentPage={currentPage} 
+            totalPages={totalPages} 
+            onPageChange={setCurrentPage} 
+          />
+        )}
+      </div>
+
+      {/* Desktop & Tablet table view (visible on screens md and larger) */}
       <div className="hidden md:block bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[880px] lg:min-w-full text-xs text-left">
             <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-widest text-[9px]">
               <tr>
                 <th className="px-4 py-3.5 font-bold w-10 text-center">#</th>

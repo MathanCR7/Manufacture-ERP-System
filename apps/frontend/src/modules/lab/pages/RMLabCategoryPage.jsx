@@ -259,7 +259,7 @@ export default function RMLabCategoryPage() {
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{categories.length} raw material test classes defined</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+        <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
           {canEdit && categories.length === 0 && (
             <Button
               variant="outline"
@@ -389,8 +389,8 @@ export default function RMLabCategoryPage() {
             <Tag className="w-4 h-4 text-violet-550 shrink-0" /> Standard Raw Material Testing Standards
           </h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[11px] text-left">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[650px] lg:min-w-full text-[11px] text-left">
             <thead className="bg-slate-50/60 dark:bg-slate-850/50 text-slate-500 font-bold border-b border-slate-100 dark:border-slate-800 uppercase tracking-widest">
               <tr>
                 {['RM Class', 'Common Examples', 'Primary Lab Checks', 'Approved Ranges'].map(h => (

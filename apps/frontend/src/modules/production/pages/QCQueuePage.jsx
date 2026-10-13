@@ -258,12 +258,12 @@ export default function QCQueuePage() {
           </p>
         </div>
         
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-          <Button variant="outline" size="sm" onClick={fetchQueue} disabled={loading} className="text-xs h-9 rounded-xl border-slate-205 cursor-pointer">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-start sm:justify-end">
+          <Button variant="outline" size="sm" onClick={fetchQueue} disabled={loading} className="text-xs h-9 rounded-xl border-slate-205 cursor-pointer shrink-0">
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh Queue
           </Button>
-          <div className="relative w-full sm:w-64">
+          <div className="relative flex-1 sm:flex-none w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
               placeholder="Search queue..." 
@@ -284,8 +284,8 @@ export default function QCQueuePage() {
 
       {/* QC Queue List */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[800px] lg:min-w-full text-xs text-left">
             <thead className="bg-slate-50/80 dark:bg-slate-800/50 text-slate-500 font-bold border-b border-slate-105 dark:border-slate-800 uppercase tracking-widest">
               <tr>
                 <th className="px-4 py-2.5">Batch Ref</th>
@@ -505,24 +505,24 @@ export default function QCQueuePage() {
                 {/* Custom Parameters sub-form (Modified to completely remove white background and improve displays) */}
                 <div className="space-y-1.5 p-3 bg-slate-100/50 dark:bg-slate-955 rounded-xl border border-slate-200/80 dark:border-slate-800">
                   <label className="text-[9px] uppercase font-bold text-slate-400 block">Custom parameters</label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Input 
                       placeholder="Key" 
                       value={customParamKey} 
                       onChange={(e) => setCustomParamKey(e.target.value)} 
-                      className="h-8 text-[11px] rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-750 text-slate-900 dark:text-white" 
+                      className="h-8 text-[11px] rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-750 text-slate-900 dark:text-white flex-1" 
                     />
                     <Input 
                       placeholder="Value" 
                       value={customParamVal} 
                       onChange={(e) => setCustomParamVal(e.target.value)} 
-                      className="h-8 text-[11px] rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-750 text-slate-900 dark:text-white" 
+                      className="h-8 text-[11px] rounded-lg bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-750 text-slate-900 dark:text-white flex-1" 
                     />
                     <Button 
                       type="button" 
                       onClick={addCustomParam} 
                       size="sm" 
-                      className="h-8 text-xs py-0 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer px-3 font-semibold"
+                      className="h-8 text-xs py-0 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer px-3 font-semibold w-full sm:w-auto"
                     >
                       Add
                     </Button>
@@ -551,12 +551,12 @@ export default function QCQueuePage() {
               </div>
             </div>
 
-            <div className="flex gap-2 pt-2 border-t dark:border-slate-800 justify-end border-slate-200">
-              <Button variant="outline" onClick={() => setSelectedBatch(null)} className="h-9 text-xs rounded-xl px-4 cursor-pointer">Cancel</Button>
+            <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t dark:border-slate-800 justify-end border-slate-200">
+              <Button variant="outline" onClick={() => setSelectedBatch(null)} className="w-full sm:w-auto h-9 text-xs rounded-xl px-4 cursor-pointer">Cancel</Button>
               <Button
                 disabled={processing}
                 onClick={handleConfirmApprove}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-9 text-xs rounded-xl px-4 shadow-sm cursor-pointer"
+                className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-9 text-xs rounded-xl px-4 shadow-sm cursor-pointer"
               >
                 {processing ? 'Clearing Batch...' : 'Release Batch to Stock'}
               </Button>
