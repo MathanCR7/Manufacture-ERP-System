@@ -3,11 +3,13 @@ import {
   X, Play, Pause, PlayCircle, XCircle, CheckCircle2, 
   Clock, User, Calendar, Factory, Package, Layers, 
   FileText, ShieldCheck, AlertTriangle, ArrowRight, 
-  RefreshCw, Database, Sparkles, Scale, Tag, Check, Info 
+  RefreshCw, Database, Sparkles, Scale, Tag, Check, Info,
+  Printer, Zap, FlaskConical
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
 import Swal from 'sweetalert2';
+import BatchLabelModal from './BatchLabelModal';
 
 export default function ProductionBatchDetailModal({
   isOpen = false,
@@ -21,6 +23,7 @@ export default function ProductionBatchDetailModal({
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'timeline', 'sop', 'formulation', 'pauses'
   const [actionLoading, setActionLoading] = useState(false);
+  const [showLabelModal, setShowLabelModal] = useState(false);
 
   const fetchBatchDetail = async () => {
     if (!batchId) return;
@@ -287,6 +290,16 @@ export default function ProductionBatchDetailModal({
                 Cancel Run
               </Button>
             )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowLabelModal(true)}
+              className="rounded-xl border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold h-8 px-3 cursor-pointer flex items-center gap-1.5"
+            >
+              <Printer className="w-3.5 h-3.5 text-slate-500" />
+              GS1 Label / Barcode
+            </Button>
           </div>
 
           {/* Quick Stats in Action Bar */}
@@ -452,6 +465,105 @@ export default function ProductionBatchDetailModal({
                       </div>
                     </div>
                   </div>
+
+                  {/* Completion, Yield & QC Metrics (Shown if completed or in lab test) */}
+                  {(batch.completedAt || batch.goodQuantity !== null || batch.status === 'Completed' || batch.status === 'Lab Test In Progress') && (
+                    <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 shadow-3xs space-y-3">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <h4 className="text-xs font-black text-emerald-900 dark:text-emerald-200 uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          Production Completion & Quality Summary
+                        </h4>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            batch.qcStatus === 'APPROVED' || batch.qcStatus === 'EXEMPT'
+                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300'
+                              : batch.qcStatus === 'REJECTED'
+                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-900 dark:text-rose-300'
+                              : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'
+                          }`}>
+                            QC: {batch.qcStatus || 'EXEMPT'}
+                          </span>
+                          {batch.yieldPercentage !== null && (
+                            <span className="text-[11px] font-mono font-black text-emerald-700 dark:text-emerald-300 bg-emerald-100/80 dark:bg-emerald-900/60 px-2.5 py-0.5 rounded-full">
+                              Yield: {Number(batch.yieldPercentage).toFixed(2)}%
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-900">
+                          <span className="text-[10px] text-slate-400 block font-bold">Good Produced</span>
+                          <span className="font-black text-emerald-600 text-sm">{batch.goodQuantity ?? batch.actualOutput ?? '-'} {batch.productUom}</span>
+                        </div>
+                        <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-900">
+                          <span className="text-[10px] text-slate-400 block font-bold">Rejected</span>
+                          <span className="font-bold text-rose-600">{batch.rejectedQuantity ?? 0} {batch.productUom}</span>
+                        </div>
+                        <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-900">
+                          <span className="text-[10px] text-slate-400 block font-bold">Scrap / Waste</span>
+                          <span className="font-bold text-amber-600">{batch.scrapQuantity ?? 0} {batch.productUom}</span>
+                          {batch.scrapReason && <span className="text-[9px] text-slate-400 block truncate" title={batch.scrapReason}>({batch.scrapReason})</span>}
+                        </div>
+                        <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-emerald-100 dark:border-emerald-900">
+                          <span className="text-[10px] text-slate-400 block font-bold">Quarantine Stock</span>
+                          <span className="font-bold text-purple-600">{batch.quarantineStock ?? 0} {batch.productUom}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-[11px] pt-1 border-t border-emerald-100 dark:border-emerald-900">
+                        <div>
+                          <span className="text-slate-400 font-bold block">Mfg Date (MFD):</span>
+                          <span className="font-mono text-slate-800 dark:text-slate-200">
+                            {batch.mfd ? new Date(batch.mfd).toLocaleDateString('en-GB') : '-'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold block">Shelf Life / Expiry:</span>
+                          <span className="font-mono text-slate-800 dark:text-slate-200">
+                            {batch.shelfLifeDays ? `${batch.shelfLifeDays} Days` : '-'}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 font-bold block">Completed By:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-mono">
+                            {batch.completedBy || 'Production Supervisor'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Electricity (EB) & Labour Costs */}
+                  {(batch.ebUnitsKwh !== null || batch.ebTotalCost > 0 || batch.labourTotalCost > 0) && (
+                    <div className="bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 shadow-3xs space-y-2">
+                      <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <Zap className="w-4 h-4 text-amber-600" />
+                        Energy Consumption (EB Meter) & Labour
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-bold">Meter Start - End</span>
+                          <span className="font-mono text-slate-800 dark:text-slate-200 font-bold">
+                            {batch.ebStartReading ?? 0} → {batch.ebEndReading ?? 0}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-bold">Power Used</span>
+                          <span className="font-bold text-amber-700 dark:text-amber-400">{batch.ebUnitsKwh ?? 0} kWh</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-bold">EB Energy Cost</span>
+                          <span className="font-bold text-slate-900 dark:text-white">₹{formatCurrency(batch.ebTotalCost)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-bold">Labour Cost</span>
+                          <span className="font-bold text-slate-900 dark:text-white">₹{formatCurrency(batch.labourTotalCost)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Costing Summary if permitted */}
                   {canViewCosting && (
@@ -723,6 +835,15 @@ export default function ProductionBatchDetailModal({
         </div>
 
       </div>
+
+      {/* GS1 Batch Label & Barcode Modal */}
+      {showLabelModal && (
+        <BatchLabelModal
+          isOpen={showLabelModal}
+          onClose={() => setShowLabelModal(false)}
+          batchId={batch?.id}
+        />
+      )}
     </div>
   );
 }

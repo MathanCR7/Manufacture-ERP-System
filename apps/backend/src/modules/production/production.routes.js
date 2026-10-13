@@ -64,21 +64,34 @@ const cacheMiddleware = (req, res, next) => {
 const generateBatchReference = async (tx) => {
   const result = await tx.$queryRaw`
     SELECT reference_no FROM production_batches 
-    WHERE reference_no LIKE 'MP-%' 
-    ORDER BY reference_no DESC 
+    WHERE reference_no ~ '^MP-[0-9]+$' 
+    ORDER BY CAST(SUBSTRING(reference_no FROM 4) AS INTEGER) DESC 
     LIMIT 1 
     FOR UPDATE
   `;
   const lastRecord = Array.isArray(result) && result.length > 0 ? result[0] : null;
 
-  if (!lastRecord || !lastRecord.reference_no) {
-    return 'MP-000001';
+  let nextNumber = 1;
+  if (lastRecord && lastRecord.reference_no) {
+    const lastNumberStr = lastRecord.reference_no.replace('MP-', '');
+    const parsed = parseInt(lastNumberStr, 10);
+    if (!isNaN(parsed)) {
+      nextNumber = parsed + 1;
+    }
   }
 
-  const lastNumberStr = lastRecord.reference_no.split('-')[1];
-  const lastNumber = parseInt(lastNumberStr, 10);
-  const nextNumber = lastNumber + 1;
-  return `MP-${String(nextNumber).padStart(6, '0')}`;
+  let candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+  while (true) {
+    const existing = await tx.productionBatchNew.findUnique({
+      where: { referenceNo: candidate },
+      select: { id: true }
+    });
+    if (!existing) break;
+    nextNumber++;
+    candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+  }
+
+  return candidate;
 };
 
 // Helper to check stock levels and trigger alerts
@@ -136,7 +149,7 @@ router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_A
   try {
     const batches = await prisma.productionBatchNew.findMany({
       where: {
-        status: 'Completed',
+        status: { in: ['Lab Test In Progress', 'Completed'] },
         deletedAt: null
       },
       include: {
@@ -144,7 +157,30 @@ router.get('/qc-queue', authenticateToken, roleMiddleware(['MAIN_MASTER', 'LAB_A
       },
       orderBy: { updatedAt: 'desc' }
     });
-    res.json(batches);
+
+    const batchIds = batches.map(b => b.id);
+    let extraMap = {};
+    if (batchIds.length > 0) {
+      const extraRows = await prisma.$queryRawUnsafe(
+        `SELECT id, qc_status, quarantine_stock, mfd, shelf_life_days, lab_test_required 
+         FROM "production_batches" 
+         WHERE id IN (${batchIds.map(id => `'${id}'`).join(',')})`
+      );
+      extraRows.forEach(r => { extraMap[r.id] = r; });
+    }
+
+    const pendingBatches = batches.filter(b => {
+      const extra = extraMap[b.id] || {};
+      if (extra.qc_status === 'EXEMPT' || extra.qc_status === 'APPROVED' || extra.qc_status === 'REJECTED') {
+        return false;
+      }
+      return true;
+    }).map(b => ({
+      ...b,
+      extra: extraMap[b.id] || {}
+    }));
+
+    res.json(pendingBatches);
   } catch (error) {
     next(error);
   }
@@ -174,8 +210,8 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
         include: { product: { include: { unit: true } } }
       });
 
-      if (!batch || batch.status !== 'Completed') {
-        throw new Error('Batch not found or not in Completed status');
+      if (!batch || (batch.status !== 'Completed' && batch.status !== 'Lab Test In Progress')) {
+        throw new Error('Batch not found or not in QC testing queue');
       }
 
       const expDate = new Date(data.expiryDate);
@@ -188,6 +224,12 @@ router.post('/qc-queue/:id/approve', authenticateToken, roleMiddleware(['MAIN_MA
           expiryDate: expDate
         }
       });
+
+      // Update extended table columns
+      await tx.$executeRawUnsafe(
+        `UPDATE "production_batches" SET qc_status = 'APPROVED', approval_status = 'QC_PASSED', quarantine_stock = 0 WHERE id = $1`,
+        id
+      );
 
       const qcParams = {
         texture: data.texture,
@@ -302,8 +344,8 @@ router.post('/qc-queue/:id/reject', authenticateToken, roleMiddleware(['MAIN_MAS
         include: { product: true }
       });
 
-      if (!batch || batch.status !== 'Completed') {
-        throw new Error('Batch not found or not in Completed status');
+      if (!batch || (batch.status !== 'Completed' && batch.status !== 'Lab Test In Progress')) {
+        throw new Error('Batch not found or not in QC testing queue');
       }
 
       // 1. Update status
@@ -311,6 +353,12 @@ router.post('/qc-queue/:id/reject', authenticateToken, roleMiddleware(['MAIN_MAS
         where: { id },
         data: { status: 'qc_failed' }
       });
+
+      // Update extended table columns
+      await tx.$executeRawUnsafe(
+        `UPDATE "production_batches" SET qc_status = 'REJECTED', approval_status = 'QC_FAILED', quarantine_stock = 0 WHERE id = $1`,
+        id
+      );
 
       const qcParams = {
         texture: data.texture || 'Fail',
@@ -826,6 +874,12 @@ router.get('/batches-redesign', authenticateToken, (req, res, next) => productio
 router.get('/batches-redesign/:id', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchById(req, res, next));
 router.post('/batches-redesign', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.createBatch(req, res, next));
 router.patch('/batches-redesign/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateStatus(req, res, next));
+router.post('/batches-redesign/:id/complete', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.completeBatch(req, res, next));
+router.get('/batches-redesign/:id/label', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchLabel(req, res, next));
+router.get('/traceability/:batchNo', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchTraceability(req, res, next));
+router.get('/batch-number/preview', authenticateToken, (req, res, next) => productionBatchRedesignController.previewBatchNumber(req, res, next));
+router.get('/batch-number/settings', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchSettings(req, res, next));
+router.post('/batch-number/settings', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), (req, res, next) => productionBatchRedesignController.updateBatchSettings(req, res, next));
 
 // ─────────────────────── Production Base Templates & Dynamic Recipes ───────────────────────
 

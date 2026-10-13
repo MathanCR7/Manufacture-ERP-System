@@ -288,18 +288,46 @@ export default function ProductionsPage() {
   // Submit Completion
   const handleSubmitCompletion = async (batchId, payload) => {
     try {
-      await api.post(`/production/${batchId}/complete`, payload);
+      await api.patch(`/production/batches-redesign/${batchId}/status`, {
+        status: payload.labTestRequired ? 'Lab Test In Progress' : 'Completed',
+        actualOutput: payload.actualOutput,
+        labTestRequired: payload.labTestRequired,
+        rmUsages: payload.rmUsages,
+        note: payload.note,
+        rejectedQty: payload.rejectedQty,
+        scrapQty: payload.scrapQty,
+        scrapReason: payload.scrapReason,
+        ebStartReading: payload.ebStartReading,
+        ebEndReading: payload.ebEndReading,
+        ebUnitsKwh: payload.ebUnitsKwh,
+        ebRatePerUnit: payload.ebRatePerUnit
+      });
       setCompletionModalOpen(false);
       setExecBatch(null);
-      Swal.fire({
-        icon: 'success',
-        title: 'Batch Completed!',
-        text: 'Actual output logged and batch submitted to Quality Control Queue.',
-        confirmButtonColor: '#4f46e5'
-      });
+
+      if (payload.labTestRequired) {
+        Swal.fire({
+          icon: 'info',
+          title: 'Dispatched to QC Queue!',
+          html: '<p style="font-size: 13px;">Batch marked <strong>Lab Test In Progress</strong> and held in quarantine until lab inspection.</p>',
+          confirmButtonColor: '#10b981'
+        });
+      } else {
+        Swal.fire({
+          icon: 'success',
+          title: 'Batch Completed (Lab Exempt)!',
+          html: `<p style="font-size: 13px;">Actual output of <strong>${payload.actualOutput} units</strong> directly added to Available Finished Goods stock.</p>`,
+          confirmButtonColor: '#4f46e5'
+        });
+      }
+
       fetchBatches();
       if (detailBatch && detailBatch.id === batchId) {
-        setDetailBatch(prev => prev ? { ...prev, status: 'Completed', actualOutput: payload.actualOutput } : null);
+        setDetailBatch(prev => prev ? { 
+          ...prev, 
+          status: payload.labTestRequired ? 'Lab Test In Progress' : 'Completed', 
+          actualOutput: payload.actualOutput 
+        } : null);
       }
     } catch (e) {
       Swal.fire({

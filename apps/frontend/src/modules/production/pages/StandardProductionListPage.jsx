@@ -4,7 +4,7 @@ import { api } from '@/lib/axios';
 import { 
   Factory, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
   Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
-  Package, Check, Layers, Lock
+  Package, Check, Layers, Lock, FlaskConical, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -102,26 +102,48 @@ export default function StandardProductionListPage() {
     try {
       setCompleting(true);
       await api.patch(`/production/batches-redesign/${batchId}/status`, {
-        status: 'Completed',
+        status: payload.labTestRequired ? 'Lab Test In Progress' : 'Completed',
         actualOutput: payload.actualOutput,
+        labTestRequired: payload.labTestRequired,
         rmUsages: payload.rmUsages,
-        note: payload.note
+        note: payload.note,
+        rejectedQty: payload.rejectedQty,
+        scrapQty: payload.scrapQty,
+        scrapReason: payload.scrapReason,
+        ebStartReading: payload.ebStartReading,
+        ebEndReading: payload.ebEndReading,
+        ebUnitsKwh: payload.ebUnitsKwh,
+        ebRatePerUnit: payload.ebRatePerUnit
       });
 
       setCompletionModalOpen(false);
       setBatchToComplete(null);
 
-      Swal.fire({
-        title: 'Production Completed!',
-        html: `
-          <div style="text-align: left; font-size: 13px;">
-            <p><strong>✓ Actual Yield:</strong> ${payload.actualOutput} units credited to Finished Goods stock.</p>
-            <p><strong>✓ RM Stock Reduced:</strong> Ingredients deducted from RM stock and inventory batches.</p>
-            <p><strong>✓ Status:</strong> Sent to QC Verification Queue.</p>
-          </div>
-        `,
-        icon: 'success'
-      });
+      if (payload.labTestRequired) {
+        Swal.fire({
+          title: 'Dispatched to QC Queue!',
+          html: `
+            <div style="text-align: left; font-size: 13px; line-height: 1.5;">
+              <p><strong>🔬 Lab Test Required:</strong> Batch sent to QC Queue with status <strong>'Lab Test In Progress'</strong>.</p>
+              <p><strong>📦 Finished Goods Stock:</strong> Held in Quarantine (0 sellable stock credited until Lab approval).</p>
+              <p><strong>🌿 Raw Materials:</strong> Consumed ingredients deducted from inventory.</p>
+            </div>
+          `,
+          icon: 'info'
+        });
+      } else {
+        Swal.fire({
+          title: 'Production Completed (Lab Exempt)!',
+          html: `
+            <div style="text-align: left; font-size: 13px; line-height: 1.5;">
+              <p><strong>✓ Actual Yield:</strong> ${payload.actualOutput} units directly added to Available Finished Goods stock.</p>
+              <p><strong>✓ RM Stock Deducted:</strong> Ingredients deducted from raw material inventory lots.</p>
+              <p><strong>✓ Ready for Dispatch:</strong> Stock is immediately sellable.</p>
+            </div>
+          `,
+          icon: 'success'
+        });
+      }
       fetchBatches();
     } catch (err) {
       console.error('Batch completion error:', err);
@@ -327,14 +349,18 @@ export default function StandardProductionListPage() {
                       {b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
                     </td>
                     <td className="py-3.5 px-4 text-center">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
                         b.status === 'Completed' || b.status === 'qc_passed'
                           ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                          : b.status === 'Lab Test In Progress'
+                          ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 animate-pulse'
                           : b.status === 'In Progress'
                           ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                          : b.status === 'qc_failed'
+                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
                           : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
                       }`}>
-                        {b.status}
+                        {b.status === 'Lab Test In Progress' ? '🔬 In QC Queue' : b.status}
                       </span>
                     </td>
                     {canViewCosting ? (
@@ -387,6 +413,30 @@ export default function StandardProductionListPage() {
                           </Button>
                         )}
 
+                        {b.status === 'Lab Test In Progress' && (
+                          <div className="text-right">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-600 dark:text-purple-400">
+                              <FlaskConical className="w-3 h-3" />
+                              QC Testing Pending
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              Quarantined: {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
+                            </span>
+                          </div>
+                        )}
+
+                        {b.status === 'qc_failed' && (
+                          <div className="text-right">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400">
+                              <X className="w-3 h-3" />
+                              QC Rejected
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              Stock Not Added
+                            </span>
+                          </div>
+                        )}
+
                         {b.status === 'Paused' && (
                           <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-1 rounded-full border border-amber-200">
                             Paused
@@ -400,7 +450,7 @@ export default function StandardProductionListPage() {
                               Yield: {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
                             </span>
                             <span className="text-[10px] text-slate-400 block font-mono">
-                              RM Stock Deducted
+                              Stock Available
                             </span>
                           </div>
                         )}

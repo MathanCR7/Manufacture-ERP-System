@@ -1,25 +1,40 @@
 const { z } = require('zod');
 const prisma = require('../../database/prisma');
+const batchNumberService = require('./batchNumber.service');
+const productionCompletionService = require('./productionCompletion.service');
 
 // Helper to generate unique MP-XXXXXX
 async function generateBatchReference(tx) {
   const result = await tx.$queryRaw`
     SELECT reference_no FROM production_batches 
-    WHERE reference_no LIKE 'MP-%' 
-    ORDER BY reference_no DESC 
+    WHERE reference_no ~ '^MP-[0-9]+$' 
+    ORDER BY CAST(SUBSTRING(reference_no FROM 4) AS INTEGER) DESC 
     LIMIT 1 
     FOR UPDATE
   `;
   const lastRecord = Array.isArray(result) && result.length > 0 ? result[0] : null;
 
-  if (!lastRecord || !lastRecord.reference_no) {
-    return 'MP-000001';
+  let nextNumber = 1;
+  if (lastRecord && lastRecord.reference_no) {
+    const lastNumberStr = lastRecord.reference_no.replace('MP-', '');
+    const parsed = parseInt(lastNumberStr, 10);
+    if (!isNaN(parsed)) {
+      nextNumber = parsed + 1;
+    }
   }
 
-  const lastNumberStr = lastRecord.reference_no.split('-')[1];
-  const lastNumber = parseInt(lastNumberStr, 10);
-  const nextNumber = isNaN(lastNumber) ? 1 : lastNumber + 1;
-  return `MP-${String(nextNumber).padStart(6, '0')}`;
+  let candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+  while (true) {
+    const existing = await tx.productionBatchNew.findUnique({
+      where: { referenceNo: candidate },
+      select: { id: true }
+    });
+    if (!existing) break;
+    nextNumber++;
+    candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+  }
+
+  return candidate;
 }
 
 class ProductionBatchRedesignController {
@@ -177,6 +192,10 @@ class ProductionBatchRedesignController {
                 b.sub_total, b.wastage_amt, b.overhead_amt, b.grand_total, b.cost_per_unit,
                 b.started_by, b.started_at, b.pause_history, b.sop_guide, b.timeline_stages,
                 b.pause_reason, b.cancelled_reason, b.cancelled_by, b.cancelled_at,
+                b.mfd, b.shelf_life_days, b.lab_test_required, b.qc_status, b.quarantine_stock,
+                b.good_quantity, b.rejected_quantity, b.scrap_quantity, b.scrap_reason,
+                b.yield_percentage, b.eb_start_reading, b.eb_end_reading, b.eb_units_kwh,
+                b.eb_rate_per_unit, b.eb_total_cost, b.labour_total_cost, b.completed_by, b.completed_at,
                 bm.name as base_name, pt.name as template_name
          FROM "production_batches" b
          LEFT JOIN "base_master" bm ON b.base_id = bm.id
@@ -247,6 +266,25 @@ class ProductionBatchRedesignController {
         cancelledReason: extra.cancelled_reason || null,
         cancelledBy: extra.cancelled_by || null,
         cancelledAt: extra.cancelled_at || null,
+        // Completion & QC details
+        mfd: extra.mfd || null,
+        shelfLifeDays: extra.shelf_life_days ? Number(extra.shelf_life_days) : null,
+        labTestRequired: extra.lab_test_required || false,
+        qcStatus: extra.qc_status || 'PENDING',
+        quarantineStock: extra.quarantine_stock ? Number(extra.quarantine_stock) : 0,
+        goodQuantity: extra.good_quantity !== null && extra.good_quantity !== undefined ? Number(extra.good_quantity) : null,
+        rejectedQuantity: extra.rejected_quantity !== null && extra.rejected_quantity !== undefined ? Number(extra.rejected_quantity) : 0,
+        scrapQuantity: extra.scrap_quantity !== null && extra.scrap_quantity !== undefined ? Number(extra.scrap_quantity) : 0,
+        scrapReason: extra.scrap_reason || null,
+        yieldPercentage: extra.yield_percentage !== null && extra.yield_percentage !== undefined ? Number(extra.yield_percentage) : null,
+        ebStartReading: extra.eb_start_reading !== null && extra.eb_start_reading !== undefined ? Number(extra.eb_start_reading) : null,
+        ebEndReading: extra.eb_end_reading !== null && extra.eb_end_reading !== undefined ? Number(extra.eb_end_reading) : null,
+        ebUnitsKwh: extra.eb_units_kwh !== null && extra.eb_units_kwh !== undefined ? Number(extra.eb_units_kwh) : null,
+        ebRatePerUnit: extra.eb_rate_per_unit !== null && extra.eb_rate_per_unit !== undefined ? Number(extra.eb_rate_per_unit) : null,
+        ebTotalCost: extra.eb_total_cost !== null && extra.eb_total_cost !== undefined ? Number(extra.eb_total_cost) : 0,
+        labourTotalCost: extra.labour_total_cost !== null && extra.labour_total_cost !== undefined ? Number(extra.labour_total_cost) : 0,
+        completedBy: extra.completed_by || null,
+        completedAt: extra.completed_at || null,
         rmUsages: enrichedUsages,
         createdAt: batch.createdAt
       });
@@ -347,16 +385,21 @@ class ProductionBatchRedesignController {
       }
 
       const createdBatch = await prisma.$transaction(async (tx) => {
-        const referenceNo = await generateBatchReference(tx);
-        const batchNo = `BN-${referenceNo.replace('MP-', '')}`;
-        const expDate = new Date(new Date(data.startDate).getTime() + (data.expiryDays || 365) * 24 * 60 * 60 * 1000);
-
         const effectiveProductId = data.productId || data.selectedProducts?.[0]?.productId || data.selectedProducts?.[0]?.id;
         let finalBatchProductId = effectiveProductId;
         if (!finalBatchProductId) {
           const fallbackProd = await tx.finishedProduct.findFirst();
           finalBatchProductId = fallbackProd?.id;
         }
+
+        const referenceNo = await generateBatchReference(tx);
+        // Generate atomic unique batch number with row locking: YYYYMMDD-PRODUCTCODE-NNNNN
+        const batchNumInfo = await batchNumberService.generateNextBatchNumber(tx, finalBatchProductId, data.startDate);
+        const batchNo = batchNumInfo.batchNo;
+
+        const shelfLife = parseInt(data.expiryDays, 10) || 365;
+        const mfd = new Date(data.startDate);
+        const expDate = new Date(mfd.getTime() + shelfLife * 24 * 60 * 60 * 1000);
 
         const batchStatus = (data.status === 'Draft' || data.status === 'PLANNED') ? 'Planned' : data.status;
 
@@ -372,7 +415,7 @@ class ProductionBatchRedesignController {
             status: batchStatus,
             startDate: new Date(data.startDate),
             batchNo,
-            expiryDays: parseInt(data.expiryDays, 10) || 365,
+            expiryDays: shelfLife,
             expiryDate: expDate,
             quantity: Number(data.quantity || 1),
             remainingQty: Number(data.quantity || 1),
@@ -406,8 +449,11 @@ class ProductionBatchRedesignController {
             approval_status = $12,
             timeline_stages = $13::jsonb,
             started_at = $14,
-            started_by = $15
-          WHERE id = $16`,
+            started_by = $15,
+            mfd = $16,
+            shelf_life_days = $17,
+            qc_status = 'PENDING'
+          WHERE id = $18`,
           safeUuid(data.baseId),
           safeUuid(data.templateId),
           data.shift || null,
@@ -423,6 +469,8 @@ class ProductionBatchRedesignController {
           stagesJson,
           startedAtVal,
           startedByVal,
+          mfd,
+          shelfLife,
           batch.id
         );
 
@@ -762,16 +810,49 @@ class ProductionBatchRedesignController {
         pauseReason = null;
       }
 
+      // If completing (either Lab Test Exempt or Lab Test Required), delegate to ProductionCompletionService
+      if (status === 'Completed' || status === 'Lab Test In Progress') {
+        const completionResult = await productionCompletionService.completeProduction(id, {
+          actualOutput,
+          rmUsages,
+          note,
+          completeDate: req.body.completeDate,
+          shelfLifeDays: req.body.shelfLifeDays,
+          labTestRequired: req.body.labTestRequired !== undefined 
+            ? Boolean(req.body.labTestRequired) 
+            : (status === 'Lab Test In Progress'),
+          rejectedQty: req.body.rejectedQty,
+          reworkQty: req.body.reworkQty,
+          scrapQty: req.body.scrapQty,
+          scrapReason: req.body.scrapReason,
+          ebStartReading: req.body.ebStartReading,
+          ebEndReading: req.body.ebEndReading,
+          ebUnitsKwh: req.body.ebUnitsKwh,
+          ebRatePerUnit: req.body.ebRatePerUnit,
+          labourLogs: req.body.labourLogs,
+          overheadCost: req.body.overheadCost,
+          byProductName: req.body.byProductName,
+          byProductQty: req.body.byProductQty,
+          qcSampleQty: req.body.qcSampleQty,
+          retentionSampleQty: req.body.retentionSampleQty
+        }, req.user);
+
+        return res.json({
+          message: completionResult.labTestRequired
+            ? `Production sent to QC Queue for Lab Testing! Batch status updated to 'Lab Test In Progress'. Finished goods remain in Quarantine.`
+            : `Production completed (Lab Exempt)! Actual yield (${completionResult.actualYield} ${batch.product?.unit?.abbreviation || 'pcs'}) added directly to available inventory.`,
+          batch: completionResult.batch,
+          actualYield: completionResult.actualYield,
+          labTestRequired: completionResult.labTestRequired,
+          productUom: batch.product?.unit?.abbreviation || batch.product?.unit?.name || 'pcs'
+        });
+      }
+
       const finalYield = actualOutput !== undefined && actualOutput !== null ? Number(actualOutput) : Number(batch.quantity);
 
       const result = await prisma.$transaction(async (tx) => {
         const updateData = {
-          status,
-          ...(status === 'Completed' ? {
-            completeDate: new Date(),
-            actualOutput: finalYield,
-            remainingQty: finalYield
-          } : {})
+          status
         };
 
         const updated = await tx.productionBatchNew.update({
@@ -779,7 +860,7 @@ class ProductionBatchRedesignController {
           data: updateData
         });
 
-        // Update approval status, actual yield, pause history, timestamps in extended table
+        // Update approval status, pause history, timestamps in extended table
         await tx.$executeRawUnsafe(
           `UPDATE "production_batches" SET 
             approval_status = $1,
@@ -804,115 +885,231 @@ class ProductionBatchRedesignController {
           id
         );
 
-        // When completing production: Reduce RM Stock and increment Finished Goods stock
-        if (status === 'Completed') {
-          // 1. Increment Finished Product stock by actual yield (with Product UOM)
-          if (batch.productId) {
-            await tx.finishedProduct.update({
-              where: { id: batch.productId },
-              data: {
-                currentStock: { increment: finalYield }
-              }
-            });
-          }
-
-          // 2. Reduce consumed quantities from Raw Material Stock and allocated inventory batches
-          const latestRatios = [];
-
-          for (const usage of batch.rmUsages) {
-            const customRm = Array.isArray(rmUsages) ? rmUsages.find(r => r.rmId === usage.rmId) : null;
-            const consumedQty = customRm?.actualUsedQty !== undefined 
-              ? Number(customRm.actualUsedQty) 
-              : Number(usage.actualUsedQty || usage.requiredQty || 0);
-
-            // Compute per-piece consumption ratio (consumption per single unit)
-            const singlePieceRatio = finalYield > 0 ? Number((consumedQty / finalYield).toFixed(6)) : 0;
-            latestRatios.push({
-              rmId: usage.rmId,
-              consumedQty,
-              singlePieceRatio
-            });
-
-            // Update usage record with actual used quantity
-            await tx.productionBatchRMUsage.update({
-              where: { id: usage.id },
-              data: { actualUsedQty: consumedQty }
-            });
-
-            // Decrement from RawMaterial currentStock
-            if (usage.rmId && consumedQty > 0) {
-              await tx.rawMaterial.update({
-                where: { id: usage.rmId },
-                data: {
-                  currentStock: { decrement: consumedQty }
-                }
-              });
-            }
-
-            // Decrement from InventoryBatch lots allocated to this usage
-            const allocations = await tx.$queryRawUnsafe(
-              `SELECT inventory_batch_id, allocated_qty FROM "production_batch_allocations" WHERE usage_id = $1`,
-              usage.id
-            );
-
-            for (const alloc of allocations) {
-              if (alloc.inventory_batch_id && Number(alloc.allocated_qty) > 0) {
-                try {
-                  await tx.inventoryBatch.updateMany({
-                    where: { id: alloc.inventory_batch_id },
-                    data: {
-                      netQty: { decrement: Number(alloc.allocated_qty) }
-                    }
-                  });
-                } catch (allocErr) {
-                  console.warn('InventoryBatch decrement warning (non-fatal):', allocErr.message);
-                }
-              }
-            }
-          }
-
-          // 3. Auto-learn & update product template with latest actual formulation ratio
-          if (batch.productId && latestRatios.length > 0) {
-            try {
-              const currentProd = await tx.finishedProduct.findUnique({
-                where: { id: batch.productId },
-                select: { specifications: true }
-              });
-              const currentSpecs = currentProd?.specifications && typeof currentProd.specifications === 'object'
-                ? currentProd.specifications
-                : {};
-              
-              await tx.finishedProduct.update({
-                where: { id: batch.productId },
-                data: {
-                  specifications: {
-                    ...currentSpecs,
-                    latestActualFormulation: latestRatios,
-                    latestActualYield: finalYield,
-                    lastBatchReference: batch.referenceNo,
-                    lastProductionDate: new Date().toISOString()
-                  }
-                }
-              });
-            } catch (err) {
-              console.warn('Failed to auto-update product template ratio:', err.message);
-            }
-          }
-        }
-
         return updated;
       });
 
       res.json({
-        message: status === 'Completed' 
-          ? `Production completed! Actual yield (${finalYield} ${batch.product?.unit?.abbreviation || 'pcs'}) added to product stock and raw material inventory reduced.`
-          : `Batch status updated to ${status}`,
+        message: `Batch status updated to ${status}`,
         batch: result,
         actualYield: finalYield,
         productUom: batch.product?.unit?.abbreviation || batch.product?.unit?.name || 'pcs'
       });
     } catch (err) {
       console.error('Update batch status error:', err);
+      next(err);
+    }
+  }
+
+  // POST /api/production/batches-redesign/:id/complete
+  async completeBatch(req, res, next) {
+    try {
+      const { id } = req.params;
+      const result = await productionCompletionService.completeProduction(id, req.body, req.user);
+      res.json({
+        message: result.labTestRequired
+          ? `Production dispatched to QC Testing Queue! Status set to 'Lab Test In Progress'.`
+          : `Production successfully completed and released to sellable inventory.`,
+        ...result
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // GET /api/production/batches-redesign/:id/label
+  async getBatchLabel(req, res, next) {
+    try {
+      const { id } = req.params;
+      const batch = await prisma.productionBatchNew.findUnique({
+        where: { id },
+        include: {
+          product: { include: { unit: true, category: true } }
+        }
+      });
+      if (!batch) return res.status(404).json({ error: 'Batch not found' });
+
+      const extraRows = await prisma.$queryRawUnsafe(
+        `SELECT mfd, shelf_life_days, qc_status, good_quantity, yield_percentage FROM "production_batches" WHERE id = $1`,
+        id
+      );
+      const extra = extraRows[0] || {};
+
+      const gtin = batch.product?.upcEan || batch.product?.barcode || batch.product?.sku || '8901234567890';
+      const batchNo = batch.batchNo || batch.referenceNo;
+      const mfd = extra.mfd || batch.startDate;
+      const expiryDate = batch.expiryDate || new Date(new Date(mfd).getTime() + (extra.shelf_life_days || 365) * 86400000);
+
+      const mfdStr = new Date(mfd).toISOString().split('T')[0];
+      const expStr = new Date(expiryDate).toISOString().split('T')[0];
+
+      const qrPayload = JSON.stringify({
+        product: batch.product?.name,
+        code: batch.product?.code,
+        batch: batchNo,
+        gtin: gtin,
+        mfd: mfdStr,
+        exp: expStr,
+        mrp: Number(batch.salePrice || 0),
+        netWt: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`
+      });
+
+      let company = null;
+      try {
+        company = await prisma.companyDetails.findFirst();
+      } catch (e) {}
+
+      res.json({
+        batchId: batch.id,
+        referenceNo: batch.referenceNo,
+        batchNo,
+        productName: batch.product?.name,
+        productCode: batch.product?.code,
+        gtin,
+        mfd: mfdStr,
+        expiryDate: expStr,
+        mrp: Number(batch.salePrice || 0),
+        netWeight: `${batch.actualOutput || batch.quantity} ${batch.product?.unit?.abbreviation || 'pcs'}`,
+        storageConditions: 'Store in cool and dry place away from direct sunlight',
+        fssaiLicence: company?.companyPan || '10019043002678',
+        manufacturer: company?.companyName || 'ERP Manufacturing Facility',
+        address: company?.companyAddress || 'Factory Floor 1, Industrial Area',
+        qrPayload
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // GET /api/production/traceability/:batchNo
+  async getBatchTraceability(req, res, next) {
+    try {
+      const { batchNo } = req.params;
+      const batch = await prisma.productionBatchNew.findFirst({
+        where: {
+          OR: [
+            { batchNo },
+            { referenceNo: batchNo }
+          ],
+          deletedAt: null
+        },
+        include: {
+          product: { include: { unit: true, category: true } },
+          rmUsages: {
+            include: {
+              rawMaterial: { include: { category: true } }
+            }
+          },
+          order: {
+            include: {
+              customer: true
+            }
+          },
+          qcTests: {
+            include: {
+              tester: { select: { name: true, email: true } }
+            }
+          }
+        }
+      });
+
+      if (!batch) {
+        return res.status(404).json({ error: `Batch '${batchNo}' not found.` });
+      }
+
+      const backwardLots = await prisma.$queryRawUnsafe(`
+        SELECT 
+          ba.lot_number, ba.allocated_qty, ba.po_id,
+          ib.batch_number as internal_lot, ib.supplier_id, ib.mfg_batch_no,
+          ib.mfg_date as supplier_mfg_date, ib.expiry_date as supplier_expiry_date,
+          grn.reference_no as grn_number,
+          po.po_number,
+          sup.name as supplier_name
+        FROM "production_batch_allocations" ba
+        LEFT JOIN "inventory_batches" ib ON ba.inventory_batch_id = ib.id
+        LEFT JOIN "grn_receives" grn ON ib.grn_id = grn.id
+        LEFT JOIN "raw_material_pos" po ON ib.po_id = po.id
+        LEFT JOIN "suppliers" sup ON ib.supplier_id = sup.id
+        WHERE ba.batch_id = $1
+      `, batch.id);
+
+      const forwardSales = await prisma.$queryRawUnsafe(`
+        SELECT 
+          co.reference_no as order_ref, co.created_at as order_date,
+          c.name as customer_name, c.email as customer_email, c.phone as customer_phone,
+          coi.quantity as ordered_qty,
+          ba.quantity as allocated_qty,
+          co.status as order_status
+        FROM "batch_allocations" ba
+        JOIN "customer_order_items" coi ON ba.order_item_id = coi.id
+        JOIN "customer_orders" co ON coi.order_id = co.id
+        JOIN "customers" c ON co.customer_id = c.id
+        WHERE ba.batch_id = $1
+      `, batch.id);
+
+      res.json({
+        batch: {
+          id: batch.id,
+          batchNo: batch.batchNo,
+          referenceNo: batch.referenceNo,
+          product: batch.product,
+          status: batch.status,
+          startDate: batch.startDate,
+          completeDate: batch.completeDate,
+          quantity: Number(batch.quantity),
+          actualOutput: batch.actualOutput ? Number(batch.actualOutput) : null
+        },
+        backwardTraceability: {
+          rmUsages: batch.rmUsages.map(u => ({
+            rawMaterial: u.rawMaterial?.name,
+            code: u.rawMaterial?.code,
+            consumedQty: Number(u.actualUsedQty || u.requiredQty),
+            uom: u.selectedUom || u.rawMaterial?.consumptionUnit || 'units'
+          })),
+          supplierLots: backwardLots
+        },
+        forwardTraceability: {
+          linkedOrder: batch.order ? {
+            orderRef: batch.order.referenceNo,
+            customer: batch.order.customer?.name,
+            status: batch.order.status
+          } : null,
+          customerDeliveries: forwardSales
+        },
+        qcRecord: batch.qcTests
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // GET /api/production/batch-number/preview
+  async previewBatchNumber(req, res, next) {
+    try {
+      const { productId, date } = req.query;
+      if (!productId) return res.status(400).json({ error: 'productId is required' });
+      const preview = await batchNumberService.previewNextBatchNumber(productId, date || new Date());
+      res.json(preview);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // GET /api/production/batch-number/settings
+  async getBatchSettings(req, res, next) {
+    try {
+      const settings = await batchNumberService.getSettings();
+      res.json(settings);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // POST /api/production/batch-number/settings
+  async updateBatchSettings(req, res, next) {
+    try {
+      const updated = await batchNumberService.updateSettings(req.body);
+      res.json(updated);
+    } catch (err) {
       next(err);
     }
   }

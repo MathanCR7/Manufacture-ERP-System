@@ -85,6 +85,33 @@ export default function QCQueuePage() {
 
   const handleConfirmApprove = async () => {
     const isDark = document.documentElement.classList.contains('dark');
+    
+    // Alert confirmation before approving
+    const preConfirm = await Swal.fire({
+      title: 'Confirm QC Approval & Stock Release?',
+      html: `
+        <div style="text-align: left; font-size: 13px; line-height: 1.5;">
+          <p><strong>Batch:</strong> <span style="font-family: monospace; font-weight: bold; color: #6366f1;">${selectedBatch.batchNo || selectedBatch.referenceNo}</span></p>
+          <p><strong>Product:</strong> ${selectedBatch.product?.name}</p>
+          <p><strong>Verified Expiry:</strong> ${expiryDate}</p>
+          <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px; margin-top: 10px;">
+            <p style="color: #10b981; font-weight: bold; margin: 0;">
+              ✓ Output of <strong>${selectedBatch.actualOutput || selectedBatch.quantity} ${selectedBatch.product?.unit?.abbreviation || 'pcs'}</strong> will be officially released to Available Sellable Stock.
+            </p>
+          </div>
+        </div>
+      `,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Release Stock',
+      confirmButtonColor: '#10b981',
+      cancelButtonText: 'Cancel',
+      background: isDark ? 'rgba(15, 23, 42, 0.98)' : '#ffffff',
+      color: isDark ? '#f8fafc' : '#0f172a'
+    });
+
+    if (!preConfirm.isConfirmed) return;
+
     setProcessing(true);
     try {
       await api.post(`/production/qc-queue/${selectedBatch.id}/approve`, {
@@ -125,6 +152,32 @@ export default function QCQueuePage() {
 
   const handleConfirmReject = async () => {
     const isDark = document.documentElement.classList.contains('dark');
+
+    // Alert confirmation before rejecting
+    const preConfirm = await Swal.fire({
+      title: 'Confirm Total Batch Rejection?',
+      html: `
+        <div style="text-align: left; font-size: 13px; line-height: 1.5;">
+          <p><strong>Batch:</strong> <span style="font-family: monospace; font-weight: bold; color: #ef4444;">${rejectingBatch.batchNo || rejectingBatch.referenceNo}</span></p>
+          <p><strong>Product:</strong> ${rejectingBatch.product?.name}</p>
+          <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 10px; margin-top: 10px;">
+            <p style="color: #ef4444; font-weight: bold; margin: 0;">
+              ⚠️ This production batch will be completely rejected. ZERO finished goods stock will be credited to inventory.
+            </p>
+          </div>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Reject Production',
+      confirmButtonColor: '#ef4444',
+      cancelButtonText: 'Cancel',
+      background: isDark ? 'rgba(15, 23, 42, 0.98)' : '#ffffff',
+      color: isDark ? '#f8fafc' : '#0f172a'
+    });
+
+    if (!preConfirm.isConfirmed) return;
+
     setProcessing(true);
     try {
       await api.post(`/production/qc-queue/${rejectingBatch.id}/reject`, {
@@ -139,7 +192,7 @@ export default function QCQueuePage() {
 
       Swal.fire({
         title: '<span class="text-sm font-bold">QC Clearance Rejected</span>',
-        text: 'Batch flagged as Failed QC. Incident alert sent to manager.',
+        text: 'Batch marked as QC Failed. Finished stock not credited and critical alert sent to manager.',
         icon: 'warning',
         confirmButtonColor: '#ef4444',
         background: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',

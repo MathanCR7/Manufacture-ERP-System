@@ -2366,3 +2366,143 @@ model ProductionTemplateLine {
 
   @@map("production_template_lines")
 }
+
+// ─────────────────────── Production Module Extension Models ───────────────────────
+
+model BatchSequence {
+  id          String   @id @default(uuid())
+  productId   String   @map("product_id")
+  sequenceKey String   @map("sequence_key") @db.VarChar(20)
+  resetMode   String   @default("DAILY") @map("reset_mode") @db.VarChar(10)
+  lastNumber  Int      @default(0) @map("last_number")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([productId, sequenceKey])
+  @@index([productId, sequenceKey])
+  @@map("batch_sequences")
+}
+
+model BatchSettings {
+  id                    String   @id @default("DEFAULT")
+  resetMode             String   @default("DAILY") @map("reset_mode") @db.VarChar(20)
+  counterDigits         Int      @default(5) @map("counter_digits")
+  allowBackdatedEntries Boolean  @default(true) @map("allow_backdated_entries")
+  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("batch_settings")
+}
+
+model ProductionLabourLog {
+  id             String   @id @default(uuid())
+  batchId        String   @map("batch_id")
+  employeeId     String?  @map("employee_id") @db.VarChar(100)
+  employeeName   String   @map("employee_name") @db.VarChar(200)
+  employeeType   String   @default("Permanent") @map("employee_type") @db.VarChar(50)
+  contractorName String?  @map("contractor_name") @db.VarChar(200)
+  workCentre     String?  @map("work_centre") @db.VarChar(100)
+  normalHours    Decimal  @default(8) @map("normal_hours")
+  otHours        Decimal  @default(0) @map("ot_hours")
+  ratePerHour    Decimal  @default(0) @map("rate_per_hour")
+  totalCost      Decimal  @default(0) @map("total_cost")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@map("production_labour_logs")
+}
+
+model ProductionMachineLog {
+  id                  String   @id @default(uuid())
+  batchId             String   @map("batch_id")
+  machineId           String   @map("machine_id") @db.VarChar(100)
+  runHours            Decimal  @default(0) @map("run_hours")
+  downtimeHours       Decimal  @default(0) @map("downtime_hours")
+  downtimeReason      String?  @map("downtime_reason") @db.Text
+  cleaningDone        Boolean  @default(true) @map("cleaning_done")
+  lineClearancePassed Boolean  @default(true) @map("line_clearance_passed")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@map("production_machine_logs")
+}
+
+model ProductionUtilityLog {
+  id                 String   @id @default(uuid())
+  batchId            String   @map("batch_id")
+  ebStartReading     Decimal  @default(0) @map("eb_start_reading")
+  ebEndReading       Decimal  @default(0) @map("eb_end_reading")
+  ebUnitsKwh         Decimal  @default(0) @map("eb_units_kwh")
+  ebRatePerUnit      Decimal  @default(8.50) @map("eb_rate_per_unit")
+  ebCost             Decimal  @default(0) @map("eb_cost")
+  waterQuantity      Decimal  @default(0) @map("water_quantity")
+  waterCost          Decimal  @default(0) @map("water_cost")
+  fuelQuantity       Decimal  @default(0) @map("fuel_quantity")
+  fuelCost           Decimal  @default(0) @map("fuel_cost")
+  generatorDieselQty Decimal  @default(0) @map("generator_diesel_qty")
+  generatorDieselCost Decimal @default(0) @map("generator_diesel_cost")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@map("production_utility_logs")
+}
+
+model ProductionOutputDetail {
+  id                 String   @id @default(uuid())
+  batchId            String   @map("batch_id")
+  goodQty            Decimal  @default(0) @map("good_qty")
+  rejectedQty        Decimal  @default(0) @map("rejected_qty")
+  reworkQty          Decimal  @default(0) @map("rework_qty")
+  scrapQty           Decimal  @default(0) @map("scrap_qty")
+  scrapReason        String?  @map("scrap_reason") @db.Text
+  byProductName      String?  @map("by_product_name") @db.VarChar(200)
+  byProductQty       Decimal  @default(0) @map("by_product_qty")
+  qcSampleQty        Decimal  @default(0) @map("qc_sample_qty")
+  retentionSampleQty Decimal  @default(0) @map("retention_sample_qty")
+  theoreticalQty     Decimal  @default(0) @map("theoretical_qty")
+  yieldPercentage    Decimal  @default(100) @map("yield_percentage")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@map("production_output_details")
+}
+
+model ProductionBarcodeLabel {
+  id                  String   @id @default(uuid())
+  batchId             String   @map("batch_id")
+  productId           String   @map("product_id")
+  gtinEan             String?  @map("gtin_ean") @db.VarChar(50)
+  batchNo             String   @map("batch_no") @db.VarChar(100)
+  qrPayload           String   @map("qr_payload") @db.Text
+  mfd                 DateTime @map("mfd")
+  expiryDate          DateTime @map("expiry_date")
+  mrp                 Decimal  @default(0) @map("mrp")
+  netWeight           String?  @map("net_weight") @db.VarChar(50)
+  storageConditions   String?  @map("storage_conditions") @db.VarChar(255)
+  fssaiLicence        String?  @map("fssai_licence") @db.VarChar(100)
+  manufacturerAddress String?  @map("manufacturer_address") @db.Text
+  printedCount        Int      @default(0) @map("printed_count")
+  reprintLog          Json?    @default("[]") @map("reprint_log")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([batchId])
+  @@map("production_barcode_labels")
+}
+
+model ProductionBatchCosting {
+  id                  String   @id @default(uuid())
+  batchId             String   @map("batch_id")
+  materialCost        Decimal  @default(0) @map("material_cost")
+  packingCost         Decimal  @default(0) @map("packing_cost")
+  labourCost          Decimal  @default(0) @map("labour_cost")
+  machineCost         Decimal  @default(0) @map("machine_cost")
+  utilityCost         Decimal  @default(0) @map("utility_cost")
+  overheadCost        Decimal  @default(0) @map("overhead_cost")
+  totalBatchCost      Decimal  @default(0) @map("total_batch_cost")
+  costPerUnit         Decimal  @default(0) @map("cost_per_unit")
+  standardCostPerUnit Decimal  @default(0) @map("standard_cost_per_unit")
+  varianceCost        Decimal  @default(0) @map("variance_cost")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@map("production_batch_costing")
+}
