@@ -56,6 +56,8 @@ export default function BatchAllocationGrid({
   onUpdateRawMaterials,
   onRefreshPrices,
   refreshingPrices = false,
+  plannedOutputQty = 100,
+  outputUom = 'Nos',
   disabled = false
 }) {
   // ── USER ROLE & COSTING VISIBILITY ──
@@ -616,7 +618,12 @@ export default function BatchAllocationGrid({
             <tr>
               <th className="py-2.5 px-3 w-10 text-center">#</th>
               <th className="py-2.5 px-3 min-w-[200px]">Raw Material</th>
-              <th className="py-2.5 px-3 w-36 text-center">Required Qty</th>
+              <th className="py-2.5 px-3 w-40 text-center">
+                <div>Required Qty</div>
+                <div className="text-[8px] text-amber-600 dark:text-amber-400 font-mono font-bold lowercase tracking-normal">
+                  (Single Pcs Consumption)
+                </div>
+              </th>
               <th className="py-2.5 px-3 w-36 text-center">UOM / Alternate</th>
               <th className="py-2.5 px-3 min-w-[220px]">Assigned Lots</th>
               {canViewCosting && <th className="py-2.5 px-3 w-28 text-right">Rate (₹)</th>}
@@ -698,6 +705,15 @@ export default function BatchAllocationGrid({
                           )}
                         </span>
                       )}
+
+                      <div className="mt-1 flex items-center justify-center gap-1">
+                        <span 
+                          className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/60"
+                          title="Calculated single-piece raw material consumption for this batch"
+                        >
+                          {(Number(plannedOutputQty) > 0 ? (baseQty / Number(plannedOutputQty)) : 0).toFixed(4)} {baseUomClean} / {outputUom || 'pc'}
+                        </span>
+                      </div>
                     </div>
                   </td>
 

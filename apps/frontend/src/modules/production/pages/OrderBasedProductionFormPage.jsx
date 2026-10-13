@@ -13,6 +13,7 @@ import ProductionTemplatePicker from '../components/ProductionTemplatePicker';
 import ProductionProductPicker from '../components/ProductionProductPicker';
 import BatchAllocationGrid from '../components/BatchAllocationGrid';
 import CostingSummaryFooter from '../components/CostingSummaryFooter';
+import StandardFactoryStagesPalette from '../components/StandardFactoryStagesPalette';
 import Swal from 'sweetalert2';
 
 export default function OrderBasedProductionFormPage() {
@@ -38,6 +39,15 @@ export default function OrderBasedProductionFormPage() {
   // Workflow State
   const [selectedBaseId, setSelectedBaseId] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState(null);
+
+  // Standard Factory Stages Palette
+  const [timelineStages, setTimelineStages] = useState([
+    { id: 'ageing', name: 'Ageing', category: 'Thermal & Mixing', durationMonths: 0, durationDays: 0, durationHours: 0, durationMinutes: 0, desc: 'Mix aging in refrigerated vats at 4°C' },
+    { id: 'vat', name: 'VAT', category: 'Thermal & Mixing', durationMonths: 0, durationDays: 0, durationHours: 0, durationMinutes: 0, desc: 'Holding and agitation in process tanks' },
+    { id: 'cf', name: 'CF - Cont. Freezer', category: 'Freezing & Molding', durationMonths: 0, durationDays: 0, durationHours: 0, durationMinutes: 0, desc: 'Continuous scraped surface freezing' },
+    { id: 'bf', name: 'BF - Bath Freezer', category: 'Freezing & Molding', durationMonths: 0, durationDays: 0, durationHours: 0, durationMinutes: 0, desc: 'Brine tank sub-zero mold immersion' }
+  ]);
+  const [learnedFormulationNotice, setLearnedFormulationNotice] = useState(null);
 
   // Product Selection (Step C)
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
@@ -308,6 +318,47 @@ export default function OrderBasedProductionFormPage() {
     };
   }, [rawMaterials, wastagePct, overheadPct, totalPlannedQty]);
 
+  // Auto-Workflow & RM Consumption Per-Piece Learning
+  const handleSelectProductWithTemplate = (product) => {
+    if (!product) return;
+
+    // 1. Auto-load workflow stages from product setup
+    const prodStages = product.workflow_stages || product.specifications?.workflow_stages || product.specifications?.timelineStages;
+    if (Array.isArray(prodStages) && prodStages.length > 0) {
+      setTimelineStages(prodStages);
+    }
+
+    // 2. Check for latest learned actual formulation ratios
+    const latestRatios = product.specifications?.latestActualFormulation;
+    if (Array.isArray(latestRatios) && latestRatios.length > 0) {
+      setLearnedFormulationNotice({
+        productName: product.name,
+        lastYield: product.specifications?.latestActualYield,
+        lastRef: product.specifications?.lastBatchReference,
+        ratios: latestRatios
+      });
+
+      setRawMaterials(prev => {
+        return prev.map(line => {
+          const matched = latestRatios.find(r => r.rmId === line.rmId);
+          if (matched && Number(matched.singlePieceRatio) > 0) {
+            const singleRatio = Number(matched.singlePieceRatio);
+            const newRequired = Number((singleRatio * totalPlannedQty).toFixed(4));
+            const rate = Number(line.unitRate || line.baseRate || 0);
+            return {
+              ...line,
+              baseRequiredQty: newRequired,
+              requiredQty: newRequired,
+              learnedSingleRatio: singleRatio,
+              totalCost: Number((newRequired * rate).toFixed(2))
+            };
+          }
+          return line;
+        });
+      });
+    }
+  };
+
   // Save handler
   const handleSave = async (status = 'Draft') => {
     if (!selectedOrderId) {
@@ -344,6 +395,7 @@ export default function OrderBasedProductionFormPage() {
       overheadAmt: costingTotals.overheadAmt,
       grandTotal: costingTotals.grandTotal,
       costPerUnit: costingTotals.costPerUnit,
+      timelineStages,
       rawMaterials
     };
 
@@ -518,19 +570,59 @@ export default function OrderBasedProductionFormPage() {
 
       {/* ── STEP C: PRODUCT SELECTION ── */}
       {selectedTemplate && (
-        <ProductionProductPicker
-          categories={categories}
-          subcategories={subcategories}
-          products={products}
-          selectedCategoryId={selectedCategoryId}
-          onChangeCategory={setSelectedCategoryId}
-          selectedSubcategoryId={selectedSubcategoryId}
-          onChangeSubcategory={setSelectedSubcategoryId}
-          selectedProducts={selectedProducts}
-          onUpdateProducts={setSelectedProducts}
-          selectedBaseId={selectedBaseId}
-          selectedBaseName={selectedBaseName}
-        />
+        <>
+          <ProductionProductPicker
+            categories={categories}
+            subcategories={subcategories}
+            products={products}
+            selectedCategoryId={selectedCategoryId}
+            onChangeCategory={setSelectedCategoryId}
+            selectedSubcategoryId={selectedSubcategoryId}
+            onChangeSubcategory={setSelectedSubcategoryId}
+            selectedProducts={selectedProducts}
+            onUpdateProducts={setSelectedProducts}
+            onSelectProductWithTemplate={handleSelectProductWithTemplate}
+            selectedBaseId={selectedBaseId}
+            selectedBaseName={selectedBaseName}
+          />
+
+          {/* Learned Formulation Auto-Learning Notice */}
+          {learnedFormulationNotice && (
+            <div className="bg-gradient-to-r from-amber-50 to-indigo-50 dark:from-slate-850 dark:to-indigo-950/40 border border-amber-300 dark:border-amber-700/60 rounded-3xl p-4 flex items-center justify-between gap-3 animate-in fade-in">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-xs">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <span>Auto-Suggested Latest Actual Formulation for {learnedFormulationNotice.productName}</span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200">
+                      Learned from Batch #{learnedFormulationNotice.lastRef || 'PREV'}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Ingredient quantities have been automatically updated based on the actual single-piece consumption learned from previous completed production runs.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setLearnedFormulationNotice(null)}
+                className="text-xs font-bold text-slate-400 hover:text-slate-600 rounded-xl"
+              >
+                Dismiss
+              </Button>
+            </div>
+          )}
+
+          {/* ── STANDARD FACTORY STAGES PALETTE (Image 1: 14 Stages & Sequence) ── */}
+          <StandardFactoryStagesPalette
+            stages={timelineStages}
+            onChangeStages={setTimelineStages}
+            isEditable={true}
+          />
+        </>
       )}
 
       {/* ── STEP D & E: BATCH ALLOCATION GRID ── */}
@@ -540,6 +632,8 @@ export default function OrderBasedProductionFormPage() {
           onUpdateRawMaterials={setRawMaterials}
           onRefreshPrices={handleRefreshPrices}
           refreshingPrices={refreshingPrices}
+          plannedOutputQty={totalPlannedQty}
+          outputUom={selectedProducts[0]?.unit || 'Nos'}
         />
       )}
 

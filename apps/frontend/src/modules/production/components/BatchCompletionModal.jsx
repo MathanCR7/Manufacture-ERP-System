@@ -171,42 +171,57 @@ export default function BatchCompletionModal({
                     {rm.requiredQty.toFixed(2)} {rm.unit}
                   </div>
 
-                  <div className="col-span-4 flex items-center justify-end gap-1.5">
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      required
-                      value={rm.inputValue}
-                      onChange={(e) => handleInputChange(idx, e.target.value)}
-                      className="w-20 px-2 py-1 font-mono font-bold text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right text-slate-800 dark:text-white"
-                    />
+                  <div className="col-span-4 flex flex-col items-end gap-1">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        required
+                        value={rm.inputValue}
+                        onChange={(e) => handleInputChange(idx, e.target.value)}
+                        className="w-20 px-2 py-1 font-mono font-bold text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right text-slate-800 dark:text-white"
+                      />
 
-                    {rm.hasAlt && rm.altUom ? (
-                      <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[9px] font-bold">
-                        <button
-                          type="button"
-                          onClick={() => handleUnitToggle(idx, 'base')}
-                          className={`px-1.5 py-0.5 rounded ${rm.selectedUnit === 'base' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-extrabold' : 'text-slate-500'}`}
-                        >
+                      {rm.hasAlt && rm.altUom ? (
+                        <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-[9px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => handleUnitToggle(idx, 'base')}
+                            className={`px-1.5 py-0.5 rounded ${rm.selectedUnit === 'base' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-extrabold' : 'text-slate-500'}`}
+                          >
+                            {rm.unit}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUnitToggle(idx, 'sub')}
+                            className={`px-1.5 py-0.5 rounded ${rm.selectedUnit === 'sub' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-extrabold' : 'text-slate-500'}`}
+                          >
+                            {rm.altUom}
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="font-mono text-[10px] text-slate-500 font-bold min-w-8 text-left">
                           {rm.unit}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleUnitToggle(idx, 'sub')}
-                          className={`px-1.5 py-0.5 rounded ${rm.selectedUnit === 'sub' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-extrabold' : 'text-slate-500'}`}
-                        >
-                          {rm.altUom}
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="font-mono text-[10px] text-slate-500 font-bold min-w-8 text-left">
-                        {rm.unit}
-                      </span>
-                    )}
+                        </span>
+                      )}
+                    </div>
+
+                    <span className="font-mono text-[9px] font-bold text-indigo-600 dark:text-indigo-400">
+                      ≈ {(Number(actualOutput) > 0 ? (Number(rm.inputValue || 0) / Number(actualOutput)) : 0).toFixed(4)} {rm.unit}/pc
+                    </span>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Stock Deduction & Learning Notice */}
+          <div className="p-3 bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl flex items-start gap-2.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+            <div className="text-[11px] text-emerald-800 dark:text-emerald-300">
+              <span className="font-bold block">Accurate Inventory & Stock Timing:</span>
+              <span>Only upon completing this batch, the actual raw material quantities consumed will be reduced from inventory lots, and finished goods stock will be incremented with <strong>{batch.product?.unit?.abbreviation || 'pcs'}</strong>. The system will auto-learn and save the latest actual per-piece formulation for future runs!</span>
             </div>
           </div>
 

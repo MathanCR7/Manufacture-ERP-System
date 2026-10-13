@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import BatchCompletionModal from '../components/BatchCompletionModal';
+import ProductionBatchDetailModal from '../components/ProductionBatchDetailModal';
 import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
 
@@ -16,6 +17,10 @@ export default function StandardProductionListPage() {
   const navigate = useNavigate();
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // View Details Modal State
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedViewBatchId, setSelectedViewBatchId] = useState(null);
   
   // Role visibility (hide amounts for production role, allow admin to see all)
   const currentUser = useAuthStore(s => s.user);
@@ -344,6 +349,20 @@ export default function StandardProductionListPage() {
                     ) : null}
                     <td className="py-3.5 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedViewBatchId(b.id);
+                            setViewModalOpen(true);
+                          }}
+                          className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold h-8 px-2.5 cursor-pointer flex items-center gap-1 shadow-3xs"
+                          title="View complete details, SOP guide & pause history"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                          View
+                        </Button>
+
                         {(b.status === 'Planned' || b.status === 'Draft') && (
                           <Button
                             size="sm"
@@ -366,6 +385,12 @@ export default function StandardProductionListPage() {
                             <CheckCircle2 className="w-3.5 h-3.5" />
                             Complete & Yield
                           </Button>
+                        )}
+
+                        {b.status === 'Paused' && (
+                          <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-1 rounded-full border border-amber-200">
+                            Paused
+                          </span>
                         )}
 
                         {(b.status === 'Completed' || b.status === 'qc_passed') && (
@@ -399,6 +424,19 @@ export default function StandardProductionListPage() {
         batch={batchToComplete}
         onSubmit={handleSubmitCompletion}
         submitting={completing}
+      />
+
+      {/* ── PRODUCTION BATCH DETAIL MODAL (Lifecycle, Pauses, SOP Guide) ── */}
+      <ProductionBatchDetailModal
+        isOpen={viewModalOpen}
+        onClose={() => {
+          setViewModalOpen(false);
+          setSelectedViewBatchId(null);
+        }}
+        batchId={selectedViewBatchId}
+        onStatusUpdated={fetchBatches}
+        onOpenCompleteModal={handleOpenCompleteModal}
+        canViewCosting={canViewCosting}
       />
 
     </div>

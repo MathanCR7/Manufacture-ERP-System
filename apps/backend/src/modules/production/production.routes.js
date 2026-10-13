@@ -823,6 +823,7 @@ router.get('/live-rate', authenticateToken, (req, res, next) => liveRateControll
 
 // ── Redesigned Production Batch Endpoints (Standard, Order-Based, Stock-Update) ──
 router.get('/batches-redesign', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatches(req, res, next));
+router.get('/batches-redesign/:id', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchById(req, res, next));
 router.post('/batches-redesign', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.createBatch(req, res, next));
 router.patch('/batches-redesign/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateStatus(req, res, next));
 

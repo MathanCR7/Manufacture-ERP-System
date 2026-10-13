@@ -2,7 +2,9 @@ import React, { useState, useMemo } from 'react';
 import { Package, Plus, Trash2, Tag, Layers, Check, Database, Search, Filter, Sparkles } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
 import ProductionSearchSelect from './ProductionSearchSelect';
+import ProductSelectionModal from './ProductSelectionModal';
 
 export default function ProductionProductPicker({
   categories = [],
@@ -14,6 +16,7 @@ export default function ProductionProductPicker({
   onChangeSubcategory,
   selectedProducts = [],
   onUpdateProducts,
+  onSelectProductWithTemplate = null,
   selectedBaseId = '',
   selectedBaseName = '',
   disabled = false
@@ -21,6 +24,7 @@ export default function ProductionProductPicker({
   // Filter mode: 'SELECTED_BASE', 'ICE_CREAM', 'KULFI', 'FD', or 'ALL'
   const [activeBaseTab, setActiveBaseTab] = useState('SELECTED_BASE');
   const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [catalogModalOpen, setCatalogModalOpen] = useState(false);
 
   // Count products by base category
   const baseCounts = useMemo(() => {
@@ -145,12 +149,12 @@ export default function ProductionProductPicker({
   }, [activeProductsPool, selectedProducts]);
 
   // Handle adding a product to selected list
-  const handleAddProduct = (productId) => {
-    if (!productId) return;
-    const prod = products.find(p => p.id === productId);
+  const handleAddProduct = (productId, productObj = null) => {
+    if (!productId && !productObj) return;
+    const prod = productObj || products.find(p => p.id === productId);
     if (!prod) return;
 
-    if (selectedProducts.some(p => p.productId === productId)) return;
+    if (selectedProducts.some(p => p.productId === prod.id)) return;
 
     const series = prod.specifications?.series || prod.brand || 'BG';
     const group = prod.specifications?.group || prod.category?.name || 'Gallon';
@@ -168,9 +172,13 @@ export default function ProductionProductPicker({
         factor,
         baseName,
         plannedQty: 100,
-        unit: prod.unit?.abbreviation || 'Nos'
+        unit: prod.unit?.abbreviation || prod.unit?.name || 'Nos'
       }
     ]);
+
+    if (onSelectProductWithTemplate) {
+      onSelectProductWithTemplate(prod);
+    }
   };
 
   const handleRemoveProduct = (productId) => {
@@ -312,41 +320,64 @@ export default function ProductionProductPicker({
 
         {/* Product Searchable Dropdown */}
         <div className="space-y-1">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-            <span>3. Add Finished Product</span>
-            <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">
-              {activeProductsPool.length} available
-            </span>
-          </Label>
-          <ProductionSearchSelect
-            options={productOptions}
-            value=""
-            onChange={(prodId) => handleAddProduct(prodId)}
-            placeholder="+ Search & Add Product (e.g. Vanilla)..."
-            searchPlaceholder="Type product name, code (e.g. BG101), series..."
-            disabled={disabled}
-            emptyMessage="No products match your search or filter."
-            renderOption={(opt, isSelected) => (
-              <div className="flex-1 truncate">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-extrabold text-slate-900 dark:text-white">
-                    {opt.label}
-                  </span>
-                  <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                    {opt.subLabel}
-                  </span>
-                  {opt.badge && (
-                    <span className="font-mono text-[9px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-extrabold">
-                      {opt.badge}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
-                  {opt.extra}
-                </p>
-              </div>
-            )}
-          />
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              3. Add Finished Product
+            </Label>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => setCatalogModalOpen(true)}
+              className="text-[10px] font-extrabold text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 flex items-center gap-1 cursor-pointer transition-colors"
+              title="Open full catalog popup with 2-tier Base Category screening"
+            >
+              <Sparkles className="w-3 h-3 text-amber-500" />
+              <span>Catalog Grid ({activeProductsPool.length})</span>
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 min-w-0">
+              <ProductionSearchSelect
+                options={productOptions}
+                value=""
+                onChange={(prodId) => handleAddProduct(prodId)}
+                placeholder="+ Search & Add Product (e.g. Vanilla)..."
+                searchPlaceholder="Type product name, code (e.g. BG101), series..."
+                disabled={disabled}
+                emptyMessage="No products match your search or filter."
+                renderOption={(opt, isSelected) => (
+                  <div className="flex-1 truncate">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="font-extrabold text-slate-900 dark:text-white">
+                        {opt.label}
+                      </span>
+                      <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                        {opt.subLabel}
+                      </span>
+                      {opt.badge && (
+                        <span className="font-mono text-[9px] px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-extrabold">
+                          {opt.badge}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">
+                      {opt.extra}
+                    </p>
+                  </div>
+                )}
+              />
+            </div>
+            <Button
+              type="button"
+              disabled={disabled}
+              onClick={() => setCatalogModalOpen(true)}
+              className="h-10 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs shrink-0 shadow-xs flex items-center gap-1.5 cursor-pointer"
+              title="Open full catalog popup (Images 2 & 3)"
+            >
+              <Filter className="w-3.5 h-3.5" />
+              <span>Catalog</span>
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -422,11 +453,29 @@ export default function ProductionProductPicker({
           </div>
         </div>
       ) : (
-        <div className="p-5 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400 bg-slate-50/40 dark:bg-slate-900/40 space-y-1">
+        <div className="p-5 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-400 bg-slate-50/40 dark:bg-slate-900/40 space-y-2">
           <p className="font-bold text-slate-600 dark:text-slate-300">No products added yet.</p>
-          <p className="text-[11px]">Use the search bar dropdown above to select products to produce in this batch.</p>
+          <p className="text-[11px]">Use the search bar dropdown above or click below to browse the 2-tier screening product catalog popup.</p>
+          <Button
+            type="button"
+            disabled={disabled}
+            onClick={() => setCatalogModalOpen(true)}
+            className="rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-xs h-8 px-4 inline-flex items-center gap-1.5 shadow-xs cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Open Product Catalog Popup</span>
+          </Button>
         </div>
       )}
+
+      {/* ── 2-TIER SCREENING PRODUCT CATALOG MODAL (Images 2 & 3) ── */}
+      <ProductSelectionModal
+        isOpen={catalogModalOpen}
+        onClose={() => setCatalogModalOpen(false)}
+        products={activeProductsPool.length > 0 ? activeProductsPool : products}
+        onSelectProduct={(p) => handleAddProduct(p.id, p)}
+        title={`Select Finished Product (${selectedBaseName || 'ICE CREAM BASE'})`}
+      />
     </div>
   );
 }

@@ -268,7 +268,11 @@ router.get('/search', authenticateToken, async (req, res, next) => {
         category: { select: { id: true, name: true } },
         subcategory: { select: { id: true, name: true, code: true } },
         unit: { select: { id: true, name: true, abbreviation: true } },
-        stockLevels: { select: { minLevel: true, maxLevel: true, reorderPoint: true } }
+        stockLevels: { select: { minLevel: true, maxLevel: true, reorderPoint: true } },
+        stages: {
+          include: { stage: { select: { id: true, name: true, category: true, description: true } } },
+          orderBy: { sortOrder: 'asc' }
+        }
       },
       orderBy: { name: 'asc' }
     });
@@ -374,7 +378,17 @@ router.get('/search', authenticateToken, async (req, res, next) => {
         series: p.specifications?.series || '',
         description: p.description || '',
         specifications: p.specifications || {},
-        alertLevel: Number(p.alertLevel || 0)
+        alertLevel: Number(p.alertLevel || 0),
+        workflow_stages: (p.stages || []).map(s => ({
+          id: s.stage?.id || s.stageId,
+          name: s.stage?.name || 'Stage',
+          category: s.stage?.category || 'Thermal & Mixing',
+          description: s.stage?.description || '',
+          durationMonths: Number(s.months || 0),
+          durationDays: Number(s.days || 0),
+          durationHours: Number(s.hours || 0),
+          durationMinutes: Number(s.minutes || 0)
+        }))
       };
     });
 

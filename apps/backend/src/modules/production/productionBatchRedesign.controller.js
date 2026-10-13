@@ -83,6 +83,8 @@ class ProductionBatchRedesignController {
           `SELECT b.id, b.base_id, b.template_id, b.shift, b.machine_line,
                   b.adjustment_reason, b.adjustment_reference,
                   b.sub_total, b.wastage_amt, b.overhead_amt, b.grand_total, b.cost_per_unit,
+                  b.started_by, b.started_at, b.pause_history, b.sop_guide, b.timeline_stages,
+                  b.pause_reason, b.cancelled_reason, b.cancelled_by, b.cancelled_at,
                   bm.name as base_name, pt.name as template_name
            FROM "production_batches" b
            LEFT JOIN "base_master" bm ON b.base_id = bm.id
@@ -118,6 +120,15 @@ class ProductionBatchRedesignController {
           templateName: extra.template_name || 'Standard Formula',
           shift: extra.shift || 'General',
           machineLine: extra.machine_line || 'Main Line',
+          startedBy: extra.started_by || (b.status === 'In Progress' || b.status === 'Completed' ? (b.creator?.name || 'Production Staff') : null),
+          startedAt: extra.started_at || (b.status === 'In Progress' || b.status === 'Completed' ? b.startDate : null),
+          pauseHistory: Array.isArray(extra.pause_history) ? extra.pause_history : (typeof extra.pause_history === 'string' ? JSON.parse(extra.pause_history || '[]') : []),
+          sopGuide: extra.sop_guide || null,
+          timelineStages: Array.isArray(extra.timeline_stages) ? extra.timeline_stages : (typeof extra.timeline_stages === 'string' ? JSON.parse(extra.timeline_stages || '[]') : []),
+          pauseReason: extra.pause_reason || null,
+          cancelledReason: extra.cancelled_reason || null,
+          cancelledBy: extra.cancelled_by || null,
+          cancelledAt: extra.cancelled_at || null,
           adjustmentReason: extra.adjustment_reason || null,
           adjustmentReference: extra.adjustment_reference || null,
           rawMaterialsCount: b.rmUsages?.length || 0,
@@ -136,6 +147,111 @@ class ProductionBatchRedesignController {
         }
       });
     } catch (err) {
+      next(err);
+    }
+  }
+
+  // GET /api/production/batches-redesign/:id
+  async getBatchById(req, res, next) {
+    try {
+      const { id } = req.params;
+      const batch = await prisma.productionBatchNew.findUnique({
+        where: { id },
+        include: {
+          product: { include: { unit: true, category: true, subcategory: true } },
+          order: { include: { customer: true } },
+          creator: { select: { id: true, name: true, email: true } },
+          rmUsages: {
+            include: {
+              rawMaterial: { include: { uom: true } }
+            }
+          }
+        }
+      });
+      if (!batch) return res.status(404).json({ error: 'Production batch not found' });
+
+      // Fetch extended details
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT b.id, b.base_id, b.template_id, b.shift, b.machine_line,
+                b.adjustment_reason, b.adjustment_reference,
+                b.sub_total, b.wastage_amt, b.overhead_amt, b.grand_total, b.cost_per_unit,
+                b.started_by, b.started_at, b.pause_history, b.sop_guide, b.timeline_stages,
+                b.pause_reason, b.cancelled_reason, b.cancelled_by, b.cancelled_at,
+                bm.name as base_name, pt.name as template_name
+         FROM "production_batches" b
+         LEFT JOIN "base_master" bm ON b.base_id = bm.id
+         LEFT JOIN "production_templates" pt ON b.template_id = pt.id
+         WHERE b.id = $1`,
+        id
+      );
+      const extra = Array.isArray(rows) && rows.length > 0 ? rows[0] : {};
+
+      // Fetch allocations for raw materials
+      let allocations = [];
+      try {
+        allocations = await prisma.$queryRawUnsafe(
+          `SELECT * FROM "production_batch_allocations" WHERE batch_id = $1`,
+          id
+        );
+      } catch (e) {
+        allocations = [];
+      }
+
+      // Compute per-piece ratios
+      const batchQty = Number(batch.quantity || 1);
+      const actualYield = batch.actualOutput ? Number(batch.actualOutput) : null;
+
+      const enrichedUsages = (batch.rmUsages || []).map(u => {
+        const reqQty = Number(u.requiredQty || 0);
+        const actQty = u.actualUsedQty !== null ? Number(u.actualUsedQty) : null;
+        const allocs = (allocations || []).filter(a => a.usage_id === u.id);
+        return {
+          ...u,
+          requiredQty: reqQty,
+          actualUsedQty: actQty,
+          perPieceQty: batchQty > 0 ? Number((reqQty / batchQty).toFixed(6)) : 0,
+          actualPerPieceQty: actualYield && actualYield > 0 && actQty !== null ? Number((actQty / actualYield).toFixed(6)) : null,
+          allocations: allocs
+        };
+      });
+
+      res.json({
+        id: batch.id,
+        referenceNo: batch.referenceNo,
+        batchNo: batch.batchNo || batch.referenceNo,
+        productionType: batch.productionType,
+        startDate: batch.startDate,
+        completeDate: batch.completeDate,
+        status: batch.status,
+        quantity: Number(batch.quantity),
+        actualOutput: actualYield,
+        productUom: batch.product?.unit?.abbreviation || batch.product?.unit?.name || 'pcs',
+        totalCost: Number(extra.grand_total || batch.totalCost || 0),
+        subTotal: Number(extra.sub_total || 0),
+        wastageAmt: Number(extra.wastage_amt || 0),
+        overheadAmt: Number(extra.overhead_amt || 0),
+        costPerUnit: Number(extra.cost_per_unit || (batchQty > 0 ? (Number(extra.grand_total || batch.totalCost || 0) / batchQty) : 0)),
+        product: batch.product,
+        order: batch.order,
+        creator: batch.creator,
+        baseName: extra.base_name || 'Ice Cream Base',
+        templateName: extra.template_name || 'Standard Formula',
+        shift: extra.shift || 'General',
+        machineLine: extra.machine_line || 'Main Line',
+        startedBy: extra.started_by || (batch.status === 'In Progress' || batch.status === 'Completed' ? (batch.creator?.name || 'Production Staff') : null),
+        startedAt: extra.started_at || (batch.status === 'In Progress' || batch.status === 'Completed' ? batch.startDate : null),
+        pauseHistory: Array.isArray(extra.pause_history) ? extra.pause_history : (typeof extra.pause_history === 'string' ? JSON.parse(extra.pause_history || '[]') : []),
+        sopGuide: extra.sop_guide || null,
+        timelineStages: Array.isArray(extra.timeline_stages) ? extra.timeline_stages : (typeof extra.timeline_stages === 'string' ? JSON.parse(extra.timeline_stages || '[]') : []),
+        pauseReason: extra.pause_reason || null,
+        cancelledReason: extra.cancelled_reason || null,
+        cancelledBy: extra.cancelled_by || null,
+        cancelledAt: extra.cancelled_at || null,
+        rmUsages: enrichedUsages,
+        createdAt: batch.createdAt
+      });
+    } catch (err) {
+      console.error('Get batch by ID error:', err);
       next(err);
     }
   }
@@ -265,6 +381,10 @@ class ProductionBatchRedesignController {
         });
 
         // 2. Update extended columns in production_batches
+        const startedAtVal = data.status === 'In Progress' ? new Date() : null;
+        const startedByVal = data.status === 'In Progress' ? (req.user?.name || req.user?.email || 'Supervisor') : null;
+        const stagesJson = JSON.stringify(data.timelineStages || []);
+
         await tx.$executeRawUnsafe(
           `UPDATE "production_batches" SET
             base_id = $1::uuid,
@@ -278,8 +398,11 @@ class ProductionBatchRedesignController {
             overhead_amt = $9,
             grand_total = $10,
             cost_per_unit = $11,
-            approval_status = $12
-          WHERE id = $13`,
+            approval_status = $12,
+            timeline_stages = $13::jsonb,
+            started_at = $14,
+            started_by = $15
+          WHERE id = $16`,
           data.baseId || null,
           data.templateId || null,
           data.shift || null,
@@ -292,6 +415,9 @@ class ProductionBatchRedesignController {
           data.grandTotal || 0,
           data.costPerUnit || 0,
           data.status,
+          stagesJson,
+          startedAtVal,
+          startedByVal,
           batch.id
         );
 
@@ -516,15 +642,65 @@ class ProductionBatchRedesignController {
   async updateStatus(req, res, next) {
     try {
       const { id } = req.params;
-      const { status, actualOutput, rmUsages, note } = req.body;
+      const { status, actualOutput, rmUsages, note, reason } = req.body;
+      const userIdentifier = req.user?.name || req.user?.email || 'Floor Supervisor';
 
       const batch = await prisma.productionBatchNew.findUnique({
         where: { id },
         include: {
-          rmUsages: true
+          rmUsages: true,
+          product: { include: { unit: true } }
         }
       });
       if (!batch) return res.status(404).json({ error: 'Production batch not found' });
+
+      // Load existing pause history from extended production_batches table
+      const batchRows = await prisma.$queryRawUnsafe(
+        `SELECT started_at, started_by, pause_history, pause_reason, timeline_stages FROM "production_batches" WHERE id = $1`,
+        id
+      );
+      const batchExtra = Array.isArray(batchRows) && batchRows.length > 0 ? batchRows[0] : {};
+      let pauseHistory = [];
+      try {
+        pauseHistory = Array.isArray(batchExtra.pause_history)
+          ? batchExtra.pause_history
+          : JSON.parse(batchExtra.pause_history || '[]');
+      } catch (e) {
+        pauseHistory = [];
+      }
+
+      let startedAt = batchExtra.started_at;
+      let startedBy = batchExtra.started_by;
+      let pauseReason = batchExtra.pause_reason;
+
+      // Handle lifecycle state transitions
+      if (status === 'In Progress') {
+        if (!startedAt || batch.status === 'Planned' || batch.status === 'Draft') {
+          startedAt = new Date();
+          startedBy = userIdentifier;
+        } else if (batch.status === 'Paused') {
+          // Resumed from pause
+          const openIdx = pauseHistory.findIndex(p => !p.resumedAt);
+          if (openIdx !== -1) {
+            const pausedAtDate = new Date(pauseHistory[openIdx].pausedAt);
+            const now = new Date();
+            const durMs = now - pausedAtDate;
+            pauseHistory[openIdx].resumedAt = now.toISOString();
+            pauseHistory[openIdx].resumedBy = userIdentifier;
+            pauseHistory[openIdx].durationMins = Math.max(1, Math.round(durMs / (1000 * 60)));
+          }
+          pauseReason = null;
+        }
+      } else if (status === 'Paused') {
+        pauseReason = note || reason || 'Production floor paused';
+        pauseHistory.push({
+          pausedAt: new Date().toISOString(),
+          pausedBy: userIdentifier,
+          reason: pauseReason
+        });
+      } else if (status === 'Cancelled') {
+        pauseReason = null;
+      }
 
       const finalYield = actualOutput !== undefined && actualOutput !== null ? Number(actualOutput) : Number(batch.quantity);
 
@@ -543,20 +719,34 @@ class ProductionBatchRedesignController {
           data: updateData
         });
 
-        // Update approval status & actual yield in extended table
+        // Update approval status, actual yield, pause history, timestamps in extended table
         await tx.$executeRawUnsafe(
           `UPDATE "production_batches" SET 
             approval_status = $1,
-            actual_output = $2
-          WHERE id = $3`,
+            actual_output = $2,
+            started_at = $3,
+            started_by = $4,
+            pause_history = $5::jsonb,
+            pause_reason = $6,
+            cancelled_at = $7,
+            cancelled_by = $8,
+            cancelled_reason = $9
+          WHERE id = $10`,
           status,
           finalYield,
+          startedAt,
+          startedBy,
+          JSON.stringify(pauseHistory),
+          pauseReason,
+          status === 'Cancelled' ? new Date() : null,
+          status === 'Cancelled' ? userIdentifier : null,
+          status === 'Cancelled' ? (note || reason || 'Cancelled') : null,
           id
         );
 
         // When completing production: Reduce RM Stock and increment Finished Goods stock
         if (status === 'Completed') {
-          // 1. Increment Finished Product stock by actual yield
+          // 1. Increment Finished Product stock by actual yield (with Product UOM)
           if (batch.productId) {
             await tx.finishedProduct.update({
               where: { id: batch.productId },
@@ -567,11 +757,21 @@ class ProductionBatchRedesignController {
           }
 
           // 2. Reduce consumed quantities from Raw Material Stock and allocated inventory batches
+          const latestRatios = [];
+
           for (const usage of batch.rmUsages) {
             const customRm = Array.isArray(rmUsages) ? rmUsages.find(r => r.rmId === usage.rmId) : null;
             const consumedQty = customRm?.actualUsedQty !== undefined 
               ? Number(customRm.actualUsedQty) 
               : Number(usage.actualUsedQty || usage.requiredQty || 0);
+
+            // Compute per-piece consumption ratio (consumption per single unit)
+            const singlePieceRatio = finalYield > 0 ? Number((consumedQty / finalYield).toFixed(6)) : 0;
+            latestRatios.push({
+              rmId: usage.rmId,
+              consumedQty,
+              singlePieceRatio
+            });
 
             // Update usage record with actual used quantity
             await tx.productionBatchRMUsage.update({
@@ -606,15 +806,46 @@ class ProductionBatchRedesignController {
               }
             }
           }
+
+          // 3. Auto-learn & update product template with latest actual formulation ratio
+          if (batch.productId && latestRatios.length > 0) {
+            try {
+              const currentProd = await tx.finishedProduct.findUnique({
+                where: { id: batch.productId },
+                select: { specifications: true }
+              });
+              const currentSpecs = currentProd?.specifications && typeof currentProd.specifications === 'object'
+                ? currentProd.specifications
+                : {};
+              
+              await tx.finishedProduct.update({
+                where: { id: batch.productId },
+                data: {
+                  specifications: {
+                    ...currentSpecs,
+                    latestActualFormulation: latestRatios,
+                    latestActualYield: finalYield,
+                    lastBatchReference: batch.referenceNo,
+                    lastProductionDate: new Date().toISOString()
+                  }
+                }
+              });
+            } catch (err) {
+              console.warn('Failed to auto-update product template ratio:', err.message);
+            }
+          }
         }
 
         return updated;
       });
 
       res.json({
-        message: status === 'Completed' ? 'Production completed and stock successfully updated' : `Batch status updated to ${status}`,
+        message: status === 'Completed' 
+          ? `Production completed! Actual yield (${finalYield} ${batch.product?.unit?.abbreviation || 'pcs'}) added to product stock and raw material inventory reduced.`
+          : `Batch status updated to ${status}`,
         batch: result,
-        actualYield: finalYield
+        actualYield: finalYield,
+        productUom: batch.product?.unit?.abbreviation || batch.product?.unit?.name || 'pcs'
       });
     } catch (err) {
       console.error('Update batch status error:', err);
