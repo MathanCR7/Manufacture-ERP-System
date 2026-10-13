@@ -788,9 +788,297 @@ export default function POListPage() {
             </div>
           </div>
 
-          {/* Table: Compact Professional ERP Layout with Balanced Column Widths */}
-          {/* Width distribution: Checkbox 32px | SN 35px | Date 80px | PO Ref 90px | Supplier 120px | Purchase Status 150px | Grand Total 95px | Paid 90px | Due 90px | Payment Status 105px | Action 130px (min 125px) */}
-          <div className="w-full overflow-x-auto">
+          {/* Mobile & Tablet Responsive View (NO Horizontal Scroll, Displays All Data) */}
+          <div className="lg:hidden divide-y divide-slate-100 dark:divide-slate-800">
+            {isLoading ? (
+              <div className="py-12 text-center text-slate-400">Loading purchase orders...</div>
+            ) : paginatedPOs.length === 0 ? (
+              <div className="py-12 text-center text-slate-400">
+                <FileText className="w-8 h-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">No purchase orders found</p>
+                <p className="text-[11px] text-slate-400">Try adjusting your search or filters.</p>
+              </div>
+            ) : (
+              paginatedPOs.map((po, idx) => {
+                const computedIdx = (currentPage - 1) * itemsPerPage + idx + 1;
+                return (
+                  <div key={po.id} className="p-3.5 space-y-2.5 transition-colors hover:bg-indigo-50/20 dark:hover:bg-slate-800/30">
+                    {/* Top Row: [Checkbox] + #SN + Date + Purchase Status Badge */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isSelectionMode && (
+                          <input
+                            type="checkbox"
+                            checked={isRowSelected(po.id)}
+                            onChange={() => handleToggleSelectRow(po.id)}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer align-middle"
+                          />
+                        )}
+                        <span className="text-[10px] text-slate-400 font-bold font-mono">
+                          #{computedIdx}
+                        </span>
+                        <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                          {po.createdAt ? format(new Date(po.createdAt), 'dd-MM-yyyy') : '—'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <StatusChip status={po.status} />
+                        {canChangeStatus && ['PENDING', 'ORDERED'].includes(po.status) && (
+                          <StatusAdvanceButton po={po} />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* PO Reference + Invoices / E-Way Tags */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <button
+                          onClick={() => navigate(`/purchase-orders/${po.id}`)}
+                          className="font-mono font-bold text-sm text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer text-left"
+                        >
+                          {po.referenceNo}
+                        </button>
+                        {(po.supplierInvoiceNo || po.ewayBillNo) && (
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            {po.supplierInvoiceNo && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700">
+                                Inv: {po.supplierInvoiceNo}
+                              </span>
+                            )}
+                            {po.ewayBillNo && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60">
+                                E-Way: {po.ewayBillNo}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Payment Status Cell Pill */}
+                      <PaymentStatusCell 
+                        po={po} 
+                        onOpenSummary={(selectedPo) => setSummaryModalPO(selectedPo)} 
+                      />
+                    </div>
+
+                    {/* Supplier Name */}
+                    <div className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                      <span className="text-[10px] text-slate-400 uppercase font-bold mr-1">Supplier:</span>
+                      {po.supplierName || po.supplier?.name || '—'}
+                    </div>
+
+                    {/* 3-Column Financial Metrics Subgrid */}
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block">Grand Total</span>
+                        <span className="font-mono font-black text-xs text-slate-900 dark:text-slate-100 mt-0.5 block truncate">
+                          ₹{Number(po.totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+
+                      <div 
+                        onClick={() => setPaymentModalPO({ po, initialStatus: po.paymentStatus })}
+                        className="p-2 rounded-lg bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-900/40 cursor-pointer hover:bg-emerald-100/50 transition-colors"
+                        title="Click to update payment"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] uppercase font-bold text-emerald-700 dark:text-emerald-400">Paid</span>
+                          <Edit className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
+                        </div>
+                        <span className="font-mono font-bold text-xs text-emerald-600 dark:text-emerald-400 mt-0.5 block truncate">
+                          ₹{Number(po.paidAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+
+                      <div 
+                        onClick={() => setPaymentModalPO({ 
+                          po, 
+                          initialStatus: po.dueAmount > 0 && po.paidAmount > 0 ? 'PARTIALLY_PAID' : (Number(po.dueAmount) === 0 ? 'PAID' : 'PARTIALLY_PAID') 
+                        })}
+                        className="p-2 rounded-lg bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200/70 dark:border-rose-900/40 cursor-pointer hover:bg-rose-100/50 transition-colors"
+                        title="Click to update payment"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] uppercase font-bold text-rose-700 dark:text-rose-400">Due</span>
+                          <Edit className="w-2.5 h-2.5 text-rose-600 dark:text-rose-400" />
+                        </div>
+                        <span className="font-mono font-black text-xs text-rose-600 dark:text-rose-400 mt-0.5 block truncate">
+                          ₹{Number(po.dueAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons Bar */}
+                    <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex-wrap">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => navigate(`/purchase-orders/${po.id}`)}
+                          className="h-7 px-2 text-xs font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-100 cursor-pointer inline-flex items-center gap-1"
+                          title="View PO Details"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>View</span>
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleExportPDF(po)}
+                          className="h-7 px-2 text-xs font-semibold text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer inline-flex items-center gap-1"
+                          title="Download PDF"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-slate-500" />
+                          <span className="hidden sm:inline">PDF</span>
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleExportExcel(po)}
+                          className="h-7 px-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-50/60 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 rounded-lg hover:bg-emerald-100 cursor-pointer inline-flex items-center gap-1"
+                          title="Export Excel"
+                        >
+                          <Download className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="hidden sm:inline">Excel</span>
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setInvoiceModalPO(po);
+                          }}
+                          className={`h-7 px-2 text-xs font-semibold rounded-lg cursor-pointer inline-flex items-center gap-1 ${
+                            po.supplierInvoiceFile
+                              ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800'
+                              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                          }`}
+                          title="Supplier Invoice"
+                        >
+                          {po.supplierInvoiceFile ? <FileCheck className="w-3.5 h-3.5 text-emerald-600" /> : <Paperclip className="w-3.5 h-3.5 text-slate-500" />}
+                          <span>Invoice</span>
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT' || po.status?.toUpperCase() === 'ORDERED') && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => navigate(`/purchase-orders/edit/${po.id}`)}
+                            className="h-7 w-7 p-0 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/50 cursor-pointer"
+                            title="Edit"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+
+                        {canAddPurchase && (po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT') && (
+                          <AlertDialog>
+                            <AlertDialogTrigger
+                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer inline-flex items-center justify-center border-0 bg-transparent"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle className="text-slate-900 dark:text-white">Delete Purchase Order?</AlertDialogTitle>
+                                <AlertDialogDescription className="text-slate-500 dark:text-slate-400 text-xs">
+                                  Are you sure you want to delete PO <strong className="text-slate-800 dark:text-slate-200 font-mono">{po.referenceNo}</strong>? This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel className="rounded-xl text-xs">Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteMutation.mutate(po.id)}
+                                  className="bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+
+                        {canAddPurchase && (po.status === 'ORDERED' || po.status === 'RECEIVED' || po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED') && (
+                          <AlertDialog>
+                            <AlertDialogTrigger
+                              className="h-7 w-7 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/50 transition-colors cursor-pointer inline-flex items-center justify-center border-0 bg-transparent"
+                              title={po.status === 'ORDERED' ? "Revert Order to Draft" : "Undo Receive / Revert PO"}
+                            >
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </AlertDialogTrigger>
+                            <AlertDialogContent className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl max-w-md">
+                              <AlertDialogHeader>
+                                <AlertDialogTitle className="text-slate-900 dark:text-white">
+                                  {po.status === 'ORDERED' ? 'Revert Order to Draft?' : 'Undo Receipt / Revert PO?'}
+                                </AlertDialogTitle>
+                                <AlertDialogDescription className="text-slate-500 dark:text-slate-400 text-xs">
+                                  {po.status === 'ORDERED' ? (
+                                    <span>Revert PO <strong>{po.referenceNo}</strong> back to Draft (Pending) status so you can freely edit the purchase order.</span>
+                                  ) : (
+                                    <span className="space-y-2 block text-left">
+                                      <span>Choose how you want to revert PO <strong>{po.referenceNo}</strong>:</span>
+                                      <span className="p-2.5 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 rounded-xl text-[11px] border border-amber-200 dark:border-amber-800 block">
+                                        ⚠ Reverting will remove all GRNs and inventory batches, and reverse any stock added to Raw Material inventory.
+                                      </span>
+                                    </span>
+                                  )}
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+                                <AlertDialogCancel className="rounded-xl border-slate-200 dark:border-slate-800 text-xs">Cancel</AlertDialogCancel>
+
+                                {(po.status === 'RECEIVED' || po.status === 'APPROVED' || po.status === 'PARTIALLY_RECEIVED') && (
+                                  <AlertDialogAction
+                                    onClick={async () => {
+                                      await api.patch(`/grn/po/${po.id}/status`, { status: 'ORDERED' });
+                                      queryClient.invalidateQueries({ queryKey: ['pos'] });
+                                      queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+                                      queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
+                                      queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+                                      queryClient.invalidateQueries({ queryKey: ['po-detail', po.id] });
+                                      queryClient.invalidateQueries({ queryKey: ['po-edit', po.id] });
+                                    }}
+                                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold"
+                                  >
+                                    Undo Receive (To Ordered)
+                                  </AlertDialogAction>
+                                )}
+
+                                <AlertDialogAction
+                                  onClick={async () => {
+                                    await api.patch(`/grn/po/${po.id}/status`, { status: 'PENDING' });
+                                    queryClient.invalidateQueries({ queryKey: ['pos'] });
+                                    queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
+                                    queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
+                                    queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
+                                    queryClient.invalidateQueries({ queryKey: ['po-detail', po.id] });
+                                    queryClient.invalidateQueries({ queryKey: ['po-edit', po.id] });
+                                  }}
+                                  className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold"
+                                >
+                                  Revert to Draft
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View (ONLY on screens lg and larger >= 1024px) */}
+          <div className="hidden lg:block w-full overflow-x-auto">
             <Table className="w-full min-w-[985px] lg:min-w-full table-fixed text-xs border-collapse">
               <colgroup>
                 {isSelectionMode && <col style={{ width: '32px' }} />}

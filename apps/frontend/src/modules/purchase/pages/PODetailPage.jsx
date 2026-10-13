@@ -938,7 +938,8 @@ export default function PODetailPage() {
 
             {Array.isArray(po.items) && po.items.length > 0 ? (
               <div className="space-y-3">
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                {/* Desktop View (ONLY on screens lg and larger >= 1024px) */}
+                <div className="hidden lg:block overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
                       <tr>
@@ -1047,7 +1048,7 @@ export default function PODetailPage() {
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                                <ShieldCheck className="w-3 h-3 text-rose-600 dark:text-rose-400" /> Lab Exempt (Direct)
+                                <ShieldCheck className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" /> Lab Exempt (Direct)
                               </span>
                             )}
                           </td>
@@ -1055,6 +1056,103 @@ export default function PODetailPage() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                {/* Mobile & Tablet Responsive View (NO Horizontal Scroll, Displays All Data) */}
+                <div className="lg:hidden space-y-3">
+                  {po.items.map((item, idx) => (
+                    <div
+                      key={item.id || idx}
+                      className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/50 space-y-2.5 shadow-3xs"
+                    >
+                      {/* Top Row: Item Name & Code + Item Type & Lab Route */}
+                      <div className="flex items-start justify-between gap-2 flex-wrap">
+                        <div className="min-w-0">
+                          <h4 className="font-bold text-slate-900 dark:text-white text-sm leading-tight">
+                            {item.name}
+                          </h4>
+                          <span className="font-mono text-[10px] text-slate-400 block mt-0.5">
+                            {item.rmId || item.code || '—'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                            item.itemType === 'NON_INVENTORY'
+                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                              : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                          }`}>
+                            {item.itemType === 'NON_INVENTORY' ? '🚫 Non-Inv' : '🌾 Raw Mat'}
+                          </span>
+                          {item.labTestRequired !== false ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              <FlaskConical className="w-3 h-3 text-emerald-600 dark:text-emerald-400" /> Lab Required
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-bold bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                              <ShieldCheck className="w-3 h-3 text-rose-600 dark:text-rose-400" /> Lab Exempt
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Batches details if attached */}
+                      {Array.isArray(item.batches) && item.batches.length > 1 ? (
+                        <div className="space-y-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-800">
+                          {item.batches.map((b, bIdx) => (
+                            <div key={b.id || bIdx} className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800 text-[10px] space-y-0.5">
+                              <div className="flex items-center justify-between font-bold">
+                                <span className="text-indigo-600 dark:text-indigo-400">Batch #{bIdx + 1}</span>
+                                <span className="text-slate-800 dark:text-slate-200 font-mono">{b.batchQuantity ?? b.quantity} {item.uomLabel || item.uom || ''}</span>
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap text-slate-500">
+                                {b.weight && <span>Weight: <b>{b.weight}</b></span>}
+                                {b.mfgBatchNo && <span>MFG: <b className="font-mono">{b.mfgBatchNo}</b></span>}
+                                {b.mfgDate && <span>MFG Date: <b>{typeof b.mfgDate === 'string' && b.mfgDate.includes('T') ? format(new Date(b.mfgDate), 'dd-MM-yyyy') : b.mfgDate}</b></span>}
+                                {b.expDate && <span className="text-amber-600">EXP: <b>{typeof b.expDate === 'string' && b.expDate.includes('T') ? format(new Date(b.expDate), 'dd-MM-yyyy') : b.expDate}</b></span>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (item.batchQuantity || item.weight || item.mfgBatchNo || item.mfgDate || item.expDate) ? (
+                        <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800 text-[10px] flex items-center gap-2 flex-wrap text-slate-500">
+                          {item.batchQuantity !== undefined && item.batchQuantity !== null && item.batchQuantity !== item.quantity && (
+                            <span>Batch Qty: <b className="text-indigo-600">{item.batchQuantity} {item.uomLabel || item.uom || ''}</b></span>
+                          )}
+                          {item.weight && <span>Weight: <b>{item.weight}</b></span>}
+                          {item.mfgBatchNo && <span>MFG: <b className="font-mono">{item.mfgBatchNo}</b></span>}
+                          {item.mfgDate && <span>MFG Date: <b>{typeof item.mfgDate === 'string' && item.mfgDate.includes('T') ? format(new Date(item.mfgDate), 'dd-MM-yyyy') : item.mfgDate}</b></span>}
+                          {item.expDate && <span className="text-amber-600">EXP: <b>{typeof item.expDate === 'string' && item.expDate.includes('T') ? format(new Date(item.expDate), 'dd-MM-yyyy') : item.expDate}</b></span>}
+                        </div>
+                      ) : null}
+
+                      {/* 3-Column Quantities, Price & Total Grid */}
+                      <div className="grid grid-cols-3 gap-2 text-xs pt-1">
+                        <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Ordered Qty</span>
+                          <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100 mt-0.5 block">
+                            {item.quantity} {item.uomLabel || item.uom || ''}
+                          </span>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-white dark:bg-slate-950 border border-slate-200/70 dark:border-slate-800">
+                          <span className="text-[9px] uppercase font-bold text-slate-400 block">Unit Price (GST)</span>
+                          <span className="font-mono font-bold text-xs text-slate-700 dark:text-slate-300 mt-0.5 block">
+                            ₹{Number(item.unitPrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold mt-0.5 block">
+                            {item.gstPercentage !== undefined ? item.gstPercentage : (item.gstPercent !== undefined ? item.gstPercent : (item.gstApplicable !== false ? 18 : 0))}% GST
+                          </span>
+                        </div>
+
+                        <div className="p-2 rounded-lg bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50">
+                          <span className="text-[9px] uppercase font-bold text-indigo-700 dark:text-indigo-400 block">Total Amount</span>
+                          <span className="font-mono font-black text-xs text-indigo-950 dark:text-indigo-200 mt-0.5 block truncate">
+                            ₹{Number(item.total || ((item.quantity || 0) * (item.unitPrice || 0))).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ) : (
