@@ -520,7 +520,7 @@ export default function POListPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap self-start sm:self-auto w-full sm:w-auto justify-start sm:justify-end">
           {/* Select All Button near Add Purchase */}
           {isSelectionMode ? (
             <Button
@@ -617,7 +617,7 @@ export default function POListPage() {
       </div>
 
       {/* Stat Cards Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
         <StatCard 
           icon={Package} 
           label="Total POs" 
@@ -709,14 +709,14 @@ export default function POListPage() {
               )}
 
               {/* Status Filter */}
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
                 <select
                   value={statusFilter}
                   onChange={(e) => {
                     setStatusFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                 >
                   <option value="ALL">Status: All</option>
                   <option value="PENDING">Draft</option>
@@ -729,14 +729,14 @@ export default function POListPage() {
               </div>
 
               {/* Payment Filter */}
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto">
                 <select
                   value={paymentFilter}
                   onChange={(e) => {
                     setPaymentFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                 >
                   <option value="ALL">Payment: All</option>
                   <option value="PAID">Paid Only</option>
@@ -747,7 +747,7 @@ export default function POListPage() {
               </div>
 
               {/* Sort Dropdown (Styled identically to /setup/raw-material) */}
-              <div className="relative flex items-center">
+              <div className="relative flex items-center flex-1 sm:flex-none min-w-[150px] w-full sm:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
                   <ArrowUpDown className="w-3.5 h-3.5" />
                 </span>
@@ -757,7 +757,7 @@ export default function POListPage() {
                     setSortBy(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Sort options"
                 >
                   <option value="recent">Sort: Date (Newest First)</option>
@@ -791,7 +791,7 @@ export default function POListPage() {
           {/* Table: Compact Professional ERP Layout with Balanced Column Widths */}
           {/* Width distribution: Checkbox 32px | SN 35px | Date 80px | PO Ref 90px | Supplier 120px | Purchase Status 150px | Grand Total 95px | Paid 90px | Due 90px | Payment Status 105px | Action 130px (min 125px) */}
           <div className="w-full overflow-x-auto">
-            <Table className="w-full table-fixed text-xs border-collapse">
+            <Table className="w-full min-w-[985px] lg:min-w-full table-fixed text-xs border-collapse">
               <colgroup>
                 {isSelectionMode && <col style={{ width: '32px' }} />}
                 <col style={{ width: '35px' }} />
@@ -1259,9 +1259,9 @@ export default function POListPage() {
               </div>
             )}
 
-            <div className="text-[10px] text-slate-400 hidden sm:flex items-center gap-2">
-              <span>Page {currentPage} of {totalPages}</span>
-              <div className="flex items-center gap-1 border-l border-slate-200 dark:border-slate-800 pl-2">
+            <div className="text-[10px] text-slate-400 flex items-center gap-2">
+              <span className="hidden sm:inline">Page {currentPage} of {totalPages}</span>
+              <div className="flex items-center gap-1 sm:border-l sm:border-slate-200 sm:dark:border-slate-800 sm:pl-2">
                 <span>Per page:</span>
                 <select
                   value={itemsPerPage}

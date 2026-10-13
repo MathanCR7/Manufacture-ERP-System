@@ -380,7 +380,7 @@ export default function CompanyReqFormPage() {
                   </span>
                 </label>
 
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                   {COMPANY_TYPES.map((t) => {
                     const isSelected = formData.type === t.value;
                     return (
@@ -477,7 +477,7 @@ export default function CompanyReqFormPage() {
 
               {/* Add-on Contact Numbers Feature */}
               <div className="mt-4 p-3.5 bg-slate-50/80 dark:bg-slate-950/50 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Phone className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
@@ -675,7 +675,7 @@ export default function CompanyReqFormPage() {
         </Card>
 
         {/* Action Buttons Bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+        <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 pt-2">
           <Button
             type="button"
             variant="outline"
@@ -685,14 +685,14 @@ export default function CompanyReqFormPage() {
             Cancel / Back to List
           </Button>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 w-full sm:w-auto">
             {!isEditMode && (
               <Button
                 type="button"
                 disabled={isSubmitting}
                 onClick={(e) => handleSubmit(e, true)}
                 variant="outline"
-                className="flex-1 sm:flex-none h-10 px-4 text-xs font-semibold rounded-xl border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 shadow-3xs cursor-pointer inline-flex items-center gap-1.5"
+                className="w-full sm:w-auto sm:flex-none h-10 px-4 text-xs font-semibold rounded-xl border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 shadow-3xs cursor-pointer inline-flex items-center justify-center gap-1.5"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Save & Add Another
@@ -702,7 +702,7 @@ export default function CompanyReqFormPage() {
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 sm:flex-none h-10 px-6 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer inline-flex items-center gap-2"
+              className="w-full sm:w-auto sm:flex-none h-10 px-6 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-md shadow-indigo-600/20 active:scale-95 transition-all cursor-pointer inline-flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
                 <>

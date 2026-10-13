@@ -1121,7 +1121,7 @@ export default function CreatePOPage({ onBack }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 w-full sm:w-auto shrink-0">
+        <div className="flex flex-wrap sm:flex-nowrap items-center justify-start sm:justify-end gap-1.5 sm:gap-2 w-full sm:w-auto shrink-0">
           {lowStockCount > 0 && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 rounded-xl text-rose-700 dark:text-rose-300 text-xs font-semibold shrink-0">
               <span className="relative flex h-2 w-2">
@@ -1583,7 +1583,7 @@ export default function CreatePOPage({ onBack }) {
         {/* Full Width Items Table */}
         <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs w-full">
           <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left border-collapse min-w-[750px]">
+            <table className="w-full text-xs text-left border-collapse min-w-[920px] lg:min-w-full">
               <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-800 font-bold uppercase tracking-wider text-[10px]">
                 <tr>
                   <th className="px-2 py-2.5 w-12 text-center">#</th>
@@ -1889,7 +1889,7 @@ export default function CreatePOPage({ onBack }) {
                                     {currentBatches.map((batch, bIdx) => (
                                       <div
                                         key={batch.id || bIdx}
-                                        className="flex flex-wrap items-center gap-3 lg:gap-4 xl:gap-5 px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
+                                        className="flex flex-wrap items-center gap-2 sm:gap-3 lg:gap-4 xl:gap-5 px-2.5 sm:px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-2xs text-xs"
                                       >
                                         {/* Batch Index Badge */}
                                         <span className="font-bold text-[11px] text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200/80 dark:border-indigo-800/80 px-2.5 py-0.5 rounded-md shrink-0">
@@ -1926,7 +1926,7 @@ export default function CreatePOPage({ onBack }) {
                                         </div>
 
                                         {/* Weight */}
-                                        <div className="flex items-center gap-1.5 min-w-[170px] sm:min-w-[185px] flex-1 max-w-[240px]">
+                                        <div className="flex items-center gap-1.5 min-w-[140px] sm:min-w-[185px] flex-1 max-w-full sm:max-w-[240px]">
                                           <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                           <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
                                           <Input
@@ -1939,7 +1939,7 @@ export default function CreatePOPage({ onBack }) {
                                         </div>
 
                                         {/* MFG Batch No */}
-                                        <div className="flex items-center gap-1.5 min-w-[160px] sm:min-w-[175px] flex-1 max-w-[230px]">
+                                        <div className="flex items-center gap-1.5 min-w-[140px] sm:min-w-[175px] flex-1 max-w-full sm:max-w-[230px]">
                                           <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                           <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Batch:</span>
                                           <Input
@@ -1952,7 +1952,7 @@ export default function CreatePOPage({ onBack }) {
                                         </div>
 
                                         {/* MFG Date */}
-                                        <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
+                                        <div className="flex items-center gap-1.5 min-w-[150px] sm:min-w-[200px] flex-1 max-w-full sm:max-w-[250px]">
                                           <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                           <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
                                           <div className="flex-1 min-w-0">
@@ -1967,7 +1967,7 @@ export default function CreatePOPage({ onBack }) {
                                         </div>
 
                                         {/* Exp Date */}
-                                        <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
+                                        <div className="flex items-center gap-1.5 min-w-[150px] sm:min-w-[200px] flex-1 max-w-full sm:max-w-[250px]">
                                           <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                           <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
                                           <div className="flex-1 min-w-0">
@@ -2386,13 +2386,13 @@ export default function CreatePOPage({ onBack }) {
         <div className="text-xs text-slate-500 dark:text-slate-400">
           Total Payable (including taxes): <strong className="text-base text-indigo-600 dark:text-indigo-400 ml-1 font-extrabold">₹{grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <Button 
             type="button" 
             variant="outline" 
             size="sm" 
             onClick={handleBack}
-            className="h-9 px-4 text-xs font-semibold text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 rounded-xl"
+            className="flex-1 sm:flex-none h-9 px-4 text-xs font-semibold text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 rounded-xl"
           >
             Cancel
           </Button>
@@ -2400,7 +2400,7 @@ export default function CreatePOPage({ onBack }) {
             type="button" 
             onClick={handleSubmit} 
             disabled={createMutation.isPending} 
-            className="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white h-9 px-5 rounded-xl text-xs font-bold shadow-md shadow-indigo-600/25 transition-all gap-1.5"
+            className="flex-1 sm:flex-none bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-700 hover:to-indigo-800 text-white h-9 px-5 rounded-xl text-xs font-bold shadow-md shadow-indigo-600/25 transition-all gap-1.5"
           >
             {createMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             {createMutation.isPending ? 'Submitting Order...' : 'Confirm & Create Order'}

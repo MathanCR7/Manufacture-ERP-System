@@ -526,7 +526,7 @@ export default function CompanyReqListPage() {
       </div>
 
       {/* Stat Cards Grid (Matched with /purchase-orders) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
         <StatCard
           icon={Building2}
           label="Total Companies"
@@ -605,14 +605,14 @@ export default function CompanyReqListPage() {
               )}
 
               {/* Type Filter */}
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-none min-w-[130px] w-full sm:w-auto">
                 <select
                   value={typeFilter}
                   onChange={(e) => {
                     setTypeFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                 >
                   <option value="ALL">Type: All</option>
                   <option value="Manufacture">Manufacture</option>
@@ -625,14 +625,14 @@ export default function CompanyReqListPage() {
               </div>
 
               {/* Industry Filter */}
-              <div className="relative">
+              <div className="relative flex-1 sm:flex-none min-w-[130px] w-full sm:w-auto">
                 <select
                   value={industryFilter}
                   onChange={(e) => {
                     setIndustryFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600 max-w-[150px] truncate"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600 max-w-full sm:max-w-[150px] truncate"
                 >
                   <option value="ALL">Industry: All</option>
                   {dbIndustries.map((ind, i) => {
@@ -646,7 +646,7 @@ export default function CompanyReqListPage() {
               </div>
 
               {/* Sort Dropdown (Styled identically to /purchase-orders) */}
-              <div className="relative flex items-center">
+              <div className="relative flex items-center flex-1 sm:flex-none min-w-[150px] w-full sm:w-auto">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-indigo-600 dark:text-indigo-400">
                   <ArrowUpDown className="w-3.5 h-3.5" />
                 </span>
@@ -656,7 +656,7 @@ export default function CompanyReqListPage() {
                     setSortBy(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  className="w-full sm:w-auto h-8 pl-8 pr-7 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
                   aria-label="Sort options"
                 >
                   <option value="recent">Sort: Date (Newest First)</option>
@@ -676,7 +676,7 @@ export default function CompanyReqListPage() {
 
           {/* Table displaying all columns matching the spreadsheet screenshot */}
           <div className="overflow-x-auto min-h-[350px]">
-            <Table>
+            <Table className="min-w-[1100px] lg:min-w-full">
               <TableHeader className="bg-slate-50/90 dark:bg-slate-950/70 border-b border-slate-200 dark:border-slate-800">
                 <TableRow className="hover:bg-transparent">
                   {/* # Column */}
