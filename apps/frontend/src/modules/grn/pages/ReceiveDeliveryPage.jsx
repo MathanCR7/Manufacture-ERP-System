@@ -722,15 +722,15 @@ export default function ReceiveDeliveryPage() {
   // Main Receive Form
   // ──────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-3 sm:p-5 lg:p-6 max-w-6xl mx-auto space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/grn/upcoming')} className="rounded-full text-slate-500">
+      <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/grn/upcoming')} className="rounded-full text-slate-500 shrink-0 mt-0.5 sm:mt-0">
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Receive Delivery & Inspection</h1>
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">Receive Delivery & Inspection</h1>
             {allItemsExempt && (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300 border border-red-200">
                 <ShieldCheck className="w-3.5 h-3.5 text-red-600" /> All Items Lab-Exempt (Direct to Stock)
@@ -1261,7 +1261,7 @@ export default function ReceiveDeliveryPage() {
                                   </div>
 
                                   {/* Weight */}
-                                  <div className="flex items-center gap-1.5 min-w-[170px] sm:min-w-[185px] flex-1 max-w-[240px]">
+                                  <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-[140px] sm:min-w-[185px] flex-1 max-w-full sm:max-w-[240px]">
                                     <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
                                     <Input
@@ -1274,7 +1274,7 @@ export default function ReceiveDeliveryPage() {
                                   </div>
 
                                   {/* MFG Batch (Manufacturer / Supplier Batch - EDITABLE) */}
-                                  <div className="flex items-center gap-1.5 min-w-[160px] sm:min-w-[175px] flex-1 max-w-[230px]">
+                                  <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-[140px] sm:min-w-[175px] flex-1 max-w-full sm:max-w-[230px]">
                                     <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0" title="Manufacturer Batch No">MFG Batch:</span>
                                     <Input
@@ -1287,7 +1287,7 @@ export default function ReceiveDeliveryPage() {
                                   </div>
 
                                   {/* MFG Date */}
-                                  <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
+                                  <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-[140px] sm:min-w-[200px] flex-1 max-w-full sm:max-w-[250px]">
                                     <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
                                     <div className="flex-1 min-w-0">
@@ -1302,7 +1302,7 @@ export default function ReceiveDeliveryPage() {
                                   </div>
 
                                   {/* Exp Date */}
-                                  <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
+                                  <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-[140px] sm:min-w-[200px] flex-1 max-w-full sm:max-w-[250px]">
                                     <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                     <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
                                     <div className="flex-1 min-w-0">
@@ -1558,14 +1558,14 @@ export default function ReceiveDeliveryPage() {
           )}
 
           {/* Submission Bar */}
-          <div className="flex items-center justify-between pt-2">
-            <Button type="button" variant="outline" onClick={() => navigate('/grn/upcoming')}>
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => navigate('/grn/upcoming')} className="w-full sm:w-auto">
               Cancel
             </Button>
             <Button 
               type="submit" 
               disabled={mutation.isPending} 
-              className={`gap-2 min-w-44 text-white font-semibold ${
+              className={`gap-2 w-full sm:w-auto min-w-44 text-white font-semibold ${
                 allItemsExempt 
                   ? 'bg-red-600 hover:bg-red-700' 
                   : 'bg-indigo-600 hover:bg-indigo-700'

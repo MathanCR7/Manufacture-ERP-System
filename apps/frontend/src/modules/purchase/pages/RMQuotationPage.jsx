@@ -617,10 +617,10 @@ export default function RMQuotationPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto min-h-screen">
+    <div className="p-3 sm:p-5 lg:p-6 space-y-4 sm:space-y-6 max-w-[1600px] mx-auto min-h-screen">
       
       {/* HEADER BAR WITH TOP-RIGHT "+ NEW QUOTATION" BUTTON */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-sm">
         <div>
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
@@ -633,12 +633,12 @@ export default function RMQuotationPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
           <Button
             onClick={() => refetch()}
             variant="outline"
             size="icon"
-            className="rounded-xl border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300"
+            className="rounded-xl border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 shrink-0"
             title="Refresh List"
           >
             <RefreshCw className="w-4 h-4" />
@@ -647,7 +647,7 @@ export default function RMQuotationPage() {
           {/* "+ New Quotation" Button matching "+" button style next to Supplier on Direct Order */}
           <Button
             onClick={() => setShowCreatePanel(true)}
-            className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-2xl px-5 h-11 shadow-lg shadow-indigo-600/20 transition-all hover:scale-105 flex items-center gap-2"
+            className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-extrabold text-xs rounded-2xl px-4 sm:px-5 h-10 sm:h-11 shadow-lg shadow-indigo-600/20 transition-all hover:scale-105 flex items-center justify-center gap-2 flex-1 sm:flex-none"
           >
             <Plus className="w-4 h-4" />
             <span>New Quotation</span>
@@ -656,11 +656,11 @@ export default function RMQuotationPage() {
       </div>
 
       {/* FILTER BAR */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 sm:p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
           
           {/* Search filter */}
-          <div className="relative flex-1 sm:w-64">
+          <div className="relative w-full sm:w-64 flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
@@ -672,7 +672,7 @@ export default function RMQuotationPage() {
           </div>
 
           {/* Status Filter Tabs */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs overflow-x-auto">
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs overflow-x-auto max-w-full w-full sm:w-auto scrollbar-none">
             {['SENT', 'PARTIALLY_RESPONDED', 'CONVERTED', 'ALL_RESPONDED', 'EXPIRED', 'ALL'].map(st => (
               <button
                 key={st}
@@ -717,7 +717,7 @@ export default function RMQuotationPage() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-700 dark:text-slate-300">
+            <table className="w-full min-w-[940px] lg:min-w-full text-left text-xs text-slate-700 dark:text-slate-300">
               <thead className="bg-slate-50 dark:bg-slate-950/80 text-slate-400 uppercase font-semibold text-[11px] tracking-wider border-b border-slate-200 dark:border-slate-800">
                 <tr>
                   <th className="px-4 py-3.5 w-10"></th>
@@ -812,55 +812,57 @@ export default function RMQuotationPage() {
                                 <span>Requested Items Catalog ({q.items?.length || 0})</span>
                               </div>
                               <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
-                                <table className="w-full text-left text-xs">
-                                  <thead className="bg-slate-100/70 dark:bg-slate-950 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-200 dark:border-slate-800">
-                                    <tr>
-                                      <th className="px-4 py-2.5 w-10 text-center">#</th>
-                                      <th className="px-4 py-2.5 w-32">Type</th>
-                                      <th className="px-4 py-2.5">Item Name & Code</th>
-                                      <th className="px-4 py-2.5">Category</th>
-                                      <th className="px-4 py-2.5 text-center w-32">Quantity</th>
-                                      <th className="px-4 py-2.5 text-center w-28">GST Applicable</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-                                    {q.items?.length === 0 ? (
+                                <div className="overflow-x-auto">
+                                  <table className="w-full min-w-[580px] lg:min-w-full text-left text-xs">
+                                    <thead className="bg-slate-100/70 dark:bg-slate-950 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-200 dark:border-slate-800">
                                       <tr>
-                                        <td colSpan={6} className="px-4 py-4 text-center text-slate-400 italic">No item details found</td>
+                                        <th className="px-4 py-2.5 w-10 text-center">#</th>
+                                        <th className="px-4 py-2.5 w-32">Type</th>
+                                        <th className="px-4 py-2.5">Item Name & Code</th>
+                                        <th className="px-4 py-2.5">Category</th>
+                                        <th className="px-4 py-2.5 text-center w-32">Quantity</th>
+                                        <th className="px-4 py-2.5 text-center w-28">GST Applicable</th>
                                       </tr>
-                                    ) : (
-                                      q.items?.map((it, idx) => (
-                                        <tr key={it.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-850/60">
-                                          <td className="px-4 py-2.5 text-center font-mono text-slate-400">{idx + 1}</td>
-                                          <td className="px-4 py-2.5">
-                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold uppercase ${
-                                              it.itemType === 'NON_INVENTORY'
-                                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
-                                                : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                                            }`}>
-                                              {it.itemType === 'NON_INVENTORY' ? '🚫 Non-Inventory' : '🌾 Raw Material'}
-                                            </span>
-                                          </td>
-                                          <td className="px-4 py-2.5">
-                                            <div className="font-bold text-slate-800 dark:text-slate-200">{it.materialName}</div>
-                                            {it.materialCode && <div className="text-[10px] font-mono text-slate-400">{it.materialCode}</div>}
-                                          </td>
-                                          <td className="px-4 py-2.5 text-slate-500 font-mono text-xs">{it.category || 'General'}</td>
-                                          <td className="px-4 py-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                            {it.quantity} {it.unit}
-                                          </td>
-                                          <td className="px-4 py-2.5 text-center">
-                                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                              it.gstApplicable ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400' : 'bg-slate-100 text-slate-500'
-                                            }`}>
-                                              {it.gstApplicable ? 'Yes' : 'No'}
-                                            </span>
-                                          </td>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                                      {q.items?.length === 0 ? (
+                                        <tr>
+                                          <td colSpan={6} className="px-4 py-4 text-center text-slate-400 italic">No item details found</td>
                                         </tr>
-                                      ))
-                                    )}
-                                  </tbody>
-                                </table>
+                                      ) : (
+                                        q.items?.map((it, idx) => (
+                                          <tr key={it.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-850/60">
+                                            <td className="px-4 py-2.5 text-center font-mono text-slate-400">{idx + 1}</td>
+                                            <td className="px-4 py-2.5">
+                                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold uppercase ${
+                                                it.itemType === 'NON_INVENTORY'
+                                                  ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                                                  : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                                              }`}>
+                                                {it.itemType === 'NON_INVENTORY' ? '🚫 Non-Inventory' : '🌾 Raw Material'}
+                                              </span>
+                                            </td>
+                                            <td className="px-4 py-2.5">
+                                              <div className="font-bold text-slate-800 dark:text-slate-200">{it.materialName}</div>
+                                              {it.materialCode && <div className="text-[10px] font-mono text-slate-400">{it.materialCode}</div>}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-slate-500 font-mono text-xs">{it.category || 'General'}</td>
+                                            <td className="px-4 py-2.5 text-center font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                              {it.quantity} {it.unit}
+                                            </td>
+                                            <td className="px-4 py-2.5 text-center">
+                                              <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                                it.gstApplicable ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400' : 'bg-slate-100 text-slate-500'
+                                              }`}>
+                                                {it.gstApplicable ? 'Yes' : 'No'}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        ))
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
                               </div>
                             </div>
 
@@ -883,7 +885,8 @@ export default function RMQuotationPage() {
                               </div>
 
                               <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
-                                <table className="w-full text-left text-xs">
+                                <div className="overflow-x-auto">
+                                  <table className="w-full min-w-[850px] lg:min-w-full text-left text-xs">
                                   <thead className="bg-slate-100 dark:bg-slate-950 text-slate-400 text-[10px] uppercase font-semibold border-b border-slate-200 dark:border-slate-800">
                                     <tr>
                                       <th className="px-4 py-2.5">Supplier</th>
@@ -1009,6 +1012,7 @@ export default function RMQuotationPage() {
                                 </table>
                               </div>
                             </div>
+                          </div>
                           </td>
                         </tr>
                       )}

@@ -337,12 +337,12 @@ const GRNListPage = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap self-start sm:self-auto w-full sm:w-auto justify-start sm:justify-end">
           <Button
             variant="outline"
             size="sm"
             onClick={() => refetch()}
-            className="h-8 px-2.5 rounded-lg text-xs font-semibold border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-3xs cursor-pointer inline-flex items-center gap-1.5"
+            className="h-8 px-2.5 rounded-lg text-xs font-semibold border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 shadow-3xs cursor-pointer inline-flex items-center gap-1.5 shrink-0"
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Refresh</span>

@@ -576,7 +576,7 @@ function DeliveryCard({ d, navigate, onQRView, canReceive, onMarkFullyDelivered,
 
                       return (
                         <div key={idx} className="flex justify-between items-center text-[11px] py-1 border-b border-dashed border-slate-100 dark:border-slate-800 last:border-b-0">
-                          <div className="flex items-center gap-1.5 truncate max-w-[170px]">
+                          <div className="flex items-center gap-1.5 min-w-0 flex-1 truncate pr-2">
                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isDone ? 'bg-emerald-500' : (rcv > 0 ? 'bg-amber-500' : 'bg-slate-300')}`} />
                             <span className="font-bold text-slate-700 dark:text-slate-300 truncate" title={item.name}>{item.name}</span>
                           </div>
@@ -983,11 +983,11 @@ export default function UpcomingDeliveriesPage() {
   );
 
   return (
-    <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300">
+    <div className="w-full max-w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-5 space-y-4 mx-auto transition-all duration-300">
       {/* Page Header (Compact & Professional) */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2.5 sm:gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/20 rounded-lg text-indigo-650 dark:text-indigo-400">
+          <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100 dark:border-indigo-900/20 rounded-lg text-indigo-650 dark:text-indigo-400 shrink-0">
             <Truck className="w-5 h-5" />
           </div>
           <div>
@@ -995,7 +995,7 @@ export default function UpcomingDeliveriesPage() {
             <p className="text-xs text-slate-505 dark:text-slate-400">Manage PO receipts (lab rejected items excluded).</p>
           </div>
         </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} className="w-full sm:w-auto gap-1.5 rounded-xl h-8 text-xs border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="w-full sm:w-auto gap-1.5 rounded-xl h-8 text-xs border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 shrink-0 self-end sm:self-auto">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
         </Button>
       </div>
