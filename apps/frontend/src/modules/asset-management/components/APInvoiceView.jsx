@@ -21,6 +21,7 @@ import HsnSelect from '@/components/forms/HsnSelect';
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 import Pagination from '@/components/ui/Pagination';
+import UniversalUomSelect, { UNIVERSAL_UOM_STRING_LIST } from '@/components/ui/UniversalUomSelect';
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
@@ -30,18 +31,7 @@ const CATEGORIES = [
   'Vehicles', 'Infrastructure', 'Office Equipment', 'Intangible Assets'
 ];
 
-const UOM_OPTIONS = [
-  'Nos', 'Pcs', 'Set', 'Kit', 'Pair', 'Dozen', 'Gross',
-  'kg', 'gm', 'mg', 'lb', 'oz', 'ton', 'metric ton', 'quintal',
-  'liter', 'ml', 'cl', 'dl', 'gallon', 'quart', 'pint', 'fluid oz',
-  'cubic meter', 'cubic ft', 'cubic cm', 'cubic inch',
-  'meter', 'cm', 'mm', 'km', 'inch', 'feet', 'yard', 'mile',
-  'square meter', 'square ft', 'square cm', 'square inch', 'square yard', 'acre', 'hectare',
-  'box', 'carton', 'case', 'pack', 'bag', 'sack', 'pallet', 'tray', 'tube', 'bottle', 'can', 'drum', 'barrel', 'cylinder',
-  'roll', 'sheet', 'ream', 'bundle',
-  'hour', 'day', 'kWh', 'MJ',
-  'unit', 'lot', 'assortment'
-];
+const UOM_OPTIONS = UNIVERSAL_UOM_STRING_LIST;
 
 const PAYMENT_METHODS_MAP = {
   'Bank Transfer': ['NEFT', 'RTGS', 'IMPS'],
@@ -3183,19 +3173,14 @@ function CreateAPInvoiceForm({ onBack, isReadOnly, invoicesCount = 0, editInvoic
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                       <div className="space-y-1.5">
                         <Label>Unit of Measure <span className="text-rose-500">*</span></Label>
-                        <div className="relative">
-                          <select
-                            required
-                            disabled={!!editInvoiceId}
-                            value={item.unit}
-                            onChange={e => updateItem(idx, 'unit', e.target.value)}
-                            className="w-full h-10 px-3 pr-8 border border-slate-200 dark:border-slate-700 rounded-xl bg-white dark:bg-slate-950 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                          >
-                            <option value="">Select UOM...</option>
-                            {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
-                          </select>
-                          <ChevronDown className="w-4 h-4 text-slate-400 absolute right-2.5 top-3 pointer-events-none" />
-                        </div>
+                        <UniversalUomSelect
+                          value={item.unit}
+                          disabled={!!editInvoiceId}
+                          onChange={val => updateItem(idx, 'unit', val)}
+                          placeholder="Select UOM..."
+                          searchPlaceholder="Search UOM (Nos, kg, liter, EA, box)..."
+                          triggerClassName="h-10 text-sm border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-xl"
+                        />
                       </div>
 
                       <div className="space-y-1.5">

@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import SearchSelect from '@/components/ui/SearchSelect';
+import UniversalUomSelect from '@/components/ui/UniversalUomSelect';
 import HsnSelect from '@/components/forms/HsnSelect';
 import { Pagination } from '@/components/ui/Pagination';
 import DynamicProductSpecPanel from '../components/DynamicProductSpecPanel';
@@ -86,16 +87,13 @@ const UOM_OPTIONS = [
   'unit', 'lot', 'assortment'
 ];
 
-function UomSelect({ value, onChange, error }) {
+function UomSelect({ value, onChange, error, triggerClassName }) {
   return (
-    <SearchSelect
+    <UniversalUomSelect
       value={value}
       onChange={onChange}
-      options={UOM_OPTIONS}
-      placeholder="Select UOM..."
-      searchPlaceholder="Search UOM..."
       error={!!error}
-      triggerClassName="text-sm border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-205"
+      triggerClassName={triggerClassName || "text-sm border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-205"}
     />
   );
 }

@@ -35,6 +35,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
 import SearchSelect from '@/components/ui/SearchSelect';
+import UniversalUomSelect from '@/components/ui/UniversalUomSelect';
 import HsnSelect from '@/components/forms/HsnSelect';
 import { Pagination } from '@/components/ui/Pagination';
 import { Button } from '@/components/ui/button';
@@ -86,18 +87,16 @@ const UOM_PRESETS = [
   { label: '1 Drum = 200 Liter', category: 'Custom', base: 'drum', alt: 'liter', baseQty: 1, altQty: 200 }
 ];
 
-// Searchable UOM Dropdown Component
-function UomSelect({ value, onChange, error, disabled }) {
+// Searchable Universal UOM Dropdown Component
+function UomSelect({ value, onChange, error, disabled, triggerClassName }) {
   return (
-    <SearchSelect
+    <UniversalUomSelect
       value={value}
       onChange={onChange}
-      options={UOM_OPTIONS}
-      placeholder="Select UOM..."
-      searchPlaceholder="Search UOM..."
       disabled={disabled}
       error={!!error}
-      triggerClassName={`text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg h-8 font-medium ${disabled ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-slate-900' : ''}`}
+      size="sm"
+      triggerClassName={triggerClassName || `text-xs border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 rounded-lg h-8 font-medium ${disabled ? 'opacity-70 cursor-not-allowed bg-slate-50 dark:bg-slate-900' : ''}`}
     />
   );
 }

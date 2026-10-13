@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import Pagination from '@/components/ui/Pagination';
+import UniversalUomSelect, { UNIVERSAL_UOM_STRING_LIST } from '@/components/ui/UniversalUomSelect';
 
 const DEPARTMENTS = ['IT', 'Manufacturing', 'Admin', 'Logistics', 'Finance', 'HR', 'Sales'];
 const CATEGORIES = [
@@ -26,26 +27,7 @@ const CATEGORIES = [
 ];
 const PRIORITIES = ['Low', 'Normal', 'Urgent', 'Critical'];
 
-const UOM_OPTIONS = [
-  // Weight
-  'gm', 'kg', 'mg', 'lb', 'oz', 'ton', 'metric ton', 'quintal',
-  // Volume
-  'liter', 'ml', 'cl', 'dl', 'gallon', 'quart', 'pint', 'fluid oz', 'cubic meter', 'cubic ft', 'cubic cm', 'cubic inch',
-  // Length
-  'meter', 'cm', 'mm', 'km', 'inch', 'feet', 'yard', 'mile',
-  // Area
-  'square meter', 'square ft', 'square cm', 'square inch', 'square yard', 'acre', 'hectare',
-  // Count / Packaging
-  'pcs', 'pair', 'dozen', 'gross', 'set', 'kit', 'bundle', 'box', 'carton', 'case', 'pack', 'bag', 'sack', 'pallet', 'tray', 'tube', 'bottle', 'can', 'drum', 'barrel', 'cylinder',
-  // Roll / Sheet
-  'roll', 'sheet', 'ream',
-  // Time-based
-  'hour', 'day',
-  // Energy
-  'kWh', 'MJ',
-  // Other
-  'unit', 'lot', 'assortment'
-];
+const UOM_OPTIONS = UNIVERSAL_UOM_STRING_LIST;
 
 const STATUS_STYLES = {
   Draft: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
@@ -767,14 +749,12 @@ function CreatePRForm({ onBack, isReadOnly, editPRId }) {
 
                     <div className="space-y-1.5">
                       <Label>Unit of Measure <span className="text-rose-500">*</span></Label>
-                      <SearchSelect
-                        options={UOM_OPTIONS}
+                      <UniversalUomSelect
                         value={item.uom || 'EA'}
                         onChange={val => updateItem(idx, 'uom', val)}
                         placeholder="Select UOM..."
-                        searchPlaceholder="Search UOM..."
-                        required={true}
-                        triggerClassName="h-10 text-sm border-slate-200 dark:border-slate-700 bg-white"
+                        searchPlaceholder="Search UOM (Nos, kg, liter, EA, box)..."
+                        triggerClassName="h-10 text-sm border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
                       />
                     </div>
 

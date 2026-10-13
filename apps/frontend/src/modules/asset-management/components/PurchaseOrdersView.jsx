@@ -20,23 +20,13 @@ import Swal from 'sweetalert2';
 import { jsPDF } from 'jspdf';
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
 import Pagination from '@/components/ui/Pagination';
+import UniversalUomSelect, { UNIVERSAL_UOM_STRING_LIST } from '@/components/ui/UniversalUomSelect';
 
 
 const GST_RATES = [0, 5, 12, 18, 28];
 const PAYMENT_MODES = ['Bank Transfer (NEFT)', 'Bank Transfer (RTGS)', 'Cheque', 'DD', 'Online Portal', 'Letter of Credit', 'Cash/Direct'];
 
-const UOM_OPTIONS = [
-  'Nos', 'Pcs', 'Set', 'Kit', 'Pair', 'Dozen', 'Gross',
-  'kg', 'gm', 'mg', 'lb', 'oz', 'ton', 'metric ton', 'quintal',
-  'liter', 'ml', 'cl', 'dl', 'gallon', 'quart', 'pint', 'fluid oz',
-  'cubic meter', 'cubic ft', 'cubic cm', 'cubic inch',
-  'meter', 'cm', 'mm', 'km', 'inch', 'feet', 'yard', 'mile',
-  'square meter', 'square ft', 'square cm', 'square inch', 'square yard', 'acre', 'hectare',
-  'box', 'carton', 'case', 'pack', 'bag', 'sack', 'pallet', 'tray', 'tube', 'bottle', 'can', 'drum', 'barrel', 'cylinder',
-  'roll', 'sheet', 'ream', 'bundle',
-  'hour', 'day', 'kWh', 'MJ',
-  'unit', 'lot', 'assortment'
-];
+const UOM_OPTIONS = UNIVERSAL_UOM_STRING_LIST;
 
 const STATUS_STYLES = {
   Draft: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 border-slate-200 dark:border-slate-700',
@@ -1838,12 +1828,13 @@ function CreatePOForm({ onBack, isReadOnly, prefillFromPQ, editPOId }) {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">UOM</Label>
-                        <div className="relative">
-                          <select value={item.unit || 'Nos'} disabled={isFinanceLocked} onChange={e => updateItem(idx, 'unit', e.target.value)} className="w-full h-9 px-2 pr-7 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-900 text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 disabled:cursor-not-allowed">
-                            {UOM_OPTIONS.map(u => <option key={u} value={u}>{u}</option>)}
-                          </select>
-                          <ChevronDown className="w-3 h-3 text-slate-400 absolute right-2 top-3 pointer-events-none" />
-                        </div>
+                        <UniversalUomSelect
+                          value={item.unit || 'Nos'}
+                          disabled={isFinanceLocked}
+                          onChange={val => updateItem(idx, 'unit', val)}
+                          size="sm"
+                          triggerClassName="h-9 rounded-lg text-sm bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                        />
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs">Qty</Label>

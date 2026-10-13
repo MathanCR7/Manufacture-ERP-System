@@ -14,6 +14,7 @@ export default function SearchSelect({
   required = false,
   className = "",
   triggerClassName = "",
+  menuClassName = "",
   size = "default", // "default" or "sm"
   onAddNew = null,
 }) {
@@ -212,7 +213,7 @@ export default function SearchSelect({
       </div>
 
       {open && (
-        <div className="absolute z-50 mt-1.5 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+        <div className={twMerge("absolute z-50 mt-1.5 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150", menuClassName)}>
           {showSearch && (
             <div className="p-2 border-b border-slate-100 dark:border-slate-700 relative bg-slate-50/50 dark:bg-slate-900/50">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
