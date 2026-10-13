@@ -767,9 +767,221 @@ export default function RMStockPage() {
             </div>
           </div>
 
-          {/* Compact Table: SN -> Code -> Category -> Name -> Available Qty -> Floating Stock -> Derived Rate -> Stock Valuation -> History */}
-          <div className="w-full overflow-x-auto">
-            <Table className="w-full min-w-[980px] lg:min-w-full text-xs">
+          {/* Mobile & Tablet Responsive View (NO Horizontal Scroll, Displays All Data) */}
+          <div className="lg:hidden divide-y divide-slate-100 dark:divide-slate-800">
+            {isLoading ? (
+              Array.from({ length: 4 }).map((_, idx) => (
+                <div key={idx} className="p-3.5 space-y-2.5">
+                  <div className="flex justify-between items-center">
+                    <Skeleton className="h-4 w-20 rounded" />
+                    <Skeleton className="h-4 w-24 rounded" />
+                  </div>
+                  <Skeleton className="h-4 w-48 rounded" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Skeleton className="h-12 rounded-lg" />
+                    <Skeleton className="h-12 rounded-lg" />
+                  </div>
+                </div>
+              ))
+            ) : paginatedStock.length === 0 ? (
+              <div className="p-8 text-center text-slate-400">
+                <Package className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 stroke-1 mb-2" />
+                <p className="font-semibold text-xs text-slate-600 dark:text-slate-300">
+                  {searchTerm || categoryFilter !== 'ALL' || statusFilter !== 'ALL' || valuationFilter !== 'ALL'
+                    ? 'No stock found matching your filter criteria.'
+                    : 'No raw material inventory recorded.'}
+                </p>
+                {isFilterActive && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleResetFilters}
+                    className="mt-2.5 h-7 text-xs"
+                  >
+                    Reset All Filters
+                  </Button>
+                )}
+              </div>
+            ) : (
+              paginatedStock.map((item, idx) => {
+                const calculatedIndex = (currentPage - 1) * itemsPerPage + idx + 1;
+                const isLowStock = Number(item.availableQuantity || 0) <= Number(item.alertLevel || 0);
+                const isSelected = (selectedMaterialId === item.id) || (codeParam && item.code === codeParam);
+
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => handleOpenHistory(item.id)}
+                    className={`p-3.5 space-y-2.5 transition-colors cursor-pointer ${
+                      isSelected 
+                        ? 'bg-indigo-50/50 dark:bg-indigo-950/30' 
+                        : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/30'
+                    }`}
+                  >
+                    {/* Top row: SN + Code + Category + Low stock indicator */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-slate-400 font-bold font-mono">
+                          #{calculatedIndex}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-mono border font-bold ${
+                          isSelected
+                            ? 'bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 font-black'
+                            : 'bg-indigo-50/80 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border-indigo-200/60 dark:border-indigo-800'
+                        }`}>
+                          {item.code}
+                        </span>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
+                          {item.category || 'Uncategorised'}
+                        </span>
+                      </div>
+
+                      {isLowStock && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40">
+                          <AlertTriangle className="w-3 h-3 text-rose-500 shrink-0" />
+                          Low Stock
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Material Name */}
+                    <div>
+                      <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm tracking-tight">
+                        {item.name}
+                      </h3>
+                    </div>
+
+                    {/* Quantities Grid */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider block">
+                          Available Qty
+                        </span>
+                        <div className="flex items-baseline gap-1 mt-0.5">
+                          <span className={`font-mono font-black text-sm ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
+                            {Number(item.availableQuantity || 0).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-slate-500 uppercase font-semibold">
+                            {item.unit}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider block">
+                          Floating Stock
+                        </span>
+                        <div className="flex items-baseline gap-1 mt-0.5">
+                          <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
+                            {Number(item.floatingStock || 0).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold">
+                            {item.unit}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Valuation & Derived Rate Details */}
+                    <div className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800/80 space-y-2 text-xs">
+                      {/* Rate */}
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider shrink-0">
+                          {taxViewMode === 'both' ? 'PO Rate / Unit' : taxViewMode === 'with_tax' ? 'Rate (With Tax)' : 'Rate (Excl. Tax)'}:
+                        </span>
+                        <div className="text-right">
+                          {item.hasPo ? (
+                            <>
+                              <div className="font-bold text-slate-900 dark:text-white font-mono text-xs">
+                                ₹{Number(item.rateWithTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                {taxViewMode === 'both' && (
+                                  <span className="text-[10px] text-slate-400 font-normal ml-1 font-sans">
+                                    (base ₹{Number(item.rateWithoutTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end gap-1 mt-0.5">
+                                <span className="px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-semibold text-slate-600 dark:text-slate-300">
+                                  {item.gstPercentage || 0}% GST
+                                </span>
+                                {item.poReferenceNo && (
+                                  <span className="font-mono text-[9px] text-indigo-600 dark:text-indigo-400 font-bold">
+                                    PO: {item.poReferenceNo}
+                                  </span>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800">
+                              Pending PO
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Valuation */}
+                      <div className="flex items-start justify-between gap-2 pt-1.5 border-t border-slate-200/60 dark:border-slate-800">
+                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider shrink-0">
+                          {taxViewMode === 'both' ? 'Valuation (INR)' : taxViewMode === 'with_tax' ? 'Value (With Tax)' : 'Value (Excl. Tax)'}:
+                        </span>
+                        <div className="text-right">
+                          {item.hasPo ? (
+                            <>
+                              <div className="font-black text-slate-900 dark:text-white font-mono text-xs">
+                                ₹{Number(item.valueWithTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                              <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
+                                Base: ₹{Number(item.valueWithoutTax || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • <span className="text-emerald-600 dark:text-emerald-400">+₹{Number(item.taxValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div>
+                              <span className="font-mono font-bold text-slate-400 text-xs">₹0.00</span>
+                              <span className="text-[9px] text-amber-600 dark:text-amber-400 block">
+                                Unvalued
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenStockQuery(item.id);
+                        }}
+                        title="View Stock Query (Tally Prime Style Overview & Analysis)"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 transition-all cursor-pointer shadow-3xs"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                        <span>View Query</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenHistory(item.id);
+                        }}
+                        title="View Complete Material Lifecycle & Audit History"
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800 transition-all cursor-pointer shadow-3xs"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                        <span>Audit History</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View (ONLY on screens lg and larger >= 1024px) */}
+          <div className="hidden lg:block w-full overflow-x-auto">
+            <Table className="w-full text-xs">
               <TableHeader className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                 <TableRow className="border-b border-slate-200 dark:border-slate-800">
                   {/* 1. SN */}
@@ -1145,8 +1357,8 @@ export default function RMStockPage() {
           </div>
 
           {/* Pagination matching /setup/raw-material */}
-          <div className="px-3 py-1.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-            <div>
+          <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="text-center sm:text-left">
               {sortedAndFiltered.length > 0 ? (
                 <span>
                   Showing <strong className="text-slate-700 dark:text-slate-200">{(currentPage - 1) * itemsPerPage + 1}</strong> to <strong className="text-slate-700 dark:text-slate-200">{Math.min(currentPage * itemsPerPage, sortedAndFiltered.length)}</strong> of <strong className="text-slate-700 dark:text-slate-200">{sortedAndFiltered.length}</strong> materials
@@ -1157,7 +1369,7 @@ export default function RMStockPage() {
             </div>
 
             {totalPages > 1 && (
-              <div>
+              <div className="flex justify-center">
                 <Pagination 
                   currentPage={currentPage} 
                   totalPages={totalPages} 
@@ -1166,7 +1378,7 @@ export default function RMStockPage() {
               </div>
             )}
 
-            <div className="text-[10px] text-slate-400 hidden sm:flex items-center gap-2">
+            <div className="text-[10px] text-slate-400 flex items-center justify-between sm:justify-end w-full sm:w-auto gap-2">
               <span>Page {currentPage} of {totalPages}</span>
               <div className="flex items-center gap-1 border-l border-slate-200 dark:border-slate-800 pl-2">
                 <span>Per page:</span>
