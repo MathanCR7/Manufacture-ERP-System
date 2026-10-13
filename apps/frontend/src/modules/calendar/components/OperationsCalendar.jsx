@@ -5,7 +5,7 @@ import {
   RotateCcw, Sliders, Layers, Users, Factory, Truck, Check, Trash2,
   Maximize2, Minimize2, PanelLeftClose, PanelLeft, Landmark, RefreshCw,
   Download, AlertOctagon, GitBranch, Play, ShieldAlert, Sparkles,
-  ArrowRight, ShieldCheck, Cpu
+  ArrowRight, ShieldCheck, Cpu, SlidersHorizontal
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -103,6 +103,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
   const calendarContainerRef = useRef(null);
   const [isNativeFullScreen, setIsNativeFullScreen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
   // Fullscreen state listener
   useEffect(() => {
@@ -994,10 +995,124 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
     return cells;
   }, [currentDate, filteredEvents, holidays, showHolidays, dailyWorkload]);
 
+  // Helper to render filter sidebar & mobile drawer content
+  const renderFilterSidebarContent = () => (
+    <div className="p-4 space-y-5 flex flex-col h-full overflow-y-auto">
+      {/* ERP Modules Filter */}
+      <div>
+        <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">
+          <span>ERP Modules</span>
+          <span className="text-[10px] text-slate-400">Live Active</span>
+        </div>
+
+        <div className="space-y-1">
+          {Object.values(ERP_MODULES).map(mod => {
+            const count = displayedEvents.filter(e => e.module === mod.id).length;
+            const active = !!activeModules[mod.id];
+
+            return (
+              <label
+                key={mod.id}
+                className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition border text-xs font-medium select-none ${
+                  active ? 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700' : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/30 text-slate-400'
+                }`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: mod.color }}></span>
+                  <span className="truncate">{mod.name}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">{count}</span>
+                  <input
+                    type="checkbox"
+                    checked={active}
+                    onChange={e => setActiveModules(prev => ({ ...prev, [mod.id]: e.target.checked }))}
+                    className="rounded accent-indigo-600 cursor-pointer"
+                  />
+                </div>
+              </label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* LIVE GAZETTE HOLIDAYS TOGGLE */}
+      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+          <span>Official Holidays</span>
+          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">Live Feed</span>
+        </div>
+
+        <label className="flex items-center justify-between p-2 rounded-lg cursor-pointer transition border text-xs font-medium bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50 select-none">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm shrink-0">🏛️</span>
+            <span className="text-emerald-800 dark:text-emerald-300 font-semibold truncate">Gazette Holidays</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-emerald-200/70 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 font-bold">
+              {holidays.length}
+            </span>
+            <input
+              type="checkbox"
+              checked={showHolidays}
+              onChange={e => setShowHolidays(e.target.checked)}
+              className="rounded accent-emerald-600 cursor-pointer"
+            />
+          </div>
+        </label>
+      </div>
+
+      {/* BOTTLENECK & CAPACITY GUARDRAILS TOGGLE */}
+      <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
+        <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+          <span>Capacity Guardrails</span>
+          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono">Real-Time</span>
+        </div>
+
+        <label className="flex items-center justify-between p-2 rounded-lg cursor-pointer transition border text-xs font-medium bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800/50 select-none">
+          <div className="flex items-center gap-2 min-w-0">
+            <Cpu className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="text-indigo-900 dark:text-indigo-200 font-semibold truncate">Stage Bottlenecks</span>
+          </div>
+          <input
+            type="checkbox"
+            checked={showBottlenecks}
+            onChange={e => setShowBottlenecks(e.target.checked)}
+            className="rounded accent-indigo-600 cursor-pointer shrink-0"
+          />
+        </label>
+      </div>
+
+      {/* Status Stripe Legend */}
+      <div>
+        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">
+          Status Legend
+        </div>
+        <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+          {Object.values(EVENT_STATUSES).map(s => (
+            <div key={s.label} className="flex items-center gap-2.5">
+              <span className="w-1.5 h-3.5 rounded-sm shrink-0" style={{ backgroundColor: s.color }}></span>
+              <span>{s.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Clean Live Status Footer */}
+      <div className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+          <span className="font-semibold text-slate-700 dark:text-slate-300">Live Active</span>
+        </div>
+        <span className="font-mono font-bold text-slate-800 dark:text-slate-200 shrink-0">{displayedEvents.length} items</span>
+      </div>
+    </div>
+  );
+
   return (
     <div 
       ref={calendarContainerRef}
-      className={`flex flex-col w-full h-full flex-1 bg-[#f4f5f8] dark:bg-[#0f1318] text-[#111827] dark:text-[#f3f4f6] font-sans overflow-hidden ${
+      className={`flex flex-col w-full h-full flex-1 bg-[#f4f5f8] dark:bg-[#0f1318] text-[#111827] dark:text-[#f3f4f6] font-sans overflow-hidden min-w-0 ${
         fullScreen || isNativeFullScreen
           ? 'rounded-none border-0 shadow-none m-0 p-0 h-full min-h-0'
           : 'rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm h-[calc(100vh-5rem)]'
@@ -1006,29 +1121,29 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       
       {/* 1. WHAT-IF SCENARIO BANNER (IF ACTIVE) */}
       {isScenarioMode && (
-        <div className="bg-purple-900 text-white px-4 py-2 flex items-center justify-between text-xs font-semibold shrink-0 shadow-sm animate-in slide-in-from-top-1 duration-150">
-          <div className="flex items-center gap-2">
-            <span className="p-1 rounded bg-purple-800 text-amber-300">
+        <div className="bg-purple-900 text-white px-3 sm:px-4 py-2 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 text-xs font-semibold shrink-0 shadow-sm animate-in slide-in-from-top-1 duration-150">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <span className="p-1 rounded bg-purple-800 text-amber-300 shrink-0">
               <Sparkles className="w-3.5 h-3.5" />
             </span>
-            <span>
+            <span className="truncate">
               <strong>What-If Scenario Sandbox Active</strong>: Staging changes locally without affecting live production operations.
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-purple-800 text-purple-200 font-mono text-[10px]">
+            <span className="px-2 py-0.5 rounded-full bg-purple-800 text-purple-200 font-mono text-[10px] shrink-0">
               {scenarioChanges.length} staged adjustment{scenarioChanges.length !== 1 ? 's' : ''}
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
             <button
               onClick={discardScenario}
-              className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-950 text-purple-200 hover:text-white transition"
+              className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-950 text-purple-200 hover:text-white transition cursor-pointer text-xs"
             >
               Discard Simulation
             </button>
             <Button
               onClick={commitScenarioToDatabase}
               size="sm"
-              className="h-7 px-3 rounded bg-amber-400 hover:bg-amber-300 text-purple-950 font-bold text-xs shadow-xs"
+              className="h-7 px-3 rounded bg-amber-400 hover:bg-amber-300 text-purple-950 font-bold text-xs shadow-xs cursor-pointer"
             >
               Commit Scenario to Database
             </Button>
@@ -1037,71 +1152,83 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       )}
 
       {/* 2. TOP BAR */}
-      <header className="h-14 md:h-16 bg-white dark:bg-[#171d24] border-b border-slate-200 dark:border-slate-800 px-3 md:px-6 flex items-center justify-between gap-3 z-10 shrink-0">
+      <header className="min-h-[56px] py-2 px-2.5 sm:px-4 md:px-6 bg-white dark:bg-[#171d24] border-b border-slate-200 dark:border-slate-800 flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 sm:gap-3 z-10 shrink-0">
         
         {/* Brand & Period Nav */}
-        <div className="flex items-center gap-2 md:gap-4">
+        <div className="flex items-center gap-2 sm:gap-3 md:gap-4 min-w-0">
+          {/* Desktop Filter Rail Toggle */}
           <button
             onClick={() => setRailOpen(r => !r)}
-            className="hidden md:flex p-1.5 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+            className="hidden lg:flex p-1.5 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
             title={railOpen ? 'Collapse filter sidebar' : 'Expand filter sidebar'}
           >
             {railOpen ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeft className="w-4 h-4" />}
           </button>
 
-          <div className="flex items-center gap-2">
-            <div className="p-2 rounded-lg bg-indigo-600 text-white shadow-xs">
+          {/* Mobile & Tablet Filter Drawer Toggle Button */}
+          <button
+            onClick={() => setMobileFilterOpen(true)}
+            className="flex lg:hidden p-1.5 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition cursor-pointer shrink-0 relative"
+            title="Open calendar filters & legend"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            <span className="w-2 h-2 rounded-full bg-indigo-600 absolute -top-0.5 -right-0.5"></span>
+          </button>
+
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="p-1.5 sm:p-2 rounded-lg bg-indigo-600 text-white shadow-xs shrink-0">
               <CalendarIcon className="w-4 h-4" />
             </div>
-            <div>
-              <h1 className="font-bold text-sm md:text-base tracking-tight font-display flex items-center gap-2">
-                <span>Operations Calendar</span>
-                <span className={`hidden sm:inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
+            <div className="min-w-0">
+              <h1 className="font-bold text-sm md:text-base tracking-tight font-display flex items-center gap-1.5 sm:gap-2 leading-tight">
+                <span className="truncate">Operations Calendar</span>
+                <span className={`hidden md:inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border shrink-0 ${
                   isScenarioMode 
                     ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-800/50'
                     : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50'
                 }`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${isScenarioMode ? 'bg-purple-500' : 'bg-emerald-500 animate-pulse'}`}></span>
-                  {isScenarioMode ? 'Scenario Sandbox' : 'Live Schedule Active'}
+                  {isScenarioMode ? 'Scenario Sandbox' : 'Live Active'}
                 </span>
               </h1>
-              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-semibold uppercase hidden sm:inline">
+              <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-semibold uppercase hidden 2xl:inline">
                 4-Module ERP • Machine & Work Center Intelligence
               </span>
             </div>
           </div>
 
           {/* Month Steppers */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#1f2732] p-1 rounded-lg border border-slate-200 dark:border-slate-700/60">
+          <div className="flex items-center bg-slate-100 dark:bg-[#1f2732] p-0.5 sm:p-1 rounded-lg border border-slate-200 dark:border-slate-700/60 shrink-0">
             <button
               onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
-              className="w-7 h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition"
+              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
               title="Previous Month"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
             <button
               onClick={() => setCurrentDate(new Date())}
-              className="px-2.5 h-7 text-xs font-semibold rounded text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 transition"
+              className="px-2 sm:px-2.5 h-6 sm:h-7 text-xs font-semibold rounded text-slate-700 dark:text-slate-200 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
             >
               Today
             </button>
             <button
               onClick={() => setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
-              className="w-7 h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition"
+              className="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer"
               title="Next Month"
             >
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </button>
           </div>
 
-          <div className="hidden sm:block text-base font-bold tracking-tight min-w-[140px]">
-            {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          <div className="text-xs sm:text-sm md:text-base font-bold tracking-tight shrink-0 whitespace-nowrap min-w-[90px] sm:min-w-[120px]">
+            <span className="sm:hidden">{currentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</span>
+            <span className="hidden sm:inline">{currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
           </div>
         </div>
 
         {/* View Switcher, Search, Scenario Mode & Export Actions */}
-        <div className="flex items-center gap-2 md:gap-2.5">
+        <div className="flex items-center flex-wrap sm:flex-nowrap gap-1.5 sm:gap-2 md:gap-2.5 shrink-0 ml-auto">
           
           {/* Scenario Sandbox Mode Toggle */}
           <button
@@ -1115,42 +1242,43 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                 discardScenario();
               }
             }}
-            className={`hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+            className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-lg border text-xs font-semibold transition cursor-pointer shrink-0 ${
               isScenarioMode
                 ? 'bg-purple-100 dark:bg-purple-950/60 border-purple-400 text-purple-800 dark:text-purple-300 shadow-xs'
                 : 'bg-slate-100 dark:bg-[#1f2732] border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
             }`}
             title="Toggle What-If Scenario Sandbox"
           >
-            <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-            <span>{isScenarioMode ? 'Exit Scenario' : 'What-If Mode'}</span>
+            <Sparkles className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+            <span className="hidden sm:inline">{isScenarioMode ? 'Exit Scenario' : 'What-If Mode'}</span>
+            <span className="sm:hidden">{isScenarioMode ? 'Exit' : 'What-If'}</span>
           </button>
 
           {/* View Switcher */}
-          <div className="flex bg-slate-100 dark:bg-[#1f2732] p-1 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs font-semibold">
+          <div className="flex bg-slate-100 dark:bg-[#1f2732] p-0.5 sm:p-1 rounded-lg border border-slate-200 dark:border-slate-700/60 text-xs font-semibold shrink-0">
             <button
               onClick={() => setActiveView('month')}
-              className={`px-3 py-1 rounded transition ${activeView === 'month' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+              className={`px-2.5 sm:px-3 py-1 rounded transition cursor-pointer ${activeView === 'month' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
             >
               Month
             </button>
             <button
               onClick={() => setActiveView('list')}
-              className={`px-3 py-1 rounded transition ${activeView === 'list' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
+              className={`px-2.5 sm:px-3 py-1 rounded transition cursor-pointer ${activeView === 'list' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
             >
               Agenda
             </button>
           </div>
 
           {/* Live Search */}
-          <div className="relative hidden lg:block w-40 xl:w-48">
+          <div className="relative w-28 sm:w-36 md:w-40 xl:w-48 shrink-0">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Search schedule..."
+              placeholder="Search..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-100 dark:bg-[#1f2732] border border-slate-200 dark:border-slate-700/60 rounded-lg outline-none focus:border-indigo-500 transition"
+              className="w-full pl-8 pr-7 py-1 sm:py-1.5 text-xs bg-slate-100 dark:bg-[#1f2732] border border-slate-200 dark:border-slate-700/60 rounded-lg outline-none focus:border-indigo-500 transition"
             />
             {searchQuery && (
               <button onClick={() => setSearchQuery('')} className="absolute right-2 top-2 text-slate-400 hover:text-slate-600">
@@ -1162,18 +1290,17 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           {/* Export iCal .ics */}
           <button
             onClick={exportICalendar}
-            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
             title="Export iCalendar (.ics) for Outlook & Google Calendar"
           >
             <Download className="w-4 h-4" />
           </button>
 
-
           {/* Live Refresh Button */}
           <button
             onClick={() => fetchLiveCalendarData()}
             disabled={loading}
-            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition cursor-pointer"
+            className="p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition cursor-pointer shrink-0"
             title="Refresh Live Data"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
@@ -1182,7 +1309,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           {/* Fullscreen Toggle */}
           <button
             onClick={toggleNativeFullScreen}
-            className="hidden sm:flex p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer"
+            className="hidden sm:flex p-1.5 sm:p-2 rounded-lg border border-slate-200 dark:border-slate-700/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition cursor-pointer shrink-0"
             title={isNativeFullScreen ? 'Exit Full Screen' : 'Enter Full Screen'}
           >
             {isNativeFullScreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
@@ -1191,376 +1318,304 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
           {/* New Event Button */}
           <Button
             onClick={() => openDrawer(null)}
-            className="h-8 md:h-9 px-3 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 flex items-center gap-1.5 text-xs font-semibold shadow-xs cursor-pointer"
+            className="h-7 sm:h-8 md:h-9 px-2.5 sm:px-3 rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900 hover:opacity-90 flex items-center gap-1.5 text-xs font-semibold shadow-xs cursor-pointer shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Event</span>
+            <span className="hidden sm:inline">New Event</span>
+            <span className="sm:hidden">New</span>
           </Button>
         </div>
       </header>
 
       {/* 3. MAIN BODY (LEFT RAIL + CALENDAR WORKSPACE) */}
-      <div className="flex flex-1 overflow-hidden relative">
+      <div className="flex flex-1 overflow-hidden relative min-w-0">
 
-        {/* LEFT RAIL: MODULE FILTERS & LEGEND */}
-        <aside className={`${railOpen ? 'w-64 border-r' : 'w-0 border-r-0'} transition-all duration-200 bg-white dark:bg-[#171d24] border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden shrink-0 hidden md:flex`}>
-          <div className={`w-64 p-4 space-y-5 flex flex-col h-full overflow-y-auto ${railOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'} transition-opacity duration-150`}>
-            
-            {/* ERP Modules Filter */}
-            <div>
-              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">
-                <span>ERP Modules</span>
-                <span className="text-[10px] text-slate-400">Live Active</span>
-              </div>
-
-              <div className="space-y-1">
-                {Object.values(ERP_MODULES).map(mod => {
-                  const count = displayedEvents.filter(e => e.module === mod.id).length;
-                  const active = !!activeModules[mod.id];
-
-                  return (
-                    <label
-                      key={mod.id}
-                      className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition border text-xs font-medium select-none ${
-                        active ? 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700' : 'border-transparent hover:bg-slate-50 dark:hover:bg-slate-800/30 text-slate-400'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: mod.color }}></span>
-                        <span>{mod.name}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-semibold">{count}</span>
-                        <input
-                          type="checkbox"
-                          checked={active}
-                          onChange={e => setActiveModules(prev => ({ ...prev, [mod.id]: e.target.checked }))}
-                          className="rounded accent-indigo-600 cursor-pointer"
-                        />
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* LIVE GAZETTE HOLIDAYS TOGGLE */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                <span>Official Holidays</span>
-                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold font-mono">Live Feed</span>
-              </div>
-
-              <label className="flex items-center justify-between p-2 rounded-lg cursor-pointer transition border text-xs font-medium bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50 select-none">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm">🏛️</span>
-                  <span className="text-emerald-800 dark:text-emerald-300 font-semibold">Gazette Holidays</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-emerald-200/70 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 font-bold">
-                    {holidays.length}
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={showHolidays}
-                    onChange={e => setShowHolidays(e.target.checked)}
-                    className="rounded accent-emerald-600 cursor-pointer"
-                  />
-                </div>
-              </label>
-            </div>
-
-            {/* BOTTLENECK & CAPACITY GUARDRAILS TOGGLE */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
-              <div className="flex items-center justify-between text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
-                <span>Capacity Guardrails</span>
-                <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold font-mono">Real-Time</span>
-              </div>
-
-              <label className="flex items-center justify-between p-2 rounded-lg cursor-pointer transition border text-xs font-medium bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-200 dark:border-indigo-800/50 select-none">
-                <div className="flex items-center gap-2">
-                  <Cpu className="w-4 h-4 text-indigo-600" />
-                  <span className="text-indigo-900 dark:text-indigo-200 font-semibold">Stage Bottlenecks</span>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={showBottlenecks}
-                  onChange={e => setShowBottlenecks(e.target.checked)}
-                  className="rounded accent-indigo-600 cursor-pointer"
-                />
-              </label>
-            </div>
-
-            {/* Status Stripe Legend */}
-            <div>
-              <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2.5">
-                Status Legend
-              </div>
-              <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
-                {Object.values(EVENT_STATUSES).map(s => (
-                  <div key={s.label} className="flex items-center gap-2.5">
-                    <span className="w-1.5 h-3.5 rounded-sm" style={{ backgroundColor: s.color }}></span>
-                    <span>{s.label}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Clean Live Status Footer */}
-            <div className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                <span className="font-semibold text-slate-700 dark:text-slate-300">Live Active</span>
-              </div>
-              <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{displayedEvents.length} items</span>
-            </div>
+        {/* DESKTOP LEFT RAIL: MODULE FILTERS & LEGEND */}
+        <aside className={`${railOpen ? 'w-60 xl:w-64 border-r' : 'w-0 border-r-0'} transition-all duration-200 bg-white dark:bg-[#171d24] border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden shrink-0 hidden lg:flex`}>
+          <div className={`w-60 xl:w-64 h-full flex flex-col ${railOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'} transition-opacity duration-150`}>
+            {renderFilterSidebarContent()}
           </div>
         </aside>
 
-        {/* CALENDAR WORKSPACE */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/50 dark:bg-[#0f1318]">
-          {activeView === 'month' ? (
-            /* Month Calendar Grid */
-            <div className="flex-1 flex flex-col overflow-hidden select-none">
-              
-              {/* Day Headers (Sun - Sat) */}
-              <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#171d24] text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 py-2 shrink-0">
-                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                  <div key={d} className="text-center">{d}</div>
-                ))}
+        {/* MOBILE & TABLET SLIDE-OVER FILTER DRAWER */}
+        {mobileFilterOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex">
+            <div 
+              className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-150" 
+              onClick={() => setMobileFilterOpen(false)}
+            />
+            <div className="relative w-72 sm:w-80 max-w-[85vw] bg-white dark:bg-[#171d24] h-full shadow-2xl flex flex-col z-10 animate-in slide-in-from-left duration-200 border-r border-slate-200 dark:border-slate-800">
+              <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-[#1f2732]/40 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-indigo-600 text-white shadow-xs">
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-xs text-slate-900 dark:text-white">Calendar Filters</h3>
+                    <p className="text-[10px] text-slate-400">ERP Modules & Guardrails</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setMobileFilterOpen(false)} 
+                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
+              <div className="flex-1 overflow-y-auto">
+                {renderFilterSidebarContent()}
+              </div>
+            </div>
+          </div>
+        )}
 
-              {/* 42 Grid Cells */}
-              <div className="flex-1 grid grid-cols-7 grid-rows-6 divide-x divide-y divide-slate-200 dark:divide-slate-800/60 overflow-y-auto">
-                {monthGridData.map((cell, idx) => {
-                  const isHoveredTarget = dragOverDate === cell.dateStr;
-                  const load = cell.workload;
-                  const isOverload = load && load.totalMinutes > 480;
-                  const isHighLoad = load && load.totalMinutes >= 360 && load.totalMinutes <= 480;
+        {/* CALENDAR WORKSPACE */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/50 dark:bg-[#0f1318] min-w-0">
+          {activeView === 'month' ? (
+            /* Month Calendar Grid with responsive horizontal scroll support */
+            <div className="flex-1 flex flex-col overflow-x-auto overflow-y-auto select-none min-w-0">
+              <div className="min-w-[680px] lg:min-w-0 flex-1 flex flex-col h-full">
+                
+                {/* Day Headers (Sun - Sat) */}
+                <div className="grid grid-cols-7 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#171d24] text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 py-2 shrink-0">
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                    <div key={d} className="text-center">{d}</div>
+                  ))}
+                </div>
 
-                  return (
-                    <div
-                      key={cell.dateStr + '-' + idx}
-                      onDragOver={e => {
-                        e.preventDefault();
-                        setDragOverDate(cell.dateStr);
-                      }}
-                      onDragLeave={() => {
-                        if (dragOverDate === cell.dateStr) setDragOverDate(null);
-                      }}
-                      onDrop={e => {
-                        e.preventDefault();
-                        handleDropOnDate(cell.dateStr);
-                      }}
-                      onClick={() => {
-                        if (cell.holidays.length > 0 || cell.events.length > 0) {
-                          setDayDetailModal({
-                            dateStr: cell.dateStr,
-                            holidays: cell.holidays,
-                            events: cell.events,
-                            load: load
-                          });
-                        } else {
-                          openDrawer(null, cell.dateStr);
-                        }
-                      }}
-                      className={`min-h-[105px] p-1.5 flex flex-col gap-1 transition-colors relative group cursor-pointer ${
-                        cell.isCurrentMonth
-                          ? 'bg-white dark:bg-[#12171e]'
-                          : 'bg-slate-50/70 dark:bg-[#0d1015]/60 text-slate-400 dark:text-slate-600'
-                      } ${cell.isToday ? 'bg-indigo-50/20 dark:bg-indigo-950/20' : ''} ${
-                        isHoveredTarget ? 'ring-2 ring-indigo-500 bg-indigo-50/40 dark:bg-indigo-900/30' : ''
-                      }`}
-                    >
-                      {/* Cell Header: Date Number, Available Count Pill, Bottleneck & Add Button */}
-                      <div className="flex items-center justify-between pointer-events-auto">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span
-                            className={`w-6 h-6 flex items-center justify-center rounded-full text-xs font-semibold shrink-0 ${
-                              cell.isToday
-                                ? 'bg-indigo-600 text-white font-bold shadow-xs'
-                                : cell.isCurrentMonth
-                                ? 'text-slate-800 dark:text-slate-200'
-                                : 'text-slate-400 dark:text-slate-600'
-                            }`}
+                {/* 42 Grid Cells */}
+                <div className="flex-1 grid grid-cols-7 grid-rows-6 divide-x divide-y divide-slate-200 dark:divide-slate-800/60 overflow-y-auto">
+                  {monthGridData.map((cell, idx) => {
+                    const isHoveredTarget = dragOverDate === cell.dateStr;
+                    const load = cell.workload;
+                    const isOverload = load && load.totalMinutes > 480;
+                    const isHighLoad = load && load.totalMinutes >= 360 && load.totalMinutes <= 480;
+
+                    return (
+                      <div
+                        key={cell.dateStr + '-' + idx}
+                        onDragOver={e => {
+                          e.preventDefault();
+                          setDragOverDate(cell.dateStr);
+                        }}
+                        onDragLeave={() => {
+                          if (dragOverDate === cell.dateStr) setDragOverDate(null);
+                        }}
+                        onDrop={e => {
+                          e.preventDefault();
+                          handleDropOnDate(cell.dateStr);
+                        }}
+                        onClick={() => {
+                          if (cell.holidays.length > 0 || cell.events.length > 0) {
+                            setDayDetailModal({
+                              dateStr: cell.dateStr,
+                              holidays: cell.holidays,
+                              events: cell.events,
+                              load: load
+                            });
+                          } else {
+                            openDrawer(null, cell.dateStr);
+                          }
+                        }}
+                        className={`min-h-[105px] p-1.5 flex flex-col gap-1 transition-colors relative group cursor-pointer ${
+                          cell.isCurrentMonth
+                            ? 'bg-white dark:bg-[#12171e]'
+                            : 'bg-slate-50/70 dark:bg-[#0d1015]/60 text-slate-400 dark:text-slate-600'
+                        } ${cell.isToday ? 'bg-indigo-50/20 dark:bg-indigo-950/20' : ''} ${
+                          isHoveredTarget ? 'ring-2 ring-indigo-500 bg-indigo-50/40 dark:bg-indigo-900/30' : ''
+                        }`}
+                      >
+                        {/* Cell Header: Date Number, Available Count Pill, Bottleneck & Add Button */}
+                        <div className="flex items-center justify-between pointer-events-auto min-w-0 gap-1">
+                          <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap min-w-0">
+                            <span
+                              className={`w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full text-[11px] sm:text-xs font-semibold shrink-0 ${
+                                cell.isToday
+                                  ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                                  : cell.isCurrentMonth
+                                  ? 'text-slate-800 dark:text-slate-200'
+                                  : 'text-slate-400 dark:text-slate-600'
+                              }`}
+                            >
+                              {cell.dayNumber}
+                            </span>
+
+                            {/* Available Events Count Number Button */}
+                            {(cell.events.length > 0 || cell.holidays.length > 0) && (
+                              <button
+                                type="button"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setDayDetailModal({
+                                    dateStr: cell.dateStr,
+                                    holidays: cell.holidays,
+                                    events: cell.events,
+                                    load: load
+                                  });
+                                }}
+                                className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-slate-100 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-indigo-950/80 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 transition cursor-pointer shrink-0"
+                                title={`Click to open popup with all ${cell.events.length + cell.holidays.length} scheduled items on ${cell.dateStr}`}
+                              >
+                                <span className="xl:hidden">{cell.events.length + cell.holidays.length}</span>
+                                <span className="hidden xl:inline">{cell.events.length + cell.holidays.length} available</span>
+                              </button>
+                            )}
+
+                            {/* Bottleneck indicator */}
+                            {showBottlenecks && isOverload && (
+                              <span 
+                                className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 shrink-0"
+                                title={`Capacity Bottleneck: ${load.totalMinutes} mins scheduled across ${load.jobCount} operations (Exceeds 480m 8h shift limit)`}
+                              >
+                                ⚠️ {Math.round(load.totalMinutes / 60)}h
+                              </span>
+                            )}
+                            {showBottlenecks && isHighLoad && (
+                              <span 
+                                className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0"
+                                title={`High Shift Utilization: ${load.totalMinutes} mins scheduled`}
+                              >
+                                {Math.round(load.totalMinutes / 60)}h
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            onClick={e => {
+                              e.stopPropagation();
+                              openDrawer(null, cell.dateStr);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition shrink-0"
+                            title={`Add event on ${cell.dateStr}`}
                           >
-                            {cell.dayNumber}
-                          </span>
-
-                          {/* Available Events Count Number Button */}
-                          {(cell.events.length > 0 || cell.holidays.length > 0) && (
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation();
-                                setDayDetailModal({
-                                  dateStr: cell.dateStr,
-                                  holidays: cell.holidays,
-                                  events: cell.events,
-                                  load: load
-                                });
-                              }}
-                              className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded-full bg-slate-100 hover:bg-indigo-100 dark:bg-slate-800 dark:hover:bg-indigo-950/80 text-slate-700 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 border border-slate-200 dark:border-slate-700 transition cursor-pointer shrink-0"
-                              title={`Click to open popup with all ${cell.events.length + cell.holidays.length} scheduled items on ${cell.dateStr}`}
-                            >
-                              {cell.events.length + cell.holidays.length} available
-                            </button>
-                          )}
-
-                          {/* Bottleneck indicator */}
-                          {showBottlenecks && isOverload && (
-                            <span 
-                              className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 shrink-0"
-                              title={`Capacity Bottleneck: ${load.totalMinutes} mins scheduled across ${load.jobCount} operations (Exceeds 480m 8h shift limit)`}
-                            >
-                              ⚠️ {Math.round(load.totalMinutes / 60)}h
-                            </span>
-                          )}
-                          {showBottlenecks && isHighLoad && (
-                            <span 
-                              className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shrink-0"
-                              title={`High Shift Utilization: ${load.totalMinutes} mins scheduled`}
-                            >
-                              {Math.round(load.totalMinutes / 60)}h
-                            </span>
-                          )}
+                            <Plus className="w-3 h-3" />
+                          </button>
                         </div>
 
-                        <button
-                          onClick={e => {
-                            e.stopPropagation();
-                            openDrawer(null, cell.dateStr);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition shrink-0"
-                          title={`Add event on ${cell.dateStr}`}
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      </div>
+                        {/* Events & Holidays Container - Strict overflow-hidden, NO scrollbars */}
+                        <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0">
+                          {(() => {
+                            const MAX_VISIBLE = 2;
+                            const totalItems = cell.holidays.length + cell.events.length;
+                            const hasMore = totalItems > MAX_VISIBLE;
 
-                      {/* Events & Holidays Container - Strict overflow-hidden, NO scrollbars */}
-                      <div className="flex-1 flex flex-col gap-1 overflow-hidden min-h-0">
-                        {(() => {
-                          const MAX_VISIBLE = 2;
-                          const totalItems = cell.holidays.length + cell.events.length;
-                          const hasMore = totalItems > MAX_VISIBLE;
+                            let visibleHolidays = [];
+                            let visibleEvents = [];
 
-                          let visibleHolidays = [];
-                          let visibleEvents = [];
+                            if (cell.holidays.length > 0) {
+                              visibleHolidays = [cell.holidays[0]];
+                              const remainingSlots = MAX_VISIBLE - 1;
+                              visibleEvents = cell.events.slice(0, remainingSlots);
+                            } else {
+                              visibleEvents = cell.events.slice(0, MAX_VISIBLE);
+                            }
 
-                          if (cell.holidays.length > 0) {
-                            visibleHolidays = [cell.holidays[0]];
-                            const remainingSlots = MAX_VISIBLE - 1;
-                            visibleEvents = cell.events.slice(0, remainingSlots);
-                          } else {
-                            visibleEvents = cell.events.slice(0, MAX_VISIBLE);
-                          }
+                            const remainingCount = totalItems - (visibleHolidays.length + visibleEvents.length);
 
-                          const remainingCount = totalItems - (visibleHolidays.length + visibleEvents.length);
-
-                          return (
-                            <>
-                              {/* Visible Holidays */}
-                              {visibleHolidays.map((h, hIdx) => {
-                                const isGazetted = h.gazetted || (h.type && h.type.toLowerCase().includes('gazetted')) || (h.note && h.note.toLowerCase().includes('gazetted'));
-                                return (
-                                  <div
-                                    key={`hol-${h.date}-${hIdx}`}
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      setSelectedHoliday(h);
-                                    }}
-                                    className={`text-[10.5px] py-1 px-1.5 rounded-md font-semibold border flex items-center gap-1.5 shadow-2xs select-none transition cursor-pointer hover:opacity-85 shrink-0 ${
-                                      isGazetted
-                                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700/60'
-                                        : 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700/60'
-                                    }`}
-                                    title={`Click to view: ${h.name} (${h.type || 'Official Gazette'})`}
-                                  >
-                                    <span className="text-xs shrink-0">{isGazetted ? '🏛️' : '🌴'}</span>
-                                    <span className="truncate flex-1 font-bold">{h.name}</span>
-                                    <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-emerald-200/60 dark:bg-emerald-800/60 font-semibold shrink-0">
-                                      {isGazetted ? 'Gazette' : 'Holiday'}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-
-                              {/* Visible Events */}
-                              {visibleEvents.map(ev => {
-                                const mod = ERP_MODULES[ev.module] || ERP_MODULES.production;
-                                const stat = EVENT_STATUSES[ev.status] || EVENT_STATUSES.Scheduled;
-                                let ref = ev.referenceNo || ev.workOrderNo || ev.resourceId || ev.taskName || '';
-                                const isStaged = isScenarioMode && scenarioChanges.some(s => s.id === ev.id);
-
-                                return (
-                                  <div
-                                    key={ev.id}
-                                    draggable={true}
-                                    onDragStart={e => {
-                                      e.stopPropagation();
-                                      setDraggedEventId(ev.id);
-                                      e.dataTransfer.setData('text/plain', ev.id);
-                                    }}
-                                    onClick={e => {
-                                      e.stopPropagation();
-                                      openDrawer(ev.id);
-                                    }}
-                                    className={`text-[10.5px] py-1 px-1.5 rounded-md font-medium border shadow-2xs flex items-center gap-1.5 cursor-pointer active:cursor-grabbing hover:-translate-y-0.5 transition shrink-0 ${
-                                      isStaged ? 'ring-2 ring-purple-500 border-purple-400' : 'border-transparent'
-                                    }`}
-                                    style={{
-                                      backgroundColor: mod.bgColor,
-                                      borderColor: isStaged ? '#a855f7' : mod.borderColor,
-                                      borderLeftWidth: '3.5px',
-                                      borderLeftColor: stat.color
-                                    }}
-                                    title={`Click to view/edit: ${ev.title} (${ev.status})`}
-                                  >
-                                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: mod.color }}></span>
-                                    {ev.time && (
-                                      <span className="text-[9px] font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1 py-0.2 rounded font-semibold shrink-0">
-                                        {ev.time}
+                            return (
+                              <>
+                                {/* Visible Holidays */}
+                                {visibleHolidays.map((h, hIdx) => {
+                                  const isGazetted = h.gazetted || (h.type && h.type.toLowerCase().includes('gazetted')) || (h.note && h.note.toLowerCase().includes('gazetted'));
+                                  return (
+                                    <div
+                                      key={`hol-${h.date}-${hIdx}`}
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        setSelectedHoliday(h);
+                                      }}
+                                      className={`text-[10.5px] py-1 px-1.5 rounded-md font-semibold border flex items-center gap-1.5 shadow-2xs select-none transition cursor-pointer hover:opacity-85 shrink-0 ${
+                                        isGazetted
+                                          ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700/60'
+                                          : 'bg-amber-50 dark:bg-amber-950/50 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700/60'
+                                      }`}
+                                      title={`Click to view: ${h.name} (${h.type || 'Official Gazette'})`}
+                                    >
+                                      <span className="text-xs shrink-0">{isGazetted ? '🏛️' : '🌴'}</span>
+                                      <span className="truncate flex-1 font-bold min-w-0">{h.name}</span>
+                                      <span className="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-emerald-200/60 dark:bg-emerald-800/60 font-semibold shrink-0">
+                                        {isGazetted ? 'Gazette' : 'Holiday'}
                                       </span>
-                                    )}
-                                    <span className="truncate flex-1 font-semibold text-slate-900 dark:text-white">{ev.title}</span>
-                                    {isStaged && <span className="text-[9px] font-mono text-purple-600 dark:text-purple-300 font-bold shrink-0">SIM</span>}
-                                    {ref && !isStaged && <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 shrink-0">{ref}</span>}
-                                  </div>
-                                );
-                              })}
+                                    </div>
+                                  );
+                                })}
 
-                              {/* + More Button / Badge */}
-                              {hasMore && (
-                                <button
-                                  type="button"
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    setDayDetailModal({
-                                      dateStr: cell.dateStr,
-                                      holidays: cell.holidays,
-                                      events: cell.events,
-                                      load: load
-                                    });
-                                  }}
-                                  className="mt-auto w-full text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/90 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900/80 border border-indigo-200/90 dark:border-indigo-800/80 px-2 py-0.5 rounded-md flex items-center justify-between transition cursor-pointer shadow-2xs shrink-0"
-                                  title={`Click to open popup with all ${totalItems} scheduled operations on ${cell.dateStr}`}
-                                >
-                                  <span className="flex items-center gap-1 font-extrabold text-indigo-600 dark:text-indigo-400">
-                                    +{remainingCount} more
-                                  </span>
-                                  <span className="text-[9px] font-semibold opacity-90 text-slate-500 dark:text-slate-400">
-                                    View all ({totalItems}) &rarr;
-                                  </span>
-                                </button>
-                              )}
-                            </>
-                          );
-                        })()}
+                                {/* Visible Events */}
+                                {visibleEvents.map(ev => {
+                                  const mod = ERP_MODULES[ev.module] || ERP_MODULES.production;
+                                  const stat = EVENT_STATUSES[ev.status] || EVENT_STATUSES.Scheduled;
+                                  let ref = ev.referenceNo || ev.workOrderNo || ev.resourceId || ev.taskName || '';
+                                  const isStaged = isScenarioMode && scenarioChanges.some(s => s.id === ev.id);
+
+                                  return (
+                                    <div
+                                      key={ev.id}
+                                      draggable={true}
+                                      onDragStart={e => {
+                                        e.stopPropagation();
+                                        setDraggedEventId(ev.id);
+                                        e.dataTransfer.setData('text/plain', ev.id);
+                                      }}
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        openDrawer(ev.id);
+                                      }}
+                                      className={`text-[10.5px] py-1 px-1.5 rounded-md font-medium border shadow-2xs flex items-center gap-1.5 cursor-pointer active:cursor-grabbing hover:-translate-y-0.5 transition shrink-0 ${
+                                        isStaged ? 'ring-2 ring-purple-500 border-purple-400' : 'border-transparent'
+                                      }`}
+                                      style={{
+                                        backgroundColor: mod.bgColor,
+                                        borderColor: isStaged ? '#a855f7' : mod.borderColor,
+                                        borderLeftWidth: '3.5px',
+                                        borderLeftColor: stat.color
+                                      }}
+                                      title={`Click to view/edit: ${ev.title} (${ev.status})`}
+                                    >
+                                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: mod.color }}></span>
+                                      {ev.time && (
+                                        <span className="text-[9px] font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1 py-0.2 rounded font-semibold shrink-0">
+                                          {ev.time}
+                                        </span>
+                                      )}
+                                      <span className="truncate flex-1 font-semibold text-slate-900 dark:text-white min-w-0">{ev.title}</span>
+                                      {isStaged && <span className="text-[9px] font-mono text-purple-600 dark:text-purple-300 font-bold shrink-0">SIM</span>}
+                                      {ref && !isStaged && <span className="text-[9px] font-mono text-slate-500 dark:text-slate-400 shrink-0 hidden sm:inline max-w-[80px] truncate">{ref}</span>}
+                                    </div>
+                                  );
+                                })}
+
+                                {/* + More Button / Badge */}
+                                {hasMore && (
+                                  <button
+                                    type="button"
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      setDayDetailModal({
+                                        dateStr: cell.dateStr,
+                                        holidays: cell.holidays,
+                                        events: cell.events,
+                                        load: load
+                                      });
+                                    }}
+                                    className="mt-auto w-full text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/90 hover:bg-indigo-100 dark:bg-indigo-950/80 dark:hover:bg-indigo-900/80 border border-indigo-200/90 dark:border-indigo-800/80 px-1.5 sm:px-2 py-0.5 rounded-md flex items-center justify-between transition cursor-pointer shadow-2xs shrink-0"
+                                    title={`Click to open popup with all ${totalItems} scheduled operations on ${cell.dateStr}`}
+                                  >
+                                    <span className="flex items-center gap-1 font-extrabold text-indigo-600 dark:text-indigo-400 truncate">
+                                      +{remainingCount} more
+                                    </span>
+                                    <span className="text-[9px] font-semibold opacity-90 text-slate-500 dark:text-slate-400 hidden sm:inline shrink-0">
+                                      View all ({totalItems}) &rarr;
+                                    </span>
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           ) : (
@@ -1612,20 +1667,20 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                               <div
                                 key={`h-${h.date}-${hIdx}`}
                                 onClick={() => setSelectedHoliday(h)}
-                                className="p-3.5 flex items-center justify-between gap-4 bg-emerald-50/40 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500 cursor-pointer hover:bg-emerald-50/80 transition"
+                                className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 bg-emerald-50/40 dark:bg-emerald-950/20 border-l-4 border-l-emerald-500 cursor-pointer hover:bg-emerald-50/80 transition"
                               >
-                                <div className="flex items-center gap-3 min-w-0">
+                                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                                   <span className="px-2 py-0.5 rounded text-[11px] font-bold shrink-0 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200">
                                     🏛️ Official Gazette
                                   </span>
-                                  <div className="min-w-0">
+                                  <div className="min-w-0 flex-1">
                                     <div className="text-xs font-bold text-emerald-900 dark:text-emerald-100 truncate">{h.name}</div>
                                     <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-300 truncate">
                                       {h.type || 'Government Gazetted'} • Source: {h.source || 'Official Gazette Feed'}
                                     </div>
                                   </div>
                                 </div>
-                                <span className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-100 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 shrink-0 font-mono">
+                                <span className="text-[10px] font-bold px-2 py-1 rounded bg-emerald-100 dark:bg-emerald-800 text-emerald-800 dark:text-emerald-200 shrink-0 font-mono self-start sm:self-center">
                                   {h.gazetted || h.type === 'National Gazetted' ? 'Gazetted' : 'Holiday'}
                                 </span>
                               </div>
@@ -1646,10 +1701,10 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                                 <div
                                   key={ev.id}
                                   onClick={() => openDrawer(ev.id)}
-                                  className="p-3.5 flex items-center justify-between gap-4 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition border-l-4"
+                                  className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 cursor-pointer hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition border-l-4"
                                   style={{ borderLeftColor: stat.color }}
                                 >
-                                  <div className="flex items-center gap-3 min-w-0">
+                                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
                                     <span className="px-2 py-0.5 rounded text-[11px] font-semibold shrink-0" style={{ backgroundColor: mod.bgColor, color: mod.color }}>
                                       {mod.name}
                                     </span>
@@ -1664,7 +1719,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
                                       <div className="text-[11px] font-mono text-slate-500 truncate">{details}</div>
                                     </div>
                                   </div>
-                                  <span className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0">
+                                  <span className="text-[10px] font-bold px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shrink-0 self-start sm:self-center">
                                     {ev.status}
                                   </span>
                                 </div>
@@ -1686,7 +1741,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity" onClick={closeDrawer}></div>
-          <div className="relative w-full max-w-md bg-white dark:bg-[#171d24] border-l border-slate-200 dark:border-slate-800 h-full flex flex-col shadow-2xl z-10 animate-in slide-in-from-right duration-200">
+          <div className="relative w-full sm:max-w-md bg-white dark:bg-[#171d24] border-l border-slate-200 dark:border-slate-800 h-full flex flex-col shadow-2xl z-10 animate-in slide-in-from-right duration-200">
             
             {/* Drawer Header */}
             <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-[#1f2732]/40">
@@ -2058,7 +2113,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       {pendingCascade && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/60 backdrop-blur-xs" onClick={() => setPendingCascade(null)}></div>
-          <div className="relative w-full max-w-lg bg-white dark:bg-[#171d24] border border-amber-300 dark:border-amber-700/60 rounded-2xl p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150">
+          <div className="relative w-full max-w-lg bg-white dark:bg-[#171d24] border border-amber-300 dark:border-amber-700/60 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150 mx-3 sm:mx-auto">
             <div className="flex items-start gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xl shrink-0">
                 <GitBranch className="w-5 h-5" />
@@ -2087,7 +2142,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 mt-5">
+            <div className="flex flex-wrap items-center justify-end gap-2 mt-5">
               <Button
                 variant="outline"
                 size="sm"
@@ -2120,7 +2175,7 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       {selectedHoliday && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/50 backdrop-blur-xs transition-opacity" onClick={() => setSelectedHoliday(null)}></div>
-          <div className="relative w-full max-w-md bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150">
+          <div className="relative w-full max-w-md bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl p-4 sm:p-6 shadow-2xl z-10 animate-in zoom-in-95 duration-150 mx-3 sm:mx-auto">
             <div className="flex items-start justify-between gap-3 mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xl">
@@ -2176,52 +2231,52 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       {dayDetailModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div 
-            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-150"
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity animate-in fade-in-0 duration-150" 
             onClick={() => setDayDetailModal(null)}
           ></div>
-          <div className="relative w-full max-w-xl bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="relative w-full max-w-xl bg-white dark:bg-[#171d24] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-10 flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-150 mx-3 sm:mx-auto">
             
             {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-[#1f2732]/50 shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
-                  <CalendarIcon className="w-5 h-5" />
+            <div className="px-4 sm:px-5 py-3 sm:py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-[#1f2732]/50 shrink-0 gap-2">
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+                  <CalendarIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="font-bold text-base text-slate-900 dark:text-white tracking-tight">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    <h2 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white tracking-tight truncate">
                       {new Date(dayDetailModal.dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-                        weekday: 'long',
+                        weekday: 'short',
                         day: 'numeric',
-                        month: 'long',
+                        month: 'short',
                         year: 'numeric'
                       })}
                     </h2>
-                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                    <span className="text-[10px] sm:text-[11px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0">
                       {dayDetailModal.events.length} operation{dayDetailModal.events.length !== 1 ? 's' : ''}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                  <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 truncate">
                     Operational schedule & quality logs for {dayDetailModal.dateStr}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
                 <button
                   onClick={() => {
                     const d = dayDetailModal.dateStr;
                     setDayDetailModal(null);
                     openDrawer(null, d);
                   }}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1 shadow-xs transition cursor-pointer"
+                  className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold flex items-center gap-1 shadow-xs transition cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add Event</span>
+                  <span className="hidden sm:inline">Add Event</span>
                 </button>
                 <button
                   onClick={() => setDayDetailModal(null)}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                  className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>

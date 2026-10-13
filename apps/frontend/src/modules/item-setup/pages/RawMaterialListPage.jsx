@@ -173,6 +173,7 @@ function RawMaterialForm({ editId, onBack }) {
 
   const [debouncedName, setDebouncedName] = useState('');
   const [nameMatches, setNameMatches] = useState([]);
+  const [isNameFocused, setIsNameFocused] = useState(false);
   const nameValue = watch('name') || '';
 
   useEffect(() => {
@@ -441,24 +442,42 @@ function RawMaterialForm({ editId, onBack }) {
                     e.target.value = e.target.value.toUpperCase();
                   }
                 })}
+                onFocus={() => setIsNameFocused(true)}
+                onBlur={(e) => {
+                  register('name').onBlur?.(e);
+                  setTimeout(() => setIsNameFocused(false), 200);
+                }}
                 style={{ textTransform: 'uppercase' }}
                 className="w-full px-2.5 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-950 text-slate-900 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 font-semibold text-xs transition-all shadow-3xs"
                 placeholder="E.G. REFINED SUGAR, WHEAT FLOUR"
               />
               {errors.name && <span className="text-[11px] text-rose-500 font-medium block">{errors.name.message}</span>}
 
-              {/* Similar Duplicate Warn overlay */}
-              {!isPurchased && nameMatches.length > 0 && (
-                <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start gap-2 animate__animated animate__fadeIn">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">Similar materials exist:</p>
-                    <ul className="list-disc pl-3.5 mt-0.5 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400 font-medium">
-                      {nameMatches.slice(0, 3).map(m => (
-                        <li key={m.id}>{m.name?.toUpperCase()} ({m.code})</li>
-                      ))}
-                    </ul>
+              {/* Similar Duplicate Warn overlay - Only display when focused on RM Name */}
+              {!isPurchased && isNameFocused && nameMatches.length > 0 && (
+                <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/90 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start justify-between gap-2 animate__animated animate__fadeIn">
+                  <div className="flex items-start gap-2 flex-1">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">Similar materials exist:</p>
+                      <ul className="list-disc pl-3.5 mt-0.5 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                        {nameMatches.slice(0, 3).map(m => (
+                          <li key={m.id}>{m.name?.toUpperCase()} ({m.code})</li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setIsNameFocused(false);
+                    }}
+                    className="text-amber-600 hover:text-amber-800 dark:hover:text-amber-200 p-0.5 rounded cursor-pointer"
+                    title="Dismiss"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               )}
             </div>

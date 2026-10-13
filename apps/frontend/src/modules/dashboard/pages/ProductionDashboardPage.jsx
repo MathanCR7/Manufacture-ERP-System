@@ -27,31 +27,31 @@ function KPICard({ title, value, sub, icon: Icon, accent, loading, onClick }) {
   return (
     <div 
       onClick={onClick}
-      className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5 flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden group ${
+      className={`bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-3.5 sm:p-4 md:p-5 flex flex-col justify-between hover:shadow-md transition-all relative overflow-hidden group min-w-0 ${
         onClick ? 'cursor-pointer hover:-translate-y-1 hover:border-indigo-400 dark:hover:border-indigo-900/60 hover:bg-slate-50/20 dark:hover:bg-slate-950/20' : 'hover:-translate-y-0.5'
       }`}
     >
       <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: accent }} />
-      <div className="flex justify-between items-start mb-3">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{title}</span>
-        <div className="p-2 rounded-xl group-hover:scale-110 transition-transform duration-300" style={{ background: accent + '22' }}>
-          <Icon size={15} style={{ color: accent }} />
+      <div className="flex justify-between items-start mb-2 sm:mb-3">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500 truncate mr-1">{title}</span>
+        <div className="p-1.5 sm:p-2 rounded-xl group-hover:scale-110 transition-transform duration-300 flex-shrink-0" style={{ background: accent + '22' }}>
+          <Icon size={14} style={{ color: accent }} />
         </div>
       </div>
-      <div className="text-2xl font-black text-slate-800 dark:text-slate-100 mb-1">
-        {loading ? <span className="inline-block h-7 w-24 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg" /> : value}
+      <div className="text-lg sm:text-xl md:text-2xl font-black text-slate-800 dark:text-slate-100 mb-1 truncate" title={typeof value === 'string' ? value : undefined}>
+        {loading ? <span className="inline-block h-6 sm:h-7 w-20 sm:w-24 bg-slate-100 dark:bg-slate-800 animate-pulse rounded-lg" /> : value}
       </div>
-      {sub && <div className="text-xs text-slate-400 dark:text-slate-500">{sub}</div>}
+      {sub && <div className="text-[11px] sm:text-xs text-slate-400 dark:text-slate-500 truncate">{sub}</div>}
     </div>
   );
 }
 
 function Card({ title, accent = '#6366f1', children }) {
   return (
-    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-5">
-      <div className="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 p-4 sm:p-5 min-w-0">
+      <div className="flex items-center gap-2 mb-3 sm:mb-4 pb-2.5 sm:pb-3 border-b border-slate-100 dark:border-slate-800">
         <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: accent }} />
-        <h3 className="text-sm font-bold text-slate-700 dark:text-slate-200">{title}</h3>
+        <h3 className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 truncate">{title}</h3>
       </div>
       {children}
     </div>
@@ -92,14 +92,29 @@ export default function ProductionDashboardPage() {
   const statusCounts = d.statusCounts || {};
 
   return (
-    <div className="space-y-6 bg-[#F4F3FF] dark:bg-slate-950 -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8 min-h-screen">
-
-
+    <div className="space-y-4 sm:space-y-6 bg-[#F4F3FF] dark:bg-slate-950 -m-4 sm:-m-6 lg:-m-8 p-3.5 sm:p-6 lg:p-8 min-h-screen">
+      {/* Responsive Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-800 dark:text-slate-100 flex items-center gap-2">
+            <span>🏭 Production Dashboard</span>
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">OEE performance, batch tracking, output targets & scrap analytics</p>
+        </div>
+        <button
+          onClick={() => load(true)}
+          disabled={busy}
+          className="self-start sm:self-auto px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5 shadow-xs"
+        >
+          <RefreshCw size={13} className={busy ? 'animate-spin' : ''} />
+          <span>Refresh</span>
+        </button>
+      </div>
 
       {error && <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-600 dark:text-rose-400 text-sm">⚠️ {error}</div>}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* KPIs: 1 col on small phones, 2 on phones, 3 on tablet, 6 on desktop */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
         <KPICard title="OEE Score"       value={`${d.oee || 0}%`}                sub="Overall Equipment Effectiveness" icon={Zap}          accent="#f59e0b" loading={loading} onClick={() => navigate('/production/batches')} />
         <KPICard title="Batches (Month)" value={d.totalBatchesMonth || 0}         sub={`${Object.values(statusCounts).reduce((a,b)=>a+b,0)} all time`} icon={Factory} accent="#8b5cf6" loading={loading} onClick={() => navigate('/production/batches')} />
         <KPICard title="Planned Qty"     value={`${Math.round(d.plannedQtyMonth || 0)} units`} sub="Target" icon={BarChart2} accent="#3b82f6" loading={loading} onClick={() => navigate('/production/batches')} />

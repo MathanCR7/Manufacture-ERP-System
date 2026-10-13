@@ -498,9 +498,44 @@ function ProductForm({ editId, onBack }) {
   const [code, setCode] = useState('');
   const [debouncedName, setDebouncedName] = useState('');
   const [nameMatches, setNameMatches] = useState([]);
+  const [isNameFocused, setIsNameFocused] = useState(false);
 
   const [categoryId, setCategoryId] = useState('');
   const [subcategoryId, setSubcategoryId] = useState('');
+
+  const categoryOptions = useMemo(() => {
+    return (masters.categories || []).map(c => ({
+      value: c.id,
+      label: (c.name || '').toUpperCase()
+    }));
+  }, [masters.categories]);
+
+  const handleFetchNextSystemCode = async () => {
+    try {
+      const res = await api.get('/products/next-code');
+      if (res.data?.code) {
+        setCode(res.data.code);
+        return;
+      }
+    } catch (err) {
+      console.warn('Backend next-code endpoint unavailable, calculating locally:', err);
+    }
+    try {
+      const listRes = await api.get('/products?includeDeleted=true');
+      const products = listRes.data || [];
+      let maxNum = 0;
+      products.forEach(p => {
+        const m = p.code && p.code.match(/^FP-(\d+)$/);
+        if (m) {
+          const n = parseInt(m[1], 10);
+          if (!isNaN(n) && n > maxNum) maxNum = n;
+        }
+      });
+      setCode(`FP-${String(maxNum + 1).padStart(6, '0')}`);
+    } catch (fallbackErr) {
+      setCode('FP-000001');
+    }
+  };
   const [sku, setSku] = useState('');
   const [barcode, setBarcode] = useState('');
   const [specifications, setSpecifications] = useState({});
@@ -801,18 +836,7 @@ function ProductForm({ editId, onBack }) {
               sortOrder: item.sortOrder || 0
             })));
           }
-        } else {
-          const listRes = await api.get('/products?includeDeleted=true');
-          const products = listRes.data || [];
-          let maxNum = 0;
-          products.forEach(p => {
-            const m = p.code && p.code.match(/^FP-(\d+)$/);
-            if (m) {
-              const n = parseInt(m[1], 10);
-              if (n > maxNum) maxNum = n;
-            }
-          });
-          setCode(`FP-${String(maxNum + 1).padStart(6, '0')}`);
+          await handleFetchNextSystemCode();
 
           const companySettings = useCompanyStore.getState().company;
           if (companySettings?.taxes && Array.isArray(companySettings.taxes)) {
@@ -1282,6 +1306,7 @@ function ProductForm({ editId, onBack }) {
     setSaving(true);
     setError(null);
     const payload = {
+      code: code ? code.trim().toUpperCase() : '',
       name: name.trim().toUpperCase(),
       productName: name.trim().toUpperCase(),
       categoryId,
@@ -1578,7 +1603,52 @@ function ProductForm({ editId, onBack }) {
               </CardHeader>
               <CardContent className="p-6 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1 relative">
+                  {/* 1. Category FIRST with SearchSelect */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Category *</label>
+                      <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Searchable</span>
+                    </div>
+                    <SearchSelect
+                      value={categoryId}
+                      onChange={(val) => {
+                        setCategoryId(val);
+                        setSubcategoryId('');
+                      }}
+                      options={categoryOptions}
+                      placeholder="SELECT CATEGORY..."
+                      searchPlaceholder="Search category..."
+                      showSearch={true}
+                      required={true}
+                      triggerClassName="h-10 text-xs rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                    />
+                  </div>
+
+                  {/* 2. System Code SECOND - user can enter or auto-generate */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">System Code *</label>
+                      <button
+                        type="button"
+                        onClick={handleFetchNextSystemCode}
+                        className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 cursor-pointer transition-colors uppercase"
+                        title="Auto-generate next FP-XXXXXX sequence"
+                      >
+                        <Sparkles className="w-2.5 h-2.5" />
+                        Auto-Gen FP
+                      </button>
+                    </div>
+                    <Input
+                      value={code}
+                      style={{ textTransform: 'uppercase' }}
+                      onChange={(e) => setCode(e.target.value.toUpperCase())}
+                      placeholder="E.G. FP-000001 OR CUSTOM CODE"
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 font-mono font-bold text-slate-800 dark:text-slate-100 rounded-xl text-xs h-10"
+                    />
+                  </div>
+
+                  {/* 3. Product Name THIRD */}
+                  <div className="space-y-1 relative sm:col-span-2">
                     <div className="flex items-center justify-between">
                       <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Product Name *</label>
                       <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400">Capital only</span>
@@ -1589,44 +1659,38 @@ function ProductForm({ editId, onBack }) {
                       value={name}
                       style={{ textTransform: 'uppercase' }}
                       onChange={(e) => setName(e.target.value.toUpperCase())}
-                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 font-semibold text-xs transition-all shadow-3xs"
+                      onFocus={() => setIsNameFocused(true)}
+                      onBlur={() => setTimeout(() => setIsNameFocused(false), 200)}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 font-semibold text-xs transition-all shadow-3xs h-10"
                     />
 
-                    {/* Similar Duplicate Warn overlay */}
-                    {nameMatches.length > 0 && (
-                      <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start gap-2 animate__animated animate__fadeIn">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">Similar products exist:</p>
-                          <ul className="list-disc pl-3.5 mt-0.5 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400 font-medium">
-                            {nameMatches.slice(0, 3).map(m => (
-                              <li key={m.id}>{m.name?.toUpperCase()} ({m.code})</li>
-                            ))}
-                          </ul>
+                    {/* Similar Duplicate Warn overlay - Only display when focused on Product Name */}
+                    {isNameFocused && nameMatches.length > 0 && (
+                      <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/90 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start justify-between gap-2 animate__animated animate__fadeIn">
+                        <div className="flex items-start gap-2 flex-1">
+                          <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">Similar products exist:</p>
+                            <ul className="list-disc pl-3.5 mt-0.5 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                              {nameMatches.slice(0, 3).map(m => (
+                                <li key={m.id}>{m.name?.toUpperCase()} ({m.code})</li>
+                              ))}
+                            </ul>
+                          </div>
                         </div>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setIsNameFocused(false);
+                          }}
+                          className="text-amber-600 hover:text-amber-800 dark:hover:text-amber-200 p-0.5 rounded cursor-pointer"
+                          title="Dismiss"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     )}
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">System Code *</label>
-                    <Input readOnly value={code} className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 cursor-not-allowed font-mono font-bold text-slate-500 dark:text-slate-400 rounded-xl" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Category *</label>
-                    <select
-                      required
-                      value={categoryId}
-                      onChange={(e) => {
-                        setCategoryId(e.target.value);
-                        setSubcategoryId('');
-                      }}
-                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 h-10 px-3 py-2 text-xs focus:outline-none"
-                    >
-                      <option value="">SELECT CATEGORY...</option>
-                      {masters.categories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name?.toUpperCase()}</option>
-                      ))}
-                    </select>
                   </div>
 
                   {/* Subcategory Selector */}

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm, useWatch } from 'react-hook-form';
 import Swal from 'sweetalert2';
@@ -20,7 +20,8 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from 'lucide-react';
 import { api } from '@/lib/axios';
 import { Card, CardContent } from '@/components/ui/card';
@@ -60,8 +61,6 @@ export default function ExpenseMasterListPage() {
     }
   });
 
-  const currentStatus = useWatch({ control, name: 'status', defaultValue: 'ACTIVE' });
-
   // Fetch Expense Categories
   const {
     data: categories = [],
@@ -75,6 +74,32 @@ export default function ExpenseMasterListPage() {
       return Array.isArray(res.data) ? res.data : [];
     }
   });
+
+  const currentStatus = useWatch({ control, name: 'status', defaultValue: 'ACTIVE' });
+  const currentName = useWatch({ control, name: 'name', defaultValue: '' });
+  const [debouncedName, setDebouncedName] = useState('');
+  const [nameMatches, setNameMatches] = useState([]);
+  const [isNameFocused, setIsNameFocused] = useState(false);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedName(currentName || '');
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [currentName]);
+
+  useEffect(() => {
+    if (debouncedName && debouncedName.trim().length >= 1) {
+      const editId = editingCategory?.id;
+      const matches = (categories || []).filter(c =>
+        c.name && c.name.toLowerCase().includes(debouncedName.toLowerCase().trim()) &&
+        c.id !== editId
+      );
+      setNameMatches(matches);
+    } else {
+      setNameMatches([]);
+    }
+  }, [debouncedName, categories, editingCategory]);
 
   // Open Add Modal
   const handleOpenAddModal = () => {
@@ -748,7 +773,7 @@ export default function ExpenseMasterListPage() {
                 </div>
 
                 {/* Category Name */}
-                <div>
+                <div className="relative">
                   <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <CreditCard className="w-3.5 h-3.5 text-indigo-500" />
@@ -758,10 +783,43 @@ export default function ExpenseMasterListPage() {
                   </Label>
                   <Input
                     {...register('name', { required: 'Category name is required' })}
+                    onFocus={() => setIsNameFocused(true)}
+                    onBlur={(e) => {
+                      register('name').onBlur?.(e);
+                      setTimeout(() => setIsNameFocused(false), 200);
+                    }}
                     placeholder="e.g. Office Supplies, Maintenance, Raw Materials..."
                     className="h-10.5 px-3.5 text-xs font-semibold rounded-xl border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
                   />
                   {errors.name && <p className="text-rose-500 text-[11px] font-medium mt-1">{errors.name.message}</p>}
+
+                  {/* Similar Duplicate Warn overlay - Only display when focused on Category Name */}
+                  {isNameFocused && nameMatches.length > 0 && (
+                    <div className="absolute z-20 w-full mt-1 bg-amber-50 dark:bg-amber-950/90 border border-amber-200 dark:border-amber-800 rounded-lg p-2.5 shadow-md flex items-start justify-between gap-2 animate__animated animate__fadeIn">
+                      <div className="flex items-start gap-2 flex-1">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-[11px] font-bold text-amber-800 dark:text-amber-300">Similar categories exist:</p>
+                          <ul className="list-disc pl-3.5 mt-0.5 space-y-0.5 text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                            {nameMatches.slice(0, 3).map(m => (
+                              <li key={m.id}>{m.name} ({m.code})</li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setIsNameFocused(false);
+                        }}
+                        className="text-amber-600 hover:text-amber-800 dark:hover:text-amber-200 p-0.5 rounded cursor-pointer"
+                        title="Dismiss"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Description / Purpose */}

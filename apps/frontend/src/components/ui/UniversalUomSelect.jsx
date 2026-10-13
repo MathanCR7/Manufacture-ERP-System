@@ -2,201 +2,272 @@ import React, { useMemo } from 'react';
 import SearchSelect from './SearchSelect';
 
 /**
- * Universal Master UOM Catalog
- * Contains EVERY SINGLE Unit of Measure across the entire ERP:
- * - Weight (metric, imperial, bulk)
- * - Volume (metric, imperial, bulk, packaging)
- * - Pieces / Count / Food Production (Nos, pcs, sticks, cones, cups, tubs, matkas)
- * - Packaging Containers & Secondary Packaging (boxes, cartons, packs, bags, pouches, drums)
- * - Length, Roll & Area (meters, rolls, sheets, reams, sq meters, acres)
- * - Time & Operational Rates (days, hours, shifts)
- * - Energy & Utilities (kWh, MJ)
+ * Common legacy/alias normalizer mapping to uppercase standard units
+ */
+export const UOM_ALIAS_MAP = {
+  'KG': 'KG',
+  'KGS': 'KG',
+  'KILOGRAM': 'KG',
+  'KILOGRAMS': 'KG',
+  'PCS': 'PCS',
+  'PIECE': 'PCS',
+  'PIECES': 'PCS',
+  'PC': 'PCS',
+  'ML': 'ML',
+  'MILLILITER': 'ML',
+  'MILLILITRE': 'ML',
+  'NOS': 'NOS',
+  'NO': 'NOS',
+  'NUMBERS': 'NOS',
+  'NUMBER': 'NOS',
+  'LTR': 'LTR',
+  'LITER': 'LTR',
+  'LITRE': 'LTR',
+  'LITRES': 'LTR',
+  'LITERS': 'LTR',
+  'GM': 'GM',
+  'G': 'GM',
+  'GRAM': 'GM',
+  'GRAMS': 'GM',
+  'GRM': 'GM',
+  'MG': 'MG',
+  'MILLIGRAM': 'MG',
+  'TON': 'TON',
+  'TONS': 'TON',
+  'METRIC TON': 'TON',
+  'QUINTAL': 'QUINTAL',
+  'QUINTALS': 'QUINTAL',
+  'BOX': 'BOX',
+  'BOXES': 'BOX',
+  'CTN': 'CARTON',
+  'CARTON': 'CARTON',
+  'CARTONS': 'CARTON',
+  'CASE': 'CASE',
+  'CASES': 'CASE',
+  'PACK': 'PACK',
+  'PACKS': 'PACK',
+  'PACKET': 'PKT',
+  'PKT': 'PKT',
+  'PKTS': 'PKT',
+  'BAG': 'BAG',
+  'BAGS': 'BAG',
+  'POUCH': 'POUCH',
+  'POUCHES': 'POUCH',
+  'DRUM': 'DRUM',
+  'DRUMS': 'DRUM',
+  'CAN': 'CAN',
+  'CANS': 'CAN',
+  'BOTTLE': 'BOTTLE',
+  'BOTTLES': 'BOTTLE',
+  'BTL': 'BOTTLE',
+  'MTR': 'MTR',
+  'METER': 'MTR',
+  'METERS': 'MTR',
+  'METRE': 'MTR',
+  'SQM': 'SQM',
+  'SQUARE METER': 'SQM',
+  'SQUARE METRE': 'SQM',
+  'SQFT': 'SQFT',
+  'SQUARE FT': 'SQFT',
+  'SQUARE FEET': 'SQFT',
+  'ROLL': 'ROLL',
+  'ROLLS': 'ROLL',
+  'SHEET': 'SHEET',
+  'SHEETS': 'SHEET',
+  'UNIT': 'UNIT',
+  'UNITS': 'UNIT',
+  'EA': 'EA',
+  'EACH': 'EA',
+  'PAIR': 'PAIR',
+  'PAIRS': 'PAIR',
+  'DOZEN': 'DOZEN',
+  'DOZENS': 'DOZEN',
+  'DZN': 'DOZEN',
+  'SET': 'SET',
+  'SETS': 'SET',
+  'KIT': 'KIT',
+  'KITS': 'KIT',
+  'BUNDLE': 'BUNDLE',
+  'BUNDLES': 'BUNDLE',
+  'BDL': 'BUNDLE',
+  'STICK': 'STICK',
+  'STICKS': 'STICK',
+  'CONE': 'CONE',
+  'CONES': 'CONE',
+  'CUP': 'CUP',
+  'CUPS': 'CUP',
+  'TUB': 'TUB',
+  'TUBS': 'TUB',
+  'MATKA': 'MATKA',
+  'MATKAS': 'MATKA',
+  'POT': 'POT',
+  'POTS': 'POT',
+  'DAY': 'DAY',
+  'DAYS': 'DAY',
+  'HR': 'HR',
+  'HRS': 'HR',
+  'HOUR': 'HR',
+  'HOURS': 'HR',
+  'KWH': 'KWH'
+};
+
+/**
+ * Normalize any UOM input to standard UPPERCASE unit code
+ */
+export const normalizeUom = (val) => {
+  if (!val) return '';
+  const trimmedUpper = String(val).trim().toUpperCase();
+  return UOM_ALIAS_MAP[trimmedUpper] || trimmedUpper;
+};
+
+/**
+ * Universal Master UOM Catalog - UPPERCASE UNITS ONLY (NO EXPLANATIONS)
  */
 export const UNIVERSAL_UOM_CATALOG = [
-  // ── 1. PRIMARY COUNT & PIECES (Manufacturing Core) ──
-  { value: 'Nos', label: 'Nos (Numbers)', subLabel: 'Count / Primary Unit' },
-  { value: 'pcs', label: 'pcs (Pieces)', subLabel: 'Count / Individual Items' },
-  { value: 'Pcs', label: 'Pcs (Pieces - Capitalized)', subLabel: 'Count' },
-  { value: 'Pieces', label: 'Pieces (Full Name)', subLabel: 'Count' },
-  { value: 'Numbers', label: 'Numbers (Full Name)', subLabel: 'Count' },
-  { value: 'EA', label: 'EA (Each)', subLabel: 'Count / Asset Unit' },
-  { value: 'ea', label: 'ea (Each - Lowercase)', subLabel: 'Count' },
-  { value: 'Each', label: 'Each (Full Name)', subLabel: 'Count' },
-  { value: 'unit', label: 'unit (Unit)', subLabel: 'Count / General' },
-  { value: 'Unit', label: 'Unit (Operational Units)', subLabel: 'Overhead / General' },
-  { value: 'Units', label: 'Units (Plural)', subLabel: 'General' },
-  { value: 'pair', label: 'pair (Pair - 2 items)', subLabel: 'Count' },
-  { value: 'Pair', label: 'Pair (Pair)', subLabel: 'Count' },
-  { value: 'dozen', label: 'dozen (Dozen - 12 pcs)', subLabel: 'Count' },
-  { value: 'Dozen', label: 'Dozen (Dozen)', subLabel: 'Count' },
-  { value: 'gross', label: 'gross (Gross - 144 pcs)', subLabel: 'Count' },
-  { value: 'Gross', label: 'Gross (Gross)', subLabel: 'Count' },
-  { value: 'set', label: 'set (Set)', subLabel: 'Assembly / Set' },
-  { value: 'Set', label: 'Set (Set)', subLabel: 'Assembly / Set' },
-  { value: 'kit', label: 'kit (Kit)', subLabel: 'Kit' },
-  { value: 'Kit', label: 'Kit (Kit)', subLabel: 'Kit' },
-  { value: 'bundle', label: 'bundle (Bundle)', subLabel: 'Bundle' },
-  { value: 'Bundle', label: 'Bundle (Bundle)', subLabel: 'Bundle' },
-  { value: 'lot', label: 'lot (Lot)', subLabel: 'Inventory Lot' },
-  { value: 'batch', label: 'batch (Batch / Production Run)', subLabel: 'Production' },
-  { value: 'assortment', label: 'assortment (Assortment Pack)', subLabel: 'Specialty' },
+  // ── PRIMARY UNITS ──
+  { value: 'KG', label: 'KG' },
+  { value: 'PCS', label: 'PCS' },
+  { value: 'ML', label: 'ML' },
+  { value: 'NOS', label: 'NOS' },
+  { value: 'LTR', label: 'LTR' },
+  { value: 'GM', label: 'GM' },
+  { value: 'MG', label: 'MG' },
+  { value: 'TON', label: 'TON' },
+  { value: 'QUINTAL', label: 'QUINTAL' },
 
-  // ── 2. ICE CREAM & KULFI FOOD MANUFACTURING ITEMS ──
-  { value: 'stick', label: 'stick (Stick - Kulfi / Ice Candy Stick)', subLabel: 'Ice Cream Production' },
-  { value: 'cone', label: 'cone (Cone - Waffle / Sugar Cone)', subLabel: 'Ice Cream Packaging' },
-  { value: 'cup', label: 'cup (Cup - Ice Cream Cup / Matka)', subLabel: 'Ice Cream Packaging' },
-  { value: 'tub', label: 'tub (Tub - 500ml / 1L / Bulk Tub)', subLabel: 'Ice Cream Packaging' },
-  { value: 'matka', label: 'matka (Matka - Clay / Terracotta Pot)', subLabel: 'Kulfi Specialty' },
-  { value: 'pot', label: 'pot (Pot - Earthen / Ceramic)', subLabel: 'Kulfi Specialty' },
+  // ── PACKAGING & CONTAINERS ──
+  { value: 'BOX', label: 'BOX' },
+  { value: 'PACK', label: 'PACK' },
+  { value: 'PKT', label: 'PKT' },
+  { value: 'CARTON', label: 'CARTON' },
+  { value: 'CASE', label: 'CASE' },
+  { value: 'BAG', label: 'BAG' },
+  { value: 'POUCH', label: 'POUCH' },
+  { value: 'DRUM', label: 'DRUM' },
+  { value: 'CAN', label: 'CAN' },
+  { value: 'BOTTLE', label: 'BOTTLE' },
+  { value: 'JAR', label: 'JAR' },
+  { value: 'TIN', label: 'TIN' },
+  { value: 'TUBE', label: 'TUBE' },
+  { value: 'BARREL', label: 'BARREL' },
+  { value: 'SACK', label: 'SACK' },
+  { value: 'PALLET', label: 'PALLET' },
+  { value: 'CRATE', label: 'CRATE' },
+  { value: 'TRAY', label: 'TRAY' },
+  { value: 'CYLINDER', label: 'CYLINDER' },
 
-  // ── 3. WEIGHT MEASURES (Metric, Imperial & Bulk) ──
-  { value: 'Kg', label: 'Kg (Kilogram)', subLabel: 'Weight / Standard' },
-  { value: 'kg', label: 'kg (Kilogram - Lowercase)', subLabel: 'Weight' },
-  { value: 'Kilogram', label: 'Kilogram (Full Name)', subLabel: 'Weight' },
-  { value: 'Kilograms', label: 'Kilograms (Plural)', subLabel: 'Weight' },
-  { value: 'gm', label: 'gm (Gram)', subLabel: 'Weight / Secondary' },
-  { value: 'g', label: 'g (Gram)', subLabel: 'Weight' },
-  { value: 'Grm', label: 'Grm (Gram - Legacy)', subLabel: 'Weight' },
-  { value: 'Gram', label: 'Gram (Full Name)', subLabel: 'Weight' },
-  { value: 'Grams', label: 'Grams (Plural)', subLabel: 'Weight' },
-  { value: 'mg', label: 'mg (Milligram)', subLabel: 'Weight / Micro Ingredients' },
-  { value: 'ton', label: 'ton (Metric Ton - 1,000 kg)', subLabel: 'Bulk Weight' },
-  { value: 'metric ton', label: 'metric ton (1,000 kg)', subLabel: 'Bulk Weight' },
-  { value: 'quintal', label: 'quintal (Quintal - 100 kg)', subLabel: 'Bulk Weight' },
-  { value: 'lb', label: 'lb (Pound - 453.6 gm)', subLabel: 'Imperial Weight' },
-  { value: 'oz', label: 'oz (Ounce)', subLabel: 'Imperial Weight' },
+  // ── FOOD & ICE CREAM MANUFACTURING ──
+  { value: 'STICK', label: 'STICK' },
+  { value: 'CONE', label: 'CONE' },
+  { value: 'CUP', label: 'CUP' },
+  { value: 'TUB', label: 'TUB' },
+  { value: 'MATKA', label: 'MATKA' },
+  { value: 'POT', label: 'POT' },
+  { value: 'BAR', label: 'BAR' },
 
-  // ── 4. VOLUME & LIQUID MEASURES ──
-  { value: 'liter', label: 'liter (Liter)', subLabel: 'Volume / Standard' },
-  { value: 'Liter', label: 'Liter (Liter)', subLabel: 'Volume' },
-  { value: 'Ltr', label: 'Ltr (Litre - Abbreviation)', subLabel: 'Volume' },
-  { value: 'Litre', label: 'Litre (Full Name)', subLabel: 'Volume' },
-  { value: 'Litres', label: 'Litres (Plural)', subLabel: 'Volume' },
-  { value: 'ml', label: 'ml (Milliliter)', subLabel: 'Volume / Micro Formulation' },
-  { value: 'cl', label: 'cl (Centiliter)', subLabel: 'Volume' },
-  { value: 'dl', label: 'dl (Deciliter)', subLabel: 'Volume' },
-  { value: 'gallon', label: 'gallon (US Gallon - 3.785 L)', subLabel: 'Liquid Volume' },
-  { value: 'quart', label: 'quart (Quart)', subLabel: 'Volume' },
-  { value: 'pint', label: 'pint (Pint)', subLabel: 'Volume' },
-  { value: 'fluid oz', label: 'fluid oz (Fluid Ounce)', subLabel: 'Volume' },
-  { value: 'cubic meter', label: 'cubic meter (m³)', subLabel: 'Bulk Volume' },
-  { value: 'cubic cm', label: 'cubic cm (cm³ / cc)', subLabel: 'Volume' },
-  { value: 'cubic ft', label: 'cubic ft (ft³)', subLabel: 'Bulk Volume' },
-  { value: 'cubic inch', label: 'cubic inch (in³)', subLabel: 'Volume' },
+  // ── COUNT & ASSETS ──
+  { value: 'UNIT', label: 'UNIT' },
+  { value: 'EA', label: 'EA' },
+  { value: 'PAIR', label: 'PAIR' },
+  { value: 'DOZEN', label: 'DOZEN' },
+  { value: 'GROSS', label: 'GROSS' },
+  { value: 'SET', label: 'SET' },
+  { value: 'KIT', label: 'KIT' },
+  { value: 'BUNDLE', label: 'BUNDLE' },
+  { value: 'LOT', label: 'LOT' },
+  { value: 'BATCH', label: 'BATCH' },
 
-  // ── 5. PACKAGING CONTAINERS & BULK PACKS ──
-  { value: 'box', label: 'box (Box)', subLabel: 'Packaging' },
-  { value: 'Boxes', label: 'Boxes (Plural)', subLabel: 'Packaging' },
-  { value: 'carton', label: 'carton (Carton / Master Shipper)', subLabel: 'Packaging' },
-  { value: 'case', label: 'case (Case)', subLabel: 'Packaging' },
-  { value: 'pack', label: 'pack (Packet / Inner Pack)', subLabel: 'Packaging' },
-  { value: 'packet', label: 'packet (Packet)', subLabel: 'Packaging' },
-  { value: 'bag', label: 'bag (Bag - e.g. 25kg / 50kg Sugar/Milk)', subLabel: 'Bulk Raw Material' },
-  { value: 'pouch', label: 'pouch (Pouch / Standup Pouch)', subLabel: 'Packaging' },
-  { value: 'sack', label: 'sack (Sack)', subLabel: 'Bulk Packaging' },
-  { value: 'drum', label: 'drum (Drum - 200 Liter / Chemical / Syrups)', subLabel: 'Liquid Bulk' },
-  { value: 'barrel', label: 'barrel (Barrel)', subLabel: 'Bulk Container' },
-  { value: 'bottle', label: 'bottle (Bottle)', subLabel: 'Container' },
-  { value: 'can', label: 'can (Can / Metal Tin)', subLabel: 'Container' },
-  { value: 'cylinder', label: 'cylinder (Gas / Liquid Gas Cylinder)', subLabel: 'Gas / Overhead' },
-  { value: 'pallet', label: 'pallet (Pallet - Warehouse Handling)', subLabel: 'Logistics' },
-  { value: 'tray', label: 'tray (Tray)', subLabel: 'Packaging' },
-  { value: 'tube', label: 'tube (Tube)', subLabel: 'Packaging' },
-  { value: 'crate', label: 'crate (Crate / Milk Crate)', subLabel: 'Handling' },
+  // ── LINEAR, ROLLS & PAPER ──
+  { value: 'MTR', label: 'MTR' },
+  { value: 'CM', label: 'CM' },
+  { value: 'MM', label: 'MM' },
+  { value: 'KM', label: 'KM' },
+  { value: 'INCH', label: 'INCH' },
+  { value: 'FT', label: 'FT' },
+  { value: 'YD', label: 'YD' },
+  { value: 'ROLL', label: 'ROLL' },
+  { value: 'SHEET', label: 'SHEET' },
+  { value: 'REAM', label: 'REAM' },
 
-  // ── 6. LENGTH & LINEAR MEASURES ──
-  { value: 'meter', label: 'meter (Meter)', subLabel: 'Linear' },
-  { value: 'cm', label: 'cm (Centimeter)', subLabel: 'Linear' },
-  { value: 'mm', label: 'mm (Millimeter)', subLabel: 'Linear' },
-  { value: 'km', label: 'km (Kilometer)', subLabel: 'Distance' },
-  { value: 'inch', label: 'inch (Inch)', subLabel: 'Linear' },
-  { value: 'feet', label: 'feet (Feet / Foot)', subLabel: 'Linear' },
-  { value: 'yard', label: 'yard (Yard)', subLabel: 'Linear' },
-  { value: 'mile', label: 'mile (Mile)', subLabel: 'Distance' },
+  // ── AREA ──
+  { value: 'SQM', label: 'SQM' },
+  { value: 'SQFT', label: 'SQFT' },
+  { value: 'SQCM', label: 'SQCM' },
+  { value: 'ACRE', label: 'ACRE' },
+  { value: 'HECTARE', label: 'HECTARE' },
 
-  // ── 7. ROLL, SHEET & PRINTING MATERIALS ──
-  { value: 'roll', label: 'roll (Roll - Wrapping Film / Label Roll)', subLabel: 'Packaging Roll' },
-  { value: 'sheet', label: 'sheet (Sheet - Board / Paper)', subLabel: 'Sheet' },
-  { value: 'ream', label: 'ream (Ream - 500 Sheets)', subLabel: 'Paper / Printing' },
+  // ── VOLUME & LIQUIDS ──
+  { value: 'CL', label: 'CL' },
+  { value: 'DL', label: 'DL' },
+  { value: 'GAL', label: 'GAL' },
+  { value: 'CBM', label: 'CBM' },
+  { value: 'CC', label: 'CC' },
 
-  // ── 8. AREA MEASURES ──
-  { value: 'square meter', label: 'square meter (m²)', subLabel: 'Area' },
-  { value: 'square ft', label: 'square ft (sq ft)', subLabel: 'Area / Space Rent' },
-  { value: 'square cm', label: 'square cm (cm²)', subLabel: 'Area' },
-  { value: 'square inch', label: 'square inch (sq in)', subLabel: 'Area' },
-  { value: 'square yard', label: 'square yard (sq yd)', subLabel: 'Area' },
-  { value: 'acre', label: 'acre (Acre)', subLabel: 'Land Area' },
-  { value: 'hectare', label: 'hectare (Hectare)', subLabel: 'Land Area' },
+  // ── IMPERIAL WEIGHT ──
+  { value: 'LB', label: 'LB' },
+  { value: 'OZ', label: 'OZ' },
 
-  // ── 9. TIME-BASED & OVERHEAD CHARGES ──
-  { value: 'Day', label: 'Day (Day - Factory Rent / Daily Cost)', subLabel: 'Operational Rent' },
-  { value: 'day', label: 'day (Daily Rate)', subLabel: 'Time' },
-  { value: 'Days', label: 'Days (Plural)', subLabel: 'Time' },
-  { value: 'hour', label: 'hour (Hour - Machine Run / Labor)', subLabel: 'Operational Rate' },
-  { value: 'shift', label: 'shift (Production Shift - 8h)', subLabel: 'Operational Rate' },
-
-  // ── 10. ENERGY, UTILITIES & POWER ──
-  { value: 'kWh', label: 'kWh (Kilowatt-Hour - EB Electricity Units)', subLabel: 'Energy / Electricity' },
-  { value: 'MJ', label: 'MJ (Megajoule)', subLabel: 'Thermal Energy' }
+  // ── TIME & UTILITIES ──
+  { value: 'DAY', label: 'DAY' },
+  { value: 'HR', label: 'HR' },
+  { value: 'SHIFT', label: 'SHIFT' },
+  { value: 'KWH', label: 'KWH' },
+  { value: 'MJ', label: 'MJ' }
 ];
 
-// String array of all UOM values for legacy components expecting string[]
+// Pure UPPERCASE string array of all UOM units
 export const UNIVERSAL_UOM_STRING_LIST = UNIVERSAL_UOM_CATALOG.map(u => u.value);
 
 /**
  * UniversalUomSelect Component
- * Used across the ENTIRE ERP for seamless, searchable, keyboard-friendly UOM selection.
+ * Displays only clean, uppercase UOM units without lengthy descriptions.
  */
 export default function UniversalUomSelect({
   value = '',
   onChange,
   extraOptions = [],
   placeholder = 'Select UOM...',
-  searchPlaceholder = 'Search UOM (kg, liter, Nos, box, Unit, stick, Day)...',
+  searchPlaceholder = 'Search UOM (KG, PCS, ML, LTR, BOX)...',
   disabled = false,
   error = false,
   className = '',
   triggerClassName = '',
-  menuClassName = 'min-w-[220px]',
+  menuClassName = 'min-w-[200px]',
   size = 'default'
 }) {
   // Aggregate all built-in universal UOMs + any dynamic database masters from /api/uom
   const options = useMemo(() => {
     const map = new Map();
 
-    // 1. Preload the complete universal catalog
+    // 1. Preload standard universal uppercase units
     UNIVERSAL_UOM_CATALOG.forEach(opt => {
-      map.set(opt.value.toLowerCase(), {
+      map.set(opt.value, {
         value: opt.value,
-        label: opt.label,
-        subLabel: opt.subLabel
+        label: opt.label
       });
     });
 
-    // 2. Merge dynamic extra database options (/api/uom)
+    // 2. Merge dynamic extra database options (/api/uom) into uppercase units
     (extraOptions || []).forEach(opt => {
       if (!opt) return;
-      const val = typeof opt === 'string' ? opt : (opt.abbreviation || opt.name || opt.value || opt.id);
-      if (!val) return;
-      const key = String(val).toLowerCase();
-      if (!map.has(key)) {
-        map.set(key, {
-          value: val,
-          label: typeof opt === 'string' ? opt : `${opt.name || val} (${opt.abbreviation || val})`,
-          subLabel: opt.category || 'Database Master'
+      const raw = typeof opt === 'string' ? opt : (opt.abbreviation || opt.name || opt.value || opt.id);
+      if (!raw) return;
+      const upper = normalizeUom(raw);
+      if (!map.has(upper)) {
+        map.set(upper, {
+          value: upper,
+          label: upper
         });
       }
     });
 
-    // 3. Guarantee that ANY existing custom value is included and never lost
+    // 3. Guarantee that ANY existing custom value is included in uppercase
     if (value && String(value).trim()) {
-      const valStr = String(value).trim();
-      const key = valStr.toLowerCase();
-      if (!map.has(key)) {
-        map.set(key, {
-          value: valStr,
-          label: valStr,
-          subLabel: 'Custom Unit'
+      const upperVal = normalizeUom(value);
+      if (!map.has(upperVal)) {
+        map.set(upperVal, {
+          value: upperVal,
+          label: upperVal
         });
       }
     }
@@ -204,17 +275,22 @@ export default function UniversalUomSelect({
     return Array.from(map.values());
   }, [extraOptions, value]);
 
-  // Match current value with available options
+  // Match current value with available options normalized to uppercase
   const resolvedValue = useMemo(() => {
     if (!value) return '';
-    const match = options.find(o => o.value.toLowerCase() === String(value).toLowerCase());
-    return match ? match.value : value;
-  }, [options, value]);
+    return normalizeUom(value);
+  }, [value]);
+
+  const handleChange = (selected) => {
+    if (!onChange) return;
+    const norm = normalizeUom(selected);
+    onChange(norm);
+  };
 
   return (
     <SearchSelect
       value={resolvedValue}
-      onChange={onChange}
+      onChange={handleChange}
       options={options}
       placeholder={placeholder}
       searchPlaceholder={searchPlaceholder}

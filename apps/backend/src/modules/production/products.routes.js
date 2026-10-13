@@ -62,26 +62,71 @@ const cacheMiddleware = (req, res, next) => {
   next();
 };
 
-// Helper to generate unique product code (FP-XXXXXX)
-const generateProductCode = async (tx) => {
-  // Lock table row to prevent race conditions
-  const result = await tx.$queryRaw`
-    SELECT code FROM products 
-    WHERE code LIKE 'FP-%'
-    ORDER BY code DESC 
-    LIMIT 1 
-    FOR UPDATE
-  `;
-  const lastRecord = Array.isArray(result) && result.length > 0 ? result[0] : null;
-
-  if (!lastRecord || !lastRecord.code) {
-    return 'FP-000001';
+// Helper to calculate next auto-sequence product code strictly in FP-XXXXXX series
+const getNextProductCode = async (client = prisma) => {
+  try {
+    const result = await client.$queryRaw`
+      SELECT SUBSTRING(code FROM '^FP-([0-9]+)$')::integer AS num
+      FROM products
+      WHERE code ~ '^FP-[0-9]+$'
+      ORDER BY num DESC
+      LIMIT 1
+    `;
+    const maxNum = Array.isArray(result) && result.length > 0 && result[0].num != null
+      ? Number(result[0].num)
+      : 0;
+    return `FP-${String(maxNum + 1).padStart(6, '0')}`;
+  } catch (err) {
+    const products = await client.finishedProduct.findMany({
+      where: { code: { startsWith: 'FP-' } },
+      select: { code: true }
+    });
+    let maxNum = 0;
+    for (const p of products) {
+      const match = p.code && p.code.match(/^FP-(\d+)$/);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (!isNaN(val) && val > maxNum) {
+          maxNum = val;
+        }
+      }
+    }
+    return `FP-${String(maxNum + 1).padStart(6, '0')}`;
   }
+};
 
-  const lastNumberStr = lastRecord.code.split('-')[1];
-  const lastNumber = parseInt(lastNumberStr, 10);
-  const nextNumber = lastNumber + 1;
-  return `FP-${String(nextNumber).padStart(6, '0')}`;
+// Helper to generate unique product code (FP-XXXXXX) with transaction lock
+const generateProductCode = async (tx) => {
+  try {
+    const result = await tx.$queryRaw`
+      SELECT SUBSTRING(code FROM '^FP-([0-9]+)$')::integer AS num
+      FROM products
+      WHERE code ~ '^FP-[0-9]+$'
+      ORDER BY num DESC
+      LIMIT 1
+      FOR UPDATE
+    `;
+    const maxNum = Array.isArray(result) && result.length > 0 && result[0].num != null
+      ? Number(result[0].num)
+      : 0;
+    return `FP-${String(maxNum + 1).padStart(6, '0')}`;
+  } catch (err) {
+    const products = await tx.finishedProduct.findMany({
+      where: { code: { startsWith: 'FP-' } },
+      select: { code: true }
+    });
+    let maxNum = 0;
+    for (const p of products) {
+      const match = p.code && p.code.match(/^FP-(\d+)$/);
+      if (match) {
+        const val = parseInt(match[1], 10);
+        if (!isNaN(val) && val > maxNum) {
+          maxNum = val;
+        }
+      }
+    }
+    return `FP-${String(maxNum + 1).padStart(6, '0')}`;
+  }
 };
 
 const isUuid = (value) => {
@@ -1528,6 +1573,16 @@ router.get('/', authenticateToken, async (req, res, next) => {
   }
 });
 
+// GET /api/products/next-code - Fetch latest auto-generated FP-XXXXXX code strictly based on FP- series
+router.get('/next-code', authenticateToken, async (req, res, next) => {
+  try {
+    const nextCode = await getNextProductCode(prisma);
+    res.json({ code: nextCode });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/products/:id - product detail
 router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
@@ -1650,6 +1705,7 @@ const formatZodError = (err) => {
 };
 
 const productValidationSchema = z.object({
+  code: z.string().trim().optional().nullable(),
   name: z.string().trim().min(1, 'Product name is required'),
   categoryId: z.string().trim().min(1, 'Category is required'),
   subcategoryId: z.string().optional().nullable(),
@@ -1967,7 +2023,19 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (req,
     const data = productValidationSchema.parse(req.body);
 
     const product = await prisma.$transaction(async (tx) => {
-      const code = await generateProductCode(tx);
+      let code;
+      if (data.code && String(data.code).trim().length > 0) {
+        const customCode = String(data.code).trim().toUpperCase();
+        const existing = await tx.finishedProduct.findFirst({
+          where: { code: customCode, deletedAt: null }
+        });
+        if (existing) {
+          throw new Error(`Product system code "${customCode}" is already in use by another product.`);
+        }
+        code = customCode;
+      } else {
+        code = await generateProductCode(tx);
+      }
 
       // Resolve static UOM label/UUID
       const resolvedUomId = await resolveUomId(tx, data.unitId);
@@ -2166,10 +2234,23 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
         });
       }
 
+      let updateCode = existing.code;
+      if (data.code && String(data.code).trim().length > 0 && String(data.code).trim().toUpperCase() !== existing.code) {
+        const customCode = String(data.code).trim().toUpperCase();
+        const duplicate = await tx.finishedProduct.findFirst({
+          where: { code: customCode, id: { not: existing.id }, deletedAt: null }
+        });
+        if (duplicate) {
+          throw new Error(`Product system code "${customCode}" is already in use by another product.`);
+        }
+        updateCode = customCode;
+      }
+
       // 1. Update product
       const updatedProduct = await tx.finishedProduct.update({
         where: { id },
         data: {
+          code: updateCode,
           name: data.name ? data.name.trim().toUpperCase() : data.name,
           categoryId: data.categoryId,
           unitId: resolvedUomId,

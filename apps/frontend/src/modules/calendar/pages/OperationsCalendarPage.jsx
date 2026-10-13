@@ -19,7 +19,7 @@ export default function OperationsCalendarPage() {
   }, []);
 
   return (
-    <div className="w-full h-full flex-1 flex flex-col p-0 m-0 overflow-hidden bg-[#f4f5f8] dark:bg-[#0f1318]">
+    <div className="w-full h-full flex-1 flex flex-col p-0 m-0 overflow-hidden bg-[#f4f5f8] dark:bg-[#0f1318] min-w-0">
       <OperationsCalendar operationalMilestones={milestones} fullScreen={true} />
     </div>
   );
