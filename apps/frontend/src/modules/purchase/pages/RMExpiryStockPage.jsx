@@ -276,7 +276,7 @@ export default function RMExpiryStockPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap self-start sm:self-auto w-full sm:w-auto justify-start sm:justify-end shrink-0">
           <Button
             variant="outline"
             size="sm"
@@ -438,16 +438,16 @@ export default function RMExpiryStockPage() {
             </div>
 
             {/* Filter Dropdowns */}
-            <div className="flex items-center gap-1.5 flex-wrap justify-start lg:justify-end">
+            <div className="flex items-center gap-1.5 flex-wrap w-full lg:w-auto justify-start lg:justify-end">
               {/* Category Filter */}
-              <div className="relative flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[120px] w-full sm:w-auto flex items-center">
                 <select
                   value={categoryFilter}
                   onChange={(e) => {
                     setCategoryFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer shadow-3xs"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer shadow-3xs"
                 >
                   <option value="ALL">All Categories</option>
                   {categoryOptions.map(cat => (
@@ -458,14 +458,14 @@ export default function RMExpiryStockPage() {
               </div>
 
               {/* Status Filter */}
-              <div className="relative flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[130px] w-full sm:w-auto flex items-center">
                 <select
                   value={statusFilter}
                   onChange={(e) => {
                     setStatusFilter(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-bold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer shadow-3xs"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-bold border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer shadow-3xs"
                 >
                   <option value="ALL">All Expiry Statuses</option>
                   <option value="EXPIRED">🔴 Expired Only</option>
@@ -477,14 +477,14 @@ export default function RMExpiryStockPage() {
               </div>
 
               {/* Days Horizon Filter */}
-              <div className="relative flex items-center">
+              <div className="relative flex-1 sm:flex-none min-w-[110px] w-full sm:w-auto flex items-center">
                 <select
                   value={daysHorizon}
                   onChange={(e) => {
                     setDaysHorizon(e.target.value);
                     setCurrentPage(1);
                   }}
-                  className="h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer shadow-3xs"
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-medium border border-slate-200 dark:border-slate-700/80 rounded-lg bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer shadow-3xs"
                 >
                   <option value="ALL">All Horizons</option>
                   <option value="7">Next 7 Days</option>
@@ -516,8 +516,184 @@ export default function RMExpiryStockPage() {
             </div>
           </div>
 
-          {/* FEFO Table */}
-          <div className="overflow-x-auto min-h-[380px]">
+          {/* Mobile & Tablet Responsive View (NO Horizontal Scroll, Displays All Data) */}
+          <div className="lg:hidden divide-y divide-slate-100 dark:divide-slate-800">
+            {isLoading ? (
+              <div className="py-12 text-center text-slate-400">
+                <div className="flex flex-col items-center justify-center gap-2">
+                  <RefreshCw className="w-6 h-6 animate-spin text-amber-500" />
+                  <span className="text-xs font-semibold">Loading FEFO Batch Matrix...</span>
+                </div>
+              </div>
+            ) : paginatedBatches.length === 0 ? (
+              <div className="py-12 text-center text-slate-400">
+                <div className="flex flex-col items-center justify-center gap-2">
+                  <Package className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                  <span className="text-xs font-semibold">No batches found matching current filters.</span>
+                </div>
+              </div>
+            ) : (
+              paginatedBatches.map((b, idx) => {
+                const rowNumber = (currentPage - 1) * itemsPerPage + idx + 1;
+                const isExpired = b.healthStatus === 'EXPIRED';
+                const isExpiringSoon = b.healthStatus === 'EXPIRING_SOON';
+                const isSafe = b.healthStatus === 'SAFE';
+
+                return (
+                  <div
+                    key={b.id || idx}
+                    className={`p-3.5 space-y-2.5 transition-colors ${
+                      isExpired 
+                        ? 'bg-rose-50/40 dark:bg-rose-950/20' 
+                        : (isExpiringSoon 
+                          ? 'bg-amber-50/30 dark:bg-amber-950/20' 
+                          : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40')
+                    }`}
+                  >
+                    {/* Top Row: #SN + Material Code + Category + Health Badge */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] text-slate-400 font-bold font-mono">
+                          #{rowNumber}
+                        </span>
+                        <span className="font-mono text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200/60 dark:border-indigo-800/60 px-1.5 py-0.5 rounded">
+                          {b.rawMaterialCode}
+                        </span>
+                        <span className="text-[10px] font-semibold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200/60 dark:border-slate-700">
+                          {b.category}
+                        </span>
+                      </div>
+
+                      {/* Expiry Health Status */}
+                      <div>
+                        {isExpired ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-black bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-600"></span>
+                            EXPIRED ({Math.abs(b.daysRemaining)}d ago)
+                          </span>
+                        ) : isExpiringSoon ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-extrabold bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                            IN {b.daysRemaining} DAYS
+                          </span>
+                        ) : isSafe ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-bold bg-emerald-100/80 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                            SAFE ({b.daysRemaining}d)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-3xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-500">
+                            NO EXPIRY
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Material Name */}
+                    <div className="font-bold text-slate-900 dark:text-white text-sm leading-tight">
+                      {b.rawMaterialName}
+                    </div>
+
+                    {/* Our Batch Number Banner */}
+                    <div className="p-2 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Lock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                        <span className="text-[10px] uppercase font-bold text-slate-500">Our Batch:</span>
+                        <span className="font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                          {b.batchNumber}
+                        </span>
+                        {b.batchNumber.match(/-[A-Z]$/) && (
+                          <span className="text-3xs font-black bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 px-1 py-0.2 rounded">
+                            Split {b.batchNumber.slice(-1)}
+                          </span>
+                        )}
+                      </div>
+                      {b.mfgBatchNo && (
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          MFG: {b.mfgBatchNo}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Quantities 2-Column Grid */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block">Batch Stock</span>
+                        <div className="font-mono font-black text-sm text-slate-900 dark:text-slate-100 mt-0.5">
+                          {b.netQty.toLocaleString()} <span className="text-[10px] font-semibold text-slate-500 uppercase">{b.uom}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          ₹{(b.batchValue || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
+                        <span className="text-[9px] uppercase font-bold text-slate-400 block">Total RM Stock</span>
+                        <div className="font-mono font-bold text-sm text-slate-700 dark:text-slate-300 mt-0.5">
+                          {b.totalRmStock.toLocaleString()} <span className="text-[10px] font-semibold text-slate-500 uppercase">{b.uom}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 mt-0.5">
+                          Weight: <span className="font-medium text-slate-600 dark:text-slate-300">{b.weight || '—'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Dates & Expiry Verification */}
+                    <div className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800 space-y-1 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400 font-medium">MFG Date:</span>
+                        <span className="font-mono text-slate-700 dark:text-slate-300 font-semibold">
+                          {formatSafeDate(b.mfgDate)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400 font-medium">Expiry Date:</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-mono font-bold ${
+                            isExpired ? 'text-rose-600 dark:text-rose-400' : (isExpiringSoon ? 'text-amber-600 dark:text-amber-400' : 'text-slate-900 dark:text-slate-100')
+                          }`}>
+                            {b.expiryDate ? formatSafeDate(b.expiryDate) : 'No Expiry'}
+                          </span>
+                          <span className="text-[10px] px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                            {b.isLabExempt ? 'Lab Exempt' : (b.expirySource === 'LAB_TEST' ? 'Lab Verified' : 'Declared')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setInspectModalBatch(b)}
+                        className="flex-1 h-8 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50/70 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-800 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/60 shadow-3xs cursor-pointer inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-indigo-600" />
+                        <span>View Details</span>
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        onClick={() => handleMoveToWastage(b)}
+                        className={`flex-1 h-8 text-xs font-extrabold rounded-lg shadow-3xs cursor-pointer inline-flex items-center justify-center gap-1.5 transition-colors ${
+                          isExpired
+                            ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-500/20'
+                            : 'bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:hover:bg-rose-900/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                        }`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Move to Waste</span>
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Desktop Table View (ONLY on screens lg and larger >= 1024px) */}
+          <div className="hidden lg:block overflow-x-auto min-h-[380px]">
             <table className="w-full text-xs text-left">
               <thead className="bg-slate-50/90 dark:bg-slate-800/70 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider select-none">
                 <tr>

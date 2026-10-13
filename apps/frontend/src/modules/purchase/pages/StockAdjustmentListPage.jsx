@@ -186,8 +186,169 @@ const StockAdjustmentListPage = () => {
           </div>
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto text-xs">
+        {/* Mobile & Tablet Responsive View (NO Horizontal Scroll, Displays All Data) */}
+        <div className="lg:hidden divide-y divide-slate-100 dark:divide-slate-800">
+          {isLoading ? (
+            <div className="py-12 text-center text-slate-400 text-xs">Loading adjustments...</div>
+          ) : paginatedAdjustments.length === 0 ? (
+            <div className="py-12 text-center text-slate-400 text-xs">No stock adjustments found.</div>
+          ) : (
+            paginatedAdjustments.map((adj, index) => {
+              const calculatedIndex = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
+              const batchesList = Array.isArray(adj.batches) ? adj.batches : [];
+              const isExpanded = expandedRowId === adj.id;
+
+              return (
+                <div key={adj.id} className="p-3.5 space-y-2.5 transition-colors">
+                  {/* Top Row: #SN + Date + Type Badge */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-bold font-mono">
+                        #{calculatedIndex}
+                      </span>
+                      <span className="font-mono text-[10px] text-slate-500">
+                        {format(new Date(adj.createdAt), 'dd-MM-yyyy')}
+                      </span>
+                      {adj.createdBy && (
+                        <span className="text-[10px] text-slate-400">
+                          by <strong className="text-slate-600 dark:text-slate-300">{adj.createdBy}</strong>
+                        </span>
+                      )}
+                    </div>
+
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${
+                      adj.type === 'ADDITION' 
+                        ? 'bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20' 
+                        : 'bg-rose-500/10 text-rose-600 dark:text-rose-450 border-rose-500/20'
+                    }`}>
+                      {adj.type === 'ADDITION' ? '+ Addition' : '- Subtraction'}
+                    </span>
+                  </div>
+
+                  {/* Material Info */}
+                  <div>
+                    <h3 className="font-bold text-slate-900 dark:text-white text-sm leading-tight">
+                      {adj.rawMaterialName}
+                    </h3>
+                    <span className="font-mono text-[10px] text-indigo-600 dark:text-indigo-400 font-bold bg-indigo-50 dark:bg-indigo-950/70 px-1.5 py-0.2 rounded border border-indigo-200/60 dark:border-indigo-800/60 inline-block mt-0.5">
+                      {adj.rawMaterialCode}
+                    </span>
+                  </div>
+
+                  {/* Quantity Adjusted */}
+                  <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                    <span className="text-[10px] uppercase font-bold text-slate-400">Adjusted Quantity:</span>
+                    <span className="font-mono font-black text-sm text-slate-900 dark:text-white">
+                      {Number(adj.quantity).toLocaleString()} <span className="text-[10px] font-normal text-slate-500 uppercase">{adj.unit}</span>
+                    </span>
+                  </div>
+
+                  {/* Batches Allocated */}
+                  <div className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase">Batches Allocated:</span>
+                      {batchesList.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedRowId(isExpanded ? null : adj.id)}
+                          className="text-[10px] text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-0.5 font-bold cursor-pointer"
+                        >
+                          {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                          {isExpanded ? 'Hide Details' : `View ${batchesList.length} Batches`}
+                        </button>
+                      )}
+                    </div>
+
+                    {batchesList.length === 0 ? (
+                      <span className="text-slate-400 text-[11px] italic">General (No Lot Allocated)</span>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {batchesList.map((b, bIdx) => (
+                          <span
+                            key={bIdx}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/70 font-mono text-[10px] font-bold"
+                          >
+                            <Lock className="w-2.5 h-2.5 text-indigo-400" />
+                            {b.batchNumber}
+                            <span className="text-[9px] font-normal text-slate-500">({b.quantity} {adj.unit})</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Expandable batch details inside card */}
+                    {isExpanded && batchesList.length > 0 && (
+                      <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-1.5">
+                        {batchesList.map((b, bIdx) => (
+                          <div key={bIdx} className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-[11px] space-y-0.5">
+                            <div className="flex items-center justify-between font-mono font-bold">
+                              <span className="text-indigo-600 dark:text-indigo-400">#{bIdx + 1} {b.batchNumber}</span>
+                              <span className="text-slate-900 dark:text-white">{b.quantity} {adj.unit}</span>
+                            </div>
+                            <div className="text-slate-500 dark:text-slate-400 text-[10px] space-y-0.5">
+                              {b.poReferenceNo && <div>PO: <strong className="text-slate-700 dark:text-slate-200">{b.poReferenceNo}</strong></div>}
+                              {b.grnReferenceNo && <div>GRN: <strong className="text-slate-700 dark:text-slate-200">{b.grnReferenceNo}</strong></div>}
+                              {b.supplierName && <div>Supplier: <strong className="text-slate-700 dark:text-slate-200">{b.supplierName}</strong></div>}
+                              {b.storageLocation && <div>Location: <strong className="text-slate-700 dark:text-slate-200">{b.storageLocation}</strong></div>}
+                              {b.weight && <div>Weight: <strong className="text-slate-700 dark:text-slate-200">{b.weight}</strong></div>}
+                              {b.mfgBatchNo && <div>MFG: <strong className="text-slate-700 dark:text-slate-200">{b.mfgBatchNo}</strong></div>}
+                              {b.mfgDate && <div>MFG Date: <strong className="text-slate-700 dark:text-slate-200">{String(b.mfgDate).slice(0, 10)}</strong></div>}
+                              {b.expDate && <div>Exp Date: <strong className="text-rose-600 dark:text-rose-400">{String(b.expDate).slice(0, 10)}</strong></div>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Reason & Notes */}
+                  {adj.notes && (
+                    <div className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-950/40 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <span className="text-[10px] text-slate-400 font-bold block uppercase">Reason & Notes:</span>
+                      <p className="mt-0.5">{adj.notes}</p>
+                    </div>
+                  )}
+
+                  {/* Actions (if canEdit) */}
+                  {canEdit && (
+                    <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-100 dark:border-slate-800">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate('/rm/stock-adjustment/add', { state: { editData: {
+                          id: adj.id,
+                          rawMaterialId: adj.rawMaterialId,
+                          rawMaterial: { id: adj.rawMaterialId, code: adj.rawMaterialCode, name: adj.rawMaterialName, unit: adj.unit },
+                          type: adj.type,
+                          quantity: adj.quantity,
+                          notes: adj.notes,
+                          batches: adj.batches
+                        }}})}
+                        className="flex-1 h-8 text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800 rounded-lg cursor-pointer inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        <span>Edit Adjustment</span>
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDelete(adj.id)}
+                        className="flex-1 h-8 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 border border-rose-200 dark:border-rose-800 rounded-lg cursor-pointer inline-flex items-center justify-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Table View (ONLY on screens lg and larger >= 1024px) */}
+        <div className="hidden lg:block overflow-x-auto text-xs">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-800/65 border-b border-slate-200 dark:border-slate-800 text-slate-500 font-bold uppercase tracking-widest text-[11px]">

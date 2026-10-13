@@ -160,7 +160,122 @@ export default function RMLowStockPage() {
 
       {/* Main Table Panel */}
       <div className="bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/40 rounded-2xl shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        {/* Mobile & Tablet Responsive View (NO Horizontal Scroll, Displays All Data) */}
+        <div className="lg:hidden divide-y divide-slate-100 dark:divide-slate-800">
+          {isLoading ? (
+            <div className="p-8 text-center text-slate-400">Loading stock data...</div>
+          ) : paginatedStock.length === 0 ? (
+            <div className="p-8 text-center text-slate-400">No items are currently in low stock.</div>
+          ) : (
+            paginatedStock.map((item, idx) => {
+              const calculatedIndex = (currentPage - 1) * ITEMS_PER_PAGE + idx + 1;
+              const shortfall = Math.max(0, item.alertLevel - item.availableQuantity);
+
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => handleOpenHistory(item.id)}
+                  className="p-3.5 space-y-2.5 hover:bg-rose-50/40 dark:hover:bg-rose-950/20 transition-colors cursor-pointer"
+                >
+                  {/* Top Row: #SN + Code + Material Name + Deficit Alert Tag */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-bold font-mono">
+                        #{calculatedIndex}
+                      </span>
+                      <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[10px] font-mono font-bold border dark:border-slate-700">
+                        {item.code}
+                      </span>
+                    </div>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-3xs font-extrabold bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800">
+                      <AlertTriangle className="w-3 h-3 text-rose-600" />
+                      CRITICAL DEFICIT
+                    </span>
+                  </div>
+
+                  {/* Material Name */}
+                  <div className="font-bold text-slate-900 dark:text-slate-100 text-sm leading-tight">
+                    {item.name}
+                  </div>
+
+                  {/* 2-Column Quantity & Reorder Subgrid */}
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2 rounded-lg bg-rose-50/60 dark:bg-rose-950/30 border border-rose-200/70 dark:border-rose-900/40">
+                      <span className="text-[9px] uppercase font-bold text-rose-700 dark:text-rose-400 block">
+                        Available Qty
+                      </span>
+                      <div className="flex items-baseline gap-1 mt-0.5">
+                        <span className="font-mono font-black text-sm text-rose-600 dark:text-rose-400">
+                          {item.availableQuantity.toLocaleString()}
+                        </span>
+                        <span className="text-[10px] text-rose-500 uppercase font-semibold">
+                          {item.unit}
+                        </span>
+                      </div>
+                      {shortfall > 0 && (
+                        <div className="text-[10px] text-rose-600 font-medium mt-0.5">
+                          Shortfall: -{shortfall.toLocaleString()} {item.unit}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800">
+                      <span className="text-[9px] uppercase font-bold text-slate-400 block">
+                        Reorder Level
+                      </span>
+                      <div className="flex items-baseline gap-1 mt-0.5">
+                        <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-sm">
+                          {item.alertLevel.toLocaleString()}
+                        </span>
+                        <span className="text-[10px] text-slate-400 uppercase font-semibold">
+                          {item.unit}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        Threshold Alert
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Rates & Valuation Subgrid */}
+                  <div className="p-2.5 rounded-lg bg-slate-50/70 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block">Rate Per Unit:</span>
+                      <span className="font-mono font-semibold text-slate-800 dark:text-slate-200">
+                        ₹{item.ratePerUnit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[10px] text-slate-400 block">Total Value (INR):</span>
+                      <span className="font-mono font-black text-slate-900 dark:text-white">
+                        ₹{item.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* History Action Button */}
+                  <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenHistory(item.id);
+                      }}
+                      title="View Material Lifecycle & Audit History"
+                      className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 border border-rose-200 dark:border-rose-800 transition-all cursor-pointer shadow-xs"
+                    >
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>Audit History</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Table View (ONLY on screens lg and larger >= 1024px) */}
+        <div className="hidden lg:block overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead className="bg-rose-50/70 dark:bg-rose-950/20 text-rose-800 dark:text-rose-300 font-bold border-b border-rose-100 dark:border-rose-900/50 uppercase tracking-widest">
               <tr>
