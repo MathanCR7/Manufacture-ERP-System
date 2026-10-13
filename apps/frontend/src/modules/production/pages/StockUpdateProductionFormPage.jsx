@@ -152,16 +152,17 @@ export default function StockUpdateProductionFormPage() {
           (r.name && r.name.trim().toLowerCase() === (l.rawMaterialName || '').trim().toLowerCase())
         ) || {};
 
-        const hasAlt = Boolean(rm.hasAlternateUom !== undefined ? rm.hasAlternateUom : l.hasAlternateUom);
-        const rawBase = rm.unitId || rm.consumptionUnit || l.baseUom || l.uom || 'Kg';
-        const baseUom = resolveUomString(rawBase, l.uom || 'Kg');
-        const altUom = resolveUomString(rm.alternateUom || l.alternateUom, null);
-        const bQty = Number(rm.baseUomQty || l.baseUomQty || 1);
-        const aQty = Number(rm.alternateUomQty || l.alternateUomQty || 1);
-        const factor = Number(rm.conversionFactor || l.conversionFactor || (aQty / (bQty || 1)));
-        const altRate = factor > 0 ? Number((rate / factor).toFixed(4)) : rate;
-        const altQty = Number((scaledQty * factor).toFixed(3));
-        const isAlt = Boolean(hasAlt && l.uom && altUom && l.uom.toLowerCase() === altUom.toLowerCase());
+        // STRICT: Only enable alternate UOM if enabled in /setup/raw-material!
+        const hasAlt = Boolean(rm?.id ? (rm.hasAlternateUom && rm.alternateUom) : (l.hasAlternateUom && l.alternateUom));
+        const rawBase = (rm?.id ? (rm.unitId || rm.consumptionUnit) : (l.baseUom || l.uom)) || 'liter';
+        const baseUom = resolveUomString(rawBase, l.uom || 'liter');
+        const altUom = hasAlt ? resolveUomString(rm?.alternateUom || l.alternateUom, null) : null;
+        const bQty = Number(rm?.baseUomQty || l.baseUomQty || 1);
+        const aQty = Number(rm?.alternateUomQty || l.alternateUomQty || 1);
+        const factor = hasAlt ? Number(rm?.conversionFactor || (aQty / (bQty || 1)) || 1) : 1;
+        const altRate = (hasAlt && factor > 0) ? Number((rate / factor).toFixed(4)) : rate;
+        const altQty = hasAlt ? Number((scaledQty * factor).toFixed(3)) : scaledQty;
+        const isAlt = false;
 
         return {
           rmId: rm.id || l.rawMaterialId,
@@ -563,6 +564,7 @@ export default function StockUpdateProductionFormPage() {
         <BatchAllocationGrid
           rawMaterials={rawMaterials}
           onUpdateRawMaterials={setRawMaterials}
+          rawMaterialMasters={rawMaterialMasters}
           onRefreshPrices={handleRefreshPrices}
           refreshingPrices={refreshingPrices}
           plannedOutputQty={totalPlannedQty}

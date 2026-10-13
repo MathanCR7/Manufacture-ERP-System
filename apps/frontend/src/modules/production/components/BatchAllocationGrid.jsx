@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { api } from '@/lib/axios';
 import { 
   Tag, Boxes, RefreshCw, Plus, Minus, Trash2, Check, AlertTriangle, 
@@ -9,32 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
-const UOM_PRESETS = [
-  // Volume
-  { label: '1 Liter = 1000 ml', category: 'Volume', base: 'liter', alt: 'ml', baseQty: 1, altQty: 1000 },
-  { label: '1000 ml = 1 Liter', category: 'Volume', base: 'ml', alt: 'liter', baseQty: 1000, altQty: 1 },
-  { label: '1 Gallon = 3.785 L', category: 'Volume', base: 'gallon', alt: 'liter', baseQty: 1, altQty: 3.785 },
-  // Weight
-  { label: '1 kg = 1000 gm', category: 'Weight', base: 'kg', alt: 'gm', baseQty: 1, altQty: 1000 },
-  { label: '1000 gm = 1 kg', category: 'Weight', base: 'gm', alt: 'kg', baseQty: 1000, altQty: 1 },
-  { label: '1 gm = 1000 mg', category: 'Weight', base: 'gm', alt: 'mg', baseQty: 1, altQty: 1000 },
-  { label: '1 Ton = 1000 kg', category: 'Weight', base: 'ton', alt: 'kg', baseQty: 1, altQty: 1000 },
-  { label: '1 Quintal = 100 kg', category: 'Weight', base: 'quintal', alt: 'kg', baseQty: 1, altQty: 100 },
-  { label: '1 lb = 453.6 gm', category: 'Weight', base: 'lb', alt: 'gm', baseQty: 1, altQty: 453.6 },
-  // Length
-  { label: '1 Meter = 100 cm', category: 'Length', base: 'meter', alt: 'cm', baseQty: 1, altQty: 100 },
-  { label: '1 Meter = 1000 mm', category: 'Length', base: 'meter', alt: 'mm', baseQty: 1, altQty: 1000 },
-  { label: '1 Feet = 12 Inch', category: 'Length', base: 'feet', alt: 'inch', baseQty: 1, altQty: 12 },
-  // Count
-  { label: '1 Dozen = 12 pcs', category: 'Count', base: 'dozen', alt: 'pcs', baseQty: 1, altQty: 12 },
-  // Packing
-  { label: '1 Box = 20 pcs', category: 'Packing', base: 'box', alt: 'pcs', baseQty: 1, altQty: 20 },
-  { label: '1 Carton = 10 Box', category: 'Packing', base: 'carton', alt: 'box', baseQty: 1, altQty: 10 },
-  // Custom
-  { label: '1 Bag = 25 kg', category: 'Custom', base: 'bag', alt: 'kg', baseQty: 1, altQty: 25 },
-  { label: '1 Roll = 100 Meter', category: 'Custom', base: 'roll', alt: 'meter', baseQty: 1, altQty: 100 },
-  { label: '1 Drum = 200 Liter', category: 'Custom', base: 'drum', alt: 'liter', baseQty: 1, altQty: 200 }
-];
 
 // Helper: Format date as dd-mm-yyyy
 const formatDateDMY = (dateVal) => {
@@ -54,6 +28,7 @@ const formatDateDMY = (dateVal) => {
 export default function BatchAllocationGrid({
   rawMaterials = [],
   onUpdateRawMaterials,
+  rawMaterialMasters = [],
   onRefreshPrices,
   refreshingPrices = false,
   plannedOutputQty = 100,
@@ -71,7 +46,53 @@ export default function BatchAllocationGrid({
   }, [currentUser]);
   const canViewCosting = !isProductionRole;
 
-  // ── LOT ALLOCATION MODAL STATE ──
+  // ── FETCH / SYNC RAW MATERIAL MASTERS DIRECTLY FROM /item-setup/raw-material ──
+  const [itemSetupMasters, setItemSetupMasters] = useState(rawMaterialMasters || []);
+
+  useEffect(() => {
+    if (rawMaterialMasters && rawMaterialMasters.length > 0) {
+      setItemSetupMasters(rawMaterialMasters);
+    } else {
+      api.get('/item-setup/raw-material')
+        .then(res => {
+          if (Array.isArray(res.data)) {
+            setItemSetupMasters(res.data);
+          }
+        })
+        .catch(err => console.error('Error fetching raw material masters in BatchAllocationGrid:', err));
+    }
+  }, [rawMaterialMasters]);
+
+  const mastersMap = useMemo(() => {
+    const byId = new Map();
+    const byCode = new Map();
+    const byName = new Map();
+    (itemSetupMasters || []).forEach(m => {
+      if (m.id) byId.set(String(m.id).toLowerCase(), m);
+      if (m.code) byCode.set(String(m.code).trim().toUpperCase(), m);
+      if (m.name) byName.set(String(m.name).trim().toLowerCase(), m);
+    });
+    return { byId, byCode, byName };
+  }, [itemSetupMasters]);
+
+  const findMaster = (row) => {
+    if (!row) return null;
+    if (row.rmId && mastersMap.byId.has(String(row.rmId).toLowerCase())) {
+      return mastersMap.byId.get(String(row.rmId).toLowerCase());
+    }
+    if (row.id && mastersMap.byId.has(String(row.id).toLowerCase())) {
+      return mastersMap.byId.get(String(row.id).toLowerCase());
+    }
+    if (row.rmCode && mastersMap.byCode.has(String(row.rmCode).trim().toUpperCase())) {
+      return mastersMap.byCode.get(String(row.rmCode).trim().toUpperCase());
+    }
+    if (row.rmName && mastersMap.byName.has(String(row.rmName).trim().toLowerCase())) {
+      return mastersMap.byName.get(String(row.rmName).trim().toLowerCase());
+    }
+    return null;
+  };
+
+  // ── LOT ALLOCATION MODAL STATE (MODAL 2) ──
   const [activeItemIndex, setActiveItemIndex] = useState(null);
   const [lotModalOpen, setLotModalOpen] = useState(false);
   const [loadingLots, setLoadingLots] = useState(false);
@@ -96,129 +117,26 @@ export default function BatchAllocationGrid({
     supplierName: 'SUP-LOT-DIRECT'
   });
 
-  // ── CONVERSION RATE & SANDBOX MODAL STATE ──
-  const [conversionModalOpen, setConversionModalOpen] = useState(false);
-  const [activeConversionIndex, setActiveConversionIndex] = useState(null);
-  const [modalBaseUom, setModalBaseUom] = useState('liter');
-  const [modalAltUom, setModalAltUom] = useState('ml');
-  const [modalBaseQty, setModalBaseQty] = useState(1);
-  const [modalAltQty, setModalAltQty] = useState(1000);
-  const [modalBaseRate, setModalBaseRate] = useState(0);
-  const [modalSelectedMode, setModalSelectedMode] = useState('BASE'); // 'BASE' or 'ALT'
-  const [sandboxBaseInput, setSandboxBaseInput] = useState(5);
-  const [sandboxAltInput, setSandboxAltInput] = useState(500);
-
-  // ── OPEN CONVERSION MODAL ──
-  const openConversionModal = (index) => {
-    const row = rawMaterials[index];
-    if (!row) return;
-
-    setActiveConversionIndex(index);
-    const bUom = row.baseUom || row.selectedUom || 'liter';
-    const aUom = row.alternateUom || 'ml';
-    const bQty = Number(row.baseUomQty || 1);
-    const aQty = Number(row.alternateUomQty || row.conversionFactor || 1000);
-    const bRate = Number(row.baseRate !== undefined ? row.baseRate : (row.unitRate || 0));
-    const mode = row.activeEntryMode || 'BASE';
-
-    setModalBaseUom(bUom);
-    setModalAltUom(aUom);
-    setModalBaseQty(bQty);
-    setModalAltQty(aQty);
-    setModalBaseRate(bRate);
-    setModalSelectedMode(mode);
-    setSandboxBaseInput(5);
-    setSandboxAltInput(500);
-    setConversionModalOpen(true);
-  };
-
-  // Modal Computed Values
-  const modalConversionFactor = useMemo(() => {
-    const b = Number(modalBaseQty || 1);
-    const a = Number(modalAltQty || 1);
-    return b > 0 ? (a / b) : 1;
-  }, [modalBaseQty, modalAltQty]);
-
-  const modalAltCatalogRate = useMemo(() => {
-    const r = Number(modalBaseRate || 0);
-    return modalConversionFactor > 0 ? Number((r / modalConversionFactor).toFixed(4)) : r;
-  }, [modalBaseRate, modalConversionFactor]);
-
-  // Real-Time Conversion Sandbox Test calculations
-  const sandboxCalculatedAlt = useMemo(() => {
-    const b = Number(sandboxBaseInput || 0);
-    return Number((b * modalConversionFactor).toFixed(4));
-  }, [sandboxBaseInput, modalConversionFactor]);
-
-  const sandboxCalculatedBase = useMemo(() => {
-    const a = Number(sandboxAltInput || 0);
-    return modalConversionFactor > 0 ? Number((a / modalConversionFactor).toFixed(4)) : a;
-  }, [sandboxAltInput, modalConversionFactor]);
-
-  // Apply preset inside modal
-  const handleApplyPresetInModal = (preset) => {
-    setModalBaseUom(preset.base);
-    setModalAltUom(preset.alt);
-    setModalBaseQty(preset.baseQty);
-    setModalAltQty(preset.altQty);
-  };
-
-  // Confirm and Save Conversion Modal
-  const handleConfirmConversionModal = () => {
-    if (activeConversionIndex === null) return;
-    const updated = [...rawMaterials];
-    const row = { ...updated[activeConversionIndex] };
-
-    const bRatio = Number(modalBaseQty || 1);
-    const aRatio = Number(modalAltQty || 1);
-    const factor = bRatio > 0 ? (aRatio / bRatio) : 1;
-    const baseRate = Number(modalBaseRate || 0);
-    const altRate = factor > 0 ? Number((baseRate / factor).toFixed(4)) : baseRate;
-
-    row.hasAlternateUom = true;
-    row.baseUom = modalBaseUom;
-    row.alternateUom = modalAltUom;
-    row.baseUomQty = bRatio;
-    row.alternateUomQty = aRatio;
-    row.conversionFactor = factor;
-    row.baseRate = baseRate;
-    row.altRate = altRate;
-
-    // Maintain canonical base quantity
-    const currentBase = Number(row.baseRequiredQty !== undefined ? row.baseRequiredQty : (row.requiredQty || 0));
-    const currentAlt = Number((currentBase * factor).toFixed(3));
-    row.baseRequiredQty = currentBase;
-    row.altRequiredQty = currentAlt;
-
-    if (modalSelectedMode === 'ALT') {
-      row.activeEntryMode = 'ALT';
-      row.selectedUom = modalAltUom;
-      row.requiredQty = currentAlt;
-      row.unitRate = altRate;
-      row.totalCost = Number((currentAlt * altRate).toFixed(2));
-    } else {
-      row.activeEntryMode = 'BASE';
-      row.selectedUom = modalBaseUom;
-      row.requiredQty = currentBase;
-      row.unitRate = baseRate;
-      row.totalCost = Number((currentBase * baseRate).toFixed(2));
-    }
-
-    updated[activeConversionIndex] = row;
-    onUpdateRawMaterials(updated);
-    setConversionModalOpen(false);
-  };
-
   // ── ROW UOM DROPDOWN CHANGE ──
   const handleUomModeChange = (index, targetMode) => {
     const updated = [...rawMaterials];
     const row = { ...updated[index] };
-    if (!row.hasAlternateUom || !row.alternateUom) return;
+    const master = findMaster(row);
+    const hasAlt = Boolean(master ? (master.hasAlternateUom && master.alternateUom) : (row.hasAlternateUom && row.alternateUom));
+    if (!hasAlt) return;
 
-    const baseRatio = Number(row.baseUomQty || 1);
-    const altRatio = Number(row.alternateUomQty || row.conversionFactor || 1);
-    const factor = baseRatio > 0 ? (altRatio / baseRatio) : 1;
-    const baseRate = Number(row.baseRate !== undefined ? row.baseRate : (row.unitRate || 0));
+    const rawBase = (master?.unitId || master?.consumptionUnit || row.baseUom || row.selectedUom || 'liter');
+    const baseUom = (!rawBase || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawBase)) ? 'units' : rawBase;
+    const altUom = master?.alternateUom || row.alternateUom;
+    const factor = Number(
+      master?.conversionFactor || 
+      (master && master.alternateUomQty && master.baseUomQty ? (master.alternateUomQty / master.baseUomQty) : null) ||
+      row.conversionFactor || 
+      (row.alternateUomQty && row.baseUomQty ? (row.alternateUomQty / row.baseUomQty) : 1) ||
+      1
+    );
+
+    const baseRate = Number(row.baseRate !== undefined ? row.baseRate : (master?.ratePerUnit !== undefined ? master.ratePerUnit : (row.unitRate || 0)));
     const altRate = factor > 0 ? Number((baseRate / factor).toFixed(4)) : baseRate;
 
     // Canonical base quantity
@@ -227,23 +145,31 @@ export default function BatchAllocationGrid({
 
     if (targetMode === 'ALT') {
       row.activeEntryMode = 'ALT';
-      row.selectedUom = row.alternateUom;
+      row.selectedUom = altUom;
       row.requiredQty = altQty;
       row.baseRequiredQty = baseQty;
       row.altRequiredQty = altQty;
       row.unitRate = altRate;
       row.baseRate = baseRate;
       row.altRate = altRate;
+      row.conversionFactor = factor;
+      row.baseUom = baseUom;
+      row.alternateUom = altUom;
+      row.hasAlternateUom = true;
       row.totalCost = Number((altQty * altRate).toFixed(2));
     } else {
       row.activeEntryMode = 'BASE';
-      row.selectedUom = row.baseUom || 'Kg';
+      row.selectedUom = baseUom;
       row.requiredQty = baseQty;
       row.baseRequiredQty = baseQty;
       row.altRequiredQty = altQty;
       row.unitRate = baseRate;
       row.baseRate = baseRate;
       row.altRate = altRate;
+      row.conversionFactor = factor;
+      row.baseUom = baseUom;
+      row.alternateUom = altUom;
+      row.hasAlternateUom = true;
       row.totalCost = Number((baseQty * baseRate).toFixed(2));
     }
 
@@ -255,35 +181,46 @@ export default function BatchAllocationGrid({
   const handleQtyChange = (index, value, mode = 'BASE') => {
     const updated = [...rawMaterials];
     const row = { ...updated[index] };
+    const master = findMaster(row);
     const num = Number(value || 0);
 
-    const baseRatio = Number(row.baseUomQty || 1);
-    const altRatio = Number(row.alternateUomQty || row.conversionFactor || 1);
-    const factor = baseRatio > 0 ? (altRatio / baseRatio) : 1;
-    const baseRate = Number(row.baseRate !== undefined ? row.baseRate : (row.unitRate || 0));
+    const rawBase = (master?.unitId || master?.consumptionUnit || row.baseUom || row.selectedUom || 'liter');
+    const baseUom = (!rawBase || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawBase)) ? 'units' : rawBase;
+    const altUom = master?.alternateUom || row.alternateUom;
+    const factor = Number(
+      master?.conversionFactor || 
+      (master && master.alternateUomQty && master.baseUomQty ? (master.alternateUomQty / master.baseUomQty) : null) ||
+      row.conversionFactor || 
+      (row.alternateUomQty && row.baseUomQty ? (row.alternateUomQty / row.baseUomQty) : 1) ||
+      1
+    );
+
+    const baseRate = Number(row.baseRate !== undefined ? row.baseRate : (master?.ratePerUnit !== undefined ? master.ratePerUnit : (row.unitRate || 0)));
     const altRate = factor > 0 ? Number((baseRate / factor).toFixed(4)) : baseRate;
 
     if (mode === 'ALT') {
       const calculatedBase = factor > 0 ? Number((num / factor).toFixed(4)) : num;
       row.activeEntryMode = 'ALT';
-      row.selectedUom = row.alternateUom;
+      row.selectedUom = altUom;
       row.requiredQty = num;
       row.altRequiredQty = num;
       row.baseRequiredQty = calculatedBase;
       row.unitRate = altRate;
       row.baseRate = baseRate;
       row.altRate = altRate;
+      row.conversionFactor = factor;
       row.totalCost = Number((num * altRate).toFixed(2));
     } else {
       const calculatedAlt = Number((num * factor).toFixed(3));
       row.activeEntryMode = 'BASE';
-      row.selectedUom = row.baseUom || 'Kg';
+      row.selectedUom = baseUom;
       row.requiredQty = num;
       row.baseRequiredQty = num;
       row.altRequiredQty = calculatedAlt;
       row.unitRate = baseRate;
       row.baseRate = baseRate;
       row.altRate = altRate;
+      row.conversionFactor = factor;
       row.totalCost = Number((num * baseRate).toFixed(2));
     }
 
@@ -295,11 +232,16 @@ export default function BatchAllocationGrid({
   const handleRateChange = (index, value, mode = 'BASE') => {
     const updated = [...rawMaterials];
     const row = { ...updated[index] };
+    const master = findMaster(row);
     const r = Number(value || 0);
 
-    const baseRatio = Number(row.baseUomQty || 1);
-    const altRatio = Number(row.alternateUomQty || row.conversionFactor || 1);
-    const factor = baseRatio > 0 ? (altRatio / baseRatio) : 1;
+    const factor = Number(
+      master?.conversionFactor || 
+      (master && master.alternateUomQty && master.baseUomQty ? (master.alternateUomQty / master.baseUomQty) : null) ||
+      row.conversionFactor || 
+      (row.alternateUomQty && row.baseUomQty ? (row.alternateUomQty / row.baseUomQty) : 1) ||
+      1
+    );
 
     if (mode === 'ALT') {
       const calculatedBaseRate = Number((r * factor).toFixed(4));
@@ -307,14 +249,16 @@ export default function BatchAllocationGrid({
       row.baseRate = calculatedBaseRate;
       row.unitRate = r;
       row.rateSource = 'MANUAL_OVERRIDE';
-      row.totalCost = Number((Number(row.altRequiredQty || row.requiredQty || 0) * r).toFixed(2));
+      const currentAltQty = Number(row.altRequiredQty !== undefined ? row.altRequiredQty : (row.requiredQty || 0));
+      row.totalCost = Number((currentAltQty * r).toFixed(2));
     } else {
       const calculatedAltRate = factor > 0 ? Number((r / factor).toFixed(4)) : r;
       row.baseRate = r;
       row.altRate = calculatedAltRate;
       row.unitRate = r;
       row.rateSource = 'MANUAL_OVERRIDE';
-      row.totalCost = Number((Number(row.baseRequiredQty || row.requiredQty || 0) * r).toFixed(2));
+      const currentBaseQty = Number(row.baseRequiredQty !== undefined ? row.baseRequiredQty : (row.requiredQty || 0));
+      row.totalCost = Number((currentBaseQty * r).toFixed(2));
     }
 
     updated[index] = row;
@@ -633,20 +577,45 @@ export default function BatchAllocationGrid({
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
             {rawMaterials.map((row, index) => {
-              const baseUomClean = (!row.baseUom || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.baseUom)) ? (row.selectedUom && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.selectedUom) ? row.selectedUom : 'units') : row.baseUom;
-              const altUomClean = (!row.alternateUom || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.alternateUom)) ? null : row.alternateUom;
-              const hasAlt = Boolean(row.hasAlternateUom && altUomClean);
-              const isAltMode = (row.activeEntryMode || 'BASE') === 'ALT';
+              const master = findMaster(row);
+
+              // STRICT RULE:
+              // "if alternate uom should enable then only display alternate uom in only if enable in this setup raw material page and also fetch uom from that page"
+              const hasAlt = Boolean(
+                master
+                  ? (master.hasAlternateUom && master.alternateUom)
+                  : (row.hasAlternateUom && row.alternateUom)
+              );
+
+              const rawBase = (master?.unitId || master?.consumptionUnit || row.baseUom || row.selectedUom || 'liter');
+              const baseUomClean = (!rawBase || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawBase))
+                ? (row.selectedUom && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.selectedUom) ? row.selectedUom : 'units')
+                : rawBase;
+
+              const rawAlt = hasAlt ? (master?.alternateUom || row.alternateUom) : null;
+              const altUomClean = (rawAlt && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawAlt))
+                ? rawAlt
+                : null;
+
+              const factor = hasAlt ? Number(
+                master?.conversionFactor ||
+                (master && master.alternateUomQty && master.baseUomQty ? (master.alternateUomQty / master.baseUomQty) : null) ||
+                row.conversionFactor ||
+                (row.alternateUomQty && row.baseUomQty ? (row.alternateUomQty / row.baseUomQty) : 1) ||
+                1
+              ) : 1;
+
+              const isAltMode = Boolean(hasAlt && (row.activeEntryMode === 'ALT'));
               const allocatedList = Array.isArray(row.allocatedBatches) ? row.allocatedBatches : [];
 
-              // Calculated values
-              const factor = Number(row.conversionFactor || 1);
+              // Canonical base quantity
               const baseQty = Number(row.baseRequiredQty !== undefined ? row.baseRequiredQty : (row.requiredQty || 0));
-              const altQty = Number(row.altRequiredQty !== undefined ? row.altRequiredQty : (baseQty * factor));
-              const baseRate = Number(row.baseRate !== undefined ? row.baseRate : (row.unitRate || 0));
+              const altQty = Number((baseQty * factor).toFixed(3));
+
+              const baseRate = Number(row.baseRate !== undefined ? row.baseRate : (master?.ratePerUnit !== undefined ? master.ratePerUnit : (row.unitRate || 0)));
               const altRate = Number(row.altRate !== undefined ? row.altRate : (factor > 0 ? (baseRate / factor) : baseRate));
 
-              const displayQty = isAltMode ? altQty : baseQty;
+              const displayQty = isAltMode ? (row.altRequiredQty !== undefined ? Number(row.altRequiredQty) : altQty) : baseQty;
               const displayRate = isAltMode ? altRate : baseRate;
 
               return (
@@ -666,16 +635,14 @@ export default function BatchAllocationGrid({
                     </div>
                     <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 flex-wrap">
                       <span>{row.rmCode || 'RM'}</span>
-                      {hasAlt && (
-                        <button
-                          type="button"
-                          onClick={() => openConversionModal(index)}
-                          className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200 dark:border-indigo-800 cursor-pointer flex items-center gap-1 transition-all"
-                          title="Click to view Alternate UOM Conversion Presets & Sandbox"
+                      {hasAlt && altUomClean && (
+                        <span
+                          className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50/90 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 select-none"
+                          title={`Alternate UOM from Item Setup: 1 ${baseUomClean} = ${Number(factor).toLocaleString()} ${altUomClean}`}
                         >
-                          <Scale className="w-2.5 h-2.5 text-indigo-500" />
-                          <span>1 {baseUomClean} = {Number(row.alternateUomQty || row.conversionFactor || 1)} {altUomClean}</span>
-                        </button>
+                          <Scale className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                          <span>1 {baseUomClean} = {Number(factor).toLocaleString()} {altUomClean}</span>
+                        </span>
                       )}
                     </div>
                   </td>
@@ -696,12 +663,12 @@ export default function BatchAllocationGrid({
                             : 'text-slate-900 dark:text-white'
                         }`}
                       />
-                      {hasAlt && (
+                      {hasAlt && altUomClean && (
                         <span className="text-[9px] font-mono text-slate-400 block pt-0.5">
                           {isAltMode ? (
-                            <span>≈ {baseQty} {baseUomClean} (Base)</span>
+                            <span>≈ {baseQty.toLocaleString()} {baseUomClean} (Base)</span>
                           ) : (
-                            <span className="text-indigo-600 dark:text-indigo-400">≈ {altQty} {altUomClean} (Alt)</span>
+                            <span className="text-indigo-600 dark:text-indigo-400">≈ {altQty.toLocaleString()} {altUomClean} (Alt)</span>
                           )}
                         </span>
                       )}
@@ -717,17 +684,17 @@ export default function BatchAllocationGrid({
                     </div>
                   </td>
 
-                  {/* UOM Dropdown (Only if Alternate UOM enabled) */}
+                  {/* UOM Dropdown (Only if Alternate UOM enabled) - NO DIALOG BOX */}
                   <td className="py-2.5 px-3 text-center">
-                    {hasAlt ? (
+                    {hasAlt && altUomClean ? (
                       <div className="flex flex-col items-center gap-1">
                         {/* Dropdown with Base and Alternate UOM */}
                         <select
                           disabled={disabled}
-                          value={row.activeEntryMode || 'BASE'}
+                          value={isAltMode ? 'ALT' : 'BASE'}
                           onChange={(e) => handleUomModeChange(index, e.target.value)}
                           className="text-[11px] font-bold font-mono bg-indigo-50/80 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 rounded-lg px-2 py-1 text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-1.5 focus:ring-indigo-500 cursor-pointer shadow-3xs hover:bg-indigo-100/70 transition-all"
-                          title="Select Active Unit of Measure for this raw material"
+                          title="Select Active Unit of Measure for this raw material line"
                         >
                           <option value="BASE">
                             {baseUomClean} (Base)
@@ -737,20 +704,17 @@ export default function BatchAllocationGrid({
                           </option>
                         </select>
 
-                        {/* Interactive Scale badge opening modal */}
-                        <button
-                          type="button"
-                          disabled={disabled}
-                          onClick={() => openConversionModal(index)}
-                          className="inline-flex items-center gap-1 text-[9px] font-mono font-bold text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 bg-slate-100 hover:bg-indigo-50 dark:bg-slate-800 dark:hover:bg-indigo-950/80 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700 hover:border-indigo-300 transition-all cursor-pointer"
-                          title="Click to view Alternate UOM & Conversion Rate Equation / Sandbox"
+                        {/* Static non-clickable ratio equation badge */}
+                        <span
+                          className="inline-flex items-center gap-1 text-[9px] font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/80 px-1.5 py-0.5 rounded border border-slate-200/80 dark:border-slate-700/80 select-none"
+                          title={`Conversion Ratio from Item Setup: 1 ${baseUomClean} = ${Number(factor).toLocaleString()} ${altUomClean}`}
                         >
-                          <Scale className="w-2.5 h-2.5 text-indigo-500" />
-                          <span>Ratio & Rate</span>
-                        </button>
+                          <Scale className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                          <span>1 {baseUomClean} = {Number(factor).toLocaleString()} {altUomClean}</span>
+                        </span>
                       </div>
                     ) : (
-                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                      <span className="font-mono font-bold text-slate-700 dark:text-slate-300 text-xs px-2.5 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
                         {baseUomClean}
                       </span>
                     )}
@@ -810,7 +774,7 @@ export default function BatchAllocationGrid({
                           className="h-8 text-right font-mono font-bold text-xs rounded-lg w-24 text-indigo-700 dark:text-indigo-400"
                         />
                         <span className="text-[9px] font-mono text-slate-400 block pt-0.5">
-                          / {row.selectedUom}
+                          / {isAltMode ? altUomClean : baseUomClean}
                         </span>
                       </div>
                     </td>
@@ -819,7 +783,7 @@ export default function BatchAllocationGrid({
                   {/* Total (Hidden for production role) */}
                   {canViewCosting && (
                     <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white">
-                      ₹{Number(row.totalCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      ₹{Number(row.totalCost || (isAltMode ? (displayQty * displayRate) : (baseQty * baseRate))).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                   )}
 
@@ -843,315 +807,7 @@ export default function BatchAllocationGrid({
         </table>
       </div>
 
-      {/* ══════════════════════════════════════════════════════════════════════════════
-          MODAL 1: ALTERNATE UNIT OF MEASURE (UOM) & CONVERSION RATE
-      ══════════════════════════════════════════════════════════════════════════════ */}
-      {conversionModalOpen && activeConversionIndex !== null && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
-            
-            {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/70 dark:bg-slate-850/70">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400">
-                  <Scale className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    Alternate Unit of Measure (UOM) & Conversion Rate
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    Material: <strong className="text-slate-700 dark:text-slate-300">{rawMaterials[activeConversionIndex]?.rmName}</strong> ({rawMaterials[activeConversionIndex]?.rmCode || 'RM'}) • Item Setup
-                  </p>
-                </div>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                  Alternate UOM Active
-                </span>
-                <button 
-                  onClick={() => setConversionModalOpen(false)}
-                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
 
-            {/* Modal Body */}
-            <div className="p-5 sm:p-6 space-y-5 overflow-y-auto flex-1">
-
-              {/* 1. Quick Conversion Presets */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-black text-slate-700 dark:text-slate-200 flex items-center gap-1.5 uppercase tracking-wider">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                    Quick Conversion Presets
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-bold">Click to apply common ratio</span>
-                </div>
-                
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 max-h-48 overflow-y-auto p-1 bg-slate-50/50 dark:bg-slate-950/40 rounded-xl border border-slate-100 dark:border-slate-800">
-                  {UOM_PRESETS.map((preset, pIdx) => {
-                    const isSelected = 
-                      modalBaseUom.toLowerCase() === preset.base.toLowerCase() &&
-                      modalAltUom.toLowerCase() === preset.alt.toLowerCase() &&
-                      Number(modalBaseQty) === preset.baseQty &&
-                      Number(modalAltQty) === preset.altQty;
-
-                    return (
-                      <button
-                        key={pIdx}
-                        type="button"
-                        onClick={() => handleApplyPresetInModal(preset)}
-                        className={`text-[10px] px-2.5 py-1.5 rounded-lg font-bold text-left transition-all border cursor-pointer flex items-center justify-between gap-1 shadow-3xs ${
-                          isSelected
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                            : 'bg-white hover:bg-indigo-50 text-slate-700 hover:text-indigo-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800'
-                        }`}
-                      >
-                        <div className="truncate">
-                          <span className={`mr-1 text-[9px] uppercase ${isSelected ? 'text-indigo-200' : 'text-slate-400'}`}>
-                            [{preset.category}]
-                          </span>
-                          <span>{preset.label}</span>
-                        </div>
-                        {isSelected && <Check className="w-3 h-3 text-white shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 2. Equivalence Conversion Equation Card */}
-              <div className="p-4 bg-gradient-to-r from-indigo-50/80 via-purple-50/50 to-slate-50 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-slate-950/40 rounded-2xl border border-indigo-100 dark:border-indigo-900/50 space-y-3">
-                <div className="flex items-center justify-between text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wider">
-                  <span>Equivalence Conversion Equation</span>
-                  <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 bg-white dark:bg-slate-900 px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800">
-                    Ratio: {modalBaseQty} {modalBaseUom} = {modalAltQty} {modalAltUom}
-                  </span>
-                </div>
-
-                {/* Equation Visual Controls */}
-                <div className="flex flex-wrap items-center gap-3">
-                  {/* Primary Base Unit Qty */}
-                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-3xs">
-                    <span className="text-[10px] text-slate-400 font-black tracking-wider">QTY</span>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0.0001"
-                      value={modalBaseQty}
-                      onChange={(e) => setModalBaseQty(Number(e.target.value || 1))}
-                      className="w-16 text-center font-mono font-black text-xs bg-transparent focus:outline-none text-slate-900 dark:text-white"
-                      placeholder="1"
-                    />
-                    <input
-                      type="text"
-                      value={modalBaseUom}
-                      onChange={(e) => setModalBaseUom(e.target.value)}
-                      className="w-16 text-center font-bold text-[11px] uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200 border-none focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-center w-7 h-7 rounded-full bg-indigo-600 text-white font-black text-xs shadow-2xs">
-                    =
-                  </div>
-
-                  {/* Alternate Unit Qty & Unit Input */}
-                  <div className="flex items-center gap-1.5 bg-white dark:bg-slate-900 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-3xs flex-1 min-w-[220px]">
-                    <span className="text-[10px] text-slate-400 font-black tracking-wider">EQUALS</span>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0.0001"
-                      value={modalAltQty}
-                      onChange={(e) => setModalAltQty(Number(e.target.value || 1))}
-                      className="w-20 text-center font-mono font-black text-xs bg-transparent focus:outline-none text-slate-900 dark:text-white"
-                      placeholder="1000"
-                    />
-                    <input
-                      type="text"
-                      value={modalAltUom}
-                      onChange={(e) => setModalAltUom(e.target.value)}
-                      className="flex-1 text-center font-bold text-[11px] uppercase px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border-none focus:outline-none"
-                      placeholder="ml"
-                    />
-                  </div>
-                </div>
-
-                {/* 3 Metric Cards: Multiplier, Divider, Catalog Rate */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
-                  <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-3xs">
-                    <span className="text-slate-500 text-[11px] font-bold">Multiplier (Bigger → Smaller):</span>
-                    <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-xs">
-                      × {modalConversionFactor.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-3xs">
-                    <span className="text-slate-500 text-[11px] font-bold">Divider (Smaller → Bigger):</span>
-                    <span className="font-mono font-black text-purple-600 dark:text-purple-400 text-xs">
-                      ÷ {modalConversionFactor.toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                    </span>
-                  </div>
-
-                  <div className="p-2.5 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 flex items-center justify-between shadow-3xs">
-                    <span className="text-slate-500 text-[11px] font-bold">Catalog Rate / {modalAltUom}:</span>
-                    <span className="font-mono font-black text-emerald-600 dark:text-emerald-400 text-xs">
-                      ₹{modalAltCatalogRate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
-                    </span>
-                  </div>
-                </div>
-
-              </div>
-
-              {/* 3. Real-Time Conversion Preview (Sandbox Test) */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-950/60 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-2.5">
-                <div className="flex items-center gap-2 text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider">
-                  <Calculator className="w-4 h-4 text-indigo-500" />
-                  <span>Real-Time Conversion Preview (Sandbox Test)</span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  {/* Test 1: Base to Alt */}
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-3xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-slate-400 font-bold">Convert</span>
-                      <input
-                        type="number"
-                        step="any"
-                        value={sandboxBaseInput}
-                        onChange={(e) => setSandboxBaseInput(Number(e.target.value || 0))}
-                        className="w-16 h-7 px-1 text-center font-mono font-black border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950 text-xs"
-                      />
-                      <span className="font-bold text-[11px] uppercase text-slate-600 dark:text-slate-300">{modalBaseUom}</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-mono font-black text-xs">
-                      <span>➔</span>
-                      <span>{sandboxCalculatedAlt.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
-                      <span className="uppercase text-[10px] font-bold">{modalAltUom}</span>
-                    </div>
-                  </div>
-
-                  {/* Test 2: Alt to Base */}
-                  <div className="flex items-center justify-between p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-3xs">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-slate-400 font-bold">Convert</span>
-                      <input
-                        type="number"
-                        step="any"
-                        value={sandboxAltInput}
-                        onChange={(e) => setSandboxAltInput(Number(e.target.value || 0))}
-                        className="w-16 h-7 px-1 text-center font-mono font-black border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-950 text-xs"
-                      />
-                      <span className="font-bold text-[11px] uppercase text-slate-600 dark:text-slate-300">{modalAltUom}</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-purple-600 dark:text-purple-400 font-mono font-black text-xs">
-                      <span>➔</span>
-                      <span>{sandboxCalculatedBase.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
-                      <span className="uppercase text-[10px] font-bold">{modalBaseUom}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 4. Active Formulation UOM Selection */}
-              <div className="space-y-2">
-                <span className="text-xs font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider block">
-                  Select Active Formulation Unit:
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  
-                  {/* Option 1: Base UOM */}
-                  <button
-                    type="button"
-                    onClick={() => setModalSelectedMode('BASE')}
-                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      modalSelectedMode === 'BASE'
-                        ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 ring-2 ring-indigo-500/20 shadow-xs'
-                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-black text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span className="uppercase">{modalBaseUom}</span>
-                        <span className="text-[10px] text-slate-400 font-bold">(Base Unit)</span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                        Rate: ₹{Number(modalBaseRate).toFixed(2)} / {modalBaseUom}
-                      </div>
-                    </div>
-                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
-                      modalSelectedMode === 'BASE' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'
-                    }`}>
-                      {modalSelectedMode === 'BASE' && <Check className="w-3 h-3" />}
-                    </div>
-                  </button>
-
-                  {/* Option 2: Alternate UOM */}
-                  <button
-                    type="button"
-                    onClick={() => setModalSelectedMode('ALT')}
-                    className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer flex items-center justify-between ${
-                      modalSelectedMode === 'ALT'
-                        ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/40 ring-2 ring-indigo-500/20 shadow-xs'
-                        : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-slate-300'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-black text-xs text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span className="uppercase">{modalAltUom}</span>
-                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold">(Alternate Unit)</span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                        Rate: ₹{modalAltCatalogRate.toFixed(4)} / {modalAltUom}
-                      </div>
-                    </div>
-                    <div className={`w-5 h-5 rounded-full border flex items-center justify-center ${
-                      modalSelectedMode === 'ALT' ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300'
-                    }`}>
-                      {modalSelectedMode === 'ALT' && <Check className="w-3 h-3" />}
-                    </div>
-                  </button>
-
-                </div>
-              </div>
-
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-850/80 flex items-center justify-between shrink-0">
-              <span className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300">
-                Active Formulation Mode: <strong className="text-indigo-600 dark:text-indigo-400 font-black">{modalSelectedMode === 'ALT' ? modalAltUom.toUpperCase() : modalBaseUom.toUpperCase()}</strong>
-              </span>
-
-              <div className="flex items-center gap-2">
-                <Button 
-                  type="button" 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => setConversionModalOpen(false)}
-                  className="rounded-xl cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  type="button" 
-                  size="sm" 
-                  onClick={handleConfirmConversionModal}
-                  className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold cursor-pointer shadow-xs"
-                >
-                  Apply & Select {modalSelectedMode === 'ALT' ? modalAltUom.toUpperCase() : modalBaseUom.toUpperCase()}
-                </Button>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
 
       {/* ══════════════════════════════════════════════════════════════════════════════
           MODAL 2: BATCH ALLOCATION LOT MODAL (FEFO / GRN)
