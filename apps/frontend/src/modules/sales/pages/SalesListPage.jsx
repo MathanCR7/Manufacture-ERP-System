@@ -433,7 +433,11 @@ export default function SalesListPage() {
     doc.setFont('helvetica', 'normal');
     (order.items || []).forEach((item, idx) => {
       curY += 6;
-      doc.text(String(item.product?.name || item.productName || 'Finished Item').substring(0, 35), 16, curY);
+      const iCode = item.productCode || item.systemCode || item.itemCode || item.product?.code || '';
+      const cName = item.categoryName || item.category || item.product?.category?.name || '';
+      const pName = item.productName || item.product?.name || 'Finished Item';
+      const fullLabel = [iCode, cName, pName].filter(Boolean).join(' - ');
+      doc.text(fullLabel.substring(0, 48), 16, curY);
       doc.text(String(item.quantity || 0), 110, curY, { align: 'right' });
       doc.text(`Rs.${Number(item.unitPrice || 0).toFixed(2)}`, 140, curY, { align: 'right' });
       doc.text(`Rs.${Number(item.subtotal || (item.quantity * item.unitPrice) || 0).toFixed(2)}`, 190, curY, { align: 'right' });
