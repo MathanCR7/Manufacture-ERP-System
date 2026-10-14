@@ -2549,3 +2549,41 @@ model ProductionBatchCosting {
   @@index([batchId])
   @@map("production_batch_costing")
 }
+
+model ProductionBatchAllocation {
+  id                String    @id @default(uuid())
+  batchId           String    @map("batch_id")
+  usageId           String?   @map("usage_id")
+  inventoryBatchId  String?   @map("inventory_batch_id")
+  poId              String?   @map("po_id")
+  lotNumber         String    @default("WAREHOUSE-LOT") @map("lot_number") @db.VarChar(255)
+  allocatedQty      Decimal   @default(0) @map("allocated_qty")
+  poOriginalQty     Decimal?  @default(0) @map("po_original_qty")
+  poTotalAmount     Decimal?  @default(0) @map("po_total_amount")
+  allocatedAmount   Decimal   @default(0) @map("allocated_amount")
+  unitRate          Decimal   @default(0) @map("unit_rate")
+  uom               String?   @default("Kg") @db.VarChar(50)
+  isManualOverride  Boolean?  @default(false) @map("is_manual_override")
+  grnNumber         String?   @map("grn_number") @db.VarChar(255)
+  poNumber          String?   @map("po_number") @db.VarChar(255)
+  supplierBatchNo   String?   @map("supplier_batch_no") @db.VarChar(255)
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@index([batchId], map: "idx_alloc_batch")
+  @@index([usageId], map: "idx_alloc_usage")
+  @@map("production_batch_allocations")
+}
+
+model ProductionBatchItem {
+  id           String    @id @default(uuid())
+  batchId      String    @map("batch_id")
+  productId    String    @map("product_id")
+  plannedQty   Decimal   @default(1) @map("planned_qty")
+  actualQty    Decimal   @default(0) @map("actual_qty")
+  factor       Decimal   @default(1.0)
+  costPerUnit  Decimal   @default(0) @map("cost_per_unit")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([batchId], map: "idx_batch_items_batch")
+  @@map("production_batch_items")
+}
