@@ -6,6 +6,9 @@ async function ensureProductionBatchesRedesignSchema() {
   if (isEnsured) return;
 
   const alterStatements = [
+    // Ensure pgcrypto extension for UUID generation
+    'CREATE EXTENSION IF NOT EXISTS pgcrypto;',
+
     // Core relation and category pointers
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "base_id" UUID;',
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "template_id" UUID;',
@@ -220,6 +223,10 @@ async function ensureProductionBatchesRedesignSchema() {
      VALUES ('DEFAULT', 'DAILY', 5, true)
      ON CONFLICT ("id") DO NOTHING;`,
 
+    // Ensure id column defaults exist even if table was created without default
+    `ALTER TABLE "production_batch_items" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();`,
+    `ALTER TABLE "production_batch_allocations" ALTER COLUMN "id" SET DEFAULT gen_random_uuid();`,
+
     // Performance Indices
     `CREATE INDEX IF NOT EXISTS "idx_alloc_batch" ON "production_batch_allocations"("batch_id");`,
     `CREATE INDEX IF NOT EXISTS "idx_alloc_usage" ON "production_batch_allocations"("usage_id");`,
@@ -239,6 +246,18 @@ async function ensureProductionBatchesRedesignSchema() {
 
   isEnsured = true;
   console.log('✅ Production batches redesign schema ensured successfully (base_id, template_id, timeline_stages, etc).');
+}
+
+if (require.main === module) {
+  ensureProductionBatchesRedesignSchema()
+    .then(() => {
+      console.log('Production batches migration finished.');
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('Production batches migration error:', err);
+      process.exit(1);
+    });
 }
 
 module.exports = { ensureProductionBatchesRedesignSchema };

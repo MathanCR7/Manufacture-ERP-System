@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto');
 const { z } = require('zod');
 const prisma = require('../../database/prisma');
 const batchNumberService = require('./batchNumber.service');
@@ -460,8 +461,8 @@ class ProductionBatchRedesignController {
 
         await tx.$executeRawUnsafe(
           `UPDATE "production_batches" SET
-            base_id = $1::uuid,
-            template_id = $2::uuid,
+            base_id = $1,
+            template_id = $2,
             shift = $3,
             machine_line = $4,
             adjustment_reason = $5,
@@ -510,20 +511,17 @@ class ProductionBatchRedesignController {
 
         for (const p of productsToInsert) {
           if (!p.productId) continue;
-          try {
-            await tx.$executeRawUnsafe(
-              `INSERT INTO "production_batch_items" (
-                batch_id, product_id, planned_qty, factor, cost_per_unit
-              ) VALUES ($1, $2, $3, $4, $5)`,
-              batch.id,
-              p.productId,
-              Number(p.plannedQty || 1),
-              Number(p.factor || 1.0),
-              Number(data.costPerUnit || 0)
-            );
-          } catch (itemErr) {
-            console.warn('Warning inserting production_batch_items record:', itemErr.message);
-          }
+          await tx.$executeRawUnsafe(
+            `INSERT INTO "production_batch_items" (
+              id, batch_id, product_id, planned_qty, factor, cost_per_unit
+            ) VALUES ($1, $2, $3, $4, $5, $6)`,
+            randomUUID(),
+            batch.id,
+            p.productId,
+            Number(p.plannedQty || 1),
+            Number(p.factor || 1.0),
+            Number(data.costPerUnit || 0)
+          );
         }
 
         // 4. Insert Raw Material Usage Lines & Lot Allocations
@@ -720,32 +718,29 @@ class ProductionBatchRedesignController {
               const effectivePo = alloc.poNumber || alloc.poReferenceNo || (isOverride ? 'PO-MANUAL-OVERRIDE' : null);
               const effectiveSuppBatch = alloc.supplierBatchNo || alloc.mfgBatchNo || null;
 
-              try {
-                await tx.$executeRawUnsafe(
-                  `INSERT INTO "production_batch_allocations" (
-                    batch_id, usage_id, inventory_batch_id, lot_number,
-                    allocated_qty, po_original_qty, po_total_amount,
-                    allocated_amount, unit_rate, uom,
-                    is_manual_override, grn_number, po_number, supplier_batch_no
-                  ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-                  batch.id,
-                  usage.id,
-                  targetBatchId ? String(targetBatchId) : null,
-                  alloc.lotNumber || alloc.internalBatchNo || 'WAREHOUSE-LOT',
-                  Number(alloc.allocatedQty || 0),
-                  poOrigQty,
-                  poTotAmt,
-                  propAmount,
-                  Number(alloc.unitRate || rm.unitRate || 0),
-                  alloc.uom || rm.selectedUom || 'Kg',
-                  isOverride,
-                  effectiveGrn,
-                  effectivePo,
-                  effectiveSuppBatch
-                );
-              } catch (allocErr) {
-                console.warn('Warning inserting production_batch_allocations record:', allocErr.message);
-              }
+              await tx.$executeRawUnsafe(
+                `INSERT INTO "production_batch_allocations" (
+                  id, batch_id, usage_id, inventory_batch_id, lot_number,
+                  allocated_qty, po_original_qty, po_total_amount,
+                  allocated_amount, unit_rate, uom,
+                  is_manual_override, grn_number, po_number, supplier_batch_no
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+                randomUUID(),
+                batch.id,
+                usage.id,
+                targetBatchId ? String(targetBatchId) : null,
+                alloc.lotNumber || alloc.internalBatchNo || 'WAREHOUSE-LOT',
+                Number(alloc.allocatedQty || 0),
+                poOrigQty,
+                poTotAmt,
+                propAmount,
+                Number(alloc.unitRate || rm.unitRate || 0),
+                alloc.uom || rm.selectedUom || 'Kg',
+                isOverride,
+                effectiveGrn,
+                effectivePo,
+                effectiveSuppBatch
+              );
             }
           }
         }

@@ -1,3 +1,4 @@
+const { randomUUID } = require('crypto');
 const prisma = require('../../database/prisma');
 
 /**
@@ -9,9 +10,9 @@ class BatchNumberService {
   /**
    * Get active batch settings (resetMode, counterDigits, allowBackdated)
    */
-  async getSettings(tx = prisma) {
+  async getSettings(_tx = prisma) {
     try {
-      const rows = await tx.$queryRawUnsafe(`SELECT * FROM "batch_settings" WHERE id = 'DEFAULT' LIMIT 1`);
+      const rows = await prisma.$queryRawUnsafe(`SELECT * FROM "batch_settings" WHERE id = 'DEFAULT' LIMIT 1`);
       if (rows && rows.length > 0) {
         return rows[0];
       }

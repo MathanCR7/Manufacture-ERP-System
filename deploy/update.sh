@@ -13,11 +13,13 @@ git reset --hard origin/main
 CURRENT_COMMIT=$(git log -1 --oneline)
 echo "✅ Synced to: $CURRENT_COMMIT"
 
-echo "⚙️ [2/5] Updating Backend (dependencies, prisma schema, db push)..."
+echo "⚙️ [2/5] Updating Backend (dependencies, prisma schema, db push, migrations)..."
 cd /var/www/manufacture-erp/apps/backend
 npm install
 npx prisma generate
 npx prisma db push --accept-data-loss
+node src/database/migrations/ensure_production_batches_redesign_schema.js
+
 
 echo "🔄 [3/5] Reloading PM2 Backend Server..."
 if pm2 describe erp-backend > /dev/null 2>&1; then
