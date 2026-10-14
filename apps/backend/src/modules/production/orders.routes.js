@@ -436,7 +436,18 @@ router.get('/', authenticateToken, async (req, res, next) => {
       where: { deletedAt: null },
       include: {
         customer: true,
-        items: { include: { product: true } },
+        items: {
+          include: {
+            product: {
+              include: {
+                category: true,
+                unit: true,
+                subcategory: true
+              }
+            },
+            batchAllocations: true
+          }
+        },
         deliveries: true
       },
       orderBy: { createdAt: 'desc' }
