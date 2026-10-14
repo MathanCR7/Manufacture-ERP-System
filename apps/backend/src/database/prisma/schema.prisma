@@ -914,6 +914,7 @@ model InventoryBatch {
   mfgDate         DateTime?
   weight          String?
   mfgBatchNo      String?
+  isManualOverride Boolean? @default(false)
   status          String   @default("AVAILABLE") // AVAILABLE / DEPLETED / RETURNED / WASTED
   addedBy         String
   createdAt       DateTime @default(now())

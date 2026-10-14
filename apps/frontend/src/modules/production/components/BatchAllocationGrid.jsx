@@ -291,18 +291,27 @@ export default function BatchAllocationGrid({
       .slice(0, 16);
     const reqQty = Number(item.baseRequiredQty !== undefined ? item.baseRequiredQty : (item.requiredQty || 0));
 
-    // Preset sensible defaults matching Image 1
+    const today = new Date();
+    const dd = String(today.getDate()).padStart(2, '0');
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const yyyy = today.getFullYear();
+    const mfgStr = `${dd}-${mm}-${yyyy}`;
+    const expStr = `${dd}-${mm}-${yyyy + 1}`;
+
+    // Sensible defaults while live metadata fetches
     setOverrideForm({
       internalBatchNo: `BATCH-${rawClean}-001`,
-      grnNumber: 'GRN-OPENING',
-      poNumber: 'PO-OPENING',
+      grnNumber: 'GRN-MANUAL-OVERRIDE',
+      poNumber: 'PO-MANUAL-OVERRIDE',
       batchQty: 1,
       weight: '25 kg / 50',
       availableQty: Math.max(reqQty || 100, 4840),
       supplierBatchNo: 'BATCH-01',
-      mfgDate: '01-10-2026',
-      expiryDate: '01-10-2027',
-      supplierName: 'SUP-LOT-DIRECT'
+      mfgDate: mfgStr,
+      expiryDate: expStr,
+      supplierName: 'SUP-LOT-DIRECT',
+      latestPoNumber: null,
+      latestBatchNumber: null
     });
     setShowManualOverrideForm(false);
 
@@ -320,10 +329,53 @@ export default function BatchAllocationGrid({
     setManualSupplierBatches(currentSupplierMap);
 
     try {
-      const res = await api.get(`/production/rm-batches/${item.rmId}`);
-      setAvailableLots(res.data || []);
+      const [batchesRes, metaRes] = await Promise.all([
+        api.get(`/production/rm-batches/${item.rmId}`),
+        api.get(`/production/rm-batch-meta/${item.rmId}?rmName=${encodeURIComponent(item.rmName || '')}`).catch(() => null)
+      ]);
+      const lots = batchesRes.data || [];
+      const meta = metaRes?.data || null;
+
+      setAvailableLots(lots);
+
+      // 1. Resolve latest PO number for this responsive raw material
+      let resolvedPo = meta?.latestPoNumber;
+      if (!resolvedPo || resolvedPo === 'PO-OPENING' || resolvedPo === 'PO-MANUAL-OVERRIDE') {
+        const poLot = lots.find(l => l.poNumber && !l.poNumber.startsWith('PO-OPEN') && !l.poNumber.includes('Override'));
+        if (poLot) resolvedPo = poLot.poNumber;
+      }
+      if (!resolvedPo) resolvedPo = 'PO-MANUAL-OVERRIDE';
+
+      // 2. Resolve continuing sequential batch number for this responsive raw material
+      let resolvedBatch = meta?.nextBatchNumber;
+      if (!resolvedBatch) {
+        let maxSeq = 0;
+        lots.forEach(l => {
+          const m = (l.internalBatchNo || '').match(new RegExp(`^BATCH-${rawClean}-(\\d+)`, 'i'));
+          if (m && m[1]) {
+            const p = parseInt(m[1], 10);
+            if (p > maxSeq) maxSeq = p;
+          }
+        });
+        resolvedBatch = `BATCH-${rawClean}-${String(maxSeq + 1).padStart(3, '0')}`;
+      }
+
+      setOverrideForm({
+        internalBatchNo: resolvedBatch,
+        grnNumber: 'GRN-MANUAL-OVERRIDE',
+        poNumber: resolvedPo,
+        batchQty: 1,
+        weight: '25 kg / 50',
+        availableQty: Math.max(reqQty || 100, 4840),
+        supplierBatchNo: 'BATCH-01',
+        mfgDate: mfgStr,
+        expiryDate: expStr,
+        supplierName: meta?.latestSupplierName || lots[0]?.supplierName || 'SUP-LOT-DIRECT',
+        latestPoNumber: resolvedPo,
+        latestBatchNumber: meta?.latestBatchNumber || null
+      });
     } catch (err) {
-      console.error('Failed to fetch RM batches:', err);
+      console.error('Failed to fetch RM batches or meta in BatchAllocationGrid:', err);
       setAvailableLots([]);
     } finally {
       setLoadingLots(false);
@@ -336,10 +388,10 @@ export default function BatchAllocationGrid({
     const newLot = {
       id: lotId,
       internalBatchNo: overrideForm.internalBatchNo?.trim() || `BATCH-OVERRIDE-${Date.now().toString().slice(-4)}`,
-      grnNumber: overrideForm.grnNumber?.trim() || 'GRN-OPENING',
-      grnRef: overrideForm.grnNumber?.trim() || 'GRN-OPENING',
-      poNumber: overrideForm.poNumber?.trim() || 'Manual Override',
-      poReferenceNo: overrideForm.poNumber?.trim() || 'Manual Override',
+      grnNumber: overrideForm.grnNumber?.trim() || 'GRN-MANUAL-OVERRIDE',
+      grnRef: overrideForm.grnNumber?.trim() || 'GRN-MANUAL-OVERRIDE',
+      poNumber: overrideForm.poNumber?.trim() || 'PO-MANUAL-OVERRIDE',
+      poReferenceNo: overrideForm.poNumber?.trim() || 'PO-MANUAL-OVERRIDE',
       batchQty: Number(overrideForm.batchQty || 1),
       weight: overrideForm.weight || '25 kg / 50',
       availableQty: Number(overrideForm.availableQty || 4840),
@@ -371,12 +423,33 @@ export default function BatchAllocationGrid({
       }));
     }
 
+    // Auto-advance sequence so next manual lot continues cleanly
+    const currBatch = newLot.internalBatchNo;
+    const match = currBatch.match(/^(.*?)(\d+)$/);
+    if (match) {
+      const pfx = match[1];
+      const seq = parseInt(match[2], 10);
+      const nextBatchStr = `${pfx}${String(seq + 1).padStart(match[2].length, '0')}`;
+      setOverrideForm(prev => ({
+        ...prev,
+        internalBatchNo: nextBatchStr,
+        latestBatchNumber: currBatch
+      }));
+    }
+
     setShowManualOverrideForm(false);
     Swal.fire({
       title: 'Manual Override Lot Added',
-      text: `Lot ${newLot.internalBatchNo} added (${newLot.availableQty} ${item?.baseUom || item?.selectedUom || 'units'}). PO set to ${newLot.poNumber}.`,
+      html: `
+        <div style="text-align: left; font-size: 13px; line-height: 1.6;">
+          <p><strong>✓ Our Batch (Continuing):</strong> <span style="font-family: monospace; font-weight: bold; color: #4f46e5;">${newLot.internalBatchNo}</span></p>
+          <p><strong>✓ GRN:</strong> <span style="font-family: monospace; font-weight: bold; color: #d97706;">${newLot.grnNumber} (Manual Override)</span></p>
+          <p><strong>✓ PO Number:</strong> <span style="font-family: monospace; font-weight: bold;">${newLot.poNumber}</span></p>
+          <p><strong>✓ Available Stock:</strong> ${newLot.availableQty} ${item?.baseUom || item?.selectedUom || 'units'}</p>
+        </div>
+      `,
       icon: 'success',
-      timer: 1500
+      timer: 2000
     });
   };
 
@@ -483,20 +556,23 @@ export default function BatchAllocationGrid({
         allocatedBatches.push({
           batchId: lot.id,
           lotNumber: lot.internalBatchNo,
+          internalBatchNo: lot.internalBatchNo,
           supplierBatchNo: effectiveSupplierBatch,
           mfgBatchNo: effectiveSupplierBatch,
           batchQty: lot.batchQty ?? 1,
           weight: lot.weight || '25 kg / 50',
           mfgDate: lot.mfgDate || null,
           expiryDate: lot.expiryDate || null,
-          grnNumber: lot.grnNumber || lot.grnRef || null,
-          poNumber: lot.poNumber || lot.poReferenceNo || null,
+          grnNumber: lot.grnNumber || lot.grnRef || (lot.isManualOverride ? 'GRN-MANUAL-OVERRIDE' : null),
+          poNumber: lot.poNumber || lot.poReferenceNo || (lot.isManualOverride ? 'PO-MANUAL-OVERRIDE' : null),
           allocatedQty: qty,
           poOriginalQty: poOrigQty,
           poTotalAmount: poTotAmt,
           allocatedAmount,
           unitRate,
-          uom: item.baseUom || item.selectedUom
+          uom: item.baseUom || item.selectedUom,
+          isManualOverride: Boolean(lot.isManualOverride || lot.source === 'MANUAL_OVERRIDE' || (lot.id && String(lot.id).startsWith('manual-'))),
+          source: lot.source || (lot.isManualOverride ? 'MANUAL_OVERRIDE' : 'PURCHASE_GRN')
         });
       }
     }
@@ -555,8 +631,8 @@ export default function BatchAllocationGrid({
         </div>
       </div>
 
-      {/* Formulation Table */}
-      <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+      {/* Formulation Table - Preserved 100% Intact for Desktop (hidden lg:block) */}
+      <div className="hidden lg:block overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
         <table className="w-full text-xs text-left">
           <thead className="bg-slate-100/80 dark:bg-slate-800/80 text-[10px] font-black uppercase tracking-wider text-slate-500 border-b border-slate-200 dark:border-slate-700">
             <tr>
@@ -728,11 +804,20 @@ export default function BatchAllocationGrid({
                           {allocatedList.map((b, bIdx) => (
                             <span 
                               key={b.batchId || bIdx}
-                              className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 shadow-2xs"
-                              title={`Our Batch: ${b.lotNumber} | MFG: ${b.supplierBatchNo || 'N/A'} | GRN: ${b.grnNumber || 'N/A'} | Exp: ${formatDateDMY(b.expiryDate)}`}
+                              className={`inline-flex items-center gap-1.5 font-mono text-[10px] font-bold px-2.5 py-1 rounded-lg border shadow-2xs ${
+                                b.isManualOverride
+                                  ? 'text-amber-800 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/70 border-amber-300 dark:border-amber-700'
+                                  : 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800'
+                              }`}
+                              title={`Our Batch: ${b.lotNumber} | ${b.isManualOverride ? 'MANUAL OVERRIDE LOT | ' : ''}PO: ${b.poNumber || 'N/A'} | GRN: ${b.grnNumber || 'N/A'} | Exp: ${formatDateDMY(b.expiryDate)}`}
                             >
                               <Tag className="w-2.5 h-2.5 text-indigo-500" />
                               <span>{b.lotNumber}</span>
+                              {b.isManualOverride && (
+                                <span className="text-[8.5px] px-1 py-0.2 rounded font-black uppercase tracking-wider bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 border border-amber-300">
+                                  Override
+                                </span>
+                              )}
                               <span className="text-[9px] text-indigo-900 dark:text-indigo-200 font-black">
                                 ({b.allocatedQty} {row.baseUom || row.selectedUom})
                               </span>
@@ -805,6 +890,209 @@ export default function BatchAllocationGrid({
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* ── MOBILE & TABLET RESPONSIVE CARDS (lg:hidden) ── */}
+      <div className="lg:hidden space-y-3">
+        {rawMaterials.map((row, index) => {
+          const master = findMaster(row);
+          const hasAlt = Boolean(
+            master
+              ? (master.hasAlternateUom && master.alternateUom)
+              : (row.hasAlternateUom && row.alternateUom)
+          );
+
+          const rawBase = (master?.unitId || master?.consumptionUnit || row.baseUom || row.selectedUom || 'liter');
+          const baseUomClean = (!rawBase || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawBase))
+            ? (row.selectedUom && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.selectedUom) ? row.selectedUom : 'units')
+            : rawBase;
+
+          const rawAlt = hasAlt ? (master?.alternateUom || row.alternateUom) : null;
+          const altUomClean = (rawAlt && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawAlt))
+            ? rawAlt
+            : null;
+
+          const factor = hasAlt ? Number(
+            master?.conversionFactor ||
+            (master && master.alternateUomQty && master.baseUomQty ? (master.alternateUomQty / master.baseUomQty) : null) ||
+            row.conversionFactor ||
+            (row.alternateUomQty && row.baseUomQty ? (row.alternateUomQty / row.baseUomQty) : 1) ||
+            1
+          ) : 1;
+
+          const isAltMode = Boolean(hasAlt && (row.activeEntryMode === 'ALT'));
+          const allocatedList = Array.isArray(row.allocatedBatches) ? row.allocatedBatches : [];
+
+          const baseQty = Number(row.baseRequiredQty !== undefined ? row.baseRequiredQty : (row.requiredQty || 0));
+          const altQty = Number((baseQty * factor).toFixed(3));
+
+          const baseRate = Number(row.baseRate !== undefined ? row.baseRate : (master?.ratePerUnit !== undefined ? master.ratePerUnit : (row.unitRate || 0)));
+          const altRate = Number(row.altRate !== undefined ? row.altRate : (factor > 0 ? (baseRate / factor) : baseRate));
+
+          const displayQty = isAltMode ? (row.altRequiredQty !== undefined ? Number(row.altRequiredQty) : altQty) : baseQty;
+          const displayRate = isAltMode ? altRate : baseRate;
+          const lineTotal = Number(row.totalCost || (isAltMode ? (displayQty * displayRate) : (baseQty * baseRate)));
+
+          return (
+            <div 
+              key={row.rmId || row.id || index}
+              className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-3"
+            >
+              {/* Header: SN, Material Name, Code, and Delete */}
+              <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs flex items-center justify-center">
+                    #{index + 1}
+                  </span>
+                  <div>
+                    <h5 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                      {row.rmName}
+                    </h5>
+                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2">
+                      <span>{row.rmCode || 'RM'}</span>
+                      {hasAlt && altUomClean && (
+                        <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 font-semibold text-[9px] border border-indigo-200 dark:border-indigo-800">
+                          1 {baseUomClean} = {factor} {altUomClean}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => handleDeleteRow(index)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Remove Row"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Quantity & UOM Selection */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">
+                    Required Qty:
+                  </label>
+                  <Input
+                    type="number"
+                    step="any"
+                    min="0"
+                    disabled={disabled}
+                    value={displayQty}
+                    onChange={(e) => handleQtyChange(index, e.target.value, isAltMode ? 'ALT' : 'BASE')}
+                    className="h-8 font-mono font-bold text-xs rounded-xl"
+                  />
+                  {hasAlt && altUomClean && (
+                    <span className="text-[9px] font-mono text-slate-400 block pt-0.5">
+                      {isAltMode ? `≈ ${baseQty} ${baseUomClean}` : `≈ ${altQty} ${altUomClean}`}
+                    </span>
+                  )}
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">
+                    Unit / UOM:
+                  </label>
+                  {hasAlt && altUomClean ? (
+                    <select
+                      disabled={disabled}
+                      value={isAltMode ? 'ALT' : 'BASE'}
+                      onChange={(e) => handleUomModeChange(index, e.target.value)}
+                      className="w-full h-8 text-xs font-bold font-mono bg-indigo-50/80 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 rounded-xl px-2 text-indigo-700 dark:text-indigo-300"
+                    >
+                      <option value="BASE">{baseUomClean} (Base)</option>
+                      <option value="ALT">{altUomClean} (Alt)</option>
+                    </select>
+                  ) : (
+                    <div className="h-8 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center font-mono font-bold text-xs text-slate-700 dark:text-slate-300">
+                      {baseUomClean}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Consumption Ratio Badge */}
+              <div className="flex items-center justify-between text-[10px] font-mono bg-slate-50 dark:bg-slate-850 p-2 rounded-xl">
+                <span className="text-slate-400">Single Pcs Consumption:</span>
+                <span className="font-bold text-amber-700 dark:text-amber-400">
+                  {(Number(plannedOutputQty) > 0 ? (baseQty / Number(plannedOutputQty)) : 0).toFixed(4)} {baseUomClean} / {outputUom || 'pc'}
+                </span>
+              </div>
+
+              {/* Costing (if allowed) */}
+              {canViewCosting && (
+                <div className="grid grid-cols-2 gap-2 text-xs bg-indigo-50/30 dark:bg-indigo-950/20 p-2.5 rounded-xl border border-indigo-100 dark:border-indigo-900 font-mono">
+                  <div>
+                    <span className="text-[9.5px] text-slate-400 block">Unit Rate:</span>
+                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                      ₹{displayRate.toFixed(2)} / {isAltMode ? altUomClean : baseUomClean}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[9.5px] text-slate-400 block">Total Cost:</span>
+                    <span className="font-black text-indigo-600 dark:text-indigo-400">
+                      ₹{lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Assigned Lots List & Allocate Button */}
+              <div className="pt-1 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                    Allocated Lots ({allocatedList.length}):
+                  </span>
+                  {!disabled && !row.isOverhead && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openLotModal(index)}
+                      className="h-7 px-3 text-[10px] font-bold rounded-lg border-indigo-300 text-indigo-600 hover:bg-indigo-50 cursor-pointer"
+                    >
+                      <Boxes className="w-3 h-3 mr-1" />
+                      Allocate Lots
+                    </Button>
+                  )}
+                </div>
+
+                {allocatedList.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {allocatedList.map((b, bIdx) => (
+                      <span
+                        key={b.batchId || bIdx}
+                        className={`inline-flex items-center gap-1.5 font-mono text-[10px] font-bold px-2.5 py-1 rounded-lg border shadow-2xs ${
+                          b.isManualOverride
+                            ? 'text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/70 border-amber-300 dark:border-amber-700'
+                            : 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800'
+                        }`}
+                      >
+                        <Tag className="w-2.5 h-2.5 text-indigo-500" />
+                        <span>{b.lotNumber}</span>
+                        {b.isManualOverride && (
+                          <span className="text-[8.5px] px-1 py-0.2 rounded font-black uppercase bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200 border border-amber-300">
+                            Override
+                          </span>
+                        )}
+                        <span className="text-[9px] font-black">
+                          ({b.allocatedQty} {row.baseUom || row.selectedUom})
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 italic">
+                    No lots allocated yet. Click "Allocate Lots" to fulfill from inventory.
+                  </p>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
 
@@ -924,41 +1212,55 @@ export default function BatchAllocationGrid({
                   {/* 10 Fields Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
                     <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        Our Batch:
-                      </label>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
+                          Our Batch:
+                        </label>
+                        {overrideForm.latestBatchNumber && (
+                          <span className="text-[8px] font-mono text-indigo-600 font-bold" title="Continues after latest batch number">
+                            Cont.
+                          </span>
+                        )}
+                      </div>
                       <Input
                         type="text"
                         value={overrideForm.internalBatchNo}
                         onChange={(e) => setOverrideForm(prev => ({ ...prev, internalBatchNo: e.target.value }))}
-                        placeholder="BATCH-MILKFAT4-001"
-                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                        placeholder="e.g. BATCH-MILKFAT4-007"
+                        className="h-8 text-xs font-mono font-bold rounded-lg border-indigo-300 dark:border-indigo-700 bg-indigo-50/20"
                       />
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        GRN:
+                      <label className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-wider block mb-0.5">
+                        GRN (Manual Override):
                       </label>
                       <Input
                         type="text"
                         value={overrideForm.grnNumber}
                         onChange={(e) => setOverrideForm(prev => ({ ...prev, grnNumber: e.target.value }))}
-                        placeholder="GRN-OPENING"
-                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                        placeholder="GRN-MANUAL-OVERRIDE"
+                        className="h-8 text-xs font-mono font-bold rounded-lg border-amber-300 dark:border-amber-700 bg-amber-50/20 text-amber-800 dark:text-amber-200"
                       />
                     </div>
 
                     <div>
-                      <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-0.5">
-                        PO:
-                      </label>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider block">
+                          PO:
+                        </label>
+                        {overrideForm.latestPoNumber && overrideForm.latestPoNumber !== 'PO-MANUAL-OVERRIDE' && (
+                          <span className="text-[8px] font-mono text-emerald-600 font-bold">
+                            Latest PO
+                          </span>
+                        )}
+                      </div>
                       <Input
                         type="text"
                         value={overrideForm.poNumber}
                         onChange={(e) => setOverrideForm(prev => ({ ...prev, poNumber: e.target.value }))}
-                        placeholder="Manual Override"
-                        className="h-8 text-xs font-mono font-bold rounded-lg"
+                        placeholder="e.g. PO-000013"
+                        className="h-8 text-xs font-mono font-bold rounded-lg border-slate-300 dark:border-slate-700"
                       />
                     </div>
 

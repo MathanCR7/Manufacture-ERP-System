@@ -5,6 +5,7 @@ const authenticateToken = require('../../middlewares/auth.middleware');
 const roleMiddleware = require('../../middlewares/role.middleware');
 const notificationService = require('../notifications/notifications.service');
 const stockReservationService = require('../../services/stockReservation.service');
+const { getNextBatchForRM } = require('../grn/grn.helper');
 
 const router = express.Router();
 
@@ -1103,7 +1104,8 @@ const getBatchesForRawMaterial = async (rmId) => {
           poNumber: poRef,
           poReferenceNo: poRef,
           supplierName: suppName,
-          source: 'PURCHASE_GRN'
+          isManualOverride: Boolean(b.isManualOverride || (b.batchNumber && b.batchNumber.toLowerCase().includes('override'))),
+          source: (b.isManualOverride || (b.batchNumber && b.batchNumber.toLowerCase().includes('override'))) ? 'MANUAL_OVERRIDE' : 'PURCHASE_GRN'
         });
       }
     }
@@ -1565,6 +1567,138 @@ router.get('/rm-batches/:rmId', authenticateToken, async (req, res, next) => {
     const { rmId } = req.params;
     const formatted = await getBatchesForRawMaterial(rmId);
     res.json(formatted);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Helper: Metadata for raw material (latest PO, latest & next continuing batch)
+const getRmBatchMetadata = async (rmId, rmName) => {
+  try {
+    let rm = await prisma.rawMaterial.findFirst({
+      where: {
+        OR: [
+          { id: rmId },
+          { code: rmId },
+          ...(rmName ? [{ name: { equals: rmName, mode: 'insensitive' } }] : [])
+        ]
+      }
+    });
+
+    const effectiveRmId = rm?.id || rmId;
+    const effectiveName = rm?.name || rmName || 'RAW MATERIAL';
+    const cleanCode = (effectiveName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+
+    // 1. Find latest PO
+    let latestPo = await prisma.rawMaterialPO.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [
+          { rmId: effectiveRmId },
+          ...(rm?.code ? [{ rmId: rm.code }] : []),
+          ...(effectiveName ? [{ name: { equals: effectiveName, mode: 'insensitive' } }] : [])
+        ]
+      },
+      orderBy: { createdAt: 'desc' },
+      include: { supplier: true }
+    });
+
+    if (!latestPo) {
+      const candidatePos = await prisma.rawMaterialPO.findMany({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        include: { supplier: true }
+      });
+      for (const p of candidatePos) {
+        if (Array.isArray(p.items)) {
+          const match = p.items.some(it =>
+            it.rmId === effectiveRmId ||
+            it.rmId === rm?.code ||
+            (it.name && it.name.trim().toLowerCase() === effectiveName.trim().toLowerCase())
+          );
+          if (match) {
+            latestPo = p;
+            break;
+          }
+        }
+      }
+    }
+
+    const latestPoNumber = latestPo?.referenceNo || latestPo?.poNumber || null;
+    const latestSupplier = latestPo?.supplier?.name || null;
+
+    // 2. Next continuing batch number
+    let nextSeq = 1;
+    let maxFoundSeq = 0;
+    try {
+      const auto = await getNextBatchForRM(effectiveRmId, effectiveName, prisma);
+      if (auto && auto.sequence) {
+        nextSeq = auto.sequence;
+        maxFoundSeq = Math.max(maxFoundSeq, auto.sequence - 1);
+      }
+    } catch (err) {
+      console.warn('getNextBatchForRM warning:', err.message);
+    }
+
+    // Inspect production_batch_allocations table as well
+    try {
+      const allocBatches = await prisma.$queryRawUnsafe(
+        `SELECT lot_number FROM "production_batch_allocations" WHERE lot_number LIKE $1`,
+        `BATCH-${cleanCode}-%`
+      );
+      if (Array.isArray(allocBatches)) {
+        for (const ab of allocBatches) {
+          const m = (ab.lot_number || '').match(new RegExp(`^BATCH-${cleanCode}-(\\d+)`, 'i'));
+          if (m && m[1]) {
+            const parsed = parseInt(m[1], 10);
+            if (!isNaN(parsed) && parsed > maxFoundSeq) {
+              maxFoundSeq = parsed;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+
+    nextSeq = Math.max(nextSeq, maxFoundSeq + 1);
+    const nextBatchNumber = `BATCH-${cleanCode}-${String(nextSeq).padStart(3, '0')}`;
+    const latestBatchNumber = maxFoundSeq > 0 ? `BATCH-${cleanCode}-${String(maxFoundSeq).padStart(3, '0')}` : null;
+
+    return {
+      rmId: effectiveRmId,
+      rmName: effectiveName,
+      cleanCode,
+      latestPoNumber: latestPoNumber || 'PO-MANUAL-OVERRIDE',
+      latestSupplierName: latestSupplier || 'SUP-LOT-DIRECT',
+      latestBatchNumber,
+      nextBatchNumber,
+      defaultGrnNumber: 'GRN-MANUAL-OVERRIDE',
+      sequence: nextSeq
+    };
+  } catch (err) {
+    console.error('Error in getRmBatchMetadata:', err);
+    const clean = (rmName || 'RM').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 24);
+    return {
+      rmId,
+      rmName,
+      cleanCode: clean,
+      latestPoNumber: 'PO-MANUAL-OVERRIDE',
+      latestSupplierName: 'SUP-LOT-DIRECT',
+      latestBatchNumber: null,
+      nextBatchNumber: `BATCH-${clean}-001`,
+      defaultGrnNumber: 'GRN-MANUAL-OVERRIDE',
+      sequence: 1
+    };
+  }
+};
+
+// GET /api/production/rm-batch-meta/:rmId - Metadata for raw material (latest PO, latest & next continuing batch)
+router.get('/rm-batch-meta/:rmId', authenticateToken, async (req, res, next) => {
+  try {
+    const { rmId } = req.params;
+    const { rmName } = req.query;
+    const meta = await getRmBatchMetadata(rmId, rmName);
+    res.json(meta);
   } catch (err) {
     next(err);
   }

@@ -682,22 +682,37 @@ class ProductionBatchRedesignController {
               const propFactor = poOrigQty > 0 ? (Number(alloc.allocatedQty || 0) / poOrigQty) : 1;
               const propAmount = Number((poTotAmt * propFactor).toFixed(2));
 
+              const isOverride = Boolean(
+                alloc.isManualOverride || 
+                alloc.source === 'MANUAL_OVERRIDE' || 
+                (alloc.batchId && String(alloc.batchId).startsWith('manual-')) ||
+                (alloc.grnNumber && String(alloc.grnNumber).toLowerCase().includes('override'))
+              );
+              const effectiveGrn = alloc.grnNumber || alloc.grnRef || (isOverride ? 'GRN-MANUAL-OVERRIDE' : null);
+              const effectivePo = alloc.poNumber || alloc.poReferenceNo || (isOverride ? 'PO-MANUAL-OVERRIDE' : null);
+              const effectiveSuppBatch = alloc.supplierBatchNo || alloc.mfgBatchNo || null;
+
               await tx.$executeRawUnsafe(
                 `INSERT INTO "production_batch_allocations" (
                   batch_id, usage_id, inventory_batch_id, lot_number,
                   allocated_qty, po_original_qty, po_total_amount,
-                  allocated_amount, unit_rate, uom
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+                  allocated_amount, unit_rate, uom,
+                  is_manual_override, grn_number, po_number, supplier_batch_no
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
                 batch.id,
                 usage.id,
                 targetBatchId ? String(targetBatchId) : null,
-                alloc.lotNumber || 'WAREHOUSE-LOT',
+                alloc.lotNumber || alloc.internalBatchNo || 'WAREHOUSE-LOT',
                 Number(alloc.allocatedQty || 0),
                 poOrigQty,
                 poTotAmt,
                 propAmount,
                 Number(alloc.unitRate || rm.unitRate || 0),
-                alloc.uom || rm.selectedUom || 'Kg'
+                alloc.uom || rm.selectedUom || 'Kg',
+                isOverride,
+                effectiveGrn,
+                effectivePo,
+                effectiveSuppBatch
               );
             }
           }

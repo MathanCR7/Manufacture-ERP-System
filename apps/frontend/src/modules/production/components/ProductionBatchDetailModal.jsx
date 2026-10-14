@@ -466,6 +466,34 @@ export default function ProductionBatchDetailModal({
                     </div>
                   </div>
 
+                  {/* Manual Override Indicator Banner */}
+                  {(batch.rmUsages || []).some(u => 
+                    (u.allocations || []).some(a => 
+                      a.is_manual_override || 
+                      (a.lot_number && a.lot_number.toLowerCase().includes('override')) ||
+                      (a.grn_number && a.grn_number.toLowerCase().includes('override'))
+                    )
+                  ) && (
+                    <div className="bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-300 dark:border-amber-700 rounded-2xl p-3.5 shadow-2xs flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5">
+                        <span className="p-1.5 rounded-xl bg-amber-100 dark:bg-amber-900/80 text-amber-700 dark:text-amber-300">
+                          <Sparkles className="w-4 h-4 text-amber-600" />
+                        </span>
+                        <div>
+                          <h5 className="font-black text-xs text-amber-900 dark:text-amber-200 uppercase tracking-wide">
+                            Manual Lot Override Applied
+                          </h5>
+                          <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-0.5">
+                            This production run contains raw materials fulfilled via Manual Lot Override & Opening Stock Entry.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-100 border border-amber-300">
+                        Override Active
+                      </span>
+                    </div>
+                  )}
+
                   {/* Completion, Yield & QC Metrics (Shown if completed or in lab test) */}
                   {(batch.completedAt || batch.goodQuantity !== null || batch.status === 'Completed' || batch.status === 'Lab Test In Progress') && (
                     <div className="bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-2xl p-4 shadow-3xs space-y-3">
@@ -704,7 +732,8 @@ export default function ProductionBatchDetailModal({
                     </span>
                   </div>
 
-                  <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-3xs">
+                  {/* Desktop Formulation Table (Preserved 100% Intact - hidden lg:block) */}
+                  <div className="hidden lg:block border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-3xs">
                     <table className="w-full text-left border-collapse text-xs">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-slate-800 text-[10.5px] font-bold uppercase text-slate-500 border-b border-slate-200 dark:border-slate-700">
@@ -741,16 +770,168 @@ export default function ProductionBatchDetailModal({
                               <td className="p-3 text-right font-mono">
                                 ₹{Number(u.unitCost || 0).toFixed(2)}
                               </td>
-                              <td className="p-3 text-right font-mono text-[10.5px] text-slate-500">
-                                {u.allocations && u.allocations.length > 0
-                                  ? u.allocations.map(a => `${a.lot_number} (${a.allocated_qty} ${uom})`).join(', ')
-                                  : (u.batchAllocation || 'Direct Inventory')}
+                              <td className="p-3 text-right font-mono text-[10.5px]">
+                                {u.allocations && u.allocations.length > 0 ? (
+                                  <div className="flex flex-col items-end gap-1.5">
+                                    {u.allocations.map((a, aIdx) => {
+                                      const isManual = Boolean(
+                                        a.is_manual_override || 
+                                        (a.lot_number && a.lot_number.toLowerCase().includes('override')) ||
+                                        (a.grn_number && a.grn_number.toLowerCase().includes('override'))
+                                      );
+                                      return (
+                                        <div 
+                                          key={a.id || aIdx} 
+                                          className={`flex flex-col items-end p-2 rounded-xl border text-right transition-all ${
+                                            isManual 
+                                              ? 'bg-amber-50/70 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700' 
+                                              : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                                            {isManual ? (
+                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
+                                                <Sparkles className="w-2.5 h-2.5 text-amber-600" />
+                                                Manual Override
+                                              </span>
+                                            ) : (
+                                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                                <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                                Standard Lot
+                                              </span>
+                                            )}
+                                            <strong className="font-mono text-xs text-indigo-700 dark:text-indigo-300">
+                                              {a.lot_number}
+                                            </strong>
+                                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                                              ({a.allocated_qty} {uom})
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-2 mt-1 text-[9.5px] text-slate-500 font-mono">
+                                            {a.po_number && (
+                                              <span>PO: <strong className="text-slate-700 dark:text-slate-300">{a.po_number}</strong></span>
+                                            )}
+                                            {a.grn_number && (
+                                              <span>
+                                                • GRN: <strong className={isManual ? 'text-amber-700 dark:text-amber-300 font-bold' : 'text-slate-700 dark:text-slate-300'}>
+                                                  {a.grn_number}
+                                                </strong>
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 font-mono">{u.batchAllocation || 'Direct Inventory'}</span>
+                                )}
                               </td>
                             </tr>
                           );
                         })}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Mobile & Tablet Formulation Cards (lg:hidden) */}
+                  <div className="lg:hidden space-y-3">
+                    {(batch.rmUsages || []).map((u, idx) => {
+                      const rmName = u.rawMaterial?.name || u.rmName || 'Raw Material';
+                      const uom = u.rawMaterial?.uom?.abbreviation || u.selectedUom || 'Kg';
+                      return (
+                        <div 
+                          key={idx} 
+                          className="p-3.5 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-2.5"
+                        >
+                          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[10px] flex items-center justify-center">
+                                #{idx + 1}
+                              </span>
+                              <h5 className="font-bold text-xs text-slate-800 dark:text-slate-200">
+                                {rmName}
+                              </h5>
+                            </div>
+                            <span className="font-mono text-xs font-bold text-slate-600 dark:text-slate-300">
+                              ₹{Number(u.unitCost || 0).toFixed(2)} / {uom}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl font-mono text-[10.5px]">
+                            <div>
+                              <span className="text-[9px] text-slate-400 block uppercase font-bold">Planned</span>
+                              <span className="font-bold text-slate-800 dark:text-slate-200">
+                                {Number(u.requiredQty || 0).toFixed(2)} {uom}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 block uppercase font-bold">Consumed</span>
+                              <span className="font-black text-indigo-600 dark:text-indigo-400">
+                                {u.actualUsedQty !== null ? `${Number(u.actualUsedQty).toFixed(2)} ${uom}` : 'Pending'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[9px] text-slate-400 block uppercase font-bold">Per Piece</span>
+                              <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                                {u.actualPerPieceQty !== null ? u.actualPerPieceQty : u.perPieceQty} {uom}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Allocated Batches with Manual Override indicator */}
+                          <div className="space-y-1.5 pt-1">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                              Allocated Lots:
+                            </span>
+                            {u.allocations && u.allocations.length > 0 ? (
+                              <div className="space-y-1.5">
+                                {u.allocations.map((a, aIdx) => {
+                                  const isManual = Boolean(
+                                    a.is_manual_override || 
+                                    (a.lot_number && a.lot_number.toLowerCase().includes('override')) ||
+                                    (a.grn_number && a.grn_number.toLowerCase().includes('override'))
+                                  );
+                                  return (
+                                    <div 
+                                      key={a.id || aIdx}
+                                      className={`p-2.5 rounded-xl border text-xs font-mono space-y-1 ${
+                                        isManual
+                                          ? 'bg-amber-50/70 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
+                                          : 'bg-slate-50 dark:bg-slate-850 border-slate-200 dark:border-slate-800'
+                                      }`}
+                                    >
+                                      <div className="flex items-center justify-between gap-1 flex-wrap">
+                                        <span className="font-bold text-indigo-700 dark:text-indigo-300">
+                                          {a.lot_number}
+                                        </span>
+                                        {isManual ? (
+                                          <span className="px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 border border-amber-300">
+                                            🛠 Manual Override
+                                          </span>
+                                        ) : (
+                                          <span className="px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200">
+                                            Standard Lot
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5 border-t border-slate-200/60 dark:border-slate-800">
+                                        <span>Allocated: <strong className="text-slate-800 dark:text-slate-200">{a.allocated_qty} {uom}</strong></span>
+                                        <span>{a.po_number ? `PO: ${a.po_number}` : ''} {a.grn_number ? `• GRN: ${a.grn_number}` : ''}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-slate-400 font-mono italic">
+                                {u.batchAllocation || 'Direct Inventory Stock'}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}

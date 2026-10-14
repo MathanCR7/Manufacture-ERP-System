@@ -85,7 +85,12 @@ async function migrateAndSeed() {
       "unit_rate" DECIMAL(15, 4) NOT NULL DEFAULT 0,
       "uom" VARCHAR(20),
       "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );`,
+    // 5b. Manual Override flags in allocations and inventory
+    `ALTER TABLE "production_batch_allocations" ADD COLUMN IF NOT EXISTS "is_manual_override" BOOLEAN DEFAULT FALSE;`,
+    `ALTER TABLE "production_batch_allocations" ADD COLUMN IF NOT EXISTS "grn_number" VARCHAR(100);`,
+    `ALTER TABLE "production_batch_allocations" ADD COLUMN IF NOT EXISTS "po_number" VARCHAR(100);`,
+    `ALTER TABLE "production_batch_allocations" ADD COLUMN IF NOT EXISTS "supplier_batch_no" VARCHAR(100);`,
+    `ALTER TABLE "InventoryBatch" ADD COLUMN IF NOT EXISTS "isManualOverride" BOOLEAN DEFAULT FALSE;`,
 
     // 6. Extend existing "production_batches" with new redesign fields
     `ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "base_id" UUID;`,
