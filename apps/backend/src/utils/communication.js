@@ -545,25 +545,34 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     doc.fillColor('#1e1b4b').rect(30, tableY, 535, 18).fill();
     doc.fillColor('#ffffff').fontSize(7.5).font('Helvetica-Bold');
     doc.text('#', 34, tableY + 5, { width: 16, align: 'center' });
-    doc.text('Product Name & Specifications', 54, tableY + 5, { width: 170 });
-    doc.text('Batch & Expiry Info', 228, tableY + 5, { width: 100 });
-    doc.text('HSN', 332, tableY + 5, { width: 45, align: 'center' });
-    doc.text('Qty', 380, tableY + 5, { width: 35, align: 'center' });
-    doc.text('Rate', 420, tableY + 5, { width: 42, align: 'right' });
-    doc.text('GST %', 466, tableY + 5, { width: 34, align: 'right' });
-    doc.text('Line Total', 504, tableY + 5, { width: 56, align: 'right' });
+    doc.text('Description of Goods & Batch', 54, tableY + 5, { width: 310 });
+    doc.text('Qty', 370, tableY + 5, { width: 40, align: 'center' });
+    doc.text('Rate', 415, tableY + 5, { width: 45, align: 'right' });
+    doc.text('GST %', 465, tableY + 5, { width: 35, align: 'right' });
+    doc.text('Line Total', 505, tableY + 5, { width: 55, align: 'right' });
 
     let currentY = tableY + 18;
 
     (invoice.items || []).forEach((item, index) => {
-      const prodName = item.product?.name || item.productName || 'Almond Pista';
-      const prodCode = item.product?.code || (index === 0 ? 'P141' : 'K123');
-      const hsn = item.hsnCode || '21050000';
+      const prodCode = (item.product?.code || item.productCode || item.systemCode || item.itemCode || '').trim();
+      const catName = (item.categoryName || item.category || item.product?.category?.name || '').trim();
+      let prodName = (item.product?.name || item.productName || 'Item').trim();
+
+      if (prodCode && prodName.startsWith(prodCode)) {
+        prodName = prodName.replace(prodCode, '').replace(/^[\s\-–—:|]+/, '').trim();
+      }
+      if (catName && prodName.startsWith(catName)) {
+        prodName = prodName.replace(catName, '').replace(/^[\s\-–—:|]+/, '').trim();
+      }
+
+      const fullItemDesc = [prodCode, catName, prodName].filter(Boolean).join(' - ');
       const qty = `${Number(item.quantity || 1)} ${item.uomName || 'pcs'}`;
       const rate = Number(item.unitPrice || 0);
       const gstRate = Number(item.gstRate || 5);
       const lineTotal = Number(item.subtotal || (Number(item.quantity || 1) * rate));
-      const batchInfo = item.batchNo || 'Direct Counter Stock';
+      const batchInfo = item.batchNo 
+        ? `Batch: ${item.batchNo}${item.expiryDate ? ` | Exp: ${new Date(item.expiryDate).toLocaleDateString('en-IN')}` : ''}`
+        : '';
 
       if (index % 2 === 1) {
         doc.fillColor('#f8fafc').rect(30, currentY, 535, 22).fill();
@@ -571,21 +580,17 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
 
       doc.fillColor('#0f172a').fontSize(7.5).font('Helvetica-Bold');
       doc.text(String(index + 1), 34, currentY + 4, { width: 16, align: 'center' });
-      doc.text(prodName, 54, currentY + 4, { width: 170 });
-      doc.fontSize(6.5).font('Helvetica').fillColor('#64748b');
-      doc.text(`Code: ${prodCode}`, 54, currentY + 13);
+      doc.text(fullItemDesc, 54, currentY + 4, { width: 310 });
+      if (batchInfo) {
+        doc.fontSize(6.5).font('Helvetica').fillColor('#64748b');
+        doc.text(batchInfo, 54, currentY + 13, { width: 310 });
+      }
 
-      doc.fontSize(7).font('Helvetica-Bold').fillColor('#15803d');
-      doc.text(batchInfo, 228, currentY + 4, { width: 100 });
-      doc.fontSize(6.5).font('Helvetica').fillColor('#64748b');
-      doc.text('FEFO Tracked', 228, currentY + 13);
-
-      doc.fontSize(7.5).font('Helvetica').fillColor('#334155');
-      doc.text(hsn, 332, currentY + 6, { width: 45, align: 'center' });
-      doc.font('Helvetica-Bold').text(qty, 380, currentY + 6, { width: 35, align: 'center' });
-      doc.font('Helvetica').text(`Rs. ${rate.toFixed(2)}`, 420, currentY + 6, { width: 42, align: 'right' });
-      doc.text(`${gstRate}%`, 466, currentY + 6, { width: 34, align: 'right' });
-      doc.font('Helvetica-Bold').fillColor('#0f172a').text(`Rs. ${lineTotal.toFixed(2)}`, 504, currentY + 6, { width: 56, align: 'right' });
+      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#334155');
+      doc.text(qty, 370, currentY + 6, { width: 40, align: 'center' });
+      doc.font('Helvetica').text(`Rs. ${rate.toFixed(2)}`, 415, currentY + 6, { width: 45, align: 'right' });
+      doc.text(`${gstRate}%`, 465, currentY + 6, { width: 35, align: 'right' });
+      doc.font('Helvetica-Bold').fillColor('#0f172a').text(`Rs. ${lineTotal.toFixed(2)}`, 505, currentY + 6, { width: 55, align: 'right' });
 
       currentY += 22;
       doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, currentY).lineTo(565, currentY).stroke();
