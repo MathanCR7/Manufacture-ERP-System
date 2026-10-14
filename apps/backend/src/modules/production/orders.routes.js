@@ -2160,6 +2160,11 @@ router.patch('/:id/update-details', authenticateToken, roleMiddleware(['MAIN_MAS
       attachmentUrl
     } = req.body;
 
+    const existingOrder = await prisma.customerOrder.findUnique({
+      where: { id },
+      select: { internalNote: true, quotationNote: true }
+    });
+
     const dataToUpdate = {};
     if (deliveryAddress !== undefined) dataToUpdate.deliveryAddress = deliveryAddress;
     if (billToAddress !== undefined) dataToUpdate.billToAddress = billToAddress;
@@ -2177,10 +2182,30 @@ router.patch('/:id/update-details', authenticateToken, roleMiddleware(['MAIN_MAS
     if (amountPaid !== undefined) dataToUpdate.amountPaid = Number(amountPaid);
     if (placeOfSupply !== undefined) dataToUpdate.placeOfSupply = placeOfSupply;
     if (taxRegNo !== undefined) dataToUpdate.taxRegNo = taxRegNo;
-    if (internalNote !== undefined) dataToUpdate.internalNote = internalNote;
-    if (quotationNote !== undefined) dataToUpdate.quotationNote = quotationNote;
     if (status !== undefined) dataToUpdate.status = status;
     if (attachmentUrl !== undefined) dataToUpdate.attachmentUrl = attachmentUrl;
+
+    if (quotationNote !== undefined) dataToUpdate.quotationNote = quotationNote;
+    if (req.body.termsAndConditions !== undefined) {
+      dataToUpdate.quotationNote = req.body.termsAndConditions;
+    }
+
+    let note = internalNote !== undefined ? (internalNote || '') : (existingOrder?.internalNote || '');
+    if (req.body.paymentDetails !== undefined) {
+      note = note.replace(/\[\[PAYMENT_DETAILS:.*?\]\]/gs, '').trim();
+      if (req.body.paymentDetails) {
+        note += `\n[[PAYMENT_DETAILS:${JSON.stringify(req.body.paymentDetails)}]]`;
+      }
+    }
+    if (req.body.termsAndConditions !== undefined) {
+      note = note.replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '').trim();
+      if (req.body.termsAndConditions) {
+        note += `\n[[TERMS_AND_CONDITIONS:${req.body.termsAndConditions}]]`;
+      }
+    }
+    if (internalNote !== undefined || req.body.paymentDetails !== undefined || req.body.termsAndConditions !== undefined) {
+      dataToUpdate.internalNote = note.trim() || null;
+    }
 
     const updated = await prisma.customerOrder.update({
       where: { id },
@@ -2201,7 +2226,26 @@ router.patch('/:id/update-details', authenticateToken, roleMiddleware(['MAIN_MAS
       }
     });
 
-    res.json(updated);
+    let parsedPaymentDetails = null;
+    let parsedTerms = updated.quotationNote || null;
+    if (updated.internalNote && updated.internalNote.includes('[[PAYMENT_DETAILS:')) {
+      try {
+        const m = updated.internalNote.match(/\[\[PAYMENT_DETAILS:(.*?)\]\]/s);
+        if (m && m[1]) parsedPaymentDetails = JSON.parse(m[1]);
+      } catch (e) {}
+    }
+    if (updated.internalNote && updated.internalNote.includes('[[TERMS_AND_CONDITIONS:')) {
+      try {
+        const m = updated.internalNote.match(/\[\[TERMS_AND_CONDITIONS:(.*?)\]\]/s);
+        if (m && m[1]) parsedTerms = m[1];
+      } catch (e) {}
+    }
+
+    res.json({
+      ...updated,
+      paymentDetails: parsedPaymentDetails,
+      termsAndConditions: parsedTerms
+    });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

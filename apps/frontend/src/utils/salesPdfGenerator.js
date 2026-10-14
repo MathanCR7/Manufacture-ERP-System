@@ -72,19 +72,18 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   const margin = 12;
   const contentWidth = pageWidth - (margin * 2);
 
-  // Fallback company details
+  // Fallback company details (synced live with PostgreSQL /setup/tax)
   const company = {
     name: companyDetails.companyName || 'LEONEX',
-    address: companyDetails.companyAddress || 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
-    gstin: companyDetails.companyGstin || '33AAWCS2781F1ZZ',
+    address: companyDetails.companyAddress || 'Factory / Registered Office Address',
+    gstin: companyDetails.companyGstin || companyDetails.taxRegNo || '33AAWCS2781F1ZZ',
     pan: companyDetails.companyPan || 'AAWCS2781F',
     mobile: companyDetails.companyMobile || companyDetails.mobile || '+91 99404 54154',
-    email: companyDetails.companyEmail || companyDetails.email || 'accounts@antigravitydairy.com',
-    stateCode: companyDetails.stateCode || '33',
-    terms: companyDetails.invoiceTerms || companyDetails.termsAndConditions || '1. Goods once sold will not be taken back without valid QC inspection.\n2. Interest @ 18% p.a. will be charged if payment is delayed beyond due date.\n3. Subject to Salem jurisdiction only.'
+    stateCode: companyDetails.stateCode || (companyDetails.companyGstin ? companyDetails.companyGstin.substring(0, 2) : '33'),
+    terms: companyDetails.invoiceTerms || companyDetails.termsAndConditions || '1. Goods once sold will not be taken back without valid QC inspection.\n2. Interest @ 18% p.a. will be charged if payment is delayed beyond due date.\n3. Subject to jurisdiction only.'
   };
 
-  const sellerState = company.stateCode || company.gstin.substring(0, 2);
+  const sellerState = company.stateCode || (company.gstin ? company.gstin.substring(0, 2) : '33');
   const buyerState = order.buyerStateCode || (order.customer?.gstin ? order.customer.gstin.substring(0, 2) : sellerState);
   const isInterState = String(sellerState) !== String(buyerState);
 
@@ -145,7 +144,7 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   doc.setFont('helvetica', 'bold');
   doc.text(`GSTIN: ${company.gstin} | PAN: ${company.pan}`, pageWidth - margin, curY + 2.5 + addrOffset, { align: 'right' });
   doc.setFont('helvetica', 'normal');
-  doc.text(`State Code: ${sellerState} | Mobile: ${company.mobile} | Email: ${company.email}`, pageWidth - margin, curY + 6.5 + addrOffset, { align: 'right' });
+  doc.text(`State Code: ${sellerState} | Mobile: ${company.mobile}`, pageWidth - margin, curY + 6.5 + addrOffset, { align: 'right' });
 
   curY = Math.max(curY + 16, curY + 9 + addrOffset);
 
@@ -588,8 +587,8 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
   curY += summaryCardH + 5;
 
-  // Custom Order Terms & Conditions (Editable per Order)
-  let orderTermsText = order.termsAndConditions || order.invoiceTerms || company.terms;
+  // Custom Order Terms & Conditions (Editable per Order and Saved in Database)
+  let orderTermsText = order.termsAndConditions || order.quotationNote || order.invoiceTerms || company.terms;
   if (order.internalNote && order.internalNote.includes('[[TERMS_AND_CONDITIONS:')) {
     try {
       const match = order.internalNote.match(/\[\[TERMS_AND_CONDITIONS:(.*?)\]\]/s);

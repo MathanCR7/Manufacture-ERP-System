@@ -2256,7 +2256,7 @@ export default function SalesOrderPage() {
   };
 
   // Generate & Print A4 PDF
-  const handlePrintPDF = (orderPayload) => {
+  const handlePrintPDF = async (orderPayload) => {
     const isPaid = String(paymentTerms).toUpperCase() === 'PAID' || 
                    (Number(advancePaid) >= Number(financials.grandTotal) && Number(financials.grandTotal) > 0);
     const activePaymentDetails = paymentMethod.includes('Bank')
@@ -2329,7 +2329,18 @@ export default function SalesOrderPage() {
     };
 
     try {
-      const blob = generateA4TaxInvoice(orderData, storeCompany);
+      let liveCompany = storeCompany;
+      try {
+        const taxRes = await api.get('/setup/tax');
+        if (taxRes.data) {
+          liveCompany = taxRes.data;
+          useCompanyStore.getState().setCompany(taxRes.data);
+        }
+      } catch (taxErr) {
+        console.warn('Could not refresh setup tax, using store company:', taxErr);
+      }
+
+      const blob = generateA4TaxInvoice(orderData, liveCompany);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -4160,7 +4171,7 @@ export default function SalesOrderPage() {
 
             <div className="space-y-3">
               <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 text-xs">
-                Financial Records & BP Account
+                Financial Records
               </div>
               <div className="flex items-center">
                 <label className="w-36 text-[var(--sap-text-muted)] font-medium">Journal Remark</label>
@@ -4168,15 +4179,6 @@ export default function SalesOrderPage() {
                   type="text"
                   readOnly
                   value={`Sales Order - ${selectedCustomer?.name || 'Customer'}`}
-                  className="flex-1 h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
-                />
-              </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">BP Bank Code</label>
-                <input
-                  type="text"
-                  readOnly
-                  value={selectedCustomer?.bankAccount ? `${selectedCustomer.bankName || 'SBI'} (${selectedCustomer.bankAccount})` : 'Primary Bank Default'}
                   className="flex-1 h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                 />
               </div>

@@ -67,6 +67,24 @@ export default function SalesListPage() {
   // Editing State for Detailed Inspector View
   const [isEditing, setIsEditing] = useState(false);
 
+  // Custom Terms & Conditions and Payment Details
+  const [orderTerms, setOrderTerms] = useState('');
+  const [paymentDetails, setPaymentDetails] = useState({
+    bankName: '',
+    accountNo: '',
+    ifsc: '',
+    branch: '',
+    transactionRef: '',
+    upiId: '',
+    mobileNo: '',
+    utrRef: '',
+    cashReceived: 0,
+    cashierNote: '',
+    cardLast4: '',
+    cardNetwork: 'Visa',
+    terminalCode: ''
+  });
+
   // Editable Form fields for the Detailed View
   const [editForm, setEditForm] = useState({
     shipToAddress: '',
@@ -111,6 +129,25 @@ export default function SalesListPage() {
       salesEmployee: order.salesEmployee || '-No Sales Employee-',
       owner: order.creator?.name || order.cashierName || 'Mathan'
     });
+
+    const pDet = order.paymentDetails || {};
+    setPaymentDetails({
+      bankName: pDet.bankName || '',
+      accountNo: pDet.accountNo || pDet.bankAccountNo || '',
+      ifsc: pDet.ifsc || pDet.bankIfsc || '',
+      branch: pDet.branch || pDet.bankBranch || '',
+      transactionRef: pDet.transactionRef || '',
+      upiId: pDet.upiId || '',
+      mobileNo: pDet.mobileNo || pDet.upiPhone || '',
+      utrRef: pDet.utrRef || '',
+      cashReceived: pDet.cashReceived !== undefined ? pDet.cashReceived : Number(order.amountPaid || 0),
+      cashierNote: pDet.cashierNote || '',
+      cardLast4: pDet.cardLast4 || '',
+      cardNetwork: pDet.cardNetwork || 'Visa',
+      terminalCode: pDet.terminalCode || ''
+    });
+
+    setOrderTerms(order.termsAndConditions || order.quotationNote || '');
   };
 
   // Pagination State - defaults to 'ALL' to display fully without overflow
@@ -435,14 +472,36 @@ export default function SalesListPage() {
     return doc.output('blob');
   };
 
-  const handleDownloadActivePdf = () => {
-    if (!activePdfUrl || !selectedOrder) return;
+  const handleDownloadActivePdf = async () => {
+    if (!selectedOrder) return;
+    let activeSettings = companySettings || storeCompany;
+    try {
+      const taxRes = await api.get('/setup/tax');
+      if (taxRes.data) {
+        activeSettings = taxRes.data;
+        setCompanySettings(taxRes.data);
+        useCompanyStore.getState().setCompany(taxRes.data);
+      }
+    } catch (e) {}
+
+    let blob;
+    try {
+      blob = layoutMode === 'A4'
+        ? generateA4TaxInvoice(selectedOrder, activeSettings)
+        : generateThermalReceipt(selectedOrder, activeSettings);
+    } catch (err) {
+      blob = layoutMode === 'A4' 
+        ? compileInvoiceA4PDF(selectedOrder, activeSettings) 
+        : compileThermalBillPDF(selectedOrder, activeSettings);
+    }
+    const downloadUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = activePdfUrl;
+    a.href = downloadUrl;
     a.download = getSalesDocumentPdfFilename(selectedOrder, layoutMode);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(downloadUrl), 60000);
   };
 
   const handlePrintActivePdf = () => {
@@ -770,6 +829,8 @@ Thank you for choosing ${company}!`;
     try {
       const payload = {
         deliveryAddress: editForm.shipToAddress,
+        billToAddress: editForm.billToAddress,
+        shippingMethod: editForm.shippingMethod,
         transporterName: editForm.transporterName,
         vehicleNo: editForm.vehicleNo,
         lrNo: editForm.lrNo,
@@ -777,16 +838,27 @@ Thank you for choosing ${company}!`;
         ewayBillDate: editForm.ewayBillDate || null,
         paymentTerms: editForm.paymentTerms,
         paymentStatus: editForm.paymentStatus,
+        paymentMode: editForm.paymentMethod,
         amountPaid: Number(editForm.amountPaid || 0),
         placeOfSupply: editForm.placeOfSupply,
         taxRegNo: editForm.taxRegNo,
         internalNote: editForm.internalNote,
-        quotationNote: editForm.remarks
+        quotationNote: orderTerms || editForm.remarks,
+        termsAndConditions: orderTerms,
+        paymentDetails: paymentDetails
       };
 
       const res = await api.patch(`/orders/${selectedOrder.id}/update-details`, payload);
-      setSelectedOrder(prev => ({ ...prev, ...res.data }));
-      setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...res.data } : o));
+      const updatedOrder = {
+        ...selectedOrder,
+        ...res.data,
+        termsAndConditions: orderTerms,
+        quotationNote: orderTerms || editForm.remarks,
+        paymentDetails: paymentDetails,
+        paymentMode: editForm.paymentMethod
+      };
+      setSelectedOrder(updatedOrder);
+      setOrders(prev => prev.map(o => o.id === selectedOrder.id ? { ...o, ...updatedOrder } : o));
       setIsEditing(false);
 
       Swal.fire({
@@ -1802,6 +1874,219 @@ Thank you for choosing ${company}!`;
                   </select>
                 </div>
 
+                {/* Dynamic Bank Account Details */}
+                {editForm.paymentMethod.includes('Bank') && (
+                  <div className="p-3 bg-indigo-50/60 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900 rounded-xl space-y-2 mt-2">
+                    <div className="text-xs font-bold text-indigo-900 dark:text-indigo-300 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5" />
+                        <span>Bank Account Details</span>
+                      </span>
+                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-normal">Editable & Saved in Database</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Bank Name</label>
+                        <input
+                          type="text"
+                          disabled={!isEditing}
+                          value={paymentDetails.bankName}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, bankName: e.target.value }))}
+                          placeholder="e.g. State Bank of India"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Account Number</label>
+                        <input
+                          type="text"
+                          disabled={!isEditing}
+                          value={paymentDetails.accountNo}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, accountNo: e.target.value }))}
+                          placeholder="e.g. 123456789012"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">IFSC Code</label>
+                        <input
+                          type="text"
+                          disabled={!isEditing}
+                          value={paymentDetails.ifsc}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, ifsc: e.target.value.toUpperCase() }))}
+                          placeholder="e.g. SBIN0001234"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono uppercase outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Branch</label>
+                        <input
+                          type="text"
+                          disabled={!isEditing}
+                          value={paymentDetails.branch}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, branch: e.target.value }))}
+                          placeholder="e.g. Salem Main Branch"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Transaction / UTR Reference No</label>
+                      <input
+                        type="text"
+                        disabled={!isEditing}
+                        value={paymentDetails.transactionRef}
+                        onChange={(e) => setPaymentDetails(prev => ({ ...prev, transactionRef: e.target.value }))}
+                        placeholder="e.g. UTR-9821893821"
+                        className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Dynamic UPI / QR Details */}
+                {editForm.paymentMethod.includes('UPI') && (
+                  <div className="p-3 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 rounded-xl space-y-2 mt-2">
+                    <div className="text-xs font-bold text-purple-900 dark:text-purple-300 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>UPI / QR Details</span>
+                      </span>
+                      <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">Editable & Saved in Database</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">UPI ID (VPA)</label>
+                        <input
+                          type="text"
+                          disabled={!isEditing}
+                          value={paymentDetails.upiId}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, upiId: e.target.value }))}
+                          placeholder="e.g. business@okaxis"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Registered Mobile No</label>
+                        <input
+                          type="text"
+                          disabled={!isEditing}
+                          value={paymentDetails.mobileNo}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, mobileNo: e.target.value }))}
+                          placeholder="e.g. 9940454154"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">UPI Transaction ID / Ref No</label>
+                      <input
+                        type="text"
+                        disabled={!isEditing}
+                        value={paymentDetails.utrRef}
+                        onChange={(e) => setPaymentDetails(prev => ({ ...prev, utrRef: e.target.value }))}
+                        placeholder="e.g. UPI-20261014-9988"
+                        className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Dynamic Cash Details */}
+                {editForm.paymentMethod === 'Cash' && (
+                  <div className="p-3 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 rounded-xl space-y-2 mt-2">
+                    <div className="text-xs font-bold text-emerald-900 dark:text-emerald-300 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Banknote className="w-3.5 h-3.5" />
+                        <span>Cash Counter Settlement</span>
+                      </span>
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">Editable & Saved in Database</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Cash Received (₹)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          disabled={!isEditing}
+                          value={paymentDetails.cashReceived || editForm.amountPaid}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setPaymentDetails(prev => ({ ...prev, cashReceived: val }));
+                            setEditForm(prev => ({ ...prev, amountPaid: val }));
+                          }}
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono font-bold text-right outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Cashier Notes</label>
+                        <input
+                          type="text"
+                          disabled={!isEditing}
+                          value={paymentDetails.cashierNote}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, cashierNote: e.target.value }))}
+                          placeholder="e.g. Counter 1 / Handed over to accounts"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Dynamic Card Details */}
+                {editForm.paymentMethod.includes('Card') && (
+                  <div className="p-3 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-xl space-y-2 mt-2">
+                    <div className="text-xs font-bold text-amber-900 dark:text-amber-300 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>Card Account & Terminal Details</span>
+                      </span>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-normal">Editable & Saved in Database</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Card Account / Last 4 Digits</label>
+                        <input
+                          type="text"
+                          maxLength={19}
+                          disabled={!isEditing}
+                          value={paymentDetails.cardLast4}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, cardLast4: e.target.value }))}
+                          placeholder="e.g. 4589"
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">Card Network</label>
+                        <select
+                          disabled={!isEditing}
+                          value={paymentDetails.cardNetwork}
+                          onChange={(e) => setPaymentDetails(prev => ({ ...prev, cardNetwork: e.target.value }))}
+                          className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                        >
+                          <option value="Visa">Visa</option>
+                          <option value="MasterCard">MasterCard</option>
+                          <option value="RuPay">RuPay</option>
+                          <option value="American Express">American Express</option>
+                          <option value="Maestro">Maestro</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-slate-500 font-medium mb-0.5">POS Terminal / Auth Code</label>
+                      <input
+                        type="text"
+                        disabled={!isEditing}
+                        value={paymentDetails.terminalCode}
+                        onChange={(e) => setPaymentDetails(prev => ({ ...prev, terminalCode: e.target.value }))}
+                        placeholder="e.g. AUTH-992211"
+                        className="w-full h-8 px-2.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white font-mono outline-none disabled:bg-slate-100/60 dark:disabled:bg-slate-900"
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center">
                   <label className="w-36 text-slate-500 font-bold">Payment Status</label>
                   <select
@@ -1837,11 +2122,11 @@ Thank you for choosing ${company}!`;
                 </div>
               </div>
 
-              {/* Financial Records & BP Account */}
+              {/* Financial Records */}
               <div className="space-y-3">
                 <div className="font-extrabold text-slate-800 dark:text-slate-200 border-b border-slate-200 dark:border-slate-800 pb-1.5 text-xs flex items-center gap-2">
                   <Building2 className="w-4 h-4 text-indigo-500" />
-                  <span>Financial Records & BP Account</span>
+                  <span>Financial Records</span>
                 </div>
 
                 <div className="flex items-center">
@@ -1855,19 +2140,33 @@ Thank you for choosing ${company}!`;
                 </div>
 
                 <div className="flex items-center">
-                  <label className="w-36 text-slate-500 font-bold">BP Bank Code</label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={selectedOrder.customer?.bankAccount ? `${selectedOrder.customer.bankName || 'SBI'} (${selectedOrder.customer.bankAccount})` : 'Primary Bank Default'}
-                    className="flex-1 h-9 px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/60 text-slate-600 dark:text-slate-400 font-medium outline-none"
-                  />
-                </div>
-
-                <div className="flex items-center">
                   <label className="w-36 text-slate-500 font-bold">Document Total</label>
                   <div className="font-mono font-black text-slate-900 dark:text-white text-sm">
                     ₹{grandTotalVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+
+                {/* Editable Terms & Conditions */}
+                <div className="space-y-1.5 pt-3 border-t border-slate-200 dark:border-slate-800">
+                  <div className="font-extrabold text-slate-800 dark:text-slate-200 text-xs flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Terms & Conditions</span>
+                    </span>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                      Saved per order & printed on PDF
+                    </span>
+                  </div>
+                  <textarea
+                    rows={5}
+                    disabled={!isEditing}
+                    value={orderTerms}
+                    onChange={(e) => setOrderTerms(e.target.value)}
+                    placeholder="Enter custom terms and conditions to print on this order's PDF..."
+                    className="w-full p-2.5 text-xs font-sans rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-900 dark:text-white outline-none leading-relaxed disabled:bg-slate-50 dark:disabled:bg-slate-950/60 disabled:text-slate-600 dark:disabled:text-slate-400"
+                  />
+                  <div className="text-[10px] text-slate-400 dark:text-slate-500 italic">
+                    * Any edits here are saved into the database for this order and will print directly in the Terms & Conditions section of the PDF.
                   </div>
                 </div>
               </div>
