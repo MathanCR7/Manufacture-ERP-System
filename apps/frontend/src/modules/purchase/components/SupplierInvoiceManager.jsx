@@ -55,13 +55,18 @@ function DocumentViewerCanvas({ fileItem, poReference, zoom, rotation }) {
 
     const candidates = [fileSource];
     if (filename) {
+      candidates.push(`/uploads/payments/${filename}`);
+      candidates.push(`/api/uploads/payments/${filename}`);
       if (cleanPo) {
         candidates.push(`/uploads/invoices/${cleanPo}/${filename}`);
+        candidates.push(`/api/uploads/invoices/${cleanPo}/${filename}`);
         candidates.push(`/uploads/invoices/${cleanPo.toLowerCase()}/${filename}`);
+        candidates.push(`/api/uploads/invoices/${cleanPo.toLowerCase()}/${filename}`);
       }
-      candidates.push(`/uploads/payments/${filename}`);
       candidates.push(`/uploads/invoices/${filename}`);
+      candidates.push(`/api/uploads/invoices/${filename}`);
       candidates.push(`/uploads/${filename}`);
+      candidates.push(`/api/uploads/${filename}`);
     }
 
     const uniqueCandidates = [...new Set(candidates)].map(c => resolveInvoiceFileUrl(c));

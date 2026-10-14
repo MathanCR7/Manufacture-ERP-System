@@ -6,7 +6,9 @@ export function resolveInvoiceFileUrl(url) {
   if (url.startsWith('data:') || url.startsWith('blob:') || url.startsWith('http://') || url.startsWith('https://')) {
     return url;
   }
-  const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+  const isDev5173 = typeof window !== 'undefined' && window.location.port === '5173';
+  const defaultApi = isDev5173 ? 'http://localhost:5000/api' : (typeof window !== 'undefined' ? `${window.location.origin}/api` : 'http://localhost:5000/api');
+  const apiBase = import.meta.env.VITE_API_URL || defaultApi;
   const backendBase = apiBase.replace(/\/api\/?$/, '');
   const cleanPath = url.startsWith('/') ? url : `/${url}`;
   return `${backendBase}${cleanPath}`;

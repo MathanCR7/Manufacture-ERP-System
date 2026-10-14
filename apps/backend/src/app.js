@@ -62,7 +62,7 @@ app.get('/', (req, res) => {
 });
 
 // Static file serving for uploads (receipts, proof images, documents) with invoice fallback
-app.use('/uploads', (req, res, next) => {
+app.use(['/uploads', '/api/uploads'], (req, res, next) => {
   res.removeHeader('X-Frame-Options');
   res.removeHeader('Content-Security-Policy');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
