@@ -1018,6 +1018,8 @@ class ProductionBatchRedesignController {
         batchId: batch.id,
         referenceNo: batch.referenceNo,
         batchNo,
+        status: batch.status,
+        isCancelled: batch.status === 'Cancelled',
         productName: batch.product?.name,
         productCode: batch.product?.code,
         gtin,

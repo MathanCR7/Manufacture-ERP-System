@@ -294,11 +294,25 @@ export default function ProductionBatchDetailModal({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowLabelModal(true)}
-              className="rounded-xl border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold h-8 px-3 cursor-pointer flex items-center gap-1.5"
+              disabled={batch?.status === 'Cancelled'}
+              onClick={() => {
+                if (batch?.status === 'Cancelled') return;
+                setShowLabelModal(true);
+              }}
+              title={batch?.status === 'Cancelled' ? 'Cannot print GS1 labels for cancelled production batch' : 'Print GS1 Batch Label / Barcode'}
+              className={`rounded-xl border h-8 px-3 flex items-center gap-1.5 font-bold transition-all ${
+                batch?.status === 'Cancelled'
+                  ? 'border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-600 opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/40'
+                  : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer'
+              }`}
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               GS1 Label / Barcode
+              {batch?.status === 'Cancelled' && (
+                <span className="text-[9px] uppercase px-1.5 py-0.5 bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 rounded-md font-black ml-1">
+                  Cancelled
+                </span>
+              )}
             </Button>
           </div>
 
@@ -1023,6 +1037,8 @@ export default function ProductionBatchDetailModal({
           isOpen={showLabelModal}
           onClose={() => setShowLabelModal(false)}
           batchId={batch?.id}
+          batch={batch}
+          batchStatus={batch?.status}
         />
       )}
     </div>
