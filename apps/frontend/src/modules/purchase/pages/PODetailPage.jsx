@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, Component } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
@@ -40,11 +40,77 @@ import POExportModal from '../components/POExportModal';
 import GstCalculationModal, { calculateGstBreakdown } from '../components/GstCalculationModal';
 import useCompanyStore from '@/app/store/companyStore';
 
-// Safely import QRCode
+// Safely import QRCode with Error Boundary and auto-fallback
 import _QRCode from 'react-qr-code';
 const QRCode = typeof _QRCode === 'function' ? _QRCode : (_QRCode?.default || _QRCode?.QRCode || 'div');
 
-function SapFieldItem({ label, value, icon: Icon, isMono = false, highlight = false, className = '' }) {
+class QRCodeErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(err) {
+    console.warn('QR Code generation fallback activated:', err?.message || err);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const fallbackVal = String(this.props.fallbackValue || 'PO');
+      try {
+        return (
+          <QRCode 
+            value={fallbackVal} 
+            size={this.props.size || 150} 
+            level="L" 
+            fgColor={this.props.fgColor || '#0f172a'} 
+            bgColor={this.props.bgColor || '#ffffff'} 
+          />
+        );
+      } catch {
+        return (
+          <div className="flex flex-col items-center justify-center p-3 text-center border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800">
+            <QrCode className="w-8 h-8 text-slate-400 mb-1" />
+            <span className="font-mono text-xs font-bold text-slate-700 dark:text-slate-300">
+              {fallbackVal}
+            </span>
+          </div>
+        );
+      }
+    }
+    return this.props.children;
+  }
+}
+
+function SafeQRCode({ value, size = 152, level = 'L', fgColor = '#0f172a', bgColor = '#ffffff', fallbackValue = '' }) {
+  const safeValue = useMemo(() => {
+    if (!value) return fallbackValue || 'PO';
+    const str = typeof value === 'string' ? value : JSON.stringify(value);
+    // Standard safe threshold to prevent "code length overflow" in react-qr-code
+    if (str.length > 450) {
+      return fallbackValue || str.slice(0, 450);
+    }
+    return str;
+  }, [value, fallbackValue]);
+
+  return (
+    <QRCodeErrorBoundary fallbackValue={fallbackValue} size={size} fgColor={fgColor} bgColor={bgColor}>
+      <QRCode 
+        value={safeValue} 
+        size={size} 
+        level={level} 
+        fgColor={fgColor} 
+        bgColor={bgColor} 
+      />
+    </QRCodeErrorBoundary>
+  );
+}
+
+function ErpFieldItem({ label, value, icon: Icon, isMono = false, highlight = false, className = '' }) {
   return (
     <div className={`p-2.5 rounded-lg border border-slate-100 dark:border-slate-800/80 bg-slate-50/60 dark:bg-slate-900/40 ${className}`}>
       <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">
@@ -329,6 +395,47 @@ export default function PODetailPage() {
     );
   };
 
+  const isPending = po?.status?.toUpperCase() === 'PENDING' || po?.status?.toUpperCase() === 'DRAFT';
+  const isOrdered = po?.status === 'ORDERED';
+
+  const qrData = useMemo(() => {
+    if (!po) return '';
+    try {
+      const primaryBatch = batches?.[0]?.batchNumber;
+      const primaryGrn = grnList?.[0]?.referenceNo || grn?.referenceNo;
+      
+      const payload = {
+        poNumber: po.referenceNo || po.rmId || po.id,
+        supplierName: (po.supplier?.name || po.supplierName || '').slice(0, 40),
+        rawMaterial: (po.name || '').slice(0, 40),
+        quantity: Number(po.quantity || 0),
+        uom: po.uom?.abbreviation || '',
+        expectedDelivery: po.expectedDelivery ? format(new Date(po.expectedDelivery), 'yyyy-MM-dd') : '',
+        poAmount: Number(po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount || 0),
+        paymentStatus: po.status,
+        labExempt: isLabExempt,
+        ...(primaryBatch && { batchNumber: primaryBatch }),
+        ...(primaryGrn && { grnNumber: primaryGrn }),
+        batchesCount: batches.length,
+        grnCount: grnList.length,
+      };
+
+      const jsonStr = JSON.stringify(payload);
+      if (jsonStr.length > 450) {
+        return JSON.stringify({
+          poNumber: po.referenceNo || po.rmId || po.id,
+          rawMaterial: (po.name || '').slice(0, 30),
+          quantity: po.quantity,
+          uom: po.uom?.abbreviation || '',
+          supplier: (po.supplier?.name || '').slice(0, 30),
+        });
+      }
+      return jsonStr;
+    } catch {
+      return po.referenceNo || po.rmId || po.id || 'PO';
+    }
+  }, [po, batches, grnList, grn, isLabExempt]);
+
   if (isLoading) {
     return (
       <div className="w-full max-w-full px-3 sm:px-5 lg:px-6 py-4 space-y-4 mx-auto">
@@ -358,30 +465,7 @@ export default function PODetailPage() {
     );
   }
 
-  const isPending = po.status?.toUpperCase() === 'PENDING' || po.status?.toUpperCase() === 'DRAFT';
-  const isOrdered = po.status === 'ORDERED';
 
-  const qrData = JSON.stringify({
-    poNumber: po.referenceNo,
-    supplierName: po.supplier?.name || '',
-    rawMaterial: po.name,
-    quantity: po.quantity,
-    uom: po.uom?.abbreviation,
-    expectedDelivery: po.expectedDelivery,
-    poAmount: po.grandTotal && Number(po.grandTotal) > 0 ? po.grandTotal : po.amount,
-    paymentStatus: po.status,
-    labExempt: isLabExempt,
-    grnCount: grnList.length,
-    ...(batches.length > 0 && {
-      batchNumbers: batches.map(b => b.batchNumber).join(', '),
-      inventoryStatus: 'STORED_IN_STOCK'
-    }),
-    ...(grnList.length > 0 && {
-      grnNumbers: grnList.map(g => g.referenceNo).join(', '),
-      totalReceivedQty: totalReceivedQty,
-    }),
-    generatedAt: new Date().toISOString(),
-  });
 
   return (
     <div className="w-full max-w-full px-3 sm:px-5 lg:px-6 py-4 space-y-4 mx-auto text-slate-900 dark:text-slate-100 transition-all duration-200">
@@ -431,7 +515,7 @@ export default function PODetailPage() {
         </div>
       </div>
 
-      {/* SAP Style Executive Header Bar */}
+      {/* Executive Header Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3.5 sm:p-4 shadow-2xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
           {/* Left: Document Key Info */}
@@ -448,7 +532,7 @@ export default function PODetailPage() {
             <div className="space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
-                  SAP Purchase Order
+                  Purchase Order
                 </span>
                 <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white font-mono">
                   {po.referenceNo || po.rmId}
@@ -522,7 +606,7 @@ export default function PODetailPage() {
             </div>
           </div>
 
-          {/* Right: SAP Actions Toolbar */}
+          {/* Right: Actions Toolbar */}
           <div className="flex items-center flex-wrap gap-1.5 shrink-0">
             {isPending && (
               <>
@@ -740,7 +824,7 @@ export default function PODetailPage() {
         </div>
       </div>
 
-      {/* Procurement & Inventory Lifecycle Bar (Compact SAP Ribbon) */}
+      {/* Procurement & Inventory Lifecycle Bar */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-4 py-2.5 shadow-2xs">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
@@ -831,7 +915,7 @@ export default function PODetailPage() {
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div className="col-span-2">
-                    <SapFieldItem
+                    <ErpFieldItem
                       label="Company / Vendor Name"
                       value={po.supplier?.name || po.supplierName || '—'}
                       icon={Building}
@@ -839,26 +923,26 @@ export default function PODetailPage() {
                     />
                   </div>
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Contact Person"
                     value={po.supplier?.contactPerson || po.supplier?.contact_person || '—'}
                     icon={User}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Phone / Mobile"
                     value={po.supplier?.phone || po.supplier?.mobile || '—'}
                     icon={Phone}
                     isMono={true}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Email Address"
                     value={po.supplier?.email || '—'}
                     icon={Mail}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="PAN Number"
                     value={po.supplier?.pan || '—'}
                     icon={Tag}
@@ -866,7 +950,7 @@ export default function PODetailPage() {
                   />
 
                   <div className="col-span-2">
-                    <SapFieldItem
+                    <ErpFieldItem
                       label="GSTIN & Tax Category"
                       value={
                         po.supplier?.gstin ? (
@@ -883,7 +967,7 @@ export default function PODetailPage() {
                   </div>
 
                   <div className="col-span-2">
-                    <SapFieldItem
+                    <ErpFieldItem
                       label="Registered Warehouse / Office Address"
                       value={[
                         po.supplier?.address,
@@ -922,7 +1006,7 @@ export default function PODetailPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Supplier Invoice No"
                     value={po.supplierInvoiceNo || '—'}
                     icon={FileText}
@@ -930,13 +1014,13 @@ export default function PODetailPage() {
                     highlight={!!po.supplierInvoiceNo}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Supplier Invoice Date"
                     value={po.supplierInvoiceDate ? format(new Date(po.supplierInvoiceDate), 'dd MMM yyyy') : '—'}
                     icon={Calendar}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Transport Mode"
                     value={
                       po.transportMode === 'ROAD' ? '🚛 Road Transport' :
@@ -948,20 +1032,20 @@ export default function PODetailPage() {
                     icon={Truck}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Vehicle Number"
                     value={po.vehicleNumber || '—'}
                     icon={Truck}
                     isMono={true}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Transporter / Carrier"
                     value={po.transporterName || '—'}
                     icon={User}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="E-Way Bill Number"
                     value={po.ewayBillNo || '—'}
                     icon={FileText}
@@ -969,13 +1053,13 @@ export default function PODetailPage() {
                     highlight={!!po.ewayBillNo}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="E-Way Bill Date"
                     value={po.ewayBillDate ? format(new Date(po.ewayBillDate), 'dd MMM yyyy') : '—'}
                     icon={Calendar}
                   />
 
-                  <SapFieldItem
+                  <ErpFieldItem
                     label="Validity / Till Date"
                     value={po.tillDate ? (
                       <span className="flex items-center justify-between gap-1">
@@ -1145,7 +1229,7 @@ export default function PODetailPage() {
 
             {batches.length > 0 ? (
               <div className="space-y-2.5">
-                {/* SAP Batch Overview Cards */}
+                {/* Batch Overview Cards */}
                 {batches.map((batch, idx) => (
                   <div
                     key={batch.id || idx}
@@ -1465,7 +1549,7 @@ export default function PODetailPage() {
           </div>
 
           {/* ───────────────────────────────────────────────────────────────────
-              MATERIAL & ORDERED ITEMS (SAP Line Items Table)
+              MATERIAL & ORDERED ITEMS
               ─────────────────────────────────────────────────────────────────── */}
           <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 shadow-2xs transition-all duration-1000 ${
             highlightActive ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-slate-900 shadow-md bg-indigo-50/10' : ''
@@ -1490,7 +1574,7 @@ export default function PODetailPage() {
 
             {Array.isArray(po.items) && po.items.length > 0 ? (
               <div className="space-y-3">
-                {/* Desktop SAP Table */}
+                {/* Desktop Table */}
                 <div className="hidden lg:block overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-800">
                   <table className="w-full text-xs text-left">
                     <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-600 dark:text-slate-300 font-semibold border-b border-slate-200 dark:border-slate-800">
@@ -2046,7 +2130,7 @@ export default function PODetailPage() {
         </div>
 
         {/* ───────────────────────────────────────────────────────────────────
-            RIGHT COLUMN: STICKY SAP TOOLS, QR CODE & AUDIT SIDEBAR
+            RIGHT COLUMN: TOOLS, QR CODE & AUDIT SIDEBAR
             ─────────────────────────────────────────────────────────────────── */}
         <div className="lg:col-span-1 space-y-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 shadow-2xs flex flex-col items-center space-y-3.5 sticky top-4">
@@ -2068,7 +2152,13 @@ export default function PODetailPage() {
               className="bg-white p-2.5 rounded-lg shadow-2xs border border-slate-200 dark:border-slate-700 cursor-grab active:cursor-grabbing hover:scale-102 transition-all duration-200"
               title="Drag and drop this QR code onto the header Scan icon to track its lifecycle!"
             >
-              <QRCode value={qrData} size={152} level="M" fgColor="#0f172a" />
+              <SafeQRCode 
+                value={qrData} 
+                size={152} 
+                level="L" 
+                fgColor="#0f172a" 
+                fallbackValue={po.referenceNo || po.rmId || po.id} 
+              />
             </div>
 
             <div className="bg-slate-50 dark:bg-slate-800/60 px-3 py-1.5 rounded border border-slate-200 dark:border-slate-700 w-full text-center">
@@ -2170,14 +2260,21 @@ export default function PODetailPage() {
             RM LABEL
           </h1>
           <div className="bg-white p-2 border-2 border-black rounded-xl">
-            <QRCode value={qrData} size={175} level="M" fgColor="#000000" bgColor="#ffffff" />
+            <SafeQRCode 
+              value={qrData} 
+              size={175} 
+              level="L" 
+              fgColor="#000000" 
+              bgColor="#ffffff" 
+              fallbackValue={po.referenceNo || po.rmId || po.id} 
+            />
           </div>
           <div className="w-full space-y-1.5 text-xs font-bold text-black">
             {[
               { label: 'REF NO', value: po.referenceNo || po.rmId },
               { label: 'ITEM', value: po.name },
               { label: 'QUANTITY', value: `${po.quantity} ${po.uom?.abbreviation || ''}` },
-              ...(batches.length > 0 ? [{ label: 'BATCH NO', value: batches.map(b => b.batchNumber).join(', ') }] : []),
+              ...(batches.length > 0 ? [{ label: 'BATCH NO', value: batches.slice(0, 4).map(b => b.batchNumber).join(', ') + (batches.length > 4 ? ` (+${batches.length - 4})` : '') }] : []),
               { label: 'SUPPLIER', value: po.supplier?.name || '—' },
               ...(po.supplierInvoiceNo ? [{ label: 'SUPP INV', value: po.supplierInvoiceNo }] : []),
               ...(po.transportMode ? [{ label: 'TRANS MODE', value: po.transportMode }] : []),
