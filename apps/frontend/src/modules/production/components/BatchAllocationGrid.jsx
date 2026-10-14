@@ -497,15 +497,17 @@ export default function BatchAllocationGrid({
       if (lotSearchTerm.trim()) {
         const q = lotSearchTerm.trim().toLowerCase();
         const ourBatch = (lot.internalBatchNo || '').toLowerCase();
-        const suppBatch = (manualSupplierBatches[lot.id] || lot.supplierBatchNo || lot.mfgBatchNo || '').toLowerCase();
+        const suppBatch = (lot.supplierBatchNo || lot.mfgBatchNo || '').toLowerCase();
         const grn = (lot.grnNumber || lot.grnRef || '').toLowerCase();
         const po = (lot.poNumber || lot.poReferenceNo || '').toLowerCase();
+        const supplier = (lot.supplierName || '').toLowerCase();
         const weight = (lot.weight || '').toLowerCase();
         if (
           !ourBatch.includes(q) &&
           !suppBatch.includes(q) &&
           !grn.includes(q) &&
           !po.includes(q) &&
+          !supplier.includes(q) &&
           !weight.includes(q)
         ) {
           return false;
@@ -513,7 +515,7 @@ export default function BatchAllocationGrid({
       }
       return true;
     });
-  }, [availableLots, selectedGrnFilter, lotSearchTerm, manualSupplierBatches]);
+  }, [availableLots, selectedGrnFilter, lotSearchTerm]);
 
   const totalAllocatedInModal = useMemo(() => {
     return Object.values(lotAllocations).reduce((sum, v) => sum + Number(v || 0), 0);
@@ -1159,7 +1161,7 @@ export default function BatchAllocationGrid({
                       type="text"
                       value={lotSearchTerm}
                       onChange={(e) => setLotSearchTerm(e.target.value)}
-                      placeholder="Search batch, supplier batch, PO..."
+                      placeholder="Search batch, GRN, MFG batch, supplier..."
                       className="h-9 text-xs rounded-xl bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 pl-3 pr-8 shadow-2xs font-medium"
                     />
                     {lotSearchTerm && (
@@ -1509,20 +1511,15 @@ export default function BatchAllocationGrid({
                               </span>
                             </div>
 
-                            {/* 4. MFG Batch (Supplier) with Inline Edit */}
+                            {/* 4. MFG Batch (Supplier) - Strictly Read-Only */}
                             <div>
                               <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">MFG Batch:</span>
-                              <input
-                                type="text"
-                                value={currentSupplierBatch}
-                                onChange={(e) => setManualSupplierBatches(prev => ({
-                                  ...prev,
-                                  [lot.id]: e.target.value
-                                }))}
-                                placeholder="e.g. BATCH-01"
-                                className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded px-1.5 py-0.5 w-full max-w-[120px] focus:outline-indigo-500"
-                                title="Manual supplier batch number (editable)"
-                              />
+                              <span 
+                                className="font-mono font-bold text-slate-800 dark:text-slate-200 text-xs bg-slate-100 dark:bg-slate-800/80 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 inline-block max-w-[130px] truncate select-all"
+                                title={`Manufacturer Batch: ${lot.mfgBatchNo || lot.supplierBatchNo || 'N/A'}`}
+                              >
+                                {lot.mfgBatchNo || lot.supplierBatchNo || 'N/A'}
+                              </span>
                             </div>
 
                             {/* 5. MFG Date */}

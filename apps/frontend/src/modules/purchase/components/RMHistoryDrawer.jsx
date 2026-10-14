@@ -333,8 +333,13 @@ export default function RMHistoryDrawer({
                       {summary?.totalConsumedQty?.toLocaleString() || 0}
                       <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
                     </div>
-                    <div className="text-[10px] text-slate-500 font-medium truncate">
-                      Cost: {formatCurrency(summary?.totalConsumedCost)}
+                    <div className="text-[10px] text-slate-500 font-medium truncate flex items-center justify-between">
+                      <span>Cost: {formatCurrency(summary?.totalConsumedCost || 0)}</span>
+                      {productionUsages.some(u => u.isCancelled) && (
+                        <span className="text-rose-500 font-bold text-[9px] bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900">
+                          {productionUsages.filter(u => u.isCancelled).length} Cancelled Excluded
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -1295,19 +1300,27 @@ export default function RMHistoryDrawer({
                                   <tr key={usage.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                                     <td className="p-3 text-center text-slate-400 font-mono font-medium">{uIdx + 1}</td>
                                     <td className="p-3 font-mono font-bold">
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (usage.batchId) {
-                                            window.open(`/production/batches?id=${usage.batchId}&from=rm_stock`, '_blank');
-                                          }
-                                        }}
-                                        className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold transition-colors"
-                                        title="View batch in /production/batches (New Tab)"
-                                      >
-                                        <span>{usage.batchNumber}</span>
-                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
-                                      </button>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (usage.batchId) {
+                                              window.open(`/production/batches?id=${usage.batchId}&from=rm_stock`, '_blank');
+                                            }
+                                          }}
+                                          className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold transition-colors"
+                                          title="View batch in /production/batches (New Tab)"
+                                        >
+                                          <span>{usage.batchNumber}</span>
+                                          <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                        </button>
+                                        {usage.isCancelled && (
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200 dark:border-rose-900 inline-flex items-center gap-1 shadow-2xs">
+                                            <AlertCircle className="w-3 h-3 text-rose-600" />
+                                            Production Cancelled
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                     <td className="p-3 font-semibold text-slate-900 dark:text-white">
                                       <div className="font-bold">{usage.productName}</div>
@@ -1321,14 +1334,40 @@ export default function RMHistoryDrawer({
                                     <td className="p-3 text-right text-slate-500 font-medium">
                                       {usage.requiredQty?.toLocaleString()} {material?.unit}
                                     </td>
-                                    <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
-                                      {usage.actualUsedQty?.toLocaleString()} {material?.unit}
+                                    <td className="p-3 text-right font-black whitespace-nowrap">
+                                      {usage.isCancelled ? (
+                                        <div className="flex flex-col items-end">
+                                          <span className="line-through text-slate-400 text-[11px] font-normal">
+                                            {usage.actualUsedQty?.toLocaleString()} {material?.unit}
+                                          </span>
+                                          <span className="text-rose-600 dark:text-rose-400 font-bold text-xs">
+                                            0 {material?.unit}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-900 dark:text-white">
+                                          {usage.actualUsedQty?.toLocaleString()} {material?.unit}
+                                        </span>
+                                      )}
                                     </td>
                                     <td className="p-3 text-right font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
                                       {formatCurrency(usage.unitCost)}
                                     </td>
-                                    <td className="p-3 text-right font-bold text-slate-900 dark:text-white whitespace-nowrap font-mono">
-                                      {formatCurrency(usage.totalCost)}
+                                    <td className="p-3 text-right font-bold whitespace-nowrap font-mono">
+                                      {usage.isCancelled ? (
+                                        <div className="flex flex-col items-end">
+                                          <span className="line-through text-slate-400 text-[11px] font-normal">
+                                            {formatCurrency(usage.totalCost)}
+                                          </span>
+                                          <span className="text-rose-600 dark:text-rose-400 font-bold text-xs">
+                                            {formatCurrency(0)}
+                                          </span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-900 dark:text-white">
+                                          {formatCurrency(usage.totalCost)}
+                                        </span>
+                                      )}
                                     </td>
                                   </tr>
                                 ))}
@@ -1336,10 +1375,10 @@ export default function RMHistoryDrawer({
                               <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
                                 <tr>
                                   <td colSpan={4} className="p-3 text-right text-slate-600 dark:text-slate-300">
-                                    Total Consumption ({productionUsages.length} Batches):
+                                    Total Consumption ({productionUsages.filter(u => !u.isCancelled).length} Active{productionUsages.some(u => u.isCancelled) ? ` / ${productionUsages.length} Total` : ''} Batches):
                                   </td>
                                   <td className="p-3 text-right text-slate-600 dark:text-slate-300">
-                                    {productionUsages.reduce((acc, u) => acc + Number(u.requiredQty || 0), 0).toLocaleString()} {material?.unit}
+                                    {productionUsages.reduce((acc, u) => acc + (u.isCancelled ? 0 : Number(u.requiredQty || 0)), 0).toLocaleString()} {material?.unit}
                                   </td>
                                   <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
                                     {summary?.totalConsumedQty?.toLocaleString() || 0} {material?.unit}

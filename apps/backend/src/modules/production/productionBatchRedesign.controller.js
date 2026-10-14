@@ -901,6 +901,54 @@ class ProductionBatchRedesignController {
           data: updateData
         });
 
+        if (status === 'Cancelled') {
+          // Mark all RM usages for this batch as CANCELLED
+          await tx.productionBatchRMUsage.updateMany({
+            where: { batchId: id },
+            data: { status: 'CANCELLED' }
+          });
+
+          // If the batch was previously completed, restore the deducted raw materials and inventory batch lots
+          if (batch.status === 'Completed') {
+            const usages = await tx.productionBatchRMUsage.findMany({
+              where: { batchId: id }
+            });
+            for (const u of usages) {
+              const consumed = Number(u.actualUsedQty || u.requiredQty || 0);
+              if (u.rmId && consumed > 0) {
+                await tx.rawMaterial.update({
+                  where: { id: u.rmId },
+                  data: { currentStock: { increment: consumed } }
+                });
+              }
+              try {
+                const allocations = await tx.$queryRawUnsafe(
+                  `SELECT inventory_batch_id, allocated_qty FROM "production_batch_allocations" WHERE usage_id = $1`,
+                  u.id
+                );
+                for (const alloc of allocations) {
+                  if (alloc.inventory_batch_id && Number(alloc.allocated_qty) > 0) {
+                    await tx.inventoryBatch.updateMany({
+                      where: { id: alloc.inventory_batch_id },
+                      data: { netQty: { increment: Number(alloc.allocated_qty) } }
+                    });
+                  }
+                }
+              } catch (allocErr) {
+                console.warn('Revert inventory batch allocation warning:', allocErr.message);
+              }
+            }
+
+            // Deduct finished goods that were added when completed
+            if (batch.productId && finalYield > 0) {
+              await tx.finishedProduct.update({
+                where: { id: batch.productId },
+                data: { currentStock: { decrement: finalYield } }
+              });
+            }
+          }
+        }
+
         // Update approval status, pause history, timestamps in extended table
         await tx.$executeRawUnsafe(
           `UPDATE "production_batches" SET 

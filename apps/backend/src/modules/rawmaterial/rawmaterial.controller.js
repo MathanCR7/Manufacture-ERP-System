@@ -2764,6 +2764,11 @@ exports.getMaterialHistory = async (req, res, next) => {
       const prodNameStr = u.batch?.product?.name 
         ? `${u.batch.product.name}${u.batch.product.code ? ` (${u.batch.product.code})` : ''}` 
         : 'Finished Product';
+      const rawBatchStatus = u.batch?.status || 'COMPLETED';
+      const isCancelled = String(rawBatchStatus).toLowerCase() === 'cancelled' || 
+        String(u.status || '').toLowerCase() === 'cancelled' ||
+        Boolean(u.batch?.cancelledAt);
+      const batchStatus = isCancelled ? 'Cancelled' : rawBatchStatus;
 
       return {
         id: u.id,
@@ -2774,13 +2779,16 @@ exports.getMaterialHistory = async (req, res, next) => {
         productName: prodNameStr,
         productOnlyName: u.batch?.product?.name || 'Finished Product',
         productCode: u.batch?.product?.code || '',
-        batchStatus: u.batch?.status || 'COMPLETED',
+        batchStatus,
+        isCancelled,
         requiredQty: Number(u.requiredQty || 0),
         availableQtyAtTime: Number(u.availableQtyAtTime || 0),
         actualUsedQty: Number(u.actualUsedQty || 0),
+        effectiveUsedQty: isCancelled ? 0 : Number(u.actualUsedQty || 0),
         unitCost: Number(u.unitCost || 0),
         totalCost: Number(u.totalCost || 0),
-        usageStatus: u.status,
+        effectiveTotalCost: isCancelled ? 0 : Number(u.totalCost || 0),
+        usageStatus: isCancelled ? 'CANCELLED' : u.status,
         date: u.batch?.startDate || u.batch?.createdAt || new Date()
       };
     });
@@ -2831,8 +2839,11 @@ exports.getMaterialHistory = async (req, res, next) => {
     const totalPurchasedQty = formattedPurchases.reduce((acc, p) => acc + p.orderedQty, 0);
     const totalPurchasedValue = formattedPurchases.reduce((acc, p) => acc + (p.itemTotal || 0), 0);
     const totalInwardedQty = formattedGRN.reduce((acc, g) => acc + g.actualReceivedQty, 0);
-    const totalConsumedQty = formattedUsages.reduce((acc, u) => acc + u.actualUsedQty, 0);
-    const totalConsumedCost = formattedUsages.reduce((acc, u) => acc + u.totalCost, 0);
+    
+    // Only active (non-cancelled) production batches count towards consumed metrics
+    const activeUsages = formattedUsages.filter(u => !u.isCancelled);
+    const totalConsumedQty = activeUsages.reduce((acc, u) => acc + u.actualUsedQty, 0);
+    const totalConsumedCost = activeUsages.reduce((acc, u) => acc + u.totalCost, 0);
 
     const totalAdjustmentAddition = formattedAdjustments
       .filter(a => a.type === 'ADDITION')

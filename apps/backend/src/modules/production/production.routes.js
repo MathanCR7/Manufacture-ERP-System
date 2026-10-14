@@ -1051,6 +1051,8 @@ const getBatchesForRawMaterial = async (rmId) => {
 
     const formatted = [];
     const seenBatchNumbers = new Set();
+    const seenGrnIds = new Set();
+    const seenGrnRefs = new Set();
 
     // Clean Raw Material name for standardized Our Batch auto-generation
     const rawClean = (rm?.name || rm?.code || 'RM')
@@ -1058,7 +1060,7 @@ const getBatchesForRawMaterial = async (rmId) => {
       .replace(/[^A-Z0-9]/g, '')
       .slice(0, 24);
 
-    // 1. Batches from InventoryBatch
+    // 1. Batches from InventoryBatch (canonical warehouse stock)
     for (const b of batches) {
       const grnItem = b.grn?.items?.find(it => 
         (it.batchNumber && it.batchNumber === b.batchNumber) || 
@@ -1066,7 +1068,7 @@ const getBatchesForRawMaterial = async (rmId) => {
         (rm && (it.rmId === rm.id || it.rmId === rm.code))
       );
 
-      const grnRef = b.grn?.referenceNo || 'GRN-DIRECT';
+      const grnRef = b.grn?.referenceNo || (b.grnId ? `GRN-${b.grnId}` : 'GRN-DIRECT');
       const grnSeq = (grnRef.replace(/[^0-9]/g, '') || '001').padStart(3, '0');
 
       // Auto-generate or preserve descriptive internal Our Batch
@@ -1075,8 +1077,12 @@ const getBatchesForRawMaterial = async (rmId) => {
         ourBatchNo = `BATCH-${rawClean}-${grnSeq}`;
       }
 
-      if (!seenBatchNumbers.has(ourBatchNo)) {
+      if (!seenBatchNumbers.has(ourBatchNo) && !seenBatchNumbers.has(b.batchNumber)) {
         seenBatchNumbers.add(ourBatchNo);
+        if (b.batchNumber) seenBatchNumbers.add(b.batchNumber);
+        if (b.grnId) seenGrnIds.add(b.grnId);
+        if (b.grn?.id) seenGrnIds.add(b.grn.id);
+        if (b.grn?.referenceNo) seenGrnRefs.add(b.grn.referenceNo);
 
         const supplierMfgBatch = b.mfgBatchNo || grnItem?.mfgBatchNo || b.po?.mfgBatchNo || 'BATCH-01';
         const batchQty = grnItem?.batchQuantity ? Number(grnItem.batchQuantity) : 1;
@@ -1110,18 +1116,30 @@ const getBatchesForRawMaterial = async (rmId) => {
       }
     }
 
-    // 2. Batches from GRNReceiveItems if not duplicated
+    // 2. Batches from GRNReceiveItems ONLY IF GRN is not already inwarded into InventoryBatch
     for (const gi of grnItems) {
       const grnRef = gi.grn?.referenceNo || 'GRN-DIRECT';
       const grnSeq = (grnRef.replace(/[^0-9]/g, '') || '001').padStart(3, '0');
+
+      // Skip if this GRN was already represented in InventoryBatch
+      if (
+        (gi.grnId && seenGrnIds.has(gi.grnId)) ||
+        (gi.grn?.id && seenGrnIds.has(gi.grn.id)) ||
+        (gi.grn?.referenceNo && seenGrnRefs.has(gi.grn.referenceNo))
+      ) {
+        continue;
+      }
 
       let ourBatchNo = gi.batchNumber;
       if (!ourBatchNo || ourBatchNo.startsWith('GRN-GRN-') || ourBatchNo.startsWith('GRN-')) {
         ourBatchNo = `BATCH-${rawClean}-${grnSeq}`;
       }
 
-      if (!seenBatchNumbers.has(ourBatchNo)) {
+      if (!seenBatchNumbers.has(ourBatchNo) && (!gi.batchNumber || !seenBatchNumbers.has(gi.batchNumber))) {
         seenBatchNumbers.add(ourBatchNo);
+        if (gi.batchNumber) seenBatchNumbers.add(gi.batchNumber);
+        if (gi.grnId) seenGrnIds.add(gi.grnId);
+        if (gi.grn?.referenceNo) seenGrnRefs.add(gi.grn.referenceNo);
 
         const supplierMfgBatch = gi.mfgBatchNo || gi.grn?.po?.mfgBatchNo || 'BATCH-01';
         const batchQty = gi.batchQuantity ? Number(gi.batchQuantity) : 1;
@@ -2126,6 +2144,24 @@ router.patch('/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
       if (data.status === 'Completed') {
         updateData.partiallyDoneQty = batch.quantity;
         updateData.remainingQty = 0;
+      }
+      if (data.status === 'Cancelled') {
+        // If batch was In Progress or Completed, restore the deducted raw material stock
+        if (batch.status === 'In Progress' || batch.status === 'Completed') {
+          for (const u of batch.rmUsages) {
+            const consumed = Number(u.actualUsedQty || u.requiredQty || 0);
+            if (u.rmId && consumed > 0) {
+              await tx.rawMaterial.update({
+                where: { id: u.rmId },
+                data: { currentStock: { increment: consumed } }
+              });
+            }
+          }
+        }
+        await tx.productionBatchRMUsage.updateMany({
+          where: { batchId: id },
+          data: { status: 'CANCELLED' }
+        });
       }
       const record = await tx.productionBatchNew.update({
         where: { id },
