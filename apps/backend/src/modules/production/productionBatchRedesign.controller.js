@@ -3,6 +3,7 @@ const prisma = require('../../database/prisma');
 const batchNumberService = require('./batchNumber.service');
 const productionCompletionService = require('./productionCompletion.service');
 const { getTaxSettingsData } = require('../setup/tax.controller');
+const { ensureProductionBatchesRedesignSchema } = require('../../database/migrations/ensure_production_batches_redesign_schema');
 
 // Helper to generate unique MP-XXXXXX
 async function generateBatchReference(tx) {
@@ -95,8 +96,7 @@ class ProductionBatchRedesignController {
       const batchIds = batches.map(b => b.id);
       let extraDetails = {};
       if (batchIds.length > 0) {
-        const rows = await prisma.$queryRawUnsafe(
-          `SELECT b.id, b.base_id, b.template_id, b.shift, b.machine_line,
+        const querySql = `SELECT b.id, b.base_id, b.template_id, b.shift, b.machine_line,
                   b.adjustment_reason, b.adjustment_reference,
                   b.sub_total, b.wastage_amt, b.overhead_amt, b.grand_total, b.cost_per_unit,
                   b.started_by, b.started_at, b.pause_history, b.sop_guide, b.timeline_stages,
@@ -105,10 +105,22 @@ class ProductionBatchRedesignController {
            FROM "production_batches" b
            LEFT JOIN "base_master" bm ON b.base_id = bm.id
            LEFT JOIN "production_templates" pt ON b.template_id = pt.id
-           WHERE b.id IN (${batchIds.map(id => `'${id}'`).join(',')})`
-        );
-        for (const r of rows) {
-          extraDetails[r.id] = r;
+           WHERE b.id IN (${batchIds.map(id => `'${id}'`).join(',')})`;
+        try {
+          const rows = await prisma.$queryRawUnsafe(querySql);
+          for (const r of rows) {
+            extraDetails[r.id] = r;
+          }
+        } catch (rawErr) {
+          if (rawErr.code === '42703' || (rawErr.message && rawErr.message.includes('base_id'))) {
+            await ensureProductionBatchesRedesignSchema();
+            try {
+              const rows = await prisma.$queryRawUnsafe(querySql);
+              for (const r of rows) {
+                extraDetails[r.id] = r;
+              }
+            } catch (_) {}
+          }
         }
       }
 
@@ -187,8 +199,8 @@ class ProductionBatchRedesignController {
       if (!batch) return res.status(404).json({ error: 'Production batch not found' });
 
       // Fetch extended details
-      const rows = await prisma.$queryRawUnsafe(
-        `SELECT b.id, b.base_id, b.template_id, b.shift, b.machine_line,
+      let extra = {};
+      const batchSql = `SELECT b.id, b.base_id, b.template_id, b.shift, b.machine_line,
                 b.adjustment_reason, b.adjustment_reference,
                 b.sub_total, b.wastage_amt, b.overhead_amt, b.grand_total, b.cost_per_unit,
                 b.started_by, b.started_at, b.pause_history, b.sop_guide, b.timeline_stages,
@@ -201,10 +213,19 @@ class ProductionBatchRedesignController {
          FROM "production_batches" b
          LEFT JOIN "base_master" bm ON b.base_id = bm.id
          LEFT JOIN "production_templates" pt ON b.template_id = pt.id
-         WHERE b.id = $1`,
-        id
-      );
-      const extra = Array.isArray(rows) && rows.length > 0 ? rows[0] : {};
+         WHERE b.id = $1`;
+      try {
+        const rows = await prisma.$queryRawUnsafe(batchSql, id);
+        extra = Array.isArray(rows) && rows.length > 0 ? rows[0] : {};
+      } catch (rawErr) {
+        if (rawErr.code === '42703' || (rawErr.message && rawErr.message.includes('base_id'))) {
+          await ensureProductionBatchesRedesignSchema();
+          try {
+            const rows = await prisma.$queryRawUnsafe(batchSql, id);
+            extra = Array.isArray(rows) && rows.length > 0 ? rows[0] : {};
+          } catch (_) {}
+        }
+      }
 
       // Fetch allocations for raw materials
       let allocations = [];
@@ -384,6 +405,9 @@ class ProductionBatchRedesignController {
       if (data.productionType === 'STOCK_UPDATE' && !data.adjustmentReason) {
         return res.status(400).json({ error: 'Stock Update Production requires an adjustment reason.' });
       }
+
+      // Ensure all extended columns exist in production_batches before entering the transaction
+      await ensureProductionBatchesRedesignSchema();
 
       const createdBatch = await prisma.$transaction(async (tx) => {
         const effectiveProductId = data.productId || data.selectedProducts?.[0]?.productId || data.selectedProducts?.[0]?.id;

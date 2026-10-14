@@ -797,10 +797,10 @@ const MENU_GROUPS = [
         isNested: true,
         roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
         children: [
+          { name: '📑 Production Template', path: '/production/templates', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
           { name: '🏭 Standard Production', path: '/production/standard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
           { name: '📦 Order Based Production', path: '/production/order-based', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
           { name: '🔄 Stock Update Production', path: '/production/stock-update', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-          { name: '📑 Production Template', path: '/production/templates', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
         ]
       },
       {
