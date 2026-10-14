@@ -71,6 +71,130 @@ async function ensureProductionBatchesRedesignSchema() {
       "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );`,
 
+    // Granular Raw Material Lot Allocations Table
+    `CREATE TABLE IF NOT EXISTS "production_batch_allocations" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "batch_id" TEXT NOT NULL,
+      "usage_id" TEXT,
+      "inventory_batch_id" TEXT,
+      "po_id" TEXT,
+      "lot_number" VARCHAR(255) NOT NULL DEFAULT 'WAREHOUSE-LOT',
+      "allocated_qty" NUMERIC NOT NULL DEFAULT 0,
+      "po_original_qty" NUMERIC DEFAULT 0,
+      "po_total_amount" NUMERIC DEFAULT 0,
+      "allocated_amount" NUMERIC NOT NULL DEFAULT 0,
+      "unit_rate" NUMERIC NOT NULL DEFAULT 0,
+      "uom" VARCHAR(50) DEFAULT 'Kg',
+      "is_manual_override" BOOLEAN DEFAULT false,
+      "grn_number" VARCHAR(255),
+      "po_number" VARCHAR(255),
+      "supplier_batch_no" VARCHAR(255),
+      "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Output Details Table
+    `CREATE TABLE IF NOT EXISTS "production_output_details" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "batch_id" TEXT NOT NULL REFERENCES "production_batches"("id") ON DELETE CASCADE,
+      "good_qty" DECIMAL(15, 3) NOT NULL DEFAULT 0,
+      "rejected_qty" DECIMAL(15, 3) NOT NULL DEFAULT 0,
+      "rework_qty" DECIMAL(15, 3) NOT NULL DEFAULT 0,
+      "scrap_qty" DECIMAL(15, 3) NOT NULL DEFAULT 0,
+      "scrap_reason" TEXT,
+      "by_product_name" VARCHAR(200),
+      "by_product_qty" DECIMAL(15, 3) DEFAULT 0,
+      "qc_sample_qty" DECIMAL(15, 3) DEFAULT 0,
+      "retention_sample_qty" DECIMAL(15, 3) DEFAULT 0,
+      "theoretical_qty" DECIMAL(15, 3) NOT NULL DEFAULT 0,
+      "yield_percentage" DECIMAL(6, 2) NOT NULL DEFAULT 100,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Utility Logs Table
+    `CREATE TABLE IF NOT EXISTS "production_utility_logs" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "batch_id" TEXT NOT NULL REFERENCES "production_batches"("id") ON DELETE CASCADE,
+      "eb_start_reading" DECIMAL(12, 2) DEFAULT 0,
+      "eb_end_reading" DECIMAL(12, 2) DEFAULT 0,
+      "eb_units_kwh" DECIMAL(12, 2) DEFAULT 0,
+      "eb_rate_per_unit" DECIMAL(10, 2) DEFAULT 8.50,
+      "eb_cost" DECIMAL(12, 2) DEFAULT 0,
+      "water_quantity" DECIMAL(10, 2) DEFAULT 0,
+      "water_cost" DECIMAL(10, 2) DEFAULT 0,
+      "fuel_quantity" DECIMAL(10, 2) DEFAULT 0,
+      "fuel_cost" DECIMAL(10, 2) DEFAULT 0,
+      "generator_diesel_qty" DECIMAL(10, 2) DEFAULT 0,
+      "generator_diesel_cost" DECIMAL(10, 2) DEFAULT 0,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Labour Logs Table
+    `CREATE TABLE IF NOT EXISTS "production_labour_logs" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "batch_id" TEXT NOT NULL REFERENCES "production_batches"("id") ON DELETE CASCADE,
+      "employee_id" VARCHAR(100),
+      "employee_name" VARCHAR(200) NOT NULL,
+      "employee_type" VARCHAR(50) DEFAULT 'Permanent',
+      "contractor_name" VARCHAR(200),
+      "work_centre" VARCHAR(100),
+      "normal_hours" DECIMAL(6, 2) DEFAULT 8,
+      "ot_hours" DECIMAL(6, 2) DEFAULT 0,
+      "rate_per_hour" DECIMAL(10, 2) DEFAULT 0,
+      "total_cost" DECIMAL(12, 2) DEFAULT 0,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Machine Logs Table
+    `CREATE TABLE IF NOT EXISTS "production_machine_logs" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "batch_id" TEXT NOT NULL REFERENCES "production_batches"("id") ON DELETE CASCADE,
+      "machine_id" VARCHAR(100) NOT NULL,
+      "run_hours" DECIMAL(6, 2) DEFAULT 0,
+      "downtime_hours" DECIMAL(6, 2) DEFAULT 0,
+      "downtime_reason" TEXT,
+      "cleaning_done" BOOLEAN DEFAULT true,
+      "line_clearance_passed" BOOLEAN DEFAULT true,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Barcode Labels Table
+    `CREATE TABLE IF NOT EXISTS "production_barcode_labels" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "batch_id" TEXT NOT NULL REFERENCES "production_batches"("id") ON DELETE CASCADE,
+      "product_id" TEXT NOT NULL REFERENCES "products"("id"),
+      "gtin_ean" VARCHAR(50),
+      "batch_no" VARCHAR(100) NOT NULL,
+      "qr_payload" TEXT NOT NULL,
+      "mfd" TIMESTAMP(3) NOT NULL,
+      "expiry_date" TIMESTAMP(3) NOT NULL,
+      "mrp" DECIMAL(12, 2) DEFAULT 0,
+      "net_weight" VARCHAR(50),
+      "storage_conditions" VARCHAR(255),
+      "fssai_licence" VARCHAR(100),
+      "manufacturer_address" TEXT,
+      "printed_count" INT NOT NULL DEFAULT 0,
+      "reprint_log" JSONB DEFAULT '[]'::jsonb,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Batch Costing Table
+    `CREATE TABLE IF NOT EXISTS "production_batch_costing" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "batch_id" TEXT NOT NULL REFERENCES "production_batches"("id") ON DELETE CASCADE,
+      "material_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "packing_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "labour_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "machine_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "utility_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "overhead_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "total_batch_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "cost_per_unit" DECIMAL(15, 4) NOT NULL DEFAULT 0,
+      "standard_cost_per_unit" DECIMAL(15, 4) NOT NULL DEFAULT 0,
+      "variance_cost" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
     // Batch Sequences Table
     `CREATE TABLE IF NOT EXISTS "batch_sequences" (
       "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -94,7 +218,14 @@ async function ensureProductionBatchesRedesignSchema() {
     // Default Batch Setting
     `INSERT INTO "batch_settings" ("id", "reset_mode", "counter_digits", "allow_backdated_entries")
      VALUES ('DEFAULT', 'DAILY', 5, true)
-     ON CONFLICT ("id") DO NOTHING;`
+     ON CONFLICT ("id") DO NOTHING;`,
+
+    // Performance Indices
+    `CREATE INDEX IF NOT EXISTS "idx_alloc_batch" ON "production_batch_allocations"("batch_id");`,
+    `CREATE INDEX IF NOT EXISTS "idx_alloc_usage" ON "production_batch_allocations"("usage_id");`,
+    `CREATE INDEX IF NOT EXISTS "idx_batch_items_batch" ON "production_batch_items"("batch_id");`,
+    `CREATE INDEX IF NOT EXISTS "idx_output_batch" ON "production_output_details"("batch_id");`,
+    `CREATE INDEX IF NOT EXISTS "idx_costing_batch" ON "production_batch_costing"("batch_id");`
   ];
 
   for (const sql of alterStatements) {
