@@ -187,35 +187,6 @@ export default function PODetailPage() {
     }
   });
 
-  // Fetch ALL GRNs from /grn/receive to support multiple partial deliveries
-  const { data: allPoGrns = [] } = useQuery({
-    queryKey: ['grns-for-po-detail', id],
-    queryFn: async () => {
-      try {
-        const res = await api.get(`/grn/receive`);
-        const list = Array.isArray(res.data) ? res.data : [];
-        return list.filter(g => g.poId === id || g.po?.id === id || g.poReferenceNo === po?.referenceNo);
-      } catch {
-        return [];
-      }
-    },
-    enabled: !!id,
-  });
-
-  // Fetch direct inventory batches for this PO
-  const { data: batchesData } = useQuery({
-    queryKey: ['inventory-batches-po', id],
-    queryFn: async () => {
-      try {
-        const res = await api.get(`/inventory?poId=${id}`);
-        return Array.isArray(res.data) ? res.data : [];
-      } catch {
-        return [];
-      }
-    },
-    enabled: !!id,
-  });
-
   const deleteMutation = useMutation({
     mutationFn: async () => { await api.delete(`/rm/po/${id}`); },
     onSuccess: () => {
@@ -232,8 +203,6 @@ export default function PODetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['po', id] });
       queryClient.invalidateQueries({ queryKey: ['pos'] });
-      queryClient.invalidateQueries({ queryKey: ['grns-for-po-detail', id] });
-      queryClient.invalidateQueries({ queryKey: ['inventory-batches-po', id] });
       queryClient.invalidateQueries({ queryKey: ['upcoming-deliveries'] });
       queryClient.invalidateQueries({ queryKey: ['pending-lab-tests'] });
       queryClient.invalidateQueries({ queryKey: ['rm-stocks'] });
@@ -250,49 +219,40 @@ export default function PODetailPage() {
     }
   };
 
-  // Merge and sort all GRNs associated with this PO (handles multiple partial deliveries)
+  // Merge and sort all GRNs strictly and authoritatively belonging to THIS PO
   const grnList = useMemo(() => {
-    const map = new Map();
-    if (Array.isArray(po?.grnReceives)) {
-      po.grnReceives.forEach(g => {
-        if (g && (g.id || g.referenceNo)) map.set(g.id || g.referenceNo, g);
-      });
-    }
-    if (Array.isArray(allPoGrns)) {
-      allPoGrns.forEach(g => {
-        if (g && (g.id || g.referenceNo)) {
-          const key = g.id || g.referenceNo;
-          const existing = map.get(key) || {};
-          map.set(key, { ...existing, ...g });
-        }
-      });
-    }
-    return Array.from(map.values()).sort(
+    if (!Array.isArray(po?.grnReceives)) return [];
+    return [...po.grnReceives].sort(
       (a, b) => new Date(a.receivedDate || a.createdAt || 0) - new Date(b.receivedDate || b.createdAt || 0)
     );
-  }, [po?.grnReceives, allPoGrns]);
+  }, [po?.grnReceives]);
 
   // Primary GRN (fallback/most recent for singular properties)
   const grn = grnList[0] || null;
 
-  // Resolve inventory batches from po, direct query, or all linked GRNs
+  // Resolve inventory batches strictly belonging to THIS PO
   const batches = useMemo(() => {
     const map = new Map();
     const add = (b) => {
       if (!b) return;
       const key = b.id || b.batchNumber;
-      if (key) {
-        if (!map.has(key)) map.set(key, b);
-        else map.set(key, { ...map.get(key), ...b });
+      if (key && !map.has(key)) {
+        map.set(key, b);
       }
     };
-    if (Array.isArray(po?.inventoryBatches)) po.inventoryBatches.forEach(add);
-    if (Array.isArray(batchesData)) batchesData.forEach(add);
+
+    if (Array.isArray(po?.inventoryBatches)) {
+      po.inventoryBatches.forEach(add);
+    }
+
     grnList.forEach(g => {
-      if (Array.isArray(g.inventoryBatches)) g.inventoryBatches.forEach(add);
+      if (Array.isArray(g.inventoryBatches)) {
+        g.inventoryBatches.forEach(add);
+      }
     });
+
     return Array.from(map.values());
-  }, [po?.inventoryBatches, batchesData, grnList]);
+  }, [po?.inventoryBatches, grnList]);
 
   // Lab test resolved across GRNs
   const labTest = grnList.find(g => g.labTest)?.labTest || grn?.labTest || null;

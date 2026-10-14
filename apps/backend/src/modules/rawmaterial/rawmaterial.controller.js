@@ -456,6 +456,7 @@ exports.getPOById = async (req, res, next) => {
           include: {
             items: true,
             inventoryBatches: true,
+            receiver: { select: { name: true, email: true } },
             labTest: {
               include: {
                 testResults: true,
