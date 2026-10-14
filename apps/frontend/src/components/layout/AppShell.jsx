@@ -2163,7 +2163,13 @@ const AppShell = () => {
         </header>
 
         {/* --- Main Content Area --- */}
-        <main className={`flex-1 min-w-0 ${location.pathname.startsWith('/calendar') ? 'p-0 m-0 overflow-hidden flex flex-col bg-[#f4f5f8] dark:bg-[#0f1318]' : 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8'}`}>
+        <main className={`flex-1 min-w-0 ${
+          location.pathname.startsWith('/calendar') 
+            ? 'p-0 m-0 overflow-hidden flex flex-col bg-[#f4f5f8] dark:bg-[#0f1318]' 
+            : (location.pathname.startsWith('/production/') && (location.pathname.endsWith('/add') || location.pathname.includes('/edit')))
+            ? 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-2 sm:p-3 lg:p-3.5'
+            : 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8'
+        }`}>
           <Outlet />
         </main>
       </div>

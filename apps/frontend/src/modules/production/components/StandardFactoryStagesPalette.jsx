@@ -119,34 +119,34 @@ export default function StandardFactoryStagesPalette({
     <div className="space-y-4">
       
       {/* ── 14 STANDARD FACTORY STAGES PALETTE ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 gap-2">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-2xs space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 gap-2">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-              <Layers className="w-4 h-4" />
+            <div className="p-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+              <Layers className="w-3.5 h-3.5" />
             </div>
             <div>
               <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
                 Standard Factory Stages Palette
               </h4>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[10px] text-slate-400">
                 Click any stage chip to toggle (add or remove) from your timeline.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
-            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60">
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/60">
               {stages.length} / 14 Selected
             </span>
-            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
+            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
               Duration: {totalDurationStr}
             </span>
           </div>
         </div>
 
         {/* 14 Stage Chips Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-1.5">
           {STANDARD_FACTORY_STAGES.map((std, idx) => {
             const isAdded = stages.some(s => s.name.toLowerCase() === std.name.toLowerCase());
             return (
@@ -155,23 +155,23 @@ export default function StandardFactoryStagesPalette({
                 type="button"
                 disabled={!isEditable}
                 onClick={() => handleToggleStage(std)}
-                className={`p-2 rounded-2xl text-left border transition-all relative flex flex-col justify-between h-[76px] group cursor-pointer ${
+                className={`p-1.5 rounded-xl text-left border transition-all relative flex flex-col justify-between h-[62px] group cursor-pointer ${
                   isAdded
-                    ? 'bg-emerald-50/60 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-xs hover:border-rose-400 hover:bg-rose-50/40'
-                    : 'bg-slate-50/70 dark:bg-slate-950/50 border-slate-200/80 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-xs'
+                    ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-400 dark:border-emerald-700 shadow-2xs hover:border-rose-400 hover:bg-rose-50/40'
+                    : 'bg-slate-50/70 dark:bg-slate-950/50 border-slate-200/80 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 hover:shadow-2xs'
                 }`}
                 title={isAdded ? `Click to remove "${std.name}"` : `Click to add "${std.name}"`}
               >
                 <div className="flex items-start justify-between w-full">
-                  <div className={`p-1 rounded-lg transition-colors ${
+                  <div className={`p-0.5 rounded transition-colors ${
                     isAdded
                       ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 group-hover:bg-rose-100 group-hover:text-rose-700'
                       : 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 border border-slate-200 dark:border-slate-700'
                   }`}>
-                    {renderIcon(std.icon, "w-3 h-3")}
+                    {renderIcon(std.icon, "w-2.5 h-2.5")}
                   </div>
 
-                  <span className={`text-[9.5px] font-mono font-bold px-1.5 py-0.5 rounded-md ${
+                  <span className={`text-[9px] font-mono font-bold px-1 py-0.2 rounded ${
                     isAdded
                       ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 group-hover:bg-rose-100 group-hover:text-rose-700'
                       : 'text-slate-400 dark:text-slate-500'
@@ -184,10 +184,10 @@ export default function StandardFactoryStagesPalette({
                 </div>
 
                 <div>
-                  <div className="font-extrabold text-slate-900 dark:text-white text-[11px] leading-tight truncate">
+                  <div className="font-extrabold text-slate-900 dark:text-white text-[10.5px] leading-tight truncate">
                     {std.name}
                   </div>
-                  <div className={`text-[9px] truncate transition-colors ${
+                  <div className={`text-[8.5px] truncate transition-colors ${
                     isAdded 
                       ? 'text-emerald-600 dark:text-emerald-400 group-hover:text-rose-600 font-bold' 
                       : 'text-slate-400 dark:text-slate-500'
@@ -202,37 +202,37 @@ export default function StandardFactoryStagesPalette({
       </div>
 
       {/* ── CONFIGURED TIMELINE SEQUENCE (DRAG & DROP / REORDER) ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs space-y-3">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-2xs space-y-2.5">
+        <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-indigo-500" />
+            <Clock className="w-3.5 h-3.5 text-indigo-500" />
             <h4 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
               Configured Timeline Sequence ({stages.length} {stages.length === 1 ? 'stage' : 'stages'})
             </h4>
           </div>
 
           <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
-            <GripVertical className="w-3.5 h-3.5" />
-            Drag and drop cards or use arrows to reorder sequence
+            <GripVertical className="w-3 h-3" />
+            Reorder stages or adjust durations below
           </span>
         </div>
 
         {stages.length === 0 ? (
-          <div className="py-8 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-            <Layers className="w-6 h-6 mx-auto mb-1 opacity-40 text-indigo-500" />
+          <div className="py-5 text-center text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+            <Layers className="w-5 h-5 mx-auto mb-1 opacity-40 text-indigo-500" />
             <p className="text-xs font-bold">No stages configured yet.</p>
             <p className="text-[10px] mt-0.5">Click any stage chip above to add it to this production timeline sequence.</p>
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-1.5">
             {stages.map((stage, idx) => (
               <div
                 key={stage.id || stage.name || idx}
-                className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-indigo-300 dark:hover:border-indigo-700/60 shadow-3xs gap-3 transition-colors"
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-2 sm:p-2.5 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-950 hover:border-indigo-300 dark:hover:border-indigo-700/60 shadow-3xs gap-2 transition-colors"
               >
                 {/* Left: Seq Badge & Name & Category */}
-                <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                  <div className="flex flex-col gap-0.5 shrink-0">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <div className="flex flex-col gap-0.2 shrink-0">
                     <button
                       type="button"
                       disabled={!isEditable || idx === 0}

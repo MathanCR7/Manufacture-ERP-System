@@ -445,34 +445,37 @@ export default function OrderBasedProductionFormPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="w-full space-y-2.5">
       
-      {/* ── HEADER ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      {/* ── TOP HEADER (FULL SCREEN WIDTH) ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2 border-b border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 py-2 rounded-2xl shadow-2xs">
+        <div className="flex items-center gap-2.5">
           <Button
             variant="outline"
             size="sm"
             onClick={() => navigate('/production/order-based')}
-            className="rounded-xl h-9 w-9 p-0 border-slate-200 dark:border-slate-800"
+            className="rounded-xl h-8 w-8 p-0 border-slate-200 dark:border-slate-800"
           >
-            <ArrowLeft className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+            <ArrowLeft className="w-3.5 h-3.5 text-slate-600 dark:text-slate-300" />
           </Button>
           <div>
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-              Create Order Based Production Batch
+            <h1 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+              <span>Order Based Production Batch</span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200/60 dark:border-indigo-800/60">
+                SAP MODEL COCKPIT
+              </span>
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-[10.5px] text-slate-500 dark:text-slate-400">
               Manufacture goods specifically reserved for customer orders with strict delivery alignment
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
           <Button
             variant="outline"
             onClick={() => navigate('/production/order-based')}
-            className="rounded-xl h-9 font-bold"
+            className="rounded-lg h-7.5 px-3 text-xs font-bold"
           >
             Cancel
           </Button>
@@ -481,217 +484,238 @@ export default function OrderBasedProductionFormPage() {
             disabled={saving}
             onClick={() => handleSave('Draft')}
             variant="outline"
-            className="rounded-xl h-9 font-bold text-slate-700 dark:text-slate-200"
+            className="rounded-lg h-7.5 px-3 text-xs font-bold text-slate-700 dark:text-slate-200"
           >
-            <Save className="w-4 h-4 mr-1.5" />
-            Save as Draft
+            <Save className="w-3.5 h-3.5 mr-1" />
+            Save Draft
           </Button>
 
           <Button
             disabled={saving}
             onClick={() => handleSave('In Progress')}
-            className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-9 shadow-sm"
+            className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold h-7.5 px-3.5 shadow-2xs"
           >
-            <Play className="w-4 h-4 mr-1.5" />
+            <Play className="w-3.5 h-3.5 mr-1" />
             Start Order Production
           </Button>
         </div>
       </div>
 
-      {/* ── SALES ORDER LINKING SELECTOR ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-          <label className="text-xs font-black uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <ShoppingBag className="w-4 h-4 text-indigo-500" />
-            <span>Select Customer Sales Order</span>
-            <span className="text-rose-500">*</span>
-          </label>
-          <span className="text-[11px] text-slate-400">
-            {orders.length} Active Customer Orders
-          </span>
-        </div>
+      {/* ── UPPER DUAL COCKPIT (SIDE BY SIDE: ORDER/RECIPE DEFINITION vs LABOUR & STAGES) ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-2.5 items-start">
+        
+        {/* ── LEFT COLUMN: SALES ORDER LINKAGE & RECIPE DEFINITION ── */}
+        <div className="space-y-2.5">
+          {/* 1. Sales Order Linking Selector & Customer Metadata */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 shadow-2xs space-y-2">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-1.5">
+              <label className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                <ShoppingBag className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Select Customer Sales Order</span>
+                <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10px] text-slate-400 font-semibold">
+                {orders.length} Active Orders
+              </span>
+            </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1">
-            <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Choose Sales Order</Label>
-            <select
-              value={selectedOrderId}
-              onChange={(e) => setSelectedOrderId(e.target.value)}
-              className="w-full h-10 px-3 bg-indigo-50/40 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="">Select Sales Order (Customer / Ref #)...</option>
-              {orders.map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.referenceNo || o.docNo || o.id.slice(0, 8)} — {o.customer?.name || 'Customer'} (Due: {o.deliveryDate ? new Date(o.deliveryDate).toLocaleDateString('en-GB') : 'N/A'})
-                </option>
-              ))}
-            </select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="space-y-0.5">
+                <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Choose Sales Order</Label>
+                <select
+                  value={selectedOrderId}
+                  onChange={(e) => setSelectedOrderId(e.target.value)}
+                  className="w-full h-7.5 px-2 bg-indigo-50/40 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-bold text-indigo-700 dark:text-indigo-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                >
+                  <option value="">Select Sales Order (Customer / Ref #)...</option>
+                  {orders.map(o => (
+                    <option key={o.id} value={o.id}>
+                      {o.referenceNo || o.docNo || o.id.slice(0, 8)} — {o.customer?.name || 'Customer'} (Due: {o.deliveryDate ? new Date(o.deliveryDate).toLocaleDateString('en-GB') : 'N/A'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-0.5">
+                <Label className="text-[11px] font-bold text-slate-700 dark:text-slate-300">Production Date</Label>
+                <Input
+                  type="date"
+                  value={productionDate}
+                  onChange={(e) => setProductionDate(e.target.value)}
+                  className="h-7.5 rounded-lg font-bold text-xs"
+                />
+              </div>
+            </div>
+
+            {selectedOrderDetails && (
+              <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
+                <div>
+                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Customer</span>
+                  <span className="font-extrabold text-slate-900 dark:text-white block truncate text-[11px]">
+                    {selectedOrderDetails.customer?.name || 'Customer'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Promised Delivery</span>
+                  <span className="font-mono font-bold text-amber-600 block text-[11px]">
+                    {selectedOrderDetails.deliveryDate ? new Date(selectedOrderDetails.deliveryDate).toLocaleDateString('en-GB') : 'Flexible'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Order Value</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white block text-[11px]">
+                    ₹{Number(selectedOrderDetails.grandTotal || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[9px] text-slate-400 uppercase font-bold block">Status</span>
+                  <span className="font-bold text-indigo-600 block text-[11px]">
+                    {selectedOrderDetails.status || 'Confirmed'}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="space-y-1">
-            <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Production Date</Label>
-            <Input
-              type="date"
-              value={productionDate}
-              onChange={(e) => setProductionDate(e.target.value)}
-              className="h-10 rounded-xl font-bold"
+          {/* 2. Step A (Base Master) & Step B (Production Template) paired */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 shadow-2xs">
+              <ProductionBasePicker
+                bases={bases}
+                selectedBaseId={selectedBaseId}
+                onSelectBase={(baseId) => {
+                  setSelectedBaseId(baseId);
+                  setSelectedTemplate(null);
+                  setRawMaterials([]);
+                }}
+              />
+            </div>
+
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 shadow-2xs">
+              {selectedBaseId ? (
+                <ProductionTemplatePicker
+                  templates={templatesForSelectedBase}
+                  selectedTemplateId={selectedTemplate?.id}
+                  onSelectTemplate={handleSelectTemplate}
+                  selectedBaseName={selectedBaseName}
+                />
+              ) : (
+                <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-center space-y-1 my-auto">
+                  <p className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Select Base Master in Step A first.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 3. Step C: Category, Subcategory & Finished Products */}
+          {selectedTemplate && (
+            <div className="space-y-2">
+              <ProductionProductPicker
+                categories={categories}
+                subcategories={subcategories}
+                products={products}
+                selectedCategoryId={selectedCategoryId}
+                onChangeCategory={setSelectedCategoryId}
+                selectedSubcategoryId={selectedSubcategoryId}
+                onChangeSubcategory={setSelectedSubcategoryId}
+                selectedProducts={selectedProducts}
+                onUpdateProducts={setSelectedProducts}
+                onSelectProductWithTemplate={handleSelectProductWithTemplate}
+                selectedBaseId={selectedBaseId}
+                selectedBaseName={selectedBaseName}
+              />
+
+              {/* Learned Formulation Notice */}
+              {learnedFormulationNotice && (
+                <div className="bg-gradient-to-r from-amber-50 to-indigo-50 dark:from-slate-850 dark:to-indigo-950/40 border border-amber-300 dark:border-amber-700/60 rounded-xl p-2.5 flex items-center justify-between gap-2 animate-in fade-in shadow-2xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-md bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-2xs">
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-black text-slate-900 dark:text-white truncate">
+                        Formulation auto-learned for {learnedFormulationNotice.productName} (Batch #{learnedFormulationNotice.lastRef || 'PREV'})
+                      </h4>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
+                        Quantities scaled to actual per-piece ratios from previous completed runs.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setLearnedFormulationNotice(null)}
+                    className="text-[11px] font-bold text-slate-400 hover:text-slate-600 rounded-lg h-6 px-1.5 shrink-0"
+                  >
+                    ✕
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ── RIGHT COLUMN: FLOOR LABOUR & PROCESS STAGES ── */}
+        <div className="space-y-2.5">
+          {/* 1. Production Labour & Floor Staff Assignment */}
+          <ProductionLabourPicker
+            labourCount={labourCount}
+            assignedStaffIds={assignedStaffIds}
+            labourStaffDetails={labourStaffDetails}
+            onChange={({ labourCount: lc, assignedStaffIds: asIds, labourStaffDetails: lsd }) => {
+              setLabourCount(lc);
+              setAssignedStaffIds(asIds);
+              setLabourStaffDetails(lsd);
+            }}
+          />
+
+          {/* 2. Standard Factory Stages Palette (14 Stage Chips & Reorder Sequence) */}
+          {selectedTemplate && (
+            <StandardFactoryStagesPalette
+              stages={timelineStages}
+              onChangeStages={setTimelineStages}
+              isEditable={true}
             />
-          </div>
+          )}
         </div>
 
-        {selectedOrderDetails && (
-          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Customer</span>
-              <span className="font-extrabold text-slate-900 dark:text-white block mt-0.5">
-                {selectedOrderDetails.customer?.name || 'Customer'}
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Promised Delivery</span>
-              <span className="font-mono font-bold text-amber-600 block mt-0.5">
-                {selectedOrderDetails.deliveryDate ? new Date(selectedOrderDetails.deliveryDate).toLocaleDateString('en-GB') : 'Flexible'}
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Order Value</span>
-              <span className="font-mono font-bold text-slate-900 dark:text-white block mt-0.5">
-                ₹{Number(selectedOrderDetails.grandTotal || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Fulfillment Status</span>
-              <span className="font-bold text-indigo-600 block mt-0.5">
-                {selectedOrderDetails.status || 'Confirmed'}
-              </span>
-            </div>
-          </div>
+      </div>
+
+      {/* ── LOWER FULL-SCREEN COCKPIT: RAW MATERIAL FORMULATION & BATCH ALLOCATION (OCCUPIES FULL SCREEN) ── */}
+      <div className="w-full">
+        {(selectedTemplate || rawMaterials.length > 0) && (
+          <BatchAllocationGrid
+            rawMaterials={rawMaterials}
+            onUpdateRawMaterials={setRawMaterials}
+            rawMaterialMasters={rawMaterialMasters}
+            onRefreshPrices={handleRefreshPrices}
+            refreshingPrices={refreshingPrices}
+            plannedOutputQty={totalPlannedQty}
+            outputUom={selectedProducts[0]?.unit || 'Nos'}
+          />
         )}
       </div>
 
-      {/* ── PRODUCTION LABOUR & FLOOR STAFF ASSIGNMENT ── */}
-      <ProductionLabourPicker
-        labourCount={labourCount}
-        assignedStaffIds={assignedStaffIds}
-        labourStaffDetails={labourStaffDetails}
-        onChange={({ labourCount: lc, assignedStaffIds: asIds, labourStaffDetails: lsd }) => {
-          setLabourCount(lc);
-          setAssignedStaffIds(asIds);
-          setLabourStaffDetails(lsd);
-        }}
-      />
-
-      {/* ── STEP A: BASE SELECTION ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs">
-        <ProductionBasePicker
-          bases={bases}
-          selectedBaseId={selectedBaseId}
-          onSelectBase={(baseId) => {
-            setSelectedBaseId(baseId);
-            setSelectedTemplate(null);
-            setRawMaterials([]);
-          }}
-        />
-      </div>
-
-      {/* ── STEP B: TEMPLATE SELECTION ── */}
-      {selectedBaseId && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs">
-          <ProductionTemplatePicker
-            templates={templatesForSelectedBase}
-            selectedTemplateId={selectedTemplate?.id}
-            onSelectTemplate={handleSelectTemplate}
-            selectedBaseName={selectedBaseName}
+      {/* ── COSTING SUMMARY FOOTER (FULL SCREEN WIDTH) ── */}
+      {rawMaterials.length > 0 && (
+        <div className="w-full">
+          <CostingSummaryFooter
+            subTotal={costingTotals.subTotal}
+            wastagePct={wastagePct}
+            wastageAmt={costingTotals.wastageAmt}
+            overheadPct={overheadPct}
+            overheadAmt={costingTotals.overheadAmt}
+            grandTotal={costingTotals.grandTotal}
+            outputQty={totalPlannedQty}
+            outputUom={selectedTemplate?.outputUom || selectedProducts[0]?.unit || 'Nos'}
+            costPerUnit={costingTotals.costPerUnit}
+            isEditable={true}
+            onWastagePctChange={setWastagePct}
+            onOverheadPctChange={setOverheadPct}
           />
         </div>
-      )}
-
-      {/* ── STEP C: PRODUCT SELECTION ── */}
-      {selectedTemplate && (
-        <>
-          <ProductionProductPicker
-            categories={categories}
-            subcategories={subcategories}
-            products={products}
-            selectedCategoryId={selectedCategoryId}
-            onChangeCategory={setSelectedCategoryId}
-            selectedSubcategoryId={selectedSubcategoryId}
-            onChangeSubcategory={setSelectedSubcategoryId}
-            selectedProducts={selectedProducts}
-            onUpdateProducts={setSelectedProducts}
-            onSelectProductWithTemplate={handleSelectProductWithTemplate}
-            selectedBaseId={selectedBaseId}
-            selectedBaseName={selectedBaseName}
-          />
-
-          {/* Learned Formulation Auto-Learning Notice */}
-          {learnedFormulationNotice && (
-            <div className="bg-gradient-to-r from-amber-50 to-indigo-50 dark:from-slate-850 dark:to-indigo-950/40 border border-amber-300 dark:border-amber-700/60 rounded-3xl p-4 flex items-center justify-between gap-3 animate-in fade-in">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-xs">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-black text-slate-900 dark:text-white flex items-center gap-2">
-                    <span>Auto-Suggested Latest Actual Formulation for {learnedFormulationNotice.productName}</span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200">
-                      Learned from Batch #{learnedFormulationNotice.lastRef || 'PREV'}
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Ingredient quantities have been automatically updated based on the actual single-piece consumption learned from previous completed production runs.
-                  </p>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setLearnedFormulationNotice(null)}
-                className="text-xs font-bold text-slate-400 hover:text-slate-600 rounded-xl"
-              >
-                Dismiss
-              </Button>
-            </div>
-          )}
-
-          {/* ── STANDARD FACTORY STAGES PALETTE (Image 1: 14 Stages & Sequence) ── */}
-          <StandardFactoryStagesPalette
-            stages={timelineStages}
-            onChangeStages={setTimelineStages}
-            isEditable={true}
-          />
-        </>
-      )}
-
-      {/* ── STEP D & E: BATCH ALLOCATION GRID ── */}
-      {(selectedTemplate || rawMaterials.length > 0) && (
-        <BatchAllocationGrid
-          rawMaterials={rawMaterials}
-          onUpdateRawMaterials={setRawMaterials}
-          rawMaterialMasters={rawMaterialMasters}
-          onRefreshPrices={handleRefreshPrices}
-          refreshingPrices={refreshingPrices}
-          plannedOutputQty={totalPlannedQty}
-          outputUom={selectedProducts[0]?.unit || 'Nos'}
-        />
-      )}
-
-      {/* ── COSTING SUMMARY FOOTER ── */}
-      {rawMaterials.length > 0 && (
-        <CostingSummaryFooter
-          subTotal={costingTotals.subTotal}
-          wastagePct={wastagePct}
-          wastageAmt={costingTotals.wastageAmt}
-          overheadPct={overheadPct}
-          overheadAmt={costingTotals.overheadAmt}
-          grandTotal={costingTotals.grandTotal}
-          outputQty={totalPlannedQty}
-          outputUom={selectedTemplate?.outputUom || selectedProducts[0]?.unit || 'Nos'}
-          costPerUnit={costingTotals.costPerUnit}
-          isEditable={true}
-          onWastagePctChange={setWastagePct}
-          onOverheadPctChange={setOverheadPct}
-        />
       )}
 
     </div>

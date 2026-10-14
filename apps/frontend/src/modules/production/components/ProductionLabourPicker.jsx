@@ -201,104 +201,102 @@ export default function ProductionLabourPicker({
   const isOver = targetCount > 0 && selectedCount > targetCount;
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs space-y-4">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3.5 shadow-2xs space-y-2.5">
       
       {/* ── CARD HEADER ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/60 shadow-2xs">
-            <HardHat className="w-5 h-5" />
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-100 dark:border-indigo-900/60 shadow-2xs">
+            <HardHat className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-extrabold text-slate-900 dark:text-white tracking-tight">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-xs sm:text-sm font-black text-slate-900 dark:text-white tracking-tight">
                 Production Labour & Floor Staff Assignment
               </h3>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                 PRODUCTION STAFF ONLY
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Specify number of workers needed and select factory floor staff members to execute this batch
+            <p className="text-[11px] text-slate-400 line-clamp-1">
+              Specify workers required and check off floor staff members to execute this batch
             </p>
           </div>
         </div>
 
-        {/* Refresh button */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          disabled={loading}
-          onClick={fetchUsers}
-          className="h-8 text-xs font-semibold text-slate-500 hover:text-indigo-600 rounded-xl self-start sm:self-auto"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-          Refresh Staff
-        </Button>
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          <div className="text-[11px] text-slate-400 font-semibold hidden md:block">
+            Available: <span className="font-mono text-slate-700 dark:text-slate-200 font-bold">{productionStaffUsers.length}</span>
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={loading}
+            onClick={fetchUsers}
+            className="h-7 px-2.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 rounded-lg"
+          >
+            <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      {/* ── CONTROLS & QUANTITY INPUT ROW ── */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center bg-slate-50/70 dark:bg-slate-850/60 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800">
+      {/* ── SAP CONSOLE TOOLBAR: WORKERS INPUT + STATUS PILL + AUTO-SELECT + SEARCH ── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 bg-slate-50/80 dark:bg-slate-850/60 p-2 rounded-xl border border-slate-200/80 dark:border-slate-800">
         
-        {/* Labour Quantity Input */}
-        <div className="md:col-span-4 space-y-1.5">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5 text-indigo-500" />
-            Labour Quantity (Workers Count) <span className="text-rose-500">*</span>
-          </Label>
-          <div className="relative">
-            <Input
-              type="number"
-              min="0"
-              max="50"
-              disabled={disabled}
-              value={labourCount === 0 ? '' : labourCount}
-              onChange={(e) => handleQuantityChange(e.target.value)}
-              placeholder="e.g. 2"
-              className="h-10 rounded-xl font-bold text-sm bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 pr-16"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
-              Workers
-            </span>
+        {/* Left: Labour Quantity Input + Status Indicator */}
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <Users className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+            <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+              Labour Qty <span className="text-rose-500">*</span>:
+            </Label>
+            <div className="relative w-28">
+              <Input
+                type="number"
+                min="0"
+                max="50"
+                disabled={disabled}
+                value={labourCount === 0 ? '' : labourCount}
+                onChange={(e) => handleQuantityChange(e.target.value)}
+                placeholder="Workers"
+                className="h-7.5 rounded-lg font-bold text-xs bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 pr-9 py-0"
+              />
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none">
+                Staff
+              </span>
+            </div>
           </div>
-          <p className="text-[11px] text-slate-400">
-            Enter required count then check exactly that number of staff
-          </p>
-        </div>
 
-        {/* Status Indicator Pill */}
-        <div className="md:col-span-5 flex flex-col justify-center">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 block">
-            Assignment Status
-          </Label>
-          <div className="flex items-center gap-2">
+          {/* Status Indicator Pill */}
+          <div className="shrink-0">
             {targetCount === 0 ? (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs font-semibold">
-                <Info className="w-4 h-4 text-slate-400" />
-                <span>Enter worker count above to assign staff</span>
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] font-semibold">
+                <Info className="w-3.5 h-3.5 text-slate-400" />
+                <span>Enter worker count to assign staff</span>
               </div>
             ) : isFulfilled ? (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs font-bold shadow-2xs">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Target fulfilled: {selectedCount} of {targetCount} workers assigned</span>
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold shadow-2xs">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Fulfilled: {selectedCount} of {targetCount} assigned</span>
               </div>
             ) : isUnder ? (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs font-bold">
-                <AlertCircle className="w-4 h-4 text-amber-600" />
-                <span>{selectedCount} of {targetCount} workers selected ({targetCount - selectedCount} more required)</span>
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-[11px] font-bold">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                <span>{selectedCount}/{targetCount} selected ({targetCount - selectedCount} more required)</span>
               </div>
             ) : (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold">
-                <AlertCircle className="w-4 h-4 text-rose-600" />
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-[11px] font-bold">
+                <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
                 <span>{selectedCount} selected, exceeds target of {targetCount}</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* Quick action buttons */}
-        <div className="md:col-span-3 flex items-center justify-end gap-2 pt-2 md:pt-0">
+        {/* Right: Auto Select + Clear + Staff Search */}
+        <div className="flex items-center gap-2 flex-wrap justify-between lg:justify-end">
           {targetCount > 0 && productionStaffUsers.length > 0 && (
             <Button
               type="button"
@@ -306,7 +304,7 @@ export default function ProductionLabourPicker({
               size="sm"
               disabled={disabled || selectedCount === targetCount}
               onClick={handleAutoFill}
-              className="h-8 text-xs font-bold rounded-xl border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 cursor-pointer"
+              className="h-7 px-2 text-[11px] font-bold rounded-lg border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 cursor-pointer"
             >
               <Sparkles className="w-3 h-3 mr-1" />
               Auto Select {targetCount}
@@ -320,57 +318,50 @@ export default function ProductionLabourPicker({
               size="sm"
               disabled={disabled}
               onClick={handleClear}
-              className="h-8 text-xs font-bold text-slate-500 hover:text-rose-600 rounded-xl cursor-pointer"
+              className="h-7 px-2 text-[11px] font-bold text-slate-500 hover:text-rose-600 rounded-lg cursor-pointer"
             >
               Clear
             </Button>
           )}
+
+          {/* Quick Staff Search */}
+          <div className="relative w-full sm:w-48">
+            <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Filter staff..."
+              className="h-7 pl-7 text-[11px] rounded-lg bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 py-0"
+            />
+          </div>
         </div>
       </div>
 
-      {/* ── SEARCH & FILTER BAR ── */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <Input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search production staff by name or code..."
-            className="h-8 pl-8 text-xs rounded-xl bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-800"
-          />
-        </div>
-
-        <div className="text-xs text-slate-400 font-semibold">
-          Available Staff: <span className="font-mono text-slate-700 dark:text-slate-200 font-bold">{productionStaffUsers.length}</span>
-        </div>
-      </div>
-
-      {/* ── STAFF LIST / CHECKBOX GRID ── */}
+      {/* ── STAFF LIST / CHECKBOX GRID (HIGH DENSITY SAP COCKPIT) ── */}
       {loading ? (
-        <div className="p-8 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-          <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
+        <div className="p-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+          <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-500" />
           <span>Fetching Production Staff from directory...</span>
         </div>
       ) : productionStaffUsers.length === 0 ? (
-        <div className="p-6 text-center rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-850/50 space-y-2">
-          <HardHat className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto" />
+        <div className="p-4 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-850/50 space-y-1">
+          <HardHat className="w-6 h-6 text-slate-300 dark:text-slate-600 mx-auto" />
           <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300">
             No Production Staff Users Found
           </h4>
           <p className="text-[11px] text-slate-400 max-w-md mx-auto">
-            To assign workers, create users with the role <b>PRODUCTION_STAFF</b> in the User Management section (/admin/users).
+            To assign workers, create users with the role <b>PRODUCTION_STAFF</b> in User Management (/admin/users).
           </p>
         </div>
       ) : filteredStaff.length === 0 ? (
-        <div className="p-4 text-center text-xs text-slate-400">
+        <div className="p-3 text-center text-xs text-slate-400">
           No staff members match "{searchTerm}"
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-72 overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 max-h-44 overflow-y-auto pr-1">
           {filteredStaff.map((staff) => {
             const isSelected = (assignedStaffIds || []).includes(staff.id);
-            // Disable if target count reached and this item is NOT already selected
             const isLimitReached = targetCount > 0 && selectedCount >= targetCount && !isSelected;
             const isCardDisabled = disabled || isLimitReached;
 
@@ -382,34 +373,34 @@ export default function ProductionLabourPicker({
                     handleToggleStaff(staff);
                   }
                 }}
-                className={`relative flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer select-none ${
+                className={`relative flex items-center gap-2 p-2 rounded-xl border transition-all cursor-pointer select-none ${
                   isSelected
-                    ? 'bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 shadow-2xs'
+                    ? 'bg-indigo-50/80 dark:bg-indigo-950/50 border-indigo-400 dark:border-indigo-700 shadow-2xs'
                     : isLimitReached
                     ? 'opacity-40 bg-slate-50/50 dark:bg-slate-850/30 border-slate-200/60 dark:border-slate-800 cursor-not-allowed'
-                    : 'bg-white dark:bg-slate-850/70 border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800/60 hover:bg-slate-50/80 dark:hover:bg-slate-800'
+                    : 'bg-white dark:bg-slate-850/70 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-800/60 hover:bg-slate-50/80'
                 }`}
                 title={isLimitReached ? `Target limit of ${targetCount} reached. Increase count to add more.` : ''}
               >
                 {/* Styled Checkbox */}
                 <div className="shrink-0">
                   {isSelected ? (
-                    <div className="w-5 h-5 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-2xs animate-in zoom-in-75">
-                      <CheckSquare className="w-4 h-4 fill-current text-white" />
+                    <div className="w-4 h-4 rounded-md bg-indigo-600 text-white flex items-center justify-center shadow-2xs">
+                      <CheckSquare className="w-3.5 h-3.5 fill-current text-white" />
                     </div>
                   ) : (
-                    <div className={`w-5 h-5 rounded-lg border flex items-center justify-center ${
+                    <div className={`w-4 h-4 rounded-md border flex items-center justify-center ${
                       isLimitReached 
                         ? 'border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800' 
                         : 'border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800'
                     }`}>
-                      <Square className="w-3.5 h-3.5 text-transparent" />
+                      <Square className="w-3 h-3 text-transparent" />
                     </div>
                   )}
                 </div>
 
                 {/* Avatar with initials */}
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-[11px] shrink-0 ${
                   isSelected
                     ? 'bg-indigo-600 text-white shadow-2xs'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
@@ -424,19 +415,19 @@ export default function ProductionLabourPicker({
                       {staff.name}
                     </span>
                     {staff.empId && (
-                      <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
+                      <span className="text-[8.5px] font-mono font-bold px-1 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
                         {staff.empId}
                       </span>
                     )}
                   </div>
-                  <div className="text-[10px] text-slate-400 truncate flex items-center gap-1.5 mt-0.5">
-                    <span className="font-mono">{staff.email || 'Floor Worker'}</span>
+                  <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
+                    <span className="font-mono truncate">{staff.email || 'Floor Worker'}</span>
                   </div>
                 </div>
 
                 {/* Assigned indicator */}
                 {isSelected && (
-                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
                 )}
               </div>
             );
@@ -446,23 +437,22 @@ export default function ProductionLabourPicker({
 
       {/* Selected staff chips bar */}
       {selectedCount > 0 && (
-        <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center gap-2 flex-wrap text-xs">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-            Assigned Staff ({selectedCount}):
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 flex-wrap text-xs">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            Assigned ({selectedCount}):
           </span>
           {labourStaffDetails.map((staff, idx) => (
             <div
               key={staff.id || idx}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 text-indigo-700 dark:text-indigo-300 font-medium text-xs shadow-2xs"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800/80 text-indigo-700 dark:text-indigo-300 font-medium text-[11px] shadow-2xs"
             >
               <UserCheck className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
               <span>{staff.name}</span>
-              {staff.empId && <span className="font-mono text-[10px] opacity-75">({staff.empId})</span>}
+              {staff.empId && <span className="font-mono text-[9.5px] opacity-75">({staff.empId})</span>}
             </div>
           ))}
         </div>
       )}
-
     </div>
   );
 }

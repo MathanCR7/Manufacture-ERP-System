@@ -4,7 +4,7 @@ import {
   Clock, User, Calendar, Factory, Package, Layers, 
   FileText, ShieldCheck, AlertTriangle, ArrowRight, 
   RefreshCw, Database, Sparkles, Scale, Tag, Check, Info,
-  Printer, Zap, FlaskConical
+  Printer, Zap, FlaskConical, Users, HardHat, UserCheck, CheckSquare
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
@@ -22,7 +22,7 @@ export default function ProductionBatchDetailModal({
 }) {
   const [batch, setBatch] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'timeline', 'sop', 'formulation', 'pauses'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'labour', 'timeline', 'sop', 'formulation', 'pauses'
   const [actionLoading, setActionLoading] = useState(false);
   const [showLabelModal, setShowLabelModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -144,8 +144,45 @@ export default function ProductionBatchDetailModal({
     });
   };
 
+  const formatDateTime = (dateVal) => {
+    if (!dateVal) return '-';
+    try {
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return '-';
+      return d.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      });
+    } catch {
+      return '-';
+    }
+  };
+
+  const calculateRunDuration = () => {
+    if (!batch?.startedAt && !batch?.startDate) return null;
+    const start = new Date(batch.startedAt || batch.startDate).getTime();
+    const end = batch.completedAt 
+      ? new Date(batch.completedAt).getTime() 
+      : (batch.status === 'Completed' && batch.completeDate ? new Date(batch.completeDate).getTime() : (batch.status === 'In Progress' ? Date.now() : null));
+    
+    if (!end || isNaN(start) || isNaN(end) || end < start) return null;
+    const diffMs = end - start;
+    const totalMins = Math.floor(diffMs / (1000 * 60));
+    const hrs = Math.floor(totalMins / 60);
+    const mins = totalMins % 60;
+    if (hrs > 0) return `${hrs}h ${mins}m`;
+    return `${mins} mins`;
+  };
+
   const pauseList = batch?.pauseHistory || [];
   const totalPauseMins = pauseList.reduce((acc, p) => acc + (Number(p.durationMins) || 0), 0);
+  const staffList = Array.isArray(batch?.labourStaffDetails) ? batch.labourStaffDetails : [];
+  const totalLabourCrew = Math.max(staffList.length, Number(batch?.labourCount || 0), 1);
+  const runDuration = calculateRunDuration();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150">
@@ -312,6 +349,19 @@ export default function ProductionBatchDetailModal({
           >
             <Factory className="w-3.5 h-3.5" />
             Overview & Lifecycle
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('labour')}
+            className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+              activeTab === 'labour'
+                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            Labour & Floor Crew ({staffList.length || batch?.labourCount || 1})
           </button>
 
           <button
@@ -551,19 +601,17 @@ export default function ProductionBatchDetailModal({
                     </div>
                   )}
 
-                  {/* Electricity (EB) & Labour Costs */}
-                  {(batch.ebUnitsKwh !== null || batch.ebTotalCost > 0 || batch.labourTotalCost > 0 || (batch.labourStaffDetails && batch.labourStaffDetails.length > 0) || batch.labourCount > 0) && (
+                  {/* Electricity (EB Meter) Consumption */}
+                  {(batch.ebUnitsKwh !== null || batch.ebTotalCost > 0 || batch.ebStartReading !== null) && (
                     <div className="bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 shadow-3xs space-y-3">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider flex items-center gap-1.5">
                           <Zap className="w-4 h-4 text-amber-600" />
-                          Energy Consumption (EB Meter) & Labour
+                          Electricity Consumption (EB Meter)
                         </h4>
-                        {batch.labourCount > 0 && (
-                          <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100/90 dark:bg-amber-900/50 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
-                            {batch.labourCount} Workers Assigned
-                          </span>
-                        )}
+                        <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100/90 dark:bg-amber-900/50 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                          {batch.ebUnitsKwh ?? 0} kWh Consumed
+                        </span>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                         <div>
@@ -577,39 +625,137 @@ export default function ProductionBatchDetailModal({
                           <span className="font-bold text-amber-700 dark:text-amber-400">{batch.ebUnitsKwh ?? 0} kWh</span>
                         </div>
                         <div>
-                          <span className="text-[10px] text-slate-400 block font-bold">EB Energy Cost</span>
-                          <span className="font-bold text-slate-900 dark:text-white">₹{formatCurrency(batch.ebTotalCost)}</span>
+                          <span className="text-[10px] text-slate-400 block font-bold">Rate / Unit</span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200 font-mono">₹{formatCurrency(batch.ebRatePerUnit ?? 8.50)} / kWh</span>
                         </div>
                         <div>
-                          <span className="text-[10px] text-slate-400 block font-bold">Labour Cost</span>
-                          <span className="font-bold text-slate-900 dark:text-white">₹{formatCurrency(batch.labourTotalCost)}</span>
+                          <span className="text-[10px] text-slate-400 block font-bold">EB Energy Cost</span>
+                          <span className="font-bold text-slate-900 dark:text-white font-mono">₹{formatCurrency(batch.ebTotalCost)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Production Labour Allocation & Floor Crew (Start to End) */}
+                  <div className="bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800/60 rounded-2xl p-4 shadow-3xs space-y-3.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+                          <HardHat className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wider flex items-center gap-1.5">
+                            Production Labour Allocation & Operations Crew
+                          </h4>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                            Workers allocated and logged across batch execution lifecycle (Start to End)
+                          </span>
                         </div>
                       </div>
 
-                      {/* Assigned Floor Staff Members */}
-                      {Array.isArray(batch.labourStaffDetails) && batch.labourStaffDetails.length > 0 && (
-                        <div className="pt-2.5 border-t border-amber-200/60 dark:border-amber-800/60 space-y-1.5">
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-bold uppercase tracking-wider">
-                            Assigned Production Staff ({batch.labourStaffDetails.length}):
-                          </span>
-                          <div className="flex flex-wrap gap-2">
-                            {batch.labourStaffDetails.map((staff, sIdx) => (
-                              <div
-                                key={staff.id || sIdx}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-700/60 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
-                              >
-                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                                <span className="font-bold">{staff.name || 'Staff'}</span>
-                                {staff.empId && (
-                                  <span className="font-mono text-[10px] text-slate-400">({staff.empId})</span>
-                                )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-indigo-800 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/50 px-2.5 py-0.5 rounded-full border border-indigo-200 dark:border-indigo-800">
+                          {totalLabourCrew} Worker{totalLabourCrew > 1 ? 's' : ''} Allocated
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('labour')}
+                          className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 hover:underline flex items-center gap-0.5 cursor-pointer ml-1"
+                        >
+                          View Full Timesheet <ArrowRight className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Floor Shift & Start to End Execution Window */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-white dark:bg-slate-900 p-3 rounded-xl border border-indigo-100 dark:border-indigo-900/50">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-bold uppercase">Floor Shift & Line</span>
+                        <span className="font-extrabold text-slate-800 dark:text-slate-200 block">{batch.shift || 'Morning'}</span>
+                        <span className="text-[10px] text-slate-400 block font-mono mt-0.5 truncate">{batch.machineLine || 'Main Processing Line'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-bold uppercase">Run Started (Floor)</span>
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200 block">
+                          {formatDateTime(batch.startedAt || batch.startDate)}
+                        </span>
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold block mt-0.5">
+                          By: {batch.startedBy || batch.creator?.name || 'Floor Operator'}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-bold uppercase">Run Completed</span>
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200 block">
+                          {batch.completedAt ? formatDateTime(batch.completedAt) : (batch.status === 'Completed' ? formatDateTime(batch.completeDate || batch.updatedAt) : 'In Progress')}
+                        </span>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold block mt-0.5">
+                          By: {batch.completedBy || (batch.status === 'Completed' ? (batch.startedBy || 'Supervisor') : 'Floor Operator')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-bold uppercase">Run Duration & Cost</span>
+                        <span className="font-bold text-amber-600 dark:text-amber-400 block">
+                          {runDuration || 'Active Floor Run'}
+                        </span>
+                        <span className="text-[10px] text-slate-700 dark:text-slate-300 font-mono font-bold block mt-0.5">
+                          Labour Cost: ₹{formatCurrency(batch.labourTotalCost)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Assigned Personnel Roster or Logged Operator Banner */}
+                    {staffList.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-bold uppercase tracking-wider">
+                          Assigned Production Staff Roster ({staffList.length}):
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                          {staffList.map((staff, sIdx) => (
+                            <div
+                              key={staff.id || sIdx}
+                              className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs flex items-center justify-between gap-2 shadow-2xs"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-black text-xs flex items-center justify-center shrink-0">
+                                  {(staff.name || 'W').charAt(0).toUpperCase()}
+                                </div>
+                                <div className="leading-tight">
+                                  <span className="font-bold text-slate-800 dark:text-slate-200 block truncate max-w-[120px]">
+                                    {staff.name || 'Staff'}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono block">
+                                    {staff.empId || staff.role || 'Production Staff'}
+                                  </span>
+                                </div>
                               </div>
-                            ))}
+                              <span className="text-[9.5px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800 shrink-0">
+                                Assigned
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-black text-sm flex items-center justify-center shrink-0">
+                            {(batch.startedBy || batch.creator?.name || 'M').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                              Floor In-Charge: {batch.startedBy || batch.creator?.name || 'Production Operator'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              Shift: {batch.shift || 'Morning'} • Started: {formatDateTime(batch.startedAt || batch.startDate)} → Completed: {formatDateTime(batch.completedAt || batch.completeDate || batch.updatedAt)}
+                            </span>
                           </div>
                         </div>
-                      )}
-                    </div>
-                  )}
+                        <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800 shrink-0 self-start sm:self-auto">
+                          ✓ Operations Logged
+                        </span>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Costing Summary if permitted */}
                   {canViewCosting && (
@@ -639,7 +785,239 @@ export default function ProductionBatchDetailModal({
                 </div>
               )}
 
-              {/* ── 2. PAUSES HISTORY ── */}
+              {/* ── 2. LABOUR & OPERATIONS CREW ── */}
+              {activeTab === 'labour' && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div>
+                      <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase flex items-center gap-2">
+                        <Users className="w-4 h-4 text-indigo-600" />
+                        Production Floor Labour & Shift Timesheet
+                      </h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Complete log of production staff assigned, shift timings, and lifecycle handover
+                      </p>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 dark:bg-indigo-950/60 px-2.5 py-1 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                      {totalLabourCrew} Assigned Worker{totalLabourCrew > 1 ? 's' : ''}
+                    </span>
+                  </div>
+
+                  {/* 4 Header Metric Tiles */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Assigned Crew</p>
+                      <h4 className="text-xs font-black text-slate-900 dark:text-white mt-1 flex items-center gap-1.5">
+                        <Users className="w-3.5 h-3.5 text-indigo-500" />
+                        {totalLabourCrew} Workers
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        Target Requirement: {batch.labourCount || totalLabourCrew}
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Floor Shift & Line</p>
+                      <h4 className="text-xs font-black text-slate-900 dark:text-white mt-1">
+                        {batch.shift || 'Morning Shift'}
+                      </h4>
+                      <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                        {batch.machineLine || 'Main Processing Line'}
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Shift Execution Window</p>
+                      <h4 className="text-xs font-black text-amber-600 mt-1">
+                        {runDuration || 'Active Floor Run'}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        Start: {batch.startedAt ? new Date(batch.startedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '-'}
+                      </p>
+                    </div>
+
+                    <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase">Labour Total Cost</p>
+                      <h4 className="text-xs font-black text-emerald-600 mt-1 font-mono">
+                        ₹{formatCurrency(batch.labourTotalCost)}
+                      </h4>
+                      <p className="text-[10px] text-slate-400 font-mono mt-0.5">
+                        Status: {batch.status === 'Completed' ? 'Logged & Finalized' : 'In Progress'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Detailed Personnel Table / Cards */}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 shadow-3xs space-y-3">
+                    <h5 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                      Assigned Operators & Floor Staff Details
+                    </h5>
+
+                    {staffList.length > 0 ? (
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {staffList.map((worker, wIdx) => (
+                          <div key={worker.id || wIdx} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-xl bg-indigo-50 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-black text-sm flex items-center justify-center shrink-0 border border-indigo-200/60 dark:border-indigo-800/60">
+                                {(worker.name || 'W').charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <h6 className="font-bold text-xs text-slate-900 dark:text-white flex items-center gap-2">
+                                  {worker.name || 'Production Staff'}
+                                  {worker.empId && (
+                                    <span className="font-mono text-[10px] font-medium bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-500">
+                                      {worker.empId}
+                                    </span>
+                                  )}
+                                </h6>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  Role: <strong className="text-slate-700 dark:text-slate-300">{worker.role || 'Production Staff'}</strong>
+                                  {worker.email ? ` • ${worker.email}` : ''}
+                                  {worker.phone ? ` • ${worker.phone}` : ''}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-3 self-end sm:self-auto text-right">
+                              <div>
+                                <span className="text-[10px] text-slate-400 block font-mono">
+                                  Shift: {batch.shift || 'General'}
+                                </span>
+                                <span className="text-[10px] text-slate-600 dark:text-slate-400 block font-mono font-bold">
+                                  {formatDateTime(batch.startedAt || batch.startDate)} → {batch.completedAt ? formatDateTime(batch.completedAt) : (batch.status === 'Completed' ? formatDateTime(batch.completeDate) : 'Ongoing')}
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                                {batch.status === 'Completed' ? '✓ Completed' : '● On Duty'}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="p-3.5 bg-slate-50 dark:bg-slate-850/60 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 font-black text-sm flex items-center justify-center shrink-0 border border-amber-200 dark:border-amber-800">
+                              {(batch.startedBy || batch.creator?.name || 'M').charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <h6 className="font-bold text-xs text-slate-900 dark:text-white">
+                                {batch.startedBy || batch.creator?.name || 'Production Operator'}
+                              </h6>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                Designation: <strong className="text-slate-700 dark:text-slate-300">Shift Floor Lead / Operator</strong>
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-left sm:text-right">
+                            <span className="text-[10px] text-slate-400 block font-mono">
+                              Floor Shift: {batch.shift || 'Morning'}
+                            </span>
+                            <span className="text-[10px] text-emerald-600 font-bold block">
+                              Started at: {formatDateTime(batch.startedAt || batch.startDate)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {batch.completedBy && batch.completedBy !== batch.startedBy && (
+                          <div className="p-3.5 bg-slate-50 dark:bg-slate-850/60 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-black text-sm flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-800">
+                                {batch.completedBy.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <h6 className="font-bold text-xs text-slate-900 dark:text-white">
+                                  {batch.completedBy}
+                                </h6>
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                  Designation: <strong className="text-slate-700 dark:text-slate-300">Supervisor / QC Release In-Charge</strong>
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-left sm:text-right">
+                              <span className="text-[10px] text-slate-400 block font-mono">
+                                Completed at: {formatDateTime(batch.completedAt || batch.completeDate)}
+                              </span>
+                              <span className="text-[10px] text-emerald-600 font-bold block">
+                                ✓ Yield Verified
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Floor Operations Handover Timeline */}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-4 shadow-3xs space-y-3">
+                    <h5 className="text-xs font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      Shift Handover & Operations Audit Trail
+                    </h5>
+
+                    <div className="relative pl-6 space-y-4 before:content-[''] before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800">
+                      {/* Step 1: Initiated */}
+                      <div className="relative">
+                        <span className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-indigo-600 ring-4 ring-indigo-100 dark:ring-indigo-950/80 flex items-center justify-center text-white text-[8px] font-bold">
+                          1
+                        </span>
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                            Floor Run Initiated & Dispatched
+                          </span>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            Started at <strong className="font-mono text-slate-700 dark:text-slate-300">{formatDateTime(batch.startedAt || batch.startDate)}</strong> by <strong className="text-indigo-600 dark:text-indigo-400">{batch.startedBy || batch.creator?.name || 'Production Staff'}</strong> on line <strong className="text-slate-700 dark:text-slate-300">{batch.machineLine}</strong> ({batch.shift} Shift).
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Step 2: Processing */}
+                      <div className="relative">
+                        <span className="absolute -left-6 top-0.5 w-4 h-4 rounded-full bg-amber-500 ring-4 ring-amber-100 dark:ring-amber-950/80 flex items-center justify-center text-white text-[8px] font-bold">
+                          2
+                        </span>
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                            Factory Floor Processing & Stage Execution
+                          </span>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {totalLabourCrew} operator{totalLabourCrew > 1 ? 's' : ''} assigned. Factory stages configured: {batch.timelineStages?.length || 0} stage(s). Downtime pauses: {pauseList.length} ({totalPauseMins} mins).
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Step 3: Completion */}
+                      <div className="relative">
+                        <span className={`absolute -left-6 top-0.5 w-4 h-4 rounded-full ring-4 flex items-center justify-center text-white text-[8px] font-bold ${
+                          batch.status === 'Completed' || batch.status === 'qc_passed'
+                            ? 'bg-emerald-500 ring-emerald-100 dark:ring-emerald-950/80'
+                            : 'bg-slate-300 dark:bg-slate-700 ring-slate-100 dark:ring-slate-800'
+                        }`}>
+                          3
+                        </span>
+                        <div>
+                          <span className="text-xs font-bold text-slate-900 dark:text-white block">
+                            Production Run Completion & Inventory Release
+                          </span>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {batch.status === 'Completed' || batch.status === 'qc_passed' ? (
+                              <>
+                                Completed at <strong className="font-mono text-slate-700 dark:text-slate-300">{formatDateTime(batch.completedAt || batch.completeDate)}</strong> by <strong className="text-emerald-600 dark:text-emerald-400">{batch.completedBy || batch.startedBy || 'Supervisor'}</strong>. Actual yield: <strong className="text-slate-900 dark:text-white">{batch.actualOutput ?? batch.quantity} {batch.productUom}</strong>.
+                              </>
+                            ) : (
+                              'Batch is currently active on the factory floor.'
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ── 3. PAUSES HISTORY ── */}
               {activeTab === 'pauses' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">

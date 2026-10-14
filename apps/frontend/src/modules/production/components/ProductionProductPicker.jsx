@@ -194,20 +194,20 @@ export default function ProductionProductPicker({
   };
 
   return (
-    <div className="space-y-4 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xs">
+    <div className="space-y-2.5 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-3 sm:p-3.5 shadow-2xs">
       
       {/* Step Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3 gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 gap-2">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-            <Package className="w-4 h-4" />
+          <div className="p-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+            <Package className="w-3.5 h-3.5" />
           </div>
           <div>
             <label className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white flex items-center gap-1.5">
               <span>Step C: Select Category, Sub Category & Finished Products</span>
               <span className="text-rose-500">*</span>
             </label>
-            <p className="text-[11px] text-slate-400">
+            <p className="text-[10px] text-slate-400">
               Pick products formulated under <strong className="text-indigo-600 dark:text-indigo-400 font-black">{selectedBaseName || 'Selected Base'}</strong>
             </p>
           </div>
@@ -395,22 +395,22 @@ export default function ProductionProductPicker({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {selectedProducts.map((p) => (
               <div 
                 key={p.productId}
-                className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 flex items-center justify-between gap-3 shadow-2xs hover:border-indigo-200 transition-colors"
+                className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850 flex items-center justify-between gap-2.5 shadow-2xs hover:border-indigo-200 transition-colors"
               >
-                <div className="space-y-1 flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                <div className="space-y-0.5 flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-extrabold text-xs text-slate-900 dark:text-white truncate">
                       {p.name}
                     </span>
-                    <span className="font-mono text-[10px] font-black px-1.5 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                    <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
                       {p.code}
                     </span>
                     {p.baseName && (
-                      <span className="font-mono text-[9px] font-black px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                      <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
                         {p.baseName}
                       </span>
                     )}
