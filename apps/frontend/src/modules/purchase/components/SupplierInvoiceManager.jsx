@@ -35,48 +35,70 @@ function DocumentViewerCanvas({ fileItem, poReference, zoom, rotation }) {
 
     const fileSource = fileItem?.dataUrl || fileItem?.url;
     if (!fileSource) {
+      setLoading(false);
       return;
     }
 
     if (fileSource.startsWith('data:') || fileSource.startsWith('blob:')) {
+      setBlobUrl(fileSource);
+      setLoading(false);
       return;
     }
 
-    const resolved = resolveInvoiceFileUrl(fileSource);
+    setLoading(true);
+    setErrorStatus(null);
 
-    // Fetch as blob to verify content type and prevent Vite SPA index.html leakage
-    fetch(resolved)
-      .then(async (res) => {
-        if (!active) return;
-        if (!res.ok) {
+    // Build intelligent candidate URLs to support /uploads/invoices/{PO-REF}/, /uploads/payments/, etc.
+    const filename = fileSource.split('/').pop()?.split('?')[0] || '';
+    const poMatch = filename.match(/(PO-\d+)/i) || (poReference ? String(poReference).match(/(PO-\d+)/i) : null);
+    const cleanPo = poMatch ? poMatch[1].toUpperCase() : (poReference ? String(poReference).replace(/[^a-zA-Z0-9_-]/g, '_') : null);
+
+    const candidates = [fileSource];
+    if (filename) {
+      if (cleanPo) {
+        candidates.push(`/uploads/invoices/${cleanPo}/${filename}`);
+        candidates.push(`/uploads/invoices/${cleanPo.toLowerCase()}/${filename}`);
+      }
+      candidates.push(`/uploads/payments/${filename}`);
+      candidates.push(`/uploads/invoices/${filename}`);
+      candidates.push(`/uploads/${filename}`);
+    }
+
+    const uniqueCandidates = [...new Set(candidates)].map(c => resolveInvoiceFileUrl(c));
+
+    const tryFetchCandidate = async (index) => {
+      if (index >= uniqueCandidates.length) {
+        if (active) {
           setErrorStatus('NOT_FOUND');
           setLoading(false);
-          return;
         }
+        return;
+      }
 
-        const contentType = (res.headers.get('content-type') || '').toLowerCase();
-        const blob = await res.blob();
+      const candidateUrl = uniqueCandidates[index];
+      try {
+        const res = await fetch(candidateUrl);
+        if (!active) return;
+        if (res.ok) {
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
+          const blob = await res.blob();
+          if (!contentType.includes('text/html') && !blob.type.includes('text/html') && blob.size > 0) {
+            createdUrl = URL.createObjectURL(blob);
+            if (active) {
+              setBlobUrl(createdUrl);
+              setLoading(false);
+              setErrorStatus(null);
+            }
+            return;
+          }
+        }
+        tryFetchCandidate(index + 1);
+      } catch {
+        tryFetchCandidate(index + 1);
+      }
+    };
 
-        // Check if server served an HTML fallback page
-        if (contentType.includes('text/html') || blob.type.includes('text/html')) {
-          setErrorStatus('HTML_FALLBACK');
-          setLoading(false);
-          return;
-        }
-
-        createdUrl = URL.createObjectURL(blob);
-        if (active) {
-          setBlobUrl(createdUrl);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        console.error('Document blob load error:', err);
-        if (active) {
-          setErrorStatus('LOAD_ERROR');
-          setLoading(false);
-        }
-      });
+    tryFetchCandidate(0);
 
     return () => {
       active = false;
@@ -84,7 +106,7 @@ function DocumentViewerCanvas({ fileItem, poReference, zoom, rotation }) {
         URL.revokeObjectURL(createdUrl);
       }
     };
-  }, [fileItem]);
+  }, [fileItem, poReference]);
 
   if (loading) {
     return (

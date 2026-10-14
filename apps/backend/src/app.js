@@ -73,30 +73,59 @@ app.use('/uploads', (req, res, next) => {
     const uploadsDir = path.join(__dirname, '../uploads');
     const reqPath = decodeURIComponent(req.path || '').split('?')[0];
 
-    // 1. If requested /payments/invoice_PO-XXXXXX... and not in payments, check invoices/PO-XXXXXX/
-    if (reqPath.startsWith('/payments/invoice_PO-') || reqPath.startsWith('/payments/PO-')) {
-      const directPath = path.join(uploadsDir, reqPath);
-      if (!fs.existsSync(directPath)) {
-        const match = reqPath.match(/(PO-[A-Za-z0-9_-]+)/);
-        if (match) {
-          const poRef = match[1];
-          const filename = path.basename(reqPath);
-          const altPath = path.join(uploadsDir, 'invoices', poRef, filename);
-          if (fs.existsSync(altPath)) {
-            return res.sendFile(altPath);
-          }
-        }
+    // 1. Check direct path on disk
+    const directPath = path.join(uploadsDir, reqPath);
+    if (fs.existsSync(directPath) && fs.statSync(directPath).isFile()) {
+      return res.sendFile(directPath);
+    }
+
+    const filename = path.basename(reqPath);
+    if (!filename) return next();
+
+    // 2. Extract clean PO reference number (e.g. PO-000019)
+    const poMatch = filename.match(/(PO-\d+)/i) || reqPath.match(/(PO-\d+)/i) || filename.match(/(PO-[A-Za-z0-9]+)/i);
+    const poRef = poMatch ? poMatch[1].toUpperCase() : null;
+
+    // 3. Search in dedicated PO invoice subfolders (e.g. /invoices/PO-000019/...)
+    if (poRef) {
+      const pInvoicesPo = path.join(uploadsDir, 'invoices', poRef, filename);
+      if (fs.existsSync(pInvoicesPo) && fs.statSync(pInvoicesPo).isFile()) {
+        return res.sendFile(pInvoicesPo);
+      }
+      const pInvoicesPoLower = path.join(uploadsDir, 'invoices', poRef.toLowerCase(), filename);
+      if (fs.existsSync(pInvoicesPoLower) && fs.statSync(pInvoicesPoLower).isFile()) {
+        return res.sendFile(pInvoicesPoLower);
       }
     }
 
-    // 2. If requested /invoices/PO-XXXXXX/... and not in invoices, check payments/
-    if (reqPath.startsWith('/invoices/')) {
-      const directPath = path.join(uploadsDir, reqPath);
-      if (!fs.existsSync(directPath)) {
-        const filename = path.basename(reqPath);
-        const altPath = path.join(uploadsDir, 'payments', filename);
-        if (fs.existsSync(altPath)) {
-          return res.sendFile(altPath);
+    // 4. Search in payments/ folder
+    const pPayments = path.join(uploadsDir, 'payments', filename);
+    if (fs.existsSync(pPayments) && fs.statSync(pPayments).isFile()) {
+      return res.sendFile(pPayments);
+    }
+
+    // 5. Search in invoices/ root
+    const pInvoices = path.join(uploadsDir, 'invoices', filename);
+    if (fs.existsSync(pInvoices) && fs.statSync(pInvoices).isFile()) {
+      return res.sendFile(pInvoices);
+    }
+
+    // 6. Search in root uploads/
+    const pRoot = path.join(uploadsDir, filename);
+    if (fs.existsSync(pRoot) && fs.statSync(pRoot).isFile()) {
+      return res.sendFile(pRoot);
+    }
+
+    // 7. Dynamic scan across all subdirectories of invoices/
+    const invoicesBase = path.join(uploadsDir, 'invoices');
+    if (fs.existsSync(invoicesBase)) {
+      const subdirs = fs.readdirSync(invoicesBase, { withFileTypes: true });
+      for (const dirent of subdirs) {
+        if (dirent.isDirectory()) {
+          const candidate = path.join(invoicesBase, dirent.name, filename);
+          if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+            return res.sendFile(candidate);
+          }
         }
       }
     }
