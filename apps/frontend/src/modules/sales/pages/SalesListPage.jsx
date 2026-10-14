@@ -18,7 +18,7 @@ import { Pagination } from '@/components/ui/Pagination';
 import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
-import { generateA4TaxInvoice, generateThermalReceipt } from '@/utils/salesPdfGenerator';
+import { generateA4TaxInvoice, generateThermalReceipt, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
 import { numberToWordsINR, getIndianStates } from '@/utils/gstEngine';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 
@@ -439,8 +439,10 @@ export default function SalesListPage() {
     if (!activePdfUrl || !selectedOrder) return;
     const a = document.createElement('a');
     a.href = activePdfUrl;
-    a.download = `${layoutMode === 'A4' ? 'TAX-INVOICE' : 'POS-RECEIPT'}-${selectedOrder.docNo || selectedOrder.referenceNo}.pdf`;
+    a.download = getSalesDocumentPdfFilename(selectedOrder, layoutMode);
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
   };
 
   const handlePrintActivePdf = () => {
@@ -486,8 +488,7 @@ export default function SalesListPage() {
     }
 
     // 2. Generate and download statutory Bill PDF directly to device
-    const safeDocNo = docNo.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const pdfFilename = `Tax_Invoice_${safeDocNo}.pdf`;
+    const pdfFilename = getSalesDocumentPdfFilename(fullOrder, layoutMode);
     
     try {
       let pdfBlob;
@@ -1076,8 +1077,8 @@ Thank you for choosing ${company}!`;
               </button>
             </div>
 
-            {/* Print Slip / Print Invoice */}
-            {isPos ? (
+            {/* Print Slip (Only if POS) */}
+            {isPos && (
               <Button 
                 onClick={() => {
                   setLayoutMode('POS');
@@ -1087,17 +1088,6 @@ Thank you for choosing ${company}!`;
                 className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3 flex items-center gap-1.5"
               >
                 <Printer className="w-3.5 h-3.5" /> Print 80mm Slip
-              </Button>
-            ) : (
-              <Button 
-                onClick={() => {
-                  setLayoutMode('A4');
-                  setActiveStudioTab('pdf');
-                  setTimeout(handlePrintActivePdf, 300);
-                }} 
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-xs cursor-pointer h-9 px-3 flex items-center gap-1.5"
-              >
-                <Printer className="w-3.5 h-3.5" /> Print A4 Invoice
               </Button>
             )}
 

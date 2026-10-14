@@ -88,9 +88,17 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   const buyerState = order.buyerStateCode || (order.customer?.gstin ? order.customer.gstin.substring(0, 2) : sellerState);
   const isInterState = String(sellerState) !== String(buyerState);
 
-  const docTitle = order.type === 'Quotation' 
+  const docNo = order.docNo || order.referenceNo || 'SO-0001';
+  const rawNoUpper = String(docNo).toUpperCase();
+  const rawTypeUpper = String(order.type || '').toUpperCase();
+  const rawModeUpper = String(order.orderMode || '').toUpperCase();
+
+  const isQuotation = rawTypeUpper === 'QUOTATION' || rawModeUpper === 'QUOTATION' || rawNoUpper.startsWith('QT');
+  const isInvoice = rawTypeUpper === 'INVOICE' || rawTypeUpper === 'TAX INVOICE' || rawModeUpper === 'INVOICE' || rawNoUpper.startsWith('INV');
+
+  const docTitle = isQuotation 
     ? 'QUOTATION' 
-    : (order.type === 'Sales Order' ? 'SALES ORDER' : 'TAX INVOICE');
+    : (isInvoice ? 'TAX INVOICE' : 'SALES ORDER');
 
   // Top Accent Banner
   doc.setFillColor(30, 27, 75);
@@ -100,11 +108,9 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
   let curY = 16;
 
-  const docNo = order.docNo || order.referenceNo || 'SO-0001';
-  const isQuotation = docTitle.includes('QUOTATION') || order.type === 'Quotation' || (docNo && docNo.startsWith('QT-'));
   const quotationLabel = isQuotation 
     ? `Quotation No: ${docNo}` 
-    : (docTitle.includes('INVOICE') ? `Invoice No: ${docNo}` : `Sales Order No: ${docNo}`);
+    : (isInvoice ? `Invoice No: ${docNo}` : `Sales Order No: ${docNo}`);
 
   // Header Title & Document Identifier
   doc.setFont('helvetica', 'bold');
@@ -783,4 +789,46 @@ export function generateThermalReceipt(order, companyDetails = {}) {
   doc.text('Quality & Purity You Can Trust.', 40, curY, { align: 'center' });
 
   return doc.output('blob');
+}
+
+/**
+ * Resolves standard dynamic filename for Sales documents conforming to:
+ * - Quotation: Quotation_<id/no>.pdf
+ * - Standard Order: Standard_Order_<id/no>.pdf
+ * - Invoice: Invoice_<id/no>.pdf
+ */
+export function getSalesDocumentPdfFilename(order, layoutMode = 'A4') {
+  if (!order) return 'Document.pdf';
+
+  if (layoutMode === 'POS' || order.type === 'POS') {
+    const rawNo = order.docNo || order.referenceNo || order.id || 'POS';
+    const cleanNo = String(rawNo).replace(/[\/\\]/g, '-').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+    return `POS_Receipt_${cleanNo}.pdf`;
+  }
+
+  const rawNo = order.docNo || order.referenceNo || order.id || 'DOC';
+  // Replace slashes with dash for clean OS filesystem compatibility
+  const cleanNo = String(rawNo).replace(/[\/\\]/g, '-').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+
+  const rawType = String(order.type || '').toUpperCase();
+  const rawMode = String(order.orderMode || '').toUpperCase();
+  const rawNoUpper = String(rawNo).toUpperCase();
+
+  const isQuotation = rawType === 'QUOTATION' || 
+                      rawMode === 'QUOTATION' || 
+                      rawNoUpper.startsWith('QT');
+
+  const isInvoice = rawType === 'INVOICE' || 
+                    rawType === 'TAX INVOICE' || 
+                    rawMode === 'INVOICE' || 
+                    rawNoUpper.startsWith('INV');
+
+  if (isQuotation) {
+    return `Quotation_${cleanNo}.pdf`;
+  } else if (isInvoice) {
+    return `Invoice_${cleanNo}.pdf`;
+  } else {
+    // Standard Sales Order
+    return `Standard_Order_${cleanNo}.pdf`;
+  }
 }

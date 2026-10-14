@@ -18,7 +18,7 @@ import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin, round2 } from '@/utils/gstEngine';
-import { generateA4TaxInvoice } from '@/utils/salesPdfGenerator';
+import { generateA4TaxInvoice, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
 import Swal from 'sweetalert2';
@@ -2331,10 +2331,9 @@ export default function SalesOrderPage() {
     try {
       const blob = generateA4TaxInvoice(orderData, storeCompany);
       const url = URL.createObjectURL(blob);
-      const docName = (orderData.docNo || 'Order').replace(/[^a-zA-Z0-9_-]/g, '_');
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Tax_Invoice_${docName}.pdf`;
+      a.download = getSalesDocumentPdfFilename(orderData, 'A4');
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
