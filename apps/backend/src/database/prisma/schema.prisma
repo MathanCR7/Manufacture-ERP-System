@@ -126,6 +126,7 @@ model User {
   assetRequests      AssetRequest[]   @relation("AssetRequestCreator")
   assetPOs           AssetPO[]        @relation("AssetPOCreator")
   rmQuotations       RMQuotation[]
+  productStockAdjustments ProductStockAdjustment[] @relation("ProductStockAdjuster")
 
   @@index([email])
   @@index([role])
@@ -1070,6 +1071,7 @@ model FinishedProduct {
   keyFeatures           String?                     @db.Text @map("key_features")
   isStockItem           Boolean                     @default(true) @map("is_stock_item")
   makeOrBuy             String                      @default("MAKE") @map("make_or_buy")
+  workflowStages        Json?                       @default("[]") @map("workflow_stages")
 
   // Relations
   creator             User                        @relation("FinishedProductCreator", fields: [createdBy], references: [id])
@@ -1089,6 +1091,7 @@ model FinishedProduct {
   returnItems         SalesReturnItem[]
   learnedRecipe       ProductLearnedRecipe?
   base                BaseMaster?                 @relation(fields: [baseId], references: [id])
+  stockAdjustments    ProductStockAdjustment[]
 
   @@map("products")
 }
@@ -1219,6 +1222,9 @@ model ProductionBatchNew {
   ebRatePerUnit       Decimal?                    @default(8.50) @map("eb_rate_per_unit")
   ebTotalCost         Decimal?                    @default(0) @map("eb_total_cost")
   labourTotalCost     Decimal?                    @default(0) @map("labour_total_cost")
+  labourCount         Int?                        @default(0) @map("labour_count")
+  labourStaffIds      Json?                       @default("[]") @map("labour_staff_ids")
+  labourStaffDetails  Json?                       @default("[]") @map("labour_staff_details")
   completedBy         String?                     @map("completed_by")
   completedAt         DateTime?                   @map("completed_at")
 
@@ -1232,6 +1238,8 @@ model ProductionBatchNew {
   stockMovements      ProductStockMovement[]
   losses              ProductionLoss[]
   batchAllocations    BatchAllocation[]
+  batchItems          ProductionBatchItem[]
+  allocations         ProductionBatchAllocation[]
 
   @@map("production_batches")
 }
@@ -2569,6 +2577,8 @@ model ProductionBatchAllocation {
   supplierBatchNo   String?   @map("supplier_batch_no") @db.VarChar(255)
   createdAt         DateTime  @default(now()) @map("created_at")
 
+  batch             ProductionBatchNew @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
   @@index([batchId], map: "idx_alloc_batch")
   @@index([usageId], map: "idx_alloc_usage")
   @@map("production_batch_allocations")
@@ -2584,6 +2594,26 @@ model ProductionBatchItem {
   costPerUnit  Decimal   @default(0) @map("cost_per_unit")
   createdAt    DateTime  @default(now()) @map("created_at")
 
+  batch        ProductionBatchNew @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
   @@index([batchId], map: "idx_batch_items_batch")
   @@map("production_batch_items")
+}
+
+model ProductStockAdjustment {
+  id        String          @id @default(uuid())
+  productId String          @map("product_id")
+  type      String          // ADDITION or SUBTRACTION
+  quantity  Decimal
+  notes     String?         @db.Text
+  createdBy String          @map("created_by")
+  createdAt DateTime        @default(now()) @map("created_at")
+  updatedAt DateTime        @updatedAt @map("updated_at")
+
+  product   FinishedProduct @relation(fields: [productId], references: [id])
+  user      User            @relation("ProductStockAdjuster", fields: [createdBy], references: [id])
+
+  @@index([productId])
+  @@index([type])
+  @@map("product_stock_adjustments")
 }

@@ -59,6 +59,9 @@ async function ensureProductionBatchesRedesignSchema() {
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "eb_rate_per_unit" DECIMAL(10, 2) DEFAULT 8.50;',
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "eb_total_cost" DECIMAL(12, 2) DEFAULT 0;',
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "labour_total_cost" DECIMAL(12, 2) DEFAULT 0;',
+    'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "labour_count" INT DEFAULT 0;',
+    'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "labour_staff_ids" JSONB DEFAULT \'[]\'::jsonb;',
+    'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "labour_staff_details" JSONB DEFAULT \'[]\'::jsonb;',
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "completed_by" VARCHAR(150);',
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMP(3);',
 

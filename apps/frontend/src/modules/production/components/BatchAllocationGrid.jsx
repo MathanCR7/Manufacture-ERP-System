@@ -102,6 +102,115 @@ export default function BatchAllocationGrid({
   const [lotSearchTerm, setLotSearchTerm] = useState('');
   const [manualSupplierBatches, setManualSupplierBatches] = useState({}); // { [lotId]: string }
 
+  // ── ADD RAW MATERIAL DIRECTLY MODAL STATE ──
+  const [addRmModalOpen, setAddRmModalOpen] = useState(false);
+  const [addRmSearchTerm, setAddRmSearchTerm] = useState('');
+  const [selectedRmToAdd, setSelectedRmToAdd] = useState(null);
+  const [addRmQty, setAddRmQty] = useState(1);
+  const [addRmMode, setAddRmMode] = useState('BASE'); // 'BASE' | 'ALT'
+  const [addRmRate, setAddRmRate] = useState('');
+
+  const filteredMastersToAdd = useMemo(() => {
+    if (!addRmSearchTerm.trim()) return itemSetupMasters || [];
+    const q = addRmSearchTerm.toLowerCase();
+    return (itemSetupMasters || []).filter(m =>
+      (m.name && m.name.toLowerCase().includes(q)) ||
+      (m.code && m.code.toLowerCase().includes(q)) ||
+      (m.category && m.category.toLowerCase().includes(q))
+    );
+  }, [itemSetupMasters, addRmSearchTerm]);
+
+  const handleSelectRmMaster = (master) => {
+    setSelectedRmToAdd(master);
+    setAddRmQty(1);
+    setAddRmMode('BASE');
+    setAddRmRate(master.ratePerUnit !== undefined && master.ratePerUnit !== null ? master.ratePerUnit : 0);
+  };
+
+  const handleConfirmAddRm = () => {
+    if (!selectedRmToAdd) {
+      Swal.fire({ title: 'Select Raw Material', text: 'Please select a raw material from the catalogue.', icon: 'warning' });
+      return;
+    }
+    const numQty = parseFloat(addRmQty);
+    if (isNaN(numQty) || numQty <= 0) {
+      Swal.fire({ title: 'Invalid Quantity', text: 'Please enter a valid required quantity greater than 0.', icon: 'warning' });
+      return;
+    }
+
+    const master = selectedRmToAdd;
+    const hasAlt = Boolean(master.hasAlternateUom && master.alternateUom);
+    const rawBase = master.unitId || master.consumptionUnit || 'liter';
+    const baseUomClean = (!rawBase || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawBase)) ? 'units' : rawBase;
+    const altUomClean = hasAlt ? master.alternateUom : null;
+    const factor = hasAlt ? Number(
+      master.conversionFactor ||
+      (master.alternateUomQty && master.baseUomQty ? (master.alternateUomQty / master.baseUomQty) : null) ||
+      1
+    ) : 1;
+
+    const rateNum = Number(addRmRate !== '' ? addRmRate : (master.ratePerUnit || 0));
+
+    let baseQty, altQty, baseRate, altRate, totalCost, unitRate, selectedUom;
+
+    if (addRmMode === 'ALT' && hasAlt) {
+      altQty = numQty;
+      baseQty = factor > 0 ? Number((numQty / factor).toFixed(4)) : numQty;
+      altRate = rateNum;
+      baseRate = Number((rateNum * factor).toFixed(4));
+      unitRate = altRate;
+      selectedUom = altUomClean;
+      totalCost = Number((altQty * altRate).toFixed(2));
+    } else {
+      baseQty = numQty;
+      altQty = Number((numQty * factor).toFixed(3));
+      baseRate = rateNum;
+      altRate = factor > 0 ? Number((rateNum / factor).toFixed(4)) : rateNum;
+      unitRate = baseRate;
+      selectedUom = baseUomClean;
+      totalCost = Number((baseQty * baseRate).toFixed(2));
+    }
+
+    const newRow = {
+      rmId: master.id,
+      rmCode: master.code || 'RM',
+      rmName: master.name,
+      baseTemplateQty: baseQty,
+      baseRequiredQty: baseQty,
+      altRequiredQty: altQty,
+      requiredQty: addRmMode === 'ALT' ? altQty : baseQty,
+      baseUom: baseUomClean,
+      selectedUom: selectedUom,
+      activeEntryMode: addRmMode === 'ALT' ? 'ALT' : 'BASE',
+      unitRate: unitRate,
+      baseRate: baseRate,
+      altRate: altRate,
+      rateSource: 'PO_LATEST',
+      isOverhead: false,
+      totalCost: totalCost,
+      allocatedBatches: [],
+      hasAlternateUom: hasAlt,
+      alternateUom: altUomClean,
+      baseUomQty: master.baseUomQty || 1,
+      alternateUomQty: master.alternateUomQty || 1,
+      conversionFactor: factor,
+      isDirectlyAdded: true
+    };
+
+    onUpdateRawMaterials([...rawMaterials, newRow]);
+    setAddRmModalOpen(false);
+    setSelectedRmToAdd(null);
+    setAddRmSearchTerm('');
+
+    Swal.fire({
+      title: 'Raw Material Added!',
+      text: `${master.name} added to formulation. You can now click "Allocate Lots" to assign batch stock.`,
+      icon: 'success',
+      timer: 1600,
+      showConfirmButton: false
+    });
+  };
+
   // ── MANUAL OVERRIDE LOT FORM STATE ──
   const [showManualOverrideForm, setShowManualOverrideForm] = useState(false);
   const [overrideForm, setOverrideForm] = useState({
@@ -267,10 +376,6 @@ export default function BatchAllocationGrid({
 
   // ── DELETE ROW ──
   const handleDeleteRow = (index) => {
-    if (rawMaterials.length <= 1) {
-      Swal.fire({ title: 'Notice', text: 'Batch requires at least one raw material line.', icon: 'info' });
-      return;
-    }
     const updated = rawMaterials.filter((_, i) => i !== index);
     onUpdateRawMaterials(updated);
   };
@@ -617,6 +722,20 @@ export default function BatchAllocationGrid({
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            onClick={() => {
+              setAddRmModalOpen(true);
+              setSelectedRmToAdd(null);
+              setAddRmSearchTerm('');
+            }}
+            disabled={disabled}
+            className="h-8 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer flex items-center gap-1.5 shadow-2xs"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Add Raw Material
+          </Button>
+
           {onRefreshPrices && (
             <Button
               type="button"
@@ -632,6 +751,35 @@ export default function BatchAllocationGrid({
           )}
         </div>
       </div>
+
+      {/* Empty State when no raw materials in formulation yet */}
+      {rawMaterials.length === 0 && (
+        <div className="p-8 text-center bg-white dark:bg-slate-900 border border-dashed border-slate-300 dark:border-slate-800 rounded-3xl space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center mx-auto shadow-2xs">
+            <Boxes className="w-6 h-6" />
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+              No Raw Materials in Formulation Yet
+            </h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+              You can add raw materials directly using the button below or select a production template above.
+            </p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => {
+              setAddRmModalOpen(true);
+              setSelectedRmToAdd(null);
+              setAddRmSearchTerm('');
+            }}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-9 px-4 rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add Raw Material
+          </Button>
+        </div>
+      )}
 
       {/* Formulation Table - Preserved 100% Intact for Desktop (hidden lg:block) */}
       <div className="hidden lg:block overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
@@ -1643,6 +1791,270 @@ export default function BatchAllocationGrid({
                   Confirm Lot Allocations
                 </Button>
               </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL 3: DIRECT ADD RAW MATERIAL MODAL ── */}
+      {addRmModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-3xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/60 dark:bg-slate-850/60">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500 text-white flex items-center justify-center shadow-xs">
+                  <Boxes className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
+                      Add Raw Material to Formulation
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300">
+                      Live Catalogue
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Select material from Item Setup, specify required quantity & UOM, and allocate inventory lots
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setAddRmModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl p-1.5 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              
+              {/* Search Box */}
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Input
+                  type="text"
+                  value={addRmSearchTerm}
+                  onChange={(e) => setAddRmSearchTerm(e.target.value)}
+                  placeholder="Search catalogue by material name, code (e.g. RM-00001), or category..."
+                  className="h-10 pl-10 rounded-2xl text-xs bg-slate-50 dark:bg-slate-850 border-slate-200 dark:border-slate-800 font-medium"
+                />
+              </div>
+
+              {/* Grid of Raw Material Catalogue Items */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Select Raw Material ({filteredMastersToAdd.length} available):
+                </Label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                  {filteredMastersToAdd.map((m) => {
+                    const isSelected = selectedRmToAdd?.id === m.id;
+                    const alreadyInBatch = rawMaterials.some(r => r.rmId === m.id || (r.rmCode && r.rmCode === m.code));
+                    const hasAlt = Boolean(m.hasAlternateUom && m.alternateUom);
+                    const baseUom = m.unitId || m.consumptionUnit || 'liter';
+
+                    return (
+                      <div
+                        key={m.id}
+                        onClick={() => handleSelectRmMaster(m)}
+                        className={`p-3 rounded-2xl border transition-all cursor-pointer select-none flex items-start justify-between gap-2 ${
+                          isSelected
+                            ? 'bg-indigo-50/90 dark:bg-indigo-950/50 border-indigo-500 shadow-2xs ring-2 ring-indigo-500/20'
+                            : 'bg-white dark:bg-slate-850/80 border-slate-200 dark:border-slate-800 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-slate-50/80'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-slate-900 dark:text-white truncate">
+                              {m.name}
+                            </span>
+                            {alreadyInBatch && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
+                                In Batch
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5">
+                            <span>{m.code || 'RM'}</span>
+                            <span>•</span>
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">Base: {baseUom}</span>
+                            {canViewCosting && m.ratePerUnit > 0 && (
+                              <>
+                                <span>•</span>
+                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">₹{m.ratePerUnit}/{baseUom}</span>
+                              </>
+                            )}
+                          </div>
+
+                          {/* Alternate UOM badge if enabled in setup */}
+                          {hasAlt && m.alternateUom && (
+                            <div className="mt-1 text-[9px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200/60 dark:border-indigo-800/60 px-1.5 py-0.5 rounded-lg inline-flex items-center gap-1">
+                              <ArrowLeftRight className="w-2.5 h-2.5" />
+                              1 {baseUom} = {Number(m.conversionFactor || 1).toLocaleString()} {m.alternateUom}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="shrink-0 pt-0.5">
+                          {isSelected ? (
+                            <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 fill-indigo-100 dark:fill-indigo-950" />
+                          ) : (
+                            <span className="w-4 h-4 rounded-full border border-slate-300 dark:border-slate-700 block"></span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Selected Material Configuration Card */}
+              {selectedRmToAdd && (
+                <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 space-y-4 animate-in fade-in">
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-slate-800">
+                    <div>
+                      <span className="text-[10px] uppercase font-mono font-bold text-slate-400 block">
+                        Selected Formulation Material:
+                      </span>
+                      <h4 className="text-sm font-black text-slate-900 dark:text-white">
+                        {selectedRmToAdd.name} ({selectedRmToAdd.code || 'RM'})
+                      </h4>
+                    </div>
+
+                    {/* UOM mode toggle if Alternate UOM enabled */}
+                    {selectedRmToAdd.hasAlternateUom && selectedRmToAdd.alternateUom && (
+                      <div className="flex items-center gap-1 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                        <button
+                          type="button"
+                          onClick={() => setAddRmMode('BASE')}
+                          className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                            addRmMode === 'BASE'
+                              ? 'bg-indigo-600 text-white shadow-2xs'
+                              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {selectedRmToAdd.unitId || selectedRmToAdd.consumptionUnit || 'Base'} (Base)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAddRmMode('ALT')}
+                          className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                            addRmMode === 'ALT'
+                              ? 'bg-indigo-600 text-white shadow-2xs'
+                              : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                          }`}
+                        >
+                          {selectedRmToAdd.alternateUom} (Alt)
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {/* Required Qty */}
+                    <div className="space-y-1">
+                      <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                        Required Quantity <span className="text-rose-500">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          step="any"
+                          min="0.0001"
+                          value={addRmQty}
+                          onChange={(e) => setAddRmQty(e.target.value)}
+                          className="h-9 rounded-xl font-mono font-bold text-xs pr-14"
+                        />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                          {addRmMode === 'ALT' && selectedRmToAdd.alternateUom
+                            ? selectedRmToAdd.alternateUom
+                            : (selectedRmToAdd.unitId || selectedRmToAdd.consumptionUnit || 'liter')}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Unit Rate */}
+                    {canViewCosting && (
+                      <div className="space-y-1">
+                        <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                          Unit Rate (₹)
+                        </Label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">
+                            ₹
+                          </span>
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={addRmRate}
+                            onChange={(e) => setAddRmRate(e.target.value)}
+                            className="h-9 pl-7 rounded-xl font-mono font-bold text-xs"
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Calculated Total Cost */}
+                    {canViewCosting && (
+                      <div className="space-y-1 flex flex-col justify-end">
+                        <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                          Calculated Cost
+                        </Label>
+                        <div className="h-9 px-3 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs font-bold">
+                          <span className="text-slate-400">Total:</span>
+                          <span className="text-slate-900 dark:text-white font-mono">
+                            ₹{Number((Number(addRmQty || 0) * Number(addRmRate || 0)).toFixed(2)).toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Single Piece Consumption Notice */}
+                  {plannedOutputQty > 0 && (
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
+                      <span>Per-piece single consumption:</span>
+                      <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                        {(Number(addRmQty || 0) / plannedOutputQty).toFixed(5)} {addRmMode === 'ALT' && selectedRmToAdd.alternateUom ? selectedRmToAdd.alternateUom : (selectedRmToAdd.unitId || selectedRmToAdd.consumptionUnit || 'liter')} / {outputUom}
+                      </span>
+                    </div>
+                  )}
+
+                </div>
+              )}
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-850/80 flex items-center justify-between shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setAddRmModalOpen(false)}
+                className="rounded-xl cursor-pointer"
+              >
+                Cancel
+              </Button>
+
+              <Button
+                type="button"
+                size="sm"
+                disabled={!selectedRmToAdd}
+                onClick={handleConfirmAddRm}
+                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold cursor-pointer shadow-xs flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                Add to Formulation
+              </Button>
             </div>
 
           </div>

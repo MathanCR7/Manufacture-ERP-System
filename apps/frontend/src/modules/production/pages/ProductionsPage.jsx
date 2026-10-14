@@ -17,9 +17,9 @@ import { Input } from '@/components/ui/input';
 import useAuthStore from '@/app/store/authStore';
 
 import DatePicker from '@/components/ui/DatePicker';
-import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import BatchDetailDrawer from '../components/BatchDetailDrawer';
 import BatchCompletionModal from '../components/BatchCompletionModal';
+import ProductionCancelModal from '../components/ProductionCancelModal';
 
 // 5 Kanban Columns
 const PIPELINE_COLUMNS = [
@@ -113,6 +113,9 @@ export default function ProductionsPage() {
   // Completion Modal State
   const [execBatch, setExecBatch] = useState(null);
   const [completionModalOpen, setCompletionModalOpen] = useState(false);
+
+  // Cancel & RM Wastage Modal State
+  const [cancelModalBatch, setCancelModalBatch] = useState(null);
 
   // Detail Drawer State
   const [detailBatch, setDetailBatch] = useState(null);
@@ -285,6 +288,21 @@ export default function ProductionsPage() {
     }
   };
 
+  // Open Cancel & RM Wastage Modal
+  const handleOpenCancelModal = async (batch) => {
+    try {
+      const res = await api.get(`/production/batches-redesign/${batch.id}`);
+      setCancelModalBatch(res.data);
+    } catch {
+      try {
+        const res2 = await api.get(`/production/${batch.id}`);
+        setCancelModalBatch(res2.data);
+      } catch (err) {
+        setCancelModalBatch(batch);
+      }
+    }
+  };
+
   // Submit Completion
   const handleSubmitCompletion = async (batchId, payload) => {
     try {
@@ -370,6 +388,12 @@ export default function ProductionsPage() {
     // Moving to Completed requires completion modal
     if (targetStatus === 'Completed' && draggedBatch.status === 'In Progress') {
       handleOpenCompletionModal(draggedBatch);
+      return;
+    }
+
+    // Moving to Cancelled requires cancellation & RM wastage modal
+    if (targetStatus === 'Cancelled') {
+      handleOpenCancelModal(draggedBatch);
       return;
     }
 
@@ -1240,6 +1264,7 @@ export default function ProductionsPage() {
         canEdit={canEdit}
         onUpdateStatus={handleUpdateStatus}
         onOpenCompletionModal={handleOpenCompletionModal}
+        onOpenCancelModal={handleOpenCancelModal}
       />
 
       {/* ─────────────────────── BATCH COMPLETION MODAL ─────────────────────── */}
@@ -1251,6 +1276,20 @@ export default function ProductionsPage() {
         }}
         batch={execBatch}
         onSubmit={handleSubmitCompletion}
+      />
+
+      {/* ─────────────────────── PRODUCTION CANCEL & RM WASTAGE MODAL ─────────────────────── */}
+      <ProductionCancelModal
+        isOpen={!!cancelModalBatch}
+        onClose={() => setCancelModalBatch(null)}
+        batch={cancelModalBatch}
+        onCancelled={() => {
+          setCancelModalBatch(null);
+          fetchBatches();
+          if (batchIdParam) {
+            api.get(`/production/${batchIdParam}`).then(res => setDetailBatch(res.data)).catch(() => {});
+          }
+        }}
       />
 
       {/* ─────────────────────── MOBILE FILTER BOTTOM SHEET ─────────────────────── */}

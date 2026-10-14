@@ -14,7 +14,8 @@ export default function BatchDetailDrawer({
   loading = false,
   canEdit = true,
   onUpdateStatus,
-  onOpenCompletionModal
+  onOpenCompletionModal,
+  onOpenCancelModal
 }) {
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'bom' | 'sop' | 'qc' | 'logs'
 
@@ -549,6 +550,21 @@ export default function BatchDetailDrawer({
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 Rework Batch
+              </Button>
+            )}
+
+            {canEdit && batch.status !== 'Completed' && batch.status !== 'Cancelled' && batch.status !== 'qc_passed' && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  onClose();
+                  if (onOpenCancelModal) onOpenCancelModal(batch);
+                }}
+                className="rounded-xl text-xs font-bold h-10 px-3 cursor-pointer text-rose-600 border-rose-200 hover:bg-rose-50"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                Cancel Batch
               </Button>
             )}
           </div>

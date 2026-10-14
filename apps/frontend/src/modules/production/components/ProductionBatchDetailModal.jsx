@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
 import Swal from 'sweetalert2';
 import BatchLabelModal from './BatchLabelModal';
+import ProductionCancelModal from './ProductionCancelModal';
 
 export default function ProductionBatchDetailModal({
   isOpen = false,
@@ -24,6 +25,7 @@ export default function ProductionBatchDetailModal({
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'timeline', 'sop', 'formulation', 'pauses'
   const [actionLoading, setActionLoading] = useState(false);
   const [showLabelModal, setShowLabelModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
 
   const fetchBatchDetail = async () => {
     if (!batchId) return;
@@ -130,37 +132,9 @@ export default function ProductionBatchDetailModal({
     }
   };
 
-  // Handle Cancelling Batch
-  const handleCancel = async () => {
-    const { value: reason } = await Swal.fire({
-      title: 'Cancel Production Batch?',
-      text: 'Are you sure you want to cancel this batch? This will release allocations.',
-      input: 'text',
-      inputPlaceholder: 'e.g. Equipment failure, formulation mismatch, order cancelled...',
-      showCancelButton: true,
-      confirmButtonText: 'Yes, Cancel Batch',
-      confirmButtonColor: '#e11d48',
-      inputValidator: (val) => {
-        if (!val || !val.trim()) return 'Cancellation reason is required!';
-      }
-    });
-
-    if (!reason) return;
-
-    try {
-      setActionLoading(true);
-      await api.patch(`/production/batches-redesign/${batch.id}/status`, {
-        status: 'Cancelled',
-        reason: reason.trim()
-      });
-      Swal.fire({ title: 'Cancelled', text: 'Batch has been cancelled.', icon: 'info' });
-      fetchBatchDetail();
-      if (onStatusUpdated) onStatusUpdated();
-    } catch (err) {
-      Swal.fire({ title: 'Error', text: err.response?.data?.error || 'Failed to cancel batch.', icon: 'error' });
-    } finally {
-      setActionLoading(false);
-    }
+  // Handle Cancelling Batch - Open Comprehensive Cancel & Waste Allocation Modal
+  const handleCancel = () => {
+    setShowCancelModal(true);
   };
 
   const formatCurrency = (val) => {
@@ -578,12 +552,19 @@ export default function ProductionBatchDetailModal({
                   )}
 
                   {/* Electricity (EB) & Labour Costs */}
-                  {(batch.ebUnitsKwh !== null || batch.ebTotalCost > 0 || batch.labourTotalCost > 0) && (
-                    <div className="bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 shadow-3xs space-y-2">
-                      <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider flex items-center gap-1.5">
-                        <Zap className="w-4 h-4 text-amber-600" />
-                        Energy Consumption (EB Meter) & Labour
-                      </h4>
+                  {(batch.ebUnitsKwh !== null || batch.ebTotalCost > 0 || batch.labourTotalCost > 0 || (batch.labourStaffDetails && batch.labourStaffDetails.length > 0) || batch.labourCount > 0) && (
+                    <div className="bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 shadow-3xs space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-black text-amber-900 dark:text-amber-200 uppercase tracking-wider flex items-center gap-1.5">
+                          <Zap className="w-4 h-4 text-amber-600" />
+                          Energy Consumption (EB Meter) & Labour
+                        </h4>
+                        {batch.labourCount > 0 && (
+                          <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100/90 dark:bg-amber-900/50 px-2.5 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                            {batch.labourCount} Workers Assigned
+                          </span>
+                        )}
+                      </div>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                         <div>
                           <span className="text-[10px] text-slate-400 block font-bold">Meter Start - End</span>
@@ -604,6 +585,29 @@ export default function ProductionBatchDetailModal({
                           <span className="font-bold text-slate-900 dark:text-white">₹{formatCurrency(batch.labourTotalCost)}</span>
                         </div>
                       </div>
+
+                      {/* Assigned Floor Staff Members */}
+                      {Array.isArray(batch.labourStaffDetails) && batch.labourStaffDetails.length > 0 && (
+                        <div className="pt-2.5 border-t border-amber-200/60 dark:border-amber-800/60 space-y-1.5">
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-bold uppercase tracking-wider">
+                            Assigned Production Staff ({batch.labourStaffDetails.length}):
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {batch.labourStaffDetails.map((staff, sIdx) => (
+                              <div
+                                key={staff.id || sIdx}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-700/60 rounded-xl text-xs font-medium text-slate-800 dark:text-slate-200 shadow-2xs"
+                              >
+                                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                <span className="font-bold">{staff.name || 'Staff'}</span>
+                                {staff.empId && (
+                                  <span className="font-mono text-[10px] text-slate-400">({staff.empId})</span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1039,6 +1043,20 @@ export default function ProductionBatchDetailModal({
           batchId={batch?.id}
           batch={batch}
           batchStatus={batch?.status}
+        />
+      )}
+
+      {/* Production Cancel & RM Wastage Modal */}
+      {showCancelModal && (
+        <ProductionCancelModal
+          isOpen={showCancelModal}
+          onClose={() => setShowCancelModal(false)}
+          batch={batch}
+          onCancelled={() => {
+            setShowCancelModal(false);
+            fetchBatchDetail();
+            if (onStatusUpdated) onStatusUpdated();
+          }}
         />
       )}
     </div>

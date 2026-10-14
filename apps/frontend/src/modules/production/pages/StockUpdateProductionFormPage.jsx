@@ -14,6 +14,7 @@ import ProductionProductPicker from '../components/ProductionProductPicker';
 import BatchAllocationGrid from '../components/BatchAllocationGrid';
 import CostingSummaryFooter from '../components/CostingSummaryFooter';
 import StandardFactoryStagesPalette from '../components/StandardFactoryStagesPalette';
+import ProductionLabourPicker from '../components/ProductionLabourPicker';
 import Swal from 'sweetalert2';
 
 export default function StockUpdateProductionFormPage() {
@@ -34,6 +35,11 @@ export default function StockUpdateProductionFormPage() {
   const [adjustmentReference, setAdjustmentReference] = useState('');
   const [productionDate, setProductionDate] = useState(new Date().toISOString().split('T')[0]);
   const [note, setNote] = useState('');
+
+  // Production Labour Allocation State
+  const [labourCount, setLabourCount] = useState(0);
+  const [assignedStaffIds, setAssignedStaffIds] = useState([]);
+  const [labourStaffDetails, setLabourStaffDetails] = useState([]);
 
   // Workflow State
   const [selectedBaseId, setSelectedBaseId] = useState('');
@@ -342,6 +348,20 @@ export default function StockUpdateProductionFormPage() {
       Swal.fire({ title: 'Validation', text: 'Please select at least one finished product (Step C).', icon: 'warning' });
       return;
     }
+    if (rawMaterials.length === 0) {
+      Swal.fire({ title: 'Validation', text: 'At least one raw material line is required in formulation.', icon: 'warning' });
+      return;
+    }
+
+    if (labourCount > 0 && assignedStaffIds.length !== labourCount) {
+      Swal.fire({
+        title: 'Labour Assignment Required',
+        text: `You have entered a labour quantity of ${labourCount} workers, but selected ${assignedStaffIds.length}. Please check the boxes for exactly ${labourCount} production staff members.`,
+        icon: 'warning',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
+    }
 
     const payload = {
       productionType: 'STOCK_UPDATE',
@@ -361,7 +381,11 @@ export default function StockUpdateProductionFormPage() {
       grandTotal: costingTotals.grandTotal,
       costPerUnit: costingTotals.costPerUnit,
       timelineStages,
-      rawMaterials
+      rawMaterials,
+      labourCount: Number(labourCount || assignedStaffIds.length || 0),
+      assignedStaffIds,
+      labourStaffIds: assignedStaffIds,
+      labourStaffDetails
     };
 
     try {
@@ -477,6 +501,18 @@ export default function StockUpdateProductionFormPage() {
         </div>
       </div>
 
+      {/* ── PRODUCTION LABOUR & FLOOR STAFF ASSIGNMENT ── */}
+      <ProductionLabourPicker
+        labourCount={labourCount}
+        assignedStaffIds={assignedStaffIds}
+        labourStaffDetails={labourStaffDetails}
+        onChange={({ labourCount: lc, assignedStaffIds: asIds, labourStaffDetails: lsd }) => {
+          setLabourCount(lc);
+          setAssignedStaffIds(asIds);
+          setLabourStaffDetails(lsd);
+        }}
+      />
+
       {/* ── STEP A: BASE SELECTION ── */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-3xl p-5 shadow-xs">
         <ProductionBasePicker
@@ -560,7 +596,7 @@ export default function StockUpdateProductionFormPage() {
       )}
 
       {/* ── STEP D & E: BATCH ALLOCATION GRID ── */}
-      {selectedTemplate && rawMaterials.length > 0 && (
+      {(selectedTemplate || rawMaterials.length > 0) && (
         <BatchAllocationGrid
           rawMaterials={rawMaterials}
           onUpdateRawMaterials={setRawMaterials}
@@ -573,7 +609,7 @@ export default function StockUpdateProductionFormPage() {
       )}
 
       {/* ── COSTING SUMMARY FOOTER ── */}
-      {selectedTemplate && rawMaterials.length > 0 && (
+      {rawMaterials.length > 0 && (
         <CostingSummaryFooter
           subTotal={costingTotals.subTotal}
           wastagePct={wastagePct}
@@ -582,7 +618,7 @@ export default function StockUpdateProductionFormPage() {
           overheadAmt={costingTotals.overheadAmt}
           grandTotal={costingTotals.grandTotal}
           outputQty={totalPlannedQty}
-          outputUom={selectedTemplate.outputUom || 'Nos'}
+          outputUom={selectedTemplate?.outputUom || selectedProducts[0]?.unit || 'Nos'}
           costPerUnit={costingTotals.costPerUnit}
           isEditable={true}
           onWastagePctChange={setWastagePct}

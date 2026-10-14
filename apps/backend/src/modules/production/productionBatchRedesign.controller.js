@@ -5,6 +5,9 @@ const batchNumberService = require('./batchNumber.service');
 const productionCompletionService = require('./productionCompletion.service');
 const { getTaxSettingsData } = require('../setup/tax.controller');
 const { ensureProductionBatchesRedesignSchema } = require('../../database/migrations/ensure_production_batches_redesign_schema');
+const { generateReferenceNo } = require('../../utils/referenceGenerator');
+
+const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
 // Helper to generate unique MP-XXXXXX
 async function generateBatchReference(tx) {
@@ -102,6 +105,7 @@ class ProductionBatchRedesignController {
                   b.sub_total, b.wastage_amt, b.overhead_amt, b.grand_total, b.cost_per_unit,
                   b.started_by, b.started_at, b.pause_history, b.sop_guide, b.timeline_stages,
                   b.pause_reason, b.cancelled_reason, b.cancelled_by, b.cancelled_at,
+                  b.labour_count, b.labour_staff_ids, b.labour_staff_details, b.labour_total_cost,
                   bm.name as base_name, pt.name as template_name
            FROM "production_batches" b
            LEFT JOIN "base_master" bm ON b.base_id = bm.id
@@ -160,6 +164,10 @@ class ProductionBatchRedesignController {
           cancelledAt: extra.cancelled_at || null,
           adjustmentReason: extra.adjustment_reason || null,
           adjustmentReference: extra.adjustment_reference || null,
+          labourCount: extra.labour_count !== null && extra.labour_count !== undefined ? Number(extra.labour_count) : 0,
+          labourTotalCost: extra.labour_total_cost !== null && extra.labour_total_cost !== undefined ? Number(extra.labour_total_cost) : 0,
+          labourStaffIds: Array.isArray(extra.labour_staff_ids) ? extra.labour_staff_ids : (typeof extra.labour_staff_ids === 'string' ? JSON.parse(extra.labour_staff_ids || '[]') : []),
+          labourStaffDetails: Array.isArray(extra.labour_staff_details) ? extra.labour_staff_details : (typeof extra.labour_staff_details === 'string' ? JSON.parse(extra.labour_staff_details || '[]') : []),
           rawMaterialsCount: b.rmUsages?.length || 0,
           rmUsages: b.rmUsages || [],
           createdAt: b.createdAt
@@ -209,7 +217,9 @@ class ProductionBatchRedesignController {
                 b.mfd, b.shelf_life_days, b.lab_test_required, b.qc_status, b.quarantine_stock,
                 b.good_quantity, b.rejected_quantity, b.scrap_quantity, b.scrap_reason,
                 b.yield_percentage, b.eb_start_reading, b.eb_end_reading, b.eb_units_kwh,
-                b.eb_rate_per_unit, b.eb_total_cost, b.labour_total_cost, b.completed_by, b.completed_at,
+                b.eb_rate_per_unit, b.eb_total_cost, b.labour_total_cost,
+                b.labour_count, b.labour_staff_ids, b.labour_staff_details,
+                b.completed_by, b.completed_at,
                 bm.name as base_name, pt.name as template_name
          FROM "production_batches" b
          LEFT JOIN "base_master" bm ON b.base_id = bm.id
@@ -306,6 +316,9 @@ class ProductionBatchRedesignController {
         ebRatePerUnit: extra.eb_rate_per_unit !== null && extra.eb_rate_per_unit !== undefined ? Number(extra.eb_rate_per_unit) : null,
         ebTotalCost: extra.eb_total_cost !== null && extra.eb_total_cost !== undefined ? Number(extra.eb_total_cost) : 0,
         labourTotalCost: extra.labour_total_cost !== null && extra.labour_total_cost !== undefined ? Number(extra.labour_total_cost) : 0,
+        labourCount: extra.labour_count !== null && extra.labour_count !== undefined ? Number(extra.labour_count) : 0,
+        labourStaffIds: Array.isArray(extra.labour_staff_ids) ? extra.labour_staff_ids : (typeof extra.labour_staff_ids === 'string' ? JSON.parse(extra.labour_staff_ids || '[]') : []),
+        labourStaffDetails: Array.isArray(extra.labour_staff_details) ? extra.labour_staff_details : (typeof extra.labour_staff_details === 'string' ? JSON.parse(extra.labour_staff_details || '[]') : []),
         completedBy: extra.completed_by || null,
         completedAt: extra.completed_at || null,
         rmUsages: enrichedUsages,
@@ -351,6 +364,13 @@ class ProductionBatchRedesignController {
         overheadAmt: z.coerce.number().optional().default(0),
         grandTotal: z.coerce.number().optional().default(0),
         costPerUnit: z.coerce.number().optional().default(0),
+
+        // Labour and Floor Staff
+        labourCount: z.coerce.number().optional().default(0),
+        labourTotalCost: z.coerce.number().optional().default(0),
+        assignedStaffIds: z.array(z.string()).optional().default([]),
+        labourStaffIds: z.array(z.string()).optional().default([]),
+        labourStaffDetails: z.array(z.any()).optional().default([]),
 
         // Raw material lines with batch allocations
         rawMaterials: z.array(z.object({
@@ -452,6 +472,14 @@ class ProductionBatchRedesignController {
           }
         });
 
+        // Extract assigned labour information
+        const staffIds = Array.isArray(data.assignedStaffIds) && data.assignedStaffIds.length > 0
+          ? data.assignedStaffIds
+          : (Array.isArray(data.labourStaffIds) ? data.labourStaffIds : []);
+        const staffDetails = Array.isArray(data.labourStaffDetails) ? data.labourStaffDetails : [];
+        const labourCount = Number(data.labourCount || staffIds.length || 0);
+        const labourTotalCost = Number(data.labourTotalCost || 0);
+
         // 2. Update extended columns in production_batches
         const startedAtVal = data.status === 'In Progress' ? new Date() : null;
         const startedByVal = data.status === 'In Progress' ? (req.user?.name || req.user?.email || 'Supervisor') : null;
@@ -478,8 +506,12 @@ class ProductionBatchRedesignController {
             started_by = $15,
             mfd = $16,
             shelf_life_days = $17,
-            qc_status = 'PENDING'
-          WHERE id = $18`,
+            qc_status = 'PENDING',
+            labour_count = $18,
+            labour_staff_ids = $19::jsonb,
+            labour_staff_details = $20::jsonb,
+            labour_total_cost = $21
+          WHERE id = $22`,
           safeUuid(data.baseId),
           safeUuid(data.templateId),
           data.shift || null,
@@ -497,6 +529,10 @@ class ProductionBatchRedesignController {
           startedByVal,
           mfd,
           shelfLife,
+          labourCount,
+          JSON.stringify(staffIds),
+          JSON.stringify(staffDetails),
+          labourTotalCost,
           batch.id
         );
 
@@ -791,7 +827,17 @@ class ProductionBatchRedesignController {
   async updateStatus(req, res, next) {
     try {
       const { id } = req.params;
-      const { status, actualOutput, rmUsages, note, reason } = req.body;
+      const { 
+        status, 
+        actualOutput, 
+        rmUsages, 
+        note, 
+        reason, 
+        failureReason, 
+        isWasted, 
+        wastageItems, 
+        responsibleId 
+      } = req.body;
       const userIdentifier = req.user?.name || req.user?.email || 'Floor Supervisor';
 
       const batch = await prisma.productionBatchNew.findUnique({
@@ -891,6 +937,11 @@ class ProductionBatchRedesignController {
 
       const finalYield = actualOutput !== undefined && actualOutput !== null ? Number(actualOutput) : Number(batch.quantity);
 
+      const cancelReasonRaw = failureReason || reason || note || 'Cancelled';
+      const finalCancelReason = status === 'Cancelled'
+        ? (isWasted ? `Production Failed: ${cancelReasonRaw}` : cancelReasonRaw)
+        : null;
+
       const result = await prisma.$transaction(async (tx) => {
         const updateData = {
           status
@@ -908,8 +959,102 @@ class ProductionBatchRedesignController {
             data: { status: 'CANCELLED' }
           });
 
-          // If the batch was previously completed, restore the deducted raw materials and inventory batch lots
-          if (batch.status === 'Completed') {
+          // If production failed with raw material wastage, record into RMWaste & deduct from allocated inventory lots
+          if (Boolean(isWasted) && Array.isArray(wastageItems) && wastageItems.length > 0) {
+            const validWastage = wastageItems.filter(w => Number(w.quantity) > 0);
+            if (validWastage.length > 0) {
+              const refNo = await generateReferenceNo(tx, 'RMWaste', 'RMW');
+              const totalLoss = validWastage.reduce((sum, w) => sum + Number(w.lossAmount || (Number(w.quantity || 0) * Number(w.unitCost || 0))), 0);
+
+              const safeResponsibleId = responsibleId && isUuid(responsibleId) 
+                ? responsibleId 
+                : (req.user?.id || batch.createdBy);
+
+              const newWaste = await tx.rMWaste.create({
+                data: {
+                  referenceNo: refNo,
+                  date: new Date(),
+                  totalLoss: Number(totalLoss.toFixed(2)),
+                  note: `Production Failed • Batch #${batch.referenceNo} (${batch.batchNo || batch.product?.name || ''}) - ${cancelReasonRaw}`,
+                  responsibleId: safeResponsibleId,
+                  createdBy: req.user?.id || batch.createdBy
+                }
+              });
+
+              // Default active UOM fallback
+              const defaultUom = await tx.uOM.findFirst({ where: { isActive: true } });
+
+              for (const item of validWastage) {
+                const qtyToWaste = Number(item.quantity);
+                const lossAmt = Number(item.lossAmount || (qtyToWaste * Number(item.unitCost || 0)));
+
+                // Resolve UOM ID
+                let resolvedUomId = item.uomId;
+                if (!resolvedUomId || !isUuid(resolvedUomId)) {
+                  const matchUom = await tx.uOM.findFirst({
+                    where: {
+                      OR: [
+                        { abbreviation: { equals: String(item.uomId || item.uom || 'Kg'), mode: 'insensitive' } },
+                        { name: { equals: String(item.uomId || item.uom || 'Kg'), mode: 'insensitive' } }
+                      ]
+                    }
+                  });
+                  resolvedUomId = matchUom?.id || defaultUom?.id;
+                }
+
+                await tx.rMWasteItem.create({
+                  data: {
+                    wasteId: newWaste.id,
+                    rawMaterialId: item.rmId,
+                    quantity: qtyToWaste,
+                    uomId: resolvedUomId,
+                    lossAmount: Number(lossAmt.toFixed(2)),
+                    batchId: item.batchId && isUuid(item.batchId) ? item.batchId : null,
+                    batchNumber: item.batchNumber ? String(item.batchNumber).trim() : null,
+                    mfgBatchNo: item.mfgBatchNo ? String(item.mfgBatchNo).trim() : null,
+                    mfgDate: item.mfgDate ? new Date(item.mfgDate) : null,
+                    expiryDate: item.expiryDate ? new Date(item.expiryDate) : null,
+                    weight: item.weight ? String(item.weight).trim() : null,
+                    remarks: `Production Failed • Batch #${batch.referenceNo} (${batch.batchNo || ''})`
+                  }
+                });
+
+                // Deduct from RawMaterial main stock table
+                await tx.rawMaterial.update({
+                  where: { id: item.rmId },
+                  data: {
+                    currentStock: { decrement: qtyToWaste }
+                  }
+                });
+
+                // Deduct directly from the allocated InventoryBatch lot
+                if (item.batchId || item.batchNumber) {
+                  const batchWhere = (item.batchId && isUuid(item.batchId))
+                    ? { id: item.batchId }
+                    : { batchNumber: String(item.batchNumber).trim() };
+
+                  const lot = await tx.inventoryBatch.findFirst({ where: batchWhere });
+                  if (lot) {
+                    const currentNet = Number(lot.netQty || 0);
+                    const currentWasted = Number(lot.wastedQty || 0);
+                    const newWasted = currentWasted + qtyToWaste;
+                    const newNet = Math.max(0, currentNet - qtyToWaste);
+                    const newStatus = newNet <= 0 ? 'WASTED' : lot.status;
+
+                    await tx.inventoryBatch.update({
+                      where: { id: lot.id },
+                      data: {
+                        netQty: newNet,
+                        wastedQty: newWasted,
+                        status: newStatus
+                      }
+                    });
+                  }
+                }
+              }
+            }
+          } else if (batch.status === 'Completed') {
+            // If the batch was previously completed and now cancelled with 0 waste, restore deducted stock
             const usages = await tx.productionBatchRMUsage.findMany({
               where: { batchId: id }
             });
@@ -970,7 +1115,7 @@ class ProductionBatchRedesignController {
           pauseReason,
           status === 'Cancelled' ? new Date() : null,
           status === 'Cancelled' ? userIdentifier : null,
-          status === 'Cancelled' ? (note || reason || 'Cancelled') : null,
+          status === 'Cancelled' ? finalCancelReason : null,
           id
         );
 

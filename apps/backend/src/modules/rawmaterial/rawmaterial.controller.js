@@ -2725,26 +2725,33 @@ exports.getMaterialHistory = async (req, res, next) => {
       orderBy: { createdAt: 'desc' }
     });
 
-    const formattedWaste = wasteItems.map(wi => ({
-      id: wi.id,
-      wasteId: wi.wasteId,
-      referenceNo: wi.waste?.referenceNo || 'N/A',
-      date: wi.waste?.date || wi.createdAt,
-      quantity: Number(wi.quantity || 0),
-      uom: wi.uom ? (wi.uom.abbreviation || wi.uom.name) : rm.unitId,
-      lossAmount: Number(wi.lossAmount || 0),
-      batchId: wi.batchId || null,
-      batchNumber: wi.batchNumber || null,
-      mfgBatchNo: wi.mfgBatchNo || null,
-      mfgDate: wi.mfgDate || null,
-      expiryDate: wi.expiryDate || null,
-      weight: wi.weight || null,
-      remarks: wi.remarks || null,
-      notes: wi.remarks || wi.waste?.note || 'No reason specified',
-      responsiblePerson: wi.waste?.responsibleUser?.name || 'N/A',
-      createdBy: wi.waste?.creatorUser?.name || 'Staff',
-      createdAt: wi.createdAt
-    }));
+    const formattedWaste = wasteItems.map(wi => {
+      const isProdFailed = Boolean(
+        (wi.remarks && (wi.remarks.includes('Production Failed') || wi.remarks.includes('Production Cancelled'))) ||
+        (wi.waste?.note && (wi.waste.note.includes('Production Failed') || wi.waste.note.includes('Production Cancelled')))
+      );
+      return {
+        id: wi.id,
+        wasteId: wi.wasteId,
+        referenceNo: wi.waste?.referenceNo || 'N/A',
+        date: wi.waste?.date || wi.createdAt,
+        quantity: Number(wi.quantity || 0),
+        uom: wi.uom ? (wi.uom.abbreviation || wi.uom.name) : rm.unitId,
+        lossAmount: Number(wi.lossAmount || 0),
+        batchId: wi.batchId || null,
+        batchNumber: wi.batchNumber || null,
+        mfgBatchNo: wi.mfgBatchNo || null,
+        mfgDate: wi.mfgDate || null,
+        expiryDate: wi.expiryDate || null,
+        weight: wi.weight || null,
+        remarks: wi.remarks || null,
+        notes: wi.remarks || wi.waste?.note || 'No reason specified',
+        isProductionFailed: isProdFailed,
+        responsiblePerson: wi.waste?.responsibleUser?.name || 'N/A',
+        createdBy: wi.waste?.creatorUser?.name || 'Staff',
+        createdAt: wi.createdAt
+      };
+    });
 
     // 7. Fetch Production Usages
     const usages = await prisma.productionBatchRMUsage.findMany({
@@ -2973,41 +2980,69 @@ exports.getMaterialHistory = async (req, res, next) => {
     });
 
     formattedWaste.forEach(w => {
+      const isProdFailed = Boolean(
+        w.isProductionFailed ||
+        (w.remarks && (w.remarks.includes('Production Failed') || w.remarks.includes('Production Cancelled'))) ||
+        (w.notes && (w.notes.includes('Production Failed') || w.notes.includes('Production Cancelled')))
+      );
       timelineEvents.push({
         id: `waste-${w.id}`,
         type: 'RM_WASTE',
-        title: `Wastage Recorded: ${w.quantity} ${w.uom}`,
-        subtitle: `Loss: ₹${w.lossAmount.toLocaleString('en-IN')} • Ref: ${w.referenceNo}`,
+        title: isProdFailed ? `RM Wastage: Production Failed (${w.quantity} ${w.uom})` : `Wastage Recorded: ${w.quantity} ${w.uom}`,
+        subtitle: `Loss: ₹${Number(w.lossAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • Ref: ${w.referenceNo}${w.batchNumber ? ` • Lot: ${w.batchNumber}` : ''}${w.remarks ? ` • ${w.remarks}` : ''}`,
         timestamp: w.date,
-        status: 'WASTED',
+        status: isProdFailed ? 'PRODUCTION_FAILED' : 'WASTED',
         badgeColor: 'rose',
         user: w.responsiblePerson,
         metadata: {
           wasteId: w.wasteId,
           referenceNo: w.referenceNo,
           notes: w.notes,
-          lossAmount: w.lossAmount
+          lossAmount: w.lossAmount,
+          batchNumber: w.batchNumber,
+          isProductionFailed: isProdFailed
         }
       });
     });
 
     formattedUsages.forEach(u => {
-      timelineEvents.push({
-        id: `usage-${u.id}`,
-        type: 'PRODUCTION_USAGE',
-        title: `Consumed in Production: ${u.actualUsedQty} ${rm.unitId}`,
-        subtitle: `Batch: ${u.batchNumber} • ${u.productName}`,
-        timestamp: u.date,
-        status: u.usageStatus,
-        badgeColor: 'indigo',
-        user: 'Production System',
-        metadata: {
-          batchId: u.batchId,
-          batchNumber: u.batchNumber,
-          productName: u.productName,
-          totalCost: u.totalCost
-        }
-      });
+      if (u.isCancelled) {
+        timelineEvents.push({
+          id: `usage-${u.id}`,
+          type: 'PRODUCTION_USAGE',
+          title: `Production Run Cancelled: ${u.batchNumber}`,
+          subtitle: `Batch was cancelled (Allocated ${u.actualUsedQty} ${rm.unitId} released back to stock) • ${u.productName}`,
+          timestamp: u.date,
+          status: 'CANCELLED',
+          badgeColor: 'rose',
+          user: 'Production System',
+          metadata: {
+            batchId: u.batchId,
+            batchNumber: u.batchNumber,
+            productName: u.productName,
+            totalCost: 0,
+            isCancelled: true
+          }
+        });
+      } else {
+        timelineEvents.push({
+          id: `usage-${u.id}`,
+          type: 'PRODUCTION_USAGE',
+          title: `Consumed in Production: ${u.actualUsedQty} ${rm.unitId}`,
+          subtitle: `Batch: ${u.batchNumber} • ${u.productName}`,
+          timestamp: u.date,
+          status: u.usageStatus,
+          badgeColor: 'indigo',
+          user: 'Production System',
+          metadata: {
+            batchId: u.batchId,
+            batchNumber: u.batchNumber,
+            productName: u.productName,
+            totalCost: u.totalCost,
+            isCancelled: false
+          }
+        });
+      }
     });
 
     formattedReturns.forEach(r => {

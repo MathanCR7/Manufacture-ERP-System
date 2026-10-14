@@ -492,7 +492,15 @@ export default function RMHistoryDrawer({
                                           <CheckCircle2 className="w-3 h-3" /> Target Batch Event
                                         </span>
                                       )}
-                                      {event.status && (
+                                      {event.status === 'PRODUCTION_FAILED' ? (
+                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-rose-600 text-white flex items-center gap-1 shadow-xs">
+                                          <AlertTriangle className="w-3 h-3" /> Production Failed
+                                        </span>
+                                      ) : event.status === 'CANCELLED' ? (
+                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-300 dark:border-rose-900 flex items-center gap-1">
+                                          <AlertCircle className="w-3 h-3 text-rose-600" /> Cancelled
+                                        </span>
+                                      ) : event.status && (
                                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
                                           {event.status}
                                         </span>
@@ -1192,15 +1200,23 @@ export default function RMHistoryDrawer({
                                   <tr key={waste.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                                     <td className="p-3 text-center text-slate-400 font-mono font-medium">{wIdx + 1}</td>
                                     <td className="p-3 font-mono font-bold">
-                                      <button
-                                        type="button"
-                                        onClick={() => window.open('/waste/raw-material', '_blank')}
-                                        className="text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold"
-                                        title="Open RM Wastage in new tab"
-                                      >
-                                        <span>{waste.referenceNo}</span>
-                                        <ArrowUpRight className="w-3 h-3 opacity-70" />
-                                      </button>
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <button
+                                          type="button"
+                                          onClick={() => window.open('/waste/raw-material', '_blank')}
+                                          className="text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold"
+                                          title="Open RM Wastage in new tab"
+                                        >
+                                          <span>{waste.referenceNo}</span>
+                                          <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                        </button>
+                                        {(waste.isProductionFailed || (waste.notes && waste.notes.includes('Production Failed')) || (waste.remarks && waste.remarks.includes('Production Failed'))) && (
+                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-200 border border-rose-300 dark:border-rose-800 inline-flex items-center gap-1 shadow-2xs">
+                                            <AlertTriangle className="w-3 h-3 text-rose-600" />
+                                            Production Failed
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                     <td className="p-3 text-slate-700 dark:text-slate-300">
                                       {waste.batchNumber ? (
