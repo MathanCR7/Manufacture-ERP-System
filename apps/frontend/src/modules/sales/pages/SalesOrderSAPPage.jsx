@@ -2305,6 +2305,8 @@ export default function SalesOrderPage() {
         productCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
         systemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
         itemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
+        category: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
+        categoryName: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
         productName: l.itemDescription,
         hsnCode: l.rawProduct?.hsnCode || '21050000',
         quantity: Number(l.quantity),
