@@ -513,9 +513,8 @@ class ProductionBatchRedesignController {
           if (!p.productId) continue;
           await tx.$executeRawUnsafe(
             `INSERT INTO "production_batch_items" (
-              id, batch_id, product_id, planned_qty, factor, cost_per_unit
-            ) VALUES ($1, $2, $3, $4, $5, $6)`,
-            randomUUID(),
+              batch_id, product_id, planned_qty, factor, cost_per_unit
+            ) VALUES ($1, $2, $3, $4, $5)`,
             batch.id,
             p.productId,
             Number(p.plannedQty || 1),
@@ -720,12 +719,11 @@ class ProductionBatchRedesignController {
 
               await tx.$executeRawUnsafe(
                 `INSERT INTO "production_batch_allocations" (
-                  id, batch_id, usage_id, inventory_batch_id, lot_number,
+                  batch_id, usage_id, inventory_batch_id, lot_number,
                   allocated_qty, po_original_qty, po_total_amount,
                   allocated_amount, unit_rate, uom,
                   is_manual_override, grn_number, po_number, supplier_batch_no
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-                randomUUID(),
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
                 batch.id,
                 usage.id,
                 targetBatchId ? String(targetBatchId) : null,
