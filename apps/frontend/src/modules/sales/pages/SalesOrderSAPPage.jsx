@@ -2059,6 +2059,10 @@ export default function SalesOrderPage() {
       items: activeLines.map(l => ({
         productId: l.productId,
         sourceOrderItemId: l.sourceOrderItemId || undefined,
+        productCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
+        systemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
+        category: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
+        categoryName: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
         productName: l.itemDescription,
         hsnCode: l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
         quantity: Number(l.quantity),
