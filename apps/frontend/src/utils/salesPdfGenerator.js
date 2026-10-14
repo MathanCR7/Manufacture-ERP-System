@@ -250,12 +250,10 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   curY += cardH + 5;
 
   // Items Table Header
-  // Columns: [# (6), Description of Goods & Batch (42), Product Code (18), HSN/SAC (16), Qty (11), Unit (10), Rate (₹) (15), Disc (10), Taxable (₹) (18), GST Rate (10), GST (₹) (14), Total (₹) (16)] = 186mm
+  // Columns: [# (6), Description of Goods & Batch (76), Qty (11), Unit (10), Rate (₹) (15), Disc (10), Taxable (₹) (18), GST Rate (10), GST (₹) (14), Total (₹) (16)] = 186mm
   const cols = [
     { id: 'idx', label: '#', w: 6, align: 'center' },
-    { id: 'desc', label: 'Description of Goods & Batch', w: 42, align: 'left' },
-    { id: 'code', label: 'Product Code', w: 18, align: 'center' },
-    { id: 'hsn', label: 'HSN/SAC', w: 16, align: 'center' },
+    { id: 'desc', label: 'Description of Goods & Batch', w: 76, align: 'left' },
     { id: 'qty', label: 'Qty', w: 11, align: 'right' },
     { id: 'unit', label: 'Unit', w: 10, align: 'center' },
     { id: 'rate', label: 'Rate', hasRupee: true, w: 15, align: 'right' },
@@ -338,72 +336,88 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
     let cellX = margin;
 
-    // 1. Index
+    // 1. Index (cols[0])
     doc.text(String(idx + 1), cellX + (cols[0].w / 2), curY + 4.5, { align: 'center' });
     cellX += cols[0].w;
 
-    // 2. Name & Batch Info
+    // 2. Description of Goods & Batch (cols[1]: Product Code - Category Name - Product Name)
     doc.setFont('helvetica', 'bold');
-    const prodName = it.productName || it.product?.name || 'Item';
-    doc.text(prodName.substring(0, 24), cellX + 1.5, curY + 4);
+    const itemCode = (it.productCode || it.systemCode || it.itemCode || it.product?.code || it.rawProduct?.code || it.rawProduct?.sku || '').trim();
+    const catName = (it.categoryName || it.category || it.product?.category?.name || it.product?.categoryName || it.rawProduct?.category?.name || it.rawProduct?.category || '').trim();
+    let prodName = (it.productName || it.product?.name || it.itemDescription || '').trim();
+
+    // Avoid duplicated code/category if already prefixed in product name
+    if (itemCode && prodName.startsWith(itemCode)) {
+      prodName = prodName.replace(itemCode, '').replace(/^[\s\-–—:|]+/, '').trim();
+    }
+    if (catName && prodName.startsWith(catName)) {
+      prodName = prodName.replace(catName, '').replace(/^[\s\-–—:|]+/, '').trim();
+    }
+
+    const descParts = [];
+    if (itemCode) descParts.push(itemCode);
+    if (catName) descParts.push(catName);
+    if (prodName) descParts.push(prodName);
+    const displayDesc = descParts.length > 0 ? descParts.join(' - ') : (it.productName || it.product?.name || it.itemDescription || 'Finished Goods');
+
+    const descLines = doc.splitTextToSize(displayDesc, cols[1].w - 3);
     if (batchStr) {
+      doc.text(descLines[0], cellX + 1.5, curY + 4);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(6.5);
       doc.setTextColor(100, 116, 139);
-      doc.text(batchStr.substring(0, 26), cellX + 1.5, curY + 7.5);
+      doc.text(batchStr.substring(0, 55), cellX + 1.5, curY + 7.5);
+    } else {
+      if (descLines.length > 1) {
+        doc.text(descLines[0], cellX + 1.5, curY + 3.8);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(71, 85, 105);
+        doc.text(descLines[1], cellX + 1.5, curY + 7.2);
+      } else {
+        doc.text(descLines[0], cellX + 1.5, curY + 5.5);
+      }
     }
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(15, 23, 42);
     cellX += cols[1].w;
 
-    // 3. Product Code / System Code (Near HSN Code)
+    // 3. Quantity (cols[2])
     doc.setFont('helvetica', 'bold');
-    const itemCode = it.productCode || it.systemCode || it.itemCode || it.product?.code || it.rawProduct?.code || '-';
-    doc.text(itemCode.substring(0, 14), cellX + (cols[2].w / 2), curY + 4.5, { align: 'center' });
+    doc.text(String(qty), cellX + cols[2].w - 1.5, curY + 4.5, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     cellX += cols[2].w;
 
-    // 4. HSN/SAC
-    const hsn = it.hsnCode || it.product?.hsnCode || '21050000';
-    doc.text(hsn, cellX + (cols[3].w / 2), curY + 4.5, { align: 'center' });
+    // 4. Unit (cols[3])
+    const uom = it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs';
+    doc.text(uom, cellX + (cols[3].w / 2), curY + 4.5, { align: 'center' });
     cellX += cols[3].w;
 
-    // 5. Quantity
-    doc.setFont('helvetica', 'bold');
-    doc.text(String(qty), cellX + cols[4].w - 1.5, curY + 4.5, { align: 'right' });
-    doc.setFont('helvetica', 'normal');
+    // 5. Rate (cols[4])
+    doc.text(unitPrice.toFixed(2), cellX + cols[4].w - 1.5, curY + 4.5, { align: 'right' });
     cellX += cols[4].w;
 
-    // 6. Unit
-    const uom = it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs';
-    doc.text(uom, cellX + (cols[5].w / 2), curY + 4.5, { align: 'center' });
+    // 6. Discount (cols[5])
+    const discDisplay = discPct > 0 ? `${discPct}%` : (discAmt > 0 ? discAmt.toFixed(1) : '-');
+    doc.text(discDisplay, cellX + cols[5].w - 1.5, curY + 4.5, { align: 'right' });
     cellX += cols[5].w;
 
-    // 7. Rate
-    doc.text(unitPrice.toFixed(2), cellX + cols[6].w - 1.5, curY + 4.5, { align: 'right' });
+    // 7. Taxable Value (cols[6])
+    doc.text(taxable.toFixed(2), cellX + cols[6].w - 1.5, curY + 4.5, { align: 'right' });
     cellX += cols[6].w;
 
-    // 8. Discount
-    const discDisplay = discPct > 0 ? `${discPct}%` : (discAmt > 0 ? discAmt.toFixed(1) : '-');
-    doc.text(discDisplay, cellX + cols[7].w - 1.5, curY + 4.5, { align: 'right' });
+    // 8. GST Rate (cols[7])
+    doc.text(`${gstRate}%`, cellX + (cols[7].w / 2), curY + 4.5, { align: 'center' });
     cellX += cols[7].w;
 
-    // 9. Taxable Value
-    doc.text(taxable.toFixed(2), cellX + cols[8].w - 1.5, curY + 4.5, { align: 'right' });
+    // 9. GST Amount (cols[8])
+    doc.text(taxAmt.toFixed(2), cellX + cols[8].w - 1.5, curY + 4.5, { align: 'right' });
     cellX += cols[8].w;
 
-    // 10. GST Rate
-    doc.text(`${gstRate}%`, cellX + (cols[9].w / 2), curY + 4.5, { align: 'center' });
-    cellX += cols[9].w;
-
-    // 11. GST Amount
-    doc.text(taxAmt.toFixed(2), cellX + cols[10].w - 1.5, curY + 4.5, { align: 'right' });
-    cellX += cols[10].w;
-
-    // 12. Total Amount
+    // 10. Total Amount (cols[9])
     doc.setFont('helvetica', 'bold');
-    doc.text(lineTotal.toFixed(2), cellX + cols[11].w - 1.5, curY + 4.5, { align: 'right' });
+    doc.text(lineTotal.toFixed(2), cellX + cols[9].w - 1.5, curY + 4.5, { align: 'right' });
 
     curY += rowH;
   });
