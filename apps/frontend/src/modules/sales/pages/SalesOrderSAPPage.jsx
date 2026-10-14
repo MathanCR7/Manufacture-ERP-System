@@ -324,7 +324,12 @@ export default function SalesOrderPage() {
   const [showDocFlowModal, setShowDocFlowModal] = useState(false);
   const currentUser = useAuthStore(s => s.user);
   const storeCompany = useCompanyStore(s => s.company);
+  const fetchCompany = useCompanyStore(s => s.fetchCompany);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    fetchCompany();
+  }, [fetchCompany]);
 
   // Converted Source Order Tracking
   const [sourceOrderId, setSourceOrderId] = useState(convertFromId || null);
@@ -408,13 +413,49 @@ export default function SalesOrderPage() {
 
   // Additional Charges & Tax Ledger
   const [freight, setFreight] = useState(0);
-  const [freightGst, setFreightGst] = useState(true);
+  const [freightTaxCode, setFreightTaxCode] = useState('SCG18');
   const [loadingCharges, setLoadingCharges] = useState(0);
-  const [loadingGst, setLoadingGst] = useState(true);
+  const [loadingTaxCode, setLoadingTaxCode] = useState('EXEMPT');
   const [packingCharges, setPackingCharges] = useState(0);
-  const [packingGst, setPackingGst] = useState(true);
+  const [packingTaxCode, setPackingTaxCode] = useState('EXEMPT');
   const [otherCharges, setOtherCharges] = useState(0);
-  const [otherGst, setOtherGst] = useState(true);
+  const [otherTaxCode, setOtherTaxCode] = useState('EXEMPT');
+
+  // Dynamic Payment Method Details (Persisted per Order)
+  const [bankTransferDetails, setBankTransferDetails] = useState({
+    bankName: '',
+    accountNo: '',
+    ifsc: '',
+    branch: '',
+    transactionRef: ''
+  });
+  const [upiDetails, setUpiDetails] = useState({
+    upiId: '',
+    mobileNo: '',
+    utrRef: ''
+  });
+  const [cardDetails, setCardDetails] = useState({
+    cardLast4: '',
+    cardNetwork: 'Visa / RuPay',
+    terminalCode: ''
+  });
+  const [cashDetails, setCashDetails] = useState({
+    cashReceived: 0,
+    cashierNote: ''
+  });
+
+  // Statutory Terms & Conditions Text Area (Editable per Order, printed on PDF)
+  const [orderTerms, setOrderTerms] = useState(
+    '1. Goods once sold will not be taken back without valid QC inspection.\n2. Interest @ 18% p.a. will be charged if payment is delayed beyond due date.\n3. Subject to Salem jurisdiction only.'
+  );
+
+  const getTaxRateFromCode = (code) => {
+    if (code === 'SCG28' || code === 'IGST28') return 28;
+    if (code === 'SCG18' || code === 'IGST18') return 18;
+    if (code === 'SCG12' || code === 'IGST12') return 12;
+    if (code === 'SCG5'  || code === 'IGST5')  return 5;
+    return 0; // EXEMPT
+  };
 
   // Logistics Tab Fields
   const [shippingMethod, setShippingMethod] = useState('Road Transport');
@@ -957,6 +998,11 @@ export default function SalesOrderPage() {
     return computedLines.filter(l => l.productId && l.quantity > 0);
   }, [computedLines]);
 
+  // Total Quantity across all document rows
+  const totalDocumentQuantity = useMemo(() => {
+    return activeLines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+  }, [activeLines]);
+
   // Aggregate Stock Shortage & Deficit Breakdown
   const stockDeficitSummary = useMemo(() => {
     const shortageLines = activeLines.filter(l => !l.isSufficient);
@@ -990,6 +1036,11 @@ export default function SalesOrderPage() {
       ? (placeOfSupply && String(placeOfSupply) !== String(sellerStateCode) ? placeOfSupply : (sellerStateCode === '33' ? '29' : '33'))
       : String(sellerStateCode);
 
+    const fRate = getTaxRateFromCode(freightTaxCode);
+    const lRate = getTaxRateFromCode(loadingTaxCode);
+    const pRate = getTaxRateFromCode(packingTaxCode);
+    const oRate = getTaxRateFromCode(otherTaxCode);
+
     const gstCalcResult = calculateGST({
       sellerStateCode: String(sellerStateCode || '33'),
       buyerStateCode: String(targetBuyerState || '33'),
@@ -1007,15 +1058,19 @@ export default function SalesOrderPage() {
       })),
       charges: {
         freight: fAmt,
-        freightGst: Boolean(freightGst),
+        freightGst: fRate > 0,
+        freightRate: fRate,
         loadingCharges: lAmt,
-        loadingGst: Boolean(loadingGst),
+        loadingGst: lRate > 0,
+        loadingChargesRate: lRate,
         packingCharges: pAmt,
-        packingGst: Boolean(packingGst),
+        packingGst: pRate > 0,
+        packingChargesRate: pRate,
         insurance: 0,
         insuranceGst: false,
         otherCharges: oAmt,
-        otherGst: Boolean(otherGst)
+        otherGst: oRate > 0,
+        otherChargesRate: oRate
       },
       invoiceDiscount: docDiscAmt,
       tdsDeduction: 0,
@@ -1050,10 +1105,10 @@ export default function SalesOrderPage() {
     computedLines,
     activeLines,
     discountPercent,
-    freight, freightGst,
-    loadingCharges, loadingGst,
-    packingCharges, packingGst,
-    otherCharges, otherGst,
+    freight, freightTaxCode,
+    loadingCharges, loadingTaxCode,
+    packingCharges, packingTaxCode,
+    otherCharges, otherTaxCode,
     sellerStateCode, placeOfSupply, selectedCustomer, taxRegNo,
     isInterState,
     isRoundingEnabled,
@@ -1359,18 +1414,26 @@ export default function SalesOrderPage() {
       setSalesEmployee(ord.salesEmployee || '-No Sales Employee-');
       setOwner(ord.creator?.name || 'Administrator');
 
-      // Populate Freight & Additional Logistics Charges and their GST flags
+      // Populate Freight & Additional Logistics Charges and their GST tax codes
       setFreight(Number(ord.freight || 0));
-      setFreightGst(ord.freightGst !== undefined ? Boolean(ord.freightGst) : true);
+      if (ord.freightTaxCode) setFreightTaxCode(ord.freightTaxCode);
+      else if (ord.freightGst !== undefined) setFreightTaxCode(ord.freightGst ? 'SCG18' : 'EXEMPT');
+
       setLoadingCharges(Number(ord.loadingCharges || 0));
-      setLoadingGst(ord.loadingGst !== undefined ? Boolean(ord.loadingGst) : true);
+      if (ord.loadingTaxCode) setLoadingTaxCode(ord.loadingTaxCode);
+      else if (ord.loadingGst !== undefined) setLoadingTaxCode(ord.loadingGst ? 'SCG18' : 'EXEMPT');
+
       setPackingCharges(Number(ord.packingCharges || 0));
-      setPackingGst(ord.packingGst !== undefined ? Boolean(ord.packingGst) : true);
+      if (ord.packingTaxCode) setPackingTaxCode(ord.packingTaxCode);
+      else if (ord.packingGst !== undefined) setPackingTaxCode(ord.packingGst ? 'SCG18' : 'EXEMPT');
+
       setOtherCharges(Number(ord.otherCharges || 0));
-      setOtherGst(ord.otherGst !== undefined ? Boolean(ord.otherGst) : true);
+      if (ord.otherTaxCode) setOtherTaxCode(ord.otherTaxCode);
+      else if (ord.otherGst !== undefined) setOtherTaxCode(ord.otherGst ? 'SCG18' : 'EXEMPT');
+
       setIsRoundingEnabled(true);
 
-      // Clean remarks & parse attachments from internalNote
+      // Clean remarks & parse attachments, payment details, and terms from internalNote
       if (ord.internalNote && ord.internalNote.includes('[[ATTACHMENT:')) {
         const match = ord.internalNote.match(/\[\[ATTACHMENT:(.*?)\]\]/);
         if (match && match[1]) {
@@ -1393,8 +1456,70 @@ export default function SalesOrderPage() {
         })));
       }
 
+      // Restore dynamic payment settlement details
+      let pDetails = ord.paymentDetails;
+      if (!pDetails && ord.internalNote && ord.internalNote.includes('[[PAYMENT_DETAILS:')) {
+        const m = ord.internalNote.match(/\[\[PAYMENT_DETAILS:(.*?)\]\]/);
+        if (m && m[1]) {
+          try {
+            pDetails = JSON.parse(m[1]);
+          } catch (e) {}
+        }
+      }
+      if (pDetails) {
+        if (pDetails.bankName || pDetails.accountNo || pDetails.ifsc || pDetails.branch) {
+          setBankTransferDetails(prev => ({
+            ...prev,
+            bankName: pDetails.bankName || '',
+            accountNo: pDetails.accountNo || pDetails.bankAccountNo || '',
+            ifsc: pDetails.ifsc || pDetails.bankIfsc || '',
+            branch: pDetails.branch || pDetails.bankBranch || '',
+            transactionRef: pDetails.transactionRef || ''
+          }));
+        }
+        if (pDetails.upiId || pDetails.mobileNo || pDetails.utrRef) {
+          setUpiDetails(prev => ({
+            ...prev,
+            upiId: pDetails.upiId || '',
+            mobileNo: pDetails.mobileNo || pDetails.upiPhone || '',
+            utrRef: pDetails.utrRef || pDetails.transactionRef || ''
+          }));
+        }
+        if (pDetails.cardLast4 || pDetails.terminalCode) {
+          setCardDetails(prev => ({
+            ...prev,
+            cardLast4: pDetails.cardLast4 || '',
+            cardNetwork: pDetails.cardNetwork || 'Visa / RuPay',
+            terminalCode: pDetails.terminalCode || ''
+          }));
+        }
+        if (pDetails.cashReceived || pDetails.cashierNote) {
+          setCashDetails(prev => ({
+            ...prev,
+            cashReceived: pDetails.cashReceived || 0,
+            cashierNote: pDetails.cashierNote || ''
+          }));
+        }
+      }
+
+      // Restore custom order terms & conditions
+      if (ord.termsAndConditions) {
+        setOrderTerms(ord.termsAndConditions);
+      } else if (ord.internalNote && ord.internalNote.includes('[[TERMS_AND_CONDITIONS:')) {
+        const m = ord.internalNote.match(/\[\[TERMS_AND_CONDITIONS:(.*?)\]\]/);
+        if (m && m[1]) {
+          try {
+            setOrderTerms(decodeURIComponent(m[1]));
+          } catch (e) {
+            setOrderTerms(m[1]);
+          }
+        }
+      }
+
       const cleanNote = (ord.internalNote || ord.quotationNote || '')
         .replace(/\[\[ATTACHMENT:.*?\]\]/gs, '')
+        .replace(/\[\[PAYMENT_DETAILS:.*?\]\]/gs, '')
+        .replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '')
         .replace(/\[Fulfillment Mode:.*?\]/g, '')
         .trim();
       setRemarks(cleanNote);
@@ -1873,12 +1998,22 @@ export default function SalesOrderPage() {
       owner: owner,
       remarks: remarks,
       internalNote: (() => {
-        const cleanRemarks = (remarks || '').replace(/\[\[ATTACHMENT:.*?\]\]/g, '').trim();
+        const cleanRemarks = (remarks || '')
+          .replace(/\[\[ATTACHMENT:.*?\]\]/g, '')
+          .replace(/\[\[PAYMENT_DETAILS:.*?\]\]/g, '')
+          .replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/g, '')
+          .trim();
+        const activePaymentDetails = paymentMethod.includes('Bank')
+          ? bankTransferDetails
+          : (paymentMethod.includes('UPI') ? upiDetails : (paymentMethod.includes('Card') ? cardDetails : cashDetails));
         const attJson = attachments.length > 0 ? `[[ATTACHMENT:${JSON.stringify(attachments)}]]` : '';
-        return cleanRemarks + (attJson ? ' ' + attJson : '');
+        const payJson = activePaymentDetails ? `[[PAYMENT_DETAILS:${JSON.stringify(activePaymentDetails)}]]` : '';
+        const termsJson = orderTerms ? `[[TERMS_AND_CONDITIONS:${encodeURIComponent(orderTerms)}]]` : '';
+        return [cleanRemarks, payJson, termsJson, attJson].filter(Boolean).join(' ');
       })(),
       attachmentUrl: attachments.length > 0 ? attachments.map(a => a.url).join(', ') : null,
       deliveryAddress: shipToAddress,
+      shipToAddress: shipToAddress,
       billToAddress: billToAddress,
       billingAddress: billToAddress,
       shippingMethod: shippingMethod,
@@ -1886,9 +2021,14 @@ export default function SalesOrderPage() {
       vehicleNo: vehicleNo,
       lrNo: lrNo,
       ewayBillNo: ewayBillNo,
-      paymentTerms: paymentTerms,
+      paymentTerms: String(paymentTerms).toUpperCase() === 'PAID' ? 'PAID' : paymentTerms,
       paymentMethod: paymentMethod,
       paymentMode: paymentMethod,
+      paymentStatus: String(paymentTerms).toUpperCase() === 'PAID' ? 'PAID' : (Number(advancePaid) > 0 ? 'PARTIAL' : 'PENDING'),
+      paymentDetails: paymentMethod.includes('Bank')
+        ? bankTransferDetails
+        : (paymentMethod.includes('UPI') ? upiDetails : (paymentMethod.includes('Card') ? cardDetails : cashDetails)),
+      termsAndConditions: orderTerms,
       amountPaid: Number(advancePaid) || 0,
       placeOfSupply: isInterState ? (placeOfSupply || '29') : sellerStateCode,
       sellerStateCode: sellerStateCode,
@@ -1899,13 +2039,17 @@ export default function SalesOrderPage() {
       discountValue: financials.docDiscAmt,
       invoiceDiscount: financials.docDiscAmt,
       freight: Number(freight) || 0,
-      freightGst: Boolean(freightGst),
+      freightTaxCode: freightTaxCode,
+      freightGst: getTaxRateFromCode(freightTaxCode) > 0,
       loadingCharges: Number(loadingCharges) || 0,
-      loadingGst: Boolean(loadingGst),
+      loadingTaxCode: loadingTaxCode,
+      loadingGst: getTaxRateFromCode(loadingTaxCode) > 0,
       packingCharges: Number(packingCharges) || 0,
-      packingGst: Boolean(packingGst),
+      packingTaxCode: packingTaxCode,
+      packingGst: getTaxRateFromCode(packingTaxCode) > 0,
       otherCharges: Number(otherCharges) || 0,
-      otherGst: Boolean(otherGst),
+      otherTaxCode: otherTaxCode,
+      otherGst: getTaxRateFromCode(otherTaxCode) > 0,
       collectTax: true,
       cgst: financials.cgst,
       sgst: financials.sgst,
@@ -2113,27 +2257,54 @@ export default function SalesOrderPage() {
 
   // Generate & Print A4 PDF
   const handlePrintPDF = (orderPayload) => {
+    const isPaid = String(paymentTerms).toUpperCase() === 'PAID' || 
+                   (Number(advancePaid) >= Number(financials.grandTotal) && Number(financials.grandTotal) > 0);
+    const activePaymentDetails = paymentMethod.includes('Bank')
+      ? bankTransferDetails
+      : (paymentMethod.includes('UPI') ? upiDetails : (paymentMethod.includes('Card') ? cardDetails : cashDetails));
+
     const orderData = orderPayload || {
       docNo: docNo,
-      referenceNo: `SO-${docNo}`,
-      type: 'Sales Order',
+      referenceNo: (docNo && (docNo.startsWith('SO-') || docNo.startsWith('INV-') || docNo.startsWith('QT-'))) ? docNo : `SO-${docNo}`,
+      type: orderMode === 'INVOICE' ? 'Invoice' : (orderMode === 'QUOTATION' ? 'Quotation' : 'Sales Order'),
       createdAt: postingDate,
       deliveryDate: deliveryDate,
       customer: selectedCustomer || {
         name: 'Valued Customer',
-        address: shipToAddress,
+        address: shipToAddress || billToAddress,
         gstin: taxRegNo,
         phone: contactPerson
       },
+      customerName: selectedCustomer?.name,
+      customerPhone: contactPerson || selectedCustomer?.phone,
+      shipToAddress: shipToAddress || selectedCustomer?.address || billToAddress,
+      billToAddress: billToAddress || selectedCustomer?.billingAddress || selectedCustomer?.address,
+      deliveryAddress: shipToAddress || billToAddress || selectedCustomer?.address,
       buyerStateCode: isInterState ? (placeOfSupply || '29') : sellerStateCode,
       sellerStateCode: sellerStateCode,
+      placeOfSupply: placeOfSupply,
       taxType: isInterState ? 'INTER_STATE' : 'INTRA_STATE',
-      paymentTerms: paymentTerms,
+      shippingMethod: shippingMethod,
       transporterName: transporterName,
       vehicleNo: vehicleNo,
       lrNo: lrNo,
+      ewayBillNo: ewayBillNo,
+      salesEmployee: salesEmployee,
+      owner: owner,
+      customerRefNo: customerRefNo,
+      paymentTerms: isPaid ? 'PAID' : paymentTerms,
+      paymentStatus: isPaid ? 'PAID' : (Number(advancePaid) > 0 ? 'PARTIAL' : 'PENDING'),
+      paymentMethod: paymentMethod,
+      paymentMode: paymentMethod,
+      paymentDetails: activePaymentDetails,
+      termsAndConditions: orderTerms,
+      invoiceTerms: orderTerms,
+      amountPaid: advancePaid,
       items: activeLines.map(l => ({
         productId: l.productId,
+        productCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
+        systemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
+        itemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
         productName: l.itemDescription,
         hsnCode: l.rawProduct?.hsnCode || '21050000',
         quantity: Number(l.quantity),
@@ -2167,7 +2338,8 @@ export default function SalesOrderPage() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (e) {
       console.error('Error generating PDF:', e);
       Swal.fire({
@@ -2907,6 +3079,11 @@ export default function SalesOrderPage() {
                   <span>Document Rows:</span>
                   <span className="text-slate-500 dark:text-slate-400 font-semibold text-[11px]">
                     ({lines.filter(l => l.productId).length} filled / {lines.length} total)
+                  </span>
+                  <span className="ml-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 font-bold text-[11px] flex items-center gap-1 shadow-xs">
+                    <span className="text-[10px] text-blue-600/80 dark:text-blue-400/80 uppercase font-medium">Total Qty:</span>
+                    <span className="font-extrabold">{totalDocumentQuantity.toLocaleString()}</span>
+                    <span className="text-[10px] opacity-75">units</span>
                   </span>
                 </span>
                 {lastStockSyncTime && (
@@ -3734,9 +3911,16 @@ export default function SalesOrderPage() {
                 <label className="w-36 text-[var(--sap-text-muted)] font-medium">Payment Terms</label>
                 <select
                   value={paymentTerms}
-                  onChange={(e) => setPaymentTerms(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setPaymentTerms(val);
+                    if (val === 'PAID') {
+                      setAdvancePaid(financials.grandTotal);
+                    }
+                  }}
                   className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none font-semibold"
                 >
+                  <option value="PAID">PAID</option>
                   <option value="Not Paid">Not Paid</option>
                   <option value="Immediate Cash">Immediate Cash</option>
                   <option value="Net 15">Net 15 Days</option>
@@ -3758,6 +3942,204 @@ export default function SalesOrderPage() {
                   <option value="Cheque">Cheque</option>
                 </select>
               </div>
+
+              {/* Dynamic Payment Mode Details (Saved to Database & Exported to PDF) */}
+              {paymentMethod.includes('Bank') && (
+                <div className="p-2.5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-xs space-y-2 mt-2">
+                  <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Bank Transfer Account & Remittance Details</span>
+                    </span>
+                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-normal">Editable & Saved</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Bank Name</label>
+                      <input
+                        type="text"
+                        value={bankTransferDetails.bankName}
+                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, bankName: e.target.value }))}
+                        placeholder="e.g. State Bank of India"
+                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Account Number</label>
+                      <input
+                        type="text"
+                        value={bankTransferDetails.accountNo}
+                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, accountNo: e.target.value }))}
+                        placeholder="e.g. 123456789012"
+                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">IFSC Code</label>
+                      <input
+                        type="text"
+                        value={bankTransferDetails.ifsc}
+                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, ifsc: e.target.value.toUpperCase() }))}
+                        placeholder="e.g. SBIN0001234"
+                        className="w-full h-[24px] px-2 text-[11px] font-mono uppercase border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Branch</label>
+                      <input
+                        type="text"
+                        value={bankTransferDetails.branch}
+                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, branch: e.target.value }))}
+                        placeholder="e.g. Salem Main Branch"
+                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">UTR / Transaction Ref No.</label>
+                    <input
+                      type="text"
+                      value={bankTransferDetails.transactionRef}
+                      onChange={(e) => setBankTransferDetails(prev => ({ ...prev, transactionRef: e.target.value }))}
+                      placeholder="e.g. UTR-20261014-998811"
+                      className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod.includes('UPI') && (
+                <div className="p-2.5 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 rounded-xs space-y-2 mt-2">
+                  <div className="text-[11px] font-bold text-purple-900 dark:text-purple-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <span>📱</span>
+                      <span>UPI & Mobile Settlement Details</span>
+                    </span>
+                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">Editable & Saved</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">UPI ID</label>
+                      <input
+                        type="text"
+                        value={upiDetails.upiId}
+                        onChange={(e) => setUpiDetails(prev => ({ ...prev, upiId: e.target.value }))}
+                        placeholder="e.g. merchant@upi or 9940454154@upi"
+                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Registered Mobile Number</label>
+                      <input
+                        type="text"
+                        value={upiDetails.mobileNo}
+                        onChange={(e) => setUpiDetails(prev => ({ ...prev, mobileNo: e.target.value }))}
+                        placeholder="e.g. +91 99404 54154"
+                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">UTR / Ref No.</label>
+                    <input
+                      type="text"
+                      value={upiDetails.utrRef}
+                      onChange={(e) => setUpiDetails(prev => ({ ...prev, utrRef: e.target.value }))}
+                      placeholder="e.g. UPI-9988221100"
+                      className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod.includes('Card') && (
+                <div className="p-2.5 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-xs space-y-2 mt-2">
+                  <div className="text-[11px] font-bold text-amber-900 dark:text-amber-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5" />
+                      <span>Card Account & Terminal Details</span>
+                    </span>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-normal">Editable & Saved</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Card Account / Last 4 Digits</label>
+                      <input
+                        type="text"
+                        maxLength={19}
+                        value={cardDetails.cardLast4}
+                        onChange={(e) => setCardDetails(prev => ({ ...prev, cardLast4: e.target.value }))}
+                        placeholder="e.g. 4589"
+                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Card Network</label>
+                      <select
+                        value={cardDetails.cardNetwork}
+                        onChange={(e) => setCardDetails(prev => ({ ...prev, cardNetwork: e.target.value }))}
+                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      >
+                        <option value="Visa">Visa</option>
+                        <option value="MasterCard">MasterCard</option>
+                        <option value="RuPay">RuPay</option>
+                        <option value="American Express">American Express</option>
+                        <option value="Maestro">Maestro</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">POS Terminal / Auth Code</label>
+                    <input
+                      type="text"
+                      value={cardDetails.terminalCode}
+                      onChange={(e) => setCardDetails(prev => ({ ...prev, terminalCode: e.target.value }))}
+                      placeholder="e.g. AUTH-992211"
+                      className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {paymentMethod === 'Cash' && (
+                <div className="p-2.5 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 rounded-xs space-y-2 mt-2">
+                  <div className="text-[11px] font-bold text-emerald-900 dark:text-emerald-300 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Banknote className="w-3.5 h-3.5" />
+                      <span>Cash Counter Settlement</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">Editable & Saved</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Cash Received (₹)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={cashDetails.cashReceived || advancePaid}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          setCashDetails(prev => ({ ...prev, cashReceived: val }));
+                          setAdvancePaid(val);
+                        }}
+                        className="w-full h-[24px] px-2 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Cashier Notes</label>
+                      <input
+                        type="text"
+                        value={cashDetails.cashierNote}
+                        onChange={(e) => setCashDetails(prev => ({ ...prev, cashierNote: e.target.value }))}
+                        placeholder="Counter 1 / Handed over to accounts"
+                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center">
                 <label className="w-36 text-[var(--sap-text-muted)] font-medium">Advance Received (₹)</label>
                 <input
@@ -3771,13 +4153,13 @@ export default function SalesOrderPage() {
               </div>
               <div className="flex items-center">
                 <label className="w-36 text-[var(--sap-text-muted)] font-bold">Balance Due</label>
-                <div className="font-mono font-extrabold text-emerald-700 text-sm">
+                <div className="font-mono font-extrabold text-emerald-700 dark:text-emerald-400 text-sm">
                   ₹{financials.balanceDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                 </div>
               </div>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-3">
               <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 text-xs">
                 Financial Records & BP Account
               </div>
@@ -3798,6 +4180,24 @@ export default function SalesOrderPage() {
                   value={selectedCustomer?.bankAccount ? `${selectedCustomer.bankName || 'SBI'} (${selectedCustomer.bankAccount})` : 'Primary Bank Default'}
                   className="flex-1 h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                 />
+              </div>
+
+              {/* Editable Terms & Conditions (Saved per Order and Printed on PDF) */}
+              <div className="space-y-1.5 pt-2 border-t border-[var(--sap-border-inner)]">
+                <div className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center justify-between">
+                  <span>Terms & Conditions</span>
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-normal">Saved per order & printed exclusively on PDF</span>
+                </div>
+                <textarea
+                  rows={5}
+                  value={orderTerms}
+                  onChange={(e) => setOrderTerms(e.target.value)}
+                  placeholder="Enter custom terms and conditions to print on this order's PDF..."
+                  className="w-full p-2 text-[11px] font-sans border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none rounded-xs leading-relaxed"
+                />
+                <div className="text-[10px] text-slate-400 dark:text-slate-500 italic">
+                  * Any edits here are saved into the database for this order and will print directly in the Terms & Conditions section of the PDF.
+                </div>
               </div>
             </div>
           </div>
@@ -3891,93 +4291,173 @@ export default function SalesOrderPage() {
 
               {/* Charges & Tax Ledger */}
               <div className="space-y-2.5 p-3 border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] rounded-xs">
-                <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1">
-                  Charges & Tax Ledger
+                <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 flex items-center justify-between">
+                  <span>Charges & Tax Ledger</span>
+                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Select GST Tax Code per charge</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Freight */}
+                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
                       <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Freight (₹)</label>
-                      <label className="flex items-center gap-1 text-[10.5px] font-bold">
-                        <input
-                          type="checkbox"
-                          checked={freightGst}
-                          onChange={(e) => setFreightGst(e.target.checked)}
-                          className="accent-amber-500"
-                        />
-                        <span>GST</span>
-                      </label>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
                     </div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={freight}
-                      onChange={(e) => setFreight(parseFloat(e.target.value) || 0)}
-                      className="w-full h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={freight}
+                        onChange={(e) => setFreight(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
+                      />
+                      <select
+                        value={freightTaxCode}
+                        onChange={(e) => setFreightTaxCode(e.target.value)}
+                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
+                      >
+                        {!isInterState ? (
+                          <>
+                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
+
+                  {/* Loading Charges */}
+                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
                       <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Loading (₹)</label>
-                      <label className="flex items-center gap-1 text-[10.5px] font-bold">
-                        <input
-                          type="checkbox"
-                          checked={loadingGst}
-                          onChange={(e) => setLoadingGst(e.target.checked)}
-                          className="accent-amber-500"
-                        />
-                        <span>GST</span>
-                      </label>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
                     </div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={loadingCharges}
-                      onChange={(e) => setLoadingCharges(parseFloat(e.target.value) || 0)}
-                      className="w-full h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={loadingCharges}
+                        onChange={(e) => setLoadingCharges(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
+                      />
+                      <select
+                        value={loadingTaxCode}
+                        onChange={(e) => setLoadingTaxCode(e.target.value)}
+                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
+                      >
+                        {!isInterState ? (
+                          <>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
+
+                  {/* Packing Charges */}
+                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
                       <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Packing (₹)</label>
-                      <label className="flex items-center gap-1 text-[10.5px] font-bold">
-                        <input
-                          type="checkbox"
-                          checked={packingGst}
-                          onChange={(e) => setPackingGst(e.target.checked)}
-                          className="accent-amber-500"
-                        />
-                        <span>GST</span>
-                      </label>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
                     </div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={packingCharges}
-                      onChange={(e) => setPackingCharges(parseFloat(e.target.value) || 0)}
-                      className="w-full h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={packingCharges}
+                        onChange={(e) => setPackingCharges(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
+                      />
+                      <select
+                        value={packingTaxCode}
+                        onChange={(e) => setPackingTaxCode(e.target.value)}
+                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
+                      >
+                        {!isInterState ? (
+                          <>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
+
+                  {/* Other Charges */}
+                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
+                    <div className="flex items-center justify-between">
                       <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Other Charges (₹)</label>
-                      <label className="flex items-center gap-1 text-[10.5px] font-bold">
-                        <input
-                          type="checkbox"
-                          checked={otherGst}
-                          onChange={(e) => setOtherGst(e.target.checked)}
-                          className="accent-amber-500"
-                        />
-                        <span>GST</span>
-                      </label>
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
                     </div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={otherCharges}
-                      onChange={(e) => setOtherCharges(parseFloat(e.target.value) || 0)}
-                      className="w-full h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    />
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={otherCharges}
+                        onChange={(e) => setOtherCharges(parseFloat(e.target.value) || 0)}
+                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
+                      />
+                      <select
+                        value={otherTaxCode}
+                        onChange={(e) => setOtherTaxCode(e.target.value)}
+                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
+                      >
+                        {!isInterState ? (
+                          <>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                          </>
+                        ) : (
+                          <>
+                            <option value="EXEMPT">EXEMPT (0%)</option>
+                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4605,16 +5085,6 @@ export default function SalesOrderPage() {
             className="px-5 h-[28px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] text-[var(--sap-text)] font-bold text-xs border border-[var(--sap-border-inner)] rounded-xs transition-colors cursor-pointer"
           >
             Cancel
-          </button>
-
-          <button
-            type="button"
-            onClick={() => handlePrintPDF()}
-            className="px-4 h-[28px] bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-1 shadow-xs"
-            title="Print Tax Invoice / Order PDF"
-          >
-            <Printer className="w-3.5 h-3.5 text-amber-300" />
-            <span>Print PDF</span>
           </button>
 
           {editOrderId && (

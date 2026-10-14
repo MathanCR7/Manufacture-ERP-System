@@ -605,8 +605,25 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
     const enriched = buildDocumentChainsHelper(allOrders);
     const matched = enriched.find(o => o.id === order.id);
 
+    let paymentDetails = null;
+    let termsAndConditions = order.quotationNote || null;
+    if (order.internalNote && order.internalNote.includes('[[PAYMENT_DETAILS:')) {
+      try {
+        const m = order.internalNote.match(/\[\[PAYMENT_DETAILS:(.*?)\]\]/s);
+        if (m && m[1]) paymentDetails = JSON.parse(m[1]);
+      } catch (e) {}
+    }
+    if (order.internalNote && order.internalNote.includes('[[TERMS_AND_CONDITIONS:')) {
+      try {
+        const m = order.internalNote.match(/\[\[TERMS_AND_CONDITIONS:(.*?)\]\]/s);
+        if (m && m[1]) termsAndConditions = m[1];
+      } catch (e) {}
+    }
+
     res.json({
       ...order,
+      paymentDetails,
+      termsAndConditions,
       rootOrderId: matched?.rootOrderId || order.id,
       documentChain: matched?.documentChain || [],
       chainSummary: matched?.chainSummary || (order.docNo || order.referenceNo),
@@ -1323,12 +1340,10 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
 
     // 7. Payment & Order Status calculation
     const amountPaid = Number(data.amountPaid || (docType === 'POS' ? gstResult.grandTotal : 0));
-    let paymentStatus = 'PENDING';
-    if (amountPaid >= gstResult.grandTotal && gstResult.grandTotal > 0) {
-      paymentStatus = 'PAID';
-    } else if (amountPaid > 0) {
-      paymentStatus = 'PARTIAL';
-    }
+    const isPaid = String(data.paymentTerms).toUpperCase() === 'PAID' || 
+                   String(data.paymentStatus).toUpperCase() === 'PAID' || 
+                   (amountPaid >= gstResult.grandTotal && gstResult.grandTotal > 0);
+    let paymentStatus = isPaid ? 'PAID' : (amountPaid > 0 ? 'PARTIAL' : 'PENDING');
 
     let orderStatus = data.status || defaultStatus;
     if (docType === 'Sales Order') {
@@ -1342,9 +1357,18 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       orderStatus = 'Confirmed';
     }
 
-    let finalInternalNote = data.attachmentUrl
-      ? (data.internalNote ? `${data.internalNote}\n[Attachment]: ${data.attachmentUrl}` : `[Attachment]: ${data.attachmentUrl}`)
-      : (data.internalNote || data.note || null);
+    let finalInternalNote = data.internalNote || data.note || '';
+    if (data.paymentDetails) {
+      finalInternalNote = finalInternalNote.replace(/\[\[PAYMENT_DETAILS:.*?\]\]/gs, '').trim();
+      finalInternalNote += `\n[[PAYMENT_DETAILS:${JSON.stringify(data.paymentDetails)}]]`;
+    }
+    if (data.termsAndConditions) {
+      finalInternalNote = finalInternalNote.replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '').trim();
+      finalInternalNote += `\n[[TERMS_AND_CONDITIONS:${data.termsAndConditions}]]`;
+    }
+    if (data.attachmentUrl && !finalInternalNote.includes(data.attachmentUrl)) {
+      finalInternalNote += `\n[Attachment]: ${data.attachmentUrl}`;
+    }
 
     // 8. Create CustomerOrder record
     const createdOrder = await tx.customerOrder.create({
@@ -1358,10 +1382,10 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         status: orderStatus,
         deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : new Date(),
         createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
-        deliveryAddress: data.deliveryAddress || (docType === 'POS' ? 'Over the Counter POS' : customer.address || 'Standard Delivery'),
-        quotationNote: data.quotationNote || null,
-        internalNote: finalInternalNote,
-        paymentTerms: data.paymentTerms || (docType === 'POS' ? (data.paymentMode || 'Cash') : 'Net 30'),
+        deliveryAddress: data.shipToAddress || data.deliveryAddress || (docType === 'POS' ? 'Over the Counter POS' : customer.address || 'Standard Delivery'),
+        quotationNote: data.termsAndConditions || data.quotationNote || null,
+        internalNote: finalInternalNote.trim() || null,
+        paymentTerms: data.paymentTerms || (isPaid ? 'PAID' : (docType === 'POS' ? (data.paymentMode || 'Cash') : 'Net 30')),
         paymentStatus,
         amountPaid,
         dueDate: data.dueDate ? new Date(data.dueDate) : null,
@@ -2243,6 +2267,9 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       lrNo: z.string().optional().nullable(),
       ewayBillNo: z.string().optional().nullable(),
       ewayBillDate: z.string().optional().nullable(),
+      paymentDetails: z.any().optional(),
+      termsAndConditions: z.string().optional(),
+      shipToAddress: z.string().optional(),
       skipStockDeduction: z.boolean().optional().default(false),
       items: z.array(z.object({
         productId: z.string().min(1),
@@ -2318,30 +2345,41 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           type: data.type || existing.type,
           deliveryDate: data.deliveryDate ? new Date(data.deliveryDate) : existing.deliveryDate,
           createdAt: data.createdAt ? new Date(data.createdAt) : undefined,
-          deliveryAddress: data.deliveryAddress || null,
-          billToAddress: data.billToAddress || null,
-          shippingMethod: data.shippingMethod || 'Road Transport',
-          customerRefNo: data.customerRefNo || null,
+          deliveryAddress: data.shipToAddress || data.deliveryAddress || existing.deliveryAddress,
+          billToAddress: data.billToAddress || existing.billToAddress,
+          shippingMethod: data.shippingMethod || existing.shippingMethod || 'Road Transport',
+          customerRefNo: data.customerRefNo || existing.customerRefNo,
           counterId: data.counterId !== undefined ? data.counterId : existing.counterId,
           cashierName: data.cashierName !== undefined ? data.cashierName : existing.cashierName,
           customerName: data.customerName !== undefined ? data.customerName : existing.customerName,
           customerPhone: data.customerPhone !== undefined ? data.customerPhone : existing.customerPhone,
-          salesEmployee: data.salesEmployee || '-No Sales Employee-',
-          paymentMode: data.paymentMode || null,
+          salesEmployee: data.salesEmployee || existing.salesEmployee || '-No Sales Employee-',
+          paymentMode: data.paymentMode || existing.paymentMode,
           orderMode: data.orderMode || (data.type === 'Invoice' || existing.type === 'Invoice' || existing.orderMode === 'INVOICE' ? 'INVOICE' : (data.status === 'Waiting for Production' ? 'NEED_PLANNING' : (existing.orderMode || 'STANDARD'))),
-          attachmentUrl: data.attachmentUrl || null,
-          placeOfSupply: data.placeOfSupply || null,
-          paymentStatus: data.paymentStatus || existing.paymentStatus,
+          attachmentUrl: data.attachmentUrl !== undefined ? data.attachmentUrl : existing.attachmentUrl,
+          placeOfSupply: data.placeOfSupply || existing.placeOfSupply,
+          paymentStatus: (String(data.paymentTerms).toUpperCase() === 'PAID' || String(data.paymentStatus).toUpperCase() === 'PAID') ? 'PAID' : (data.paymentStatus || existing.paymentStatus),
           amountPaid: data.amountPaid !== undefined ? data.amountPaid : existing.amountPaid,
-          transporterName: data.transporterName || null,
-          vehicleNo: data.vehicleNo || null,
-          lrNo: data.lrNo || null,
-          ewayBillNo: data.ewayBillNo || null,
-          ewayBillDate: data.ewayBillDate ? new Date(data.ewayBillDate) : null,
-          quotationNote: data.quotationNote || null,
-          internalNote: data.internalNote || null,
+          transporterName: data.transporterName !== undefined ? data.transporterName : existing.transporterName,
+          vehicleNo: data.vehicleNo !== undefined ? data.vehicleNo : existing.vehicleNo,
+          lrNo: data.lrNo !== undefined ? data.lrNo : existing.lrNo,
+          ewayBillNo: data.ewayBillNo !== undefined ? data.ewayBillNo : existing.ewayBillNo,
+          ewayBillDate: data.ewayBillDate ? new Date(data.ewayBillDate) : existing.ewayBillDate,
+          quotationNote: data.termsAndConditions || data.quotationNote || existing.quotationNote,
+          internalNote: (() => {
+            let note = data.internalNote !== undefined ? (data.internalNote || '') : (existing.internalNote || '');
+            if (data.paymentDetails) {
+              note = note.replace(/\[\[PAYMENT_DETAILS:.*?\]\]/gs, '').trim();
+              note += `\n[[PAYMENT_DETAILS:${JSON.stringify(data.paymentDetails)}]]`;
+            }
+            if (data.termsAndConditions) {
+              note = note.replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '').trim();
+              note += `\n[[TERMS_AND_CONDITIONS:${data.termsAndConditions}]]`;
+            }
+            return note.trim() || null;
+          })(),
           status: data.status,
-          paymentTerms: data.paymentTerms || null,
+          paymentTerms: data.paymentTerms || existing.paymentTerms,
           totalSubtotal: data.totalSubtotal !== undefined ? data.totalSubtotal : Math.max(0, totalSubtotal - (data.discountValue || 0)),
           totalCost,
           totalProfit,

@@ -520,7 +520,7 @@ export default function SalesListPage() {
     const publicPdfUrl = `${baseUrl}/public/orders/${order.id}/pdf`;
 
     // 4. Construct WhatsApp Message with official format and bill PDF link
-    const text = `🧾 *${order.type === 'Quotation' ? 'PROFORMA QUOTATION' : 'TAX INVOICE'}*
+    const text = `🧾 *${order.type === 'Quotation' ? 'QUOTATION' : 'TAX INVOICE'}*
 🏢 *${company}*
 ━━━━━━━━━━━━━━━━━━
 📄 *Doc No:* ${docNo}

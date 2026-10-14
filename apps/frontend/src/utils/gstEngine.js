@@ -181,9 +181,13 @@ export function calculateOrderGst({
     let chSgst = 0;
     let chIgst = 0;
 
-    if (val > 0 && isTaxable) {
+    const customRate = charges[`${ch.key}Rate`] !== undefined 
+      ? Number(charges[`${ch.key}Rate`]) 
+      : (charges[`${ch.gstFlag}Rate`] !== undefined ? Number(charges[`${ch.gstFlag}Rate`]) : chargesDefaultGstRate);
+
+    if (val > 0 && isTaxable && customRate > 0) {
       totalTaxableCharges += val;
-      const rate = chargesDefaultGstRate;
+      const rate = customRate;
       if (isInterState) {
         chIgst = round2(val * (rate / 100));
         chargesIgst += chIgst;
@@ -317,14 +321,19 @@ export function calculateGST(params = {}) {
   const finalCharges = {
     freight: charges.freight || 0,
     freightGst: chargeRates.freightGst !== undefined ? chargeRates.freightGst : charges.freightGst,
+    freightRate: charges.freightRate !== undefined ? charges.freightRate : chargeRates.freightRate,
     loadingCharges: charges.loading || charges.loadingCharges || 0,
     loadingGst: chargeRates.loadingGst !== undefined ? chargeRates.loadingGst : charges.loadingGst,
+    loadingChargesRate: charges.loadingChargesRate !== undefined ? charges.loadingChargesRate : (charges.loadingRate !== undefined ? charges.loadingRate : chargeRates.loadingRate),
     packingCharges: charges.packing || charges.packingCharges || 0,
     packingGst: chargeRates.packingGst !== undefined ? chargeRates.packingGst : charges.packingGst,
+    packingChargesRate: charges.packingChargesRate !== undefined ? charges.packingChargesRate : (charges.packingRate !== undefined ? charges.packingRate : chargeRates.packingRate),
     insurance: charges.insurance || 0,
     insuranceGst: chargeRates.insuranceGst !== undefined ? chargeRates.insuranceGst : charges.insuranceGst,
+    insuranceRate: charges.insuranceRate !== undefined ? charges.insuranceRate : chargeRates.insuranceRate,
     otherCharges: charges.other || charges.otherCharges || 0,
     otherGst: chargeRates.otherGst !== undefined ? chargeRates.otherGst : charges.otherGst,
+    otherChargesRate: charges.otherChargesRate !== undefined ? charges.otherChargesRate : (charges.otherRate !== undefined ? charges.otherRate : chargeRates.otherRate),
   };
 
   const result = calculateOrderGst({
