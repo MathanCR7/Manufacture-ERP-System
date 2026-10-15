@@ -120,7 +120,7 @@ export default function ProductionDashboardPage() {
         <KPICard title="Planned Qty"     value={`${Math.round(d.plannedQtyMonth || 0)} units`} sub="Target" icon={BarChart2} accent="#3b82f6" loading={loading} onClick={() => navigate('/production/batches')} />
         <KPICard title="Actual Qty"      value={`${Math.round(d.actualQtyMonth || 0)} units`}  sub={`${d.plannedQtyMonth > 0 ? Math.round((d.actualQtyMonth/d.plannedQtyMonth)*100) : 0}% of plan`} icon={Activity} accent="#10b981" loading={loading} onClick={() => navigate('/production/batches')} />
         <KPICard title="QC Pass Rate"    value={`${d.qcPassRate || 0}%`}          sub={`${d.qcPassed || 0} pass / ${d.qcFailed || 0} fail`} icon={CheckCircle2} accent="#22c55e" loading={loading} onClick={() => navigate('/production/qc-queue')} />
-        <KPICard title="Scrap Rate"      value={`${d.scrapRate || 0}%`}           sub={`${Number(d.totalLossKg || 0).toFixed(1)} kg loss`}  icon={AlertTriangle} accent="#ef4444" loading={loading} onClick={() => navigate('/production/wastage')} />
+        <KPICard title="Scrap Rate"      value={`${d.scrapRate || 0}%`}           sub={`${Number(d.totalLossKg || 0).toFixed(1)} kg loss`}  icon={AlertTriangle} accent="#ef4444" loading={loading} onClick={() => navigate('/production/standard')} />
       </div>
 
       {/* OEE Rings + Work Order Status */}

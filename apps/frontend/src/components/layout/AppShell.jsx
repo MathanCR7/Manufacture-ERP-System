@@ -792,29 +792,26 @@ const MENU_GROUPS = [
     items: [
       { name: '⚡ Production Requirements', path: '/production/requirements', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'], badgeKey: 'productionRequirements' },
       {
-        id: 'productionBatchSubmenu',
-        name: '⚙️ Production Batch',
+        id: 'createProductionSubmenu',
+        name: '⚙️ Create Production',
         isNested: true,
         roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
         children: [
-          { name: '📑 Production Template', path: '/production/templates', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
           { name: '🏭 Standard Production', path: '/production/standard', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
           { name: '📦 Order Based Production', path: '/production/order-based', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
           { name: '🔄 Stock Update Production', path: '/production/stock-update', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
         ]
       },
       {
-        id: 'productionMastersSubmenu',
-        name: '🏛️ Masters',
+        id: 'productionTemplateSubmenu',
+        name: '📑 Production Template',
         isNested: true,
-        roles: ['MAIN_MASTER', 'SUPERVISOR'],
+        roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
         children: [
           { name: '🥛 Base Master', path: '/production/masters/base', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+          { name: '📑 Production Template', path: '/production/templates', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
         ]
-      },
-      { name: '📉 Production Loss', path: '/production/loss', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: '📋 Loss Report', path: '/production/loss-report', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
-      { name: '🗑️ Product Wastage', path: '/production/wastage', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
+      }
     ]
   },
   {

@@ -114,10 +114,7 @@ const SalesOrderSAPPage = lazy(() => import('@/modules/sales/pages/SalesOrderSAP
 const SalesListPage = lazy(() => import('@/modules/sales/pages/SalesListPage'));
 const SalesReturnsPage = lazy(() => import('@/modules/sales/pages/SalesReturnsPage'));
 const SalesDashboard = lazy(() => import('@/modules/sales/pages/SalesDashboard'));
-const ProductionLossPage = lazy(() => import('@/modules/production/pages/ProductionLossPage'));
-const LossReportPage = lazy(() => import('@/modules/production/pages/LossReportPage'));
 const QCQueuePage = lazy(() => import('@/modules/production/pages/QCQueuePage'));
-const ProductWastagePage = lazy(() => import('@/modules/production/pages/ProductWastagePage'));
 
 // Customer Order Module Pages
 const AddOrderPage = lazy(() => import('@/modules/production/pages/AddOrderPage'));
@@ -473,14 +470,14 @@ const AppRouter = () => {
 
               {/* Existing Sub-pages */}
               <Route path="/production/requirements" element={<ProductionRequirementPage />} />
-              <Route path="/production/loss" element={<ProductionLossPage />} />
-              <Route path="/production/loss-report" element={<LossReportPage />} />
               <Route path="/production/qc-queue" element={<QCQueuePage />} />
+
+              {/* Redirect removed routes to standard production */}
+              <Route path="/production/loss" element={<Navigate to="/production/standard" replace />} />
+              <Route path="/production/loss-report" element={<Navigate to="/production/standard" replace />} />
             </Route>
 
-            <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR']} />}>
-              <Route path="/production/wastage" element={<ProductWastagePage />} />
-            </Route>
+            <Route path="/production/wastage" element={<Navigate to="/production/standard" replace />} />
 
             {/* Customer Orders */}
             <Route element={<RoleGuard allowedRoles={['MAIN_MASTER', 'SUPERVISOR', 'LAB_ASSISTANT', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'PRODUCTION_STAFF', 'SALES_TEAM']} />}>
