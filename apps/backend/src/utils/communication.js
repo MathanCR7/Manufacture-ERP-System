@@ -554,18 +554,26 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     let currentY = tableY + 18;
 
     (invoice.items || []).forEach((item, index) => {
-      const prodCode = (item.product?.code || item.productCode || item.systemCode || item.itemCode || '').trim();
-      const catName = (item.categoryName || item.category || item.product?.category?.name || '').trim();
+      const prodCode = (item.product?.code || item.productCode || item.systemCode || item.itemCode || item.product?.sku || '').trim();
+      const subcatName = (item.subcategoryName || item.subcategory || item.product?.subcategory?.name || item.product?.specifications?.category || '').trim();
+      const baseCat = (item.categoryName || item.category || item.product?.category?.name || item.product?.specifications?.group || '').trim();
       let prodName = (item.product?.name || item.productName || 'Item').trim();
 
-      if (prodCode && prodName.startsWith(prodCode)) {
-        prodName = prodName.replace(prodCode, '').replace(/^[\s\-–—:|]+/, '').trim();
+      if (prodCode && prodName.toLowerCase().startsWith(prodCode.toLowerCase())) {
+        prodName = prodName.substring(prodCode.length).replace(/^[\s\-–—:|]+/, '').trim();
       }
-      if (catName && prodName.startsWith(catName)) {
-        prodName = prodName.replace(catName, '').replace(/^[\s\-–—:|]+/, '').trim();
+      if (subcatName && prodName.toLowerCase().startsWith(subcatName.toLowerCase())) {
+        prodName = prodName.substring(subcatName.length).replace(/^[\s\-–—:|]+/, '').trim();
+      }
+      if (baseCat && prodName.toLowerCase().startsWith(baseCat.toLowerCase())) {
+        prodName = prodName.substring(baseCat.length).replace(/^[\s\-–—:|]+/, '').trim();
       }
 
-      const fullItemDesc = [prodCode, catName, prodName].filter(Boolean).join(' - ');
+      const mainCategory = subcatName || baseCat;
+      const mainDesc = [prodCode, mainCategory, prodName].filter(Boolean).join(' - ');
+      const showBaseTag = Boolean(baseCat && (!subcatName || baseCat.toLowerCase() !== subcatName.toLowerCase()));
+      const baseTag = showBaseTag ? ` (${baseCat})` : '';
+
       const qty = `${Number(item.quantity || 1)} ${item.uomName || 'pcs'}`;
       const rate = Number(item.unitPrice || 0);
       const gstRate = Number(item.gstRate || 5);
@@ -580,7 +588,12 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
 
       doc.fillColor('#0f172a').fontSize(7.5).font('Helvetica-Bold');
       doc.text(String(index + 1), 34, currentY + 4, { width: 16, align: 'center' });
-      doc.text(fullItemDesc, 54, currentY + 4, { width: 310 });
+      if (baseTag) {
+        doc.text(mainDesc, 54, currentY + 4, { continued: true });
+        doc.fontSize(6.2).font('Helvetica').fillColor('#64748b').text(baseTag);
+      } else {
+        doc.text(mainDesc, 54, currentY + 4, { width: 310 });
+      }
       if (batchInfo) {
         doc.fontSize(6.5).font('Helvetica').fillColor('#64748b');
         doc.text(batchInfo, 54, currentY + 13, { width: 310 });

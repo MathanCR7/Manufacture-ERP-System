@@ -340,42 +340,162 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
     doc.text(String(idx + 1), cellX + (cols[0].w / 2), curY + 4.5, { align: 'center' });
     cellX += cols[0].w;
 
-    // 2. Description of Goods & Batch (cols[1]: Product Code - Category Name - Product Name)
-    doc.setFont('helvetica', 'bold');
-    const itemCode = (it.productCode || it.systemCode || it.itemCode || it.product?.code || it.rawProduct?.code || it.rawProduct?.sku || '').trim();
-    const catName = (it.categoryName || it.category || it.product?.category?.name || it.product?.categoryName || it.rawProduct?.category?.name || it.rawProduct?.category || '').trim();
-    let prodName = (it.productName || it.product?.name || it.itemDescription || '').trim();
+    // 2. Description of Goods & Batch (cols[1]: Product Code - Subcategory Name - Product Name (Base Category))
+    const itemCode = (
+      it.productCode ||
+      it.systemCode ||
+      it.itemCode ||
+      it.product?.code ||
+      it.product?.sku ||
+      it.product?.specifications?.itemCode ||
+      it.rawProduct?.code ||
+      it.rawProduct?.sku ||
+      ''
+    ).trim();
 
-    // Avoid duplicated code/category if already prefixed in product name
-    if (itemCode && prodName.startsWith(itemCode)) {
-      prodName = prodName.replace(itemCode, '').replace(/^[\s\-–—:|]+/, '').trim();
+    const subcatName = (
+      it.subcategoryName ||
+      it.subcategory ||
+      it.product?.subcategory?.name ||
+      (typeof it.product?.subcategory === 'string' ? it.product.subcategory : '') ||
+      it.product?.specifications?.category ||
+      it.rawProduct?.subcategory?.name ||
+      (typeof it.rawProduct?.subcategory === 'string' ? it.rawProduct.subcategory : '') ||
+      it.rawProduct?.specifications?.category ||
+      ''
+    ).trim();
+
+    const baseCat = (
+      it.categoryName ||
+      it.category ||
+      it.product?.category?.name ||
+      (typeof it.product?.category === 'string' ? it.product.category : '') ||
+      it.product?.specifications?.group ||
+      it.product?.base?.name ||
+      it.rawProduct?.category?.name ||
+      (typeof it.rawProduct?.category === 'string' ? it.rawProduct.category : '') ||
+      ''
+    ).trim();
+
+    let prodName = (
+      it.productName ||
+      it.product?.name ||
+      it.product?.specifications?.productName ||
+      it.itemDescription ||
+      ''
+    ).trim();
+
+    // Avoid duplicated code/subcategory/base if already prefixed in product name
+    if (itemCode && prodName.toLowerCase().startsWith(itemCode.toLowerCase())) {
+      prodName = prodName.substring(itemCode.length).replace(/^[\s\-–—:|]+/, '').trim();
     }
-    if (catName && prodName.startsWith(catName)) {
-      prodName = prodName.replace(catName, '').replace(/^[\s\-–—:|]+/, '').trim();
+    if (subcatName && prodName.toLowerCase().startsWith(subcatName.toLowerCase())) {
+      prodName = prodName.substring(subcatName.length).replace(/^[\s\-–—:|]+/, '').trim();
+    }
+    if (baseCat && prodName.toLowerCase().startsWith(baseCat.toLowerCase())) {
+      prodName = prodName.substring(baseCat.length).replace(/^[\s\-–—:|]+/, '').trim();
     }
 
+    // Build main label: [Code] - [Subcategory] - [Product Name]
     const descParts = [];
     if (itemCode) descParts.push(itemCode);
-    if (catName) descParts.push(catName);
+    const mainCategory = subcatName || baseCat;
+    if (mainCategory) descParts.push(mainCategory);
     if (prodName) descParts.push(prodName);
-    const displayDesc = descParts.length > 0 ? descParts.join(' - ') : (it.productName || it.product?.name || it.itemDescription || 'Finished Goods');
+    const mainDesc = descParts.length > 0
+      ? descParts.join(' - ')
+      : (it.productName || it.product?.name || it.itemDescription || 'Finished Goods');
 
-    const descLines = doc.splitTextToSize(displayDesc, cols[1].w - 3);
+    // Base Category Tag: formatted with smaller font size and muted color compared to subcategory and product
+    const showBaseTag = Boolean(
+      baseCat &&
+      (!subcatName || baseCat.toLowerCase() !== subcatName.toLowerCase())
+    );
+    const baseTagText = showBaseTag ? ` (${baseCat})` : '';
+
+    const maxDescW = cols[1].w - 3;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    const mainW = doc.getTextWidth(mainDesc);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.2);
+    const baseW = baseTagText ? doc.getTextWidth(baseTagText) : 0;
+
     if (batchStr) {
-      doc.text(descLines[0], cellX + 1.5, curY + 4);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.5);
-      doc.setTextColor(100, 116, 139);
-      doc.text(batchStr.substring(0, 55), cellX + 1.5, curY + 7.5);
-    } else {
-      if (descLines.length > 1) {
-        doc.text(descLines[0], cellX + 1.5, curY + 3.8);
+      if (mainW + baseW <= maxDescW) {
+        // Line 1: Main description + Base tag inline
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(mainDesc, cellX + 1.5, curY + 4);
+
+        if (baseTagText) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.2);
+          doc.setTextColor(100, 116, 139);
+          doc.text(baseTagText, cellX + 1.5 + mainW, curY + 4);
+        }
+
+        // Line 2: Batch details
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(7);
-        doc.setTextColor(71, 85, 105);
-        doc.text(descLines[1], cellX + 1.5, curY + 7.2);
+        doc.setFontSize(6.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(batchStr.substring(0, 58), cellX + 1.5, curY + 7.5);
       } else {
-        doc.text(descLines[0], cellX + 1.5, curY + 5.5);
+        // If inline doesn't fit on line 1, truncate mainDesc and place base tag on line 2
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        const truncatedMain = doc.splitTextToSize(mainDesc, maxDescW)[0];
+        doc.text(truncatedMain, cellX + 1.5, curY + 4);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(6.2);
+        doc.setTextColor(100, 116, 139);
+        const subCombined = [baseTagText.trim(), batchStr].filter(Boolean).join('  |  ');
+        doc.text(subCombined.substring(0, 58), cellX + 1.5, curY + 7.5);
+      }
+    } else {
+      if (mainW + baseW <= maxDescW) {
+        // Single row centered: Main description + Base tag inline
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        doc.setTextColor(15, 23, 42);
+        doc.text(mainDesc, cellX + 1.5, curY + 5.5);
+
+        if (baseTagText) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.2);
+          doc.setTextColor(100, 116, 139);
+          doc.text(baseTagText, cellX + 1.5 + mainW, curY + 5.5);
+        }
+      } else {
+        // Multi-line without batch
+        if (mainW <= maxDescW) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(15, 23, 42);
+          doc.text(mainDesc, cellX + 1.5, curY + 3.8);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.2);
+          doc.setTextColor(100, 116, 139);
+          doc.text(baseTagText.trim(), cellX + 1.5, curY + 7.2);
+        } else {
+          const descLines = doc.splitTextToSize(mainDesc, maxDescW);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(7.5);
+          doc.setTextColor(15, 23, 42);
+          doc.text(descLines[0], cellX + 1.5, curY + 3.8);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(6.8);
+          doc.setTextColor(71, 85, 105);
+          const secondLine = `${descLines[1] || ''}${baseTagText ? ' ' + baseTagText.trim() : ''}`.trim();
+          doc.text(secondLine.substring(0, 55), cellX + 1.5, curY + 7.2);
+        }
       }
     }
     doc.setFont('helvetica', 'normal');

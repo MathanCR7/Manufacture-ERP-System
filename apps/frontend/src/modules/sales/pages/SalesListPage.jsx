@@ -433,11 +433,27 @@ export default function SalesListPage() {
     doc.setFont('helvetica', 'normal');
     (order.items || []).forEach((item, idx) => {
       curY += 6;
-      const iCode = item.productCode || item.systemCode || item.itemCode || item.product?.code || '';
-      const cName = item.categoryName || item.category || item.product?.category?.name || '';
-      const pName = item.productName || item.product?.name || 'Finished Item';
-      const fullLabel = [iCode, cName, pName].filter(Boolean).join(' - ');
-      doc.text(fullLabel.substring(0, 48), 16, curY);
+      const iCode = (item.productCode || item.systemCode || item.itemCode || item.product?.code || item.product?.sku || '').trim();
+      const subName = (item.subcategoryName || item.subcategory || item.product?.subcategory?.name || item.product?.specifications?.category || '').trim();
+      const baseCat = (item.categoryName || item.category || item.product?.category?.name || item.product?.specifications?.group || '').trim();
+      let pName = (item.productName || item.product?.name || 'Finished Item').trim();
+
+      if (iCode && pName.toLowerCase().startsWith(iCode.toLowerCase())) {
+        pName = pName.substring(iCode.length).replace(/^[\s\-–—:|]+/, '').trim();
+      }
+      if (subName && pName.toLowerCase().startsWith(subName.toLowerCase())) {
+        pName = pName.substring(subName.length).replace(/^[\s\-–—:|]+/, '').trim();
+      }
+      if (baseCat && pName.toLowerCase().startsWith(baseCat.toLowerCase())) {
+        pName = pName.substring(baseCat.length).replace(/^[\s\-–—:|]+/, '').trim();
+      }
+
+      const mainCat = subName || baseCat;
+      const parts = [iCode, mainCat, pName].filter(Boolean);
+      const mainLabel = parts.join(' - ');
+      const baseTag = (baseCat && (!subName || baseCat.toLowerCase() !== subName.toLowerCase())) ? ` (${baseCat})` : '';
+      const fullLabel = `${mainLabel}${baseTag}`;
+      doc.text(fullLabel.substring(0, 52), 16, curY);
       doc.text(String(item.quantity || 0), 110, curY, { align: 'right' });
       doc.text(`Rs.${Number(item.unitPrice || 0).toFixed(2)}`, 140, curY, { align: 'right' });
       doc.text(`Rs.${Number(item.subtotal || (item.quantity * item.unitPrice) || 0).toFixed(2)}`, 190, curY, { align: 'right' });
