@@ -2394,19 +2394,23 @@ exports.getMaterialHistory = async (req, res, next) => {
       return res.status(404).json({ error: 'Raw material not found' });
     }
 
-    // 1. Fetch Purchase Orders (matching direct rmId or code, or in items JSON)
+    // 1. Fetch Purchase Orders (matching direct rmId or code, name, or in items JSON)
     const directPOs = await prisma.rawMaterialPO.findMany({
       where: {
         status: { not: 'DELETED' },
         OR: [
           { rmId: rm.code },
-          { rmId: rm.id }
+          { rmId: rm.id },
+          { name: { equals: rm.name, mode: 'insensitive' } }
         ]
       },
       include: {
         supplier: true,
         uom: true,
         user: { select: { id: true, name: true, email: true } },
+        inventoryBatches: {
+          include: { uom: true }
+        },
         grnReceives: {
           include: {
             receiver: { select: { id: true, name: true } },
@@ -2438,6 +2442,9 @@ exports.getMaterialHistory = async (req, res, next) => {
         supplier: true,
         uom: true,
         user: { select: { id: true, name: true, email: true } },
+        inventoryBatches: {
+          include: { uom: true }
+        },
         grnReceives: {
           include: {
             receiver: { select: { id: true, name: true } },
@@ -2502,10 +2509,17 @@ exports.getMaterialHistory = async (req, res, next) => {
       const unitPriceWithGst = Math.round((unitPrice * (1 + gstPercentage / 100)) * 100) / 100;
       const itemTotal = specificItem ? (Number(specificItem.total) || (orderedQty * unitPriceWithGst)) : Number(po.grandTotal || po.amount || 0);
 
+      // Collect all batch numbers for this PO (inventory batches + grn batches)
+      const b1 = Array.isArray(po.inventoryBatches) ? po.inventoryBatches.map(b => b.batchNumber) : [];
+      const b2 = Array.isArray(po.grnReceives) ? po.grnReceives.flatMap(g => Array.isArray(g.inventoryBatches) ? g.inventoryBatches.map(b => b.batchNumber) : []) : [];
+      const allPoBatches = Array.from(new Set([...b1, ...b2])).filter(Boolean);
+
       return {
         id: po.id,
         referenceNo: po.referenceNo || 'N/A',
         orderDate: po.createdAt,
+        invoiceDate: po.supplierInvoiceDate || po.createdAt,
+        supplierInvoiceNo: po.supplierInvoiceNo || null,
         expectedDelivery: po.expectedDelivery,
         supplierId: po.supplierId,
         supplierName: po.supplier ? po.supplier.name : 'Unknown Supplier',
@@ -2521,7 +2535,9 @@ exports.getMaterialHistory = async (req, res, next) => {
         itemTotal,
         uom: specificItem?.uomLabel || (po.uom ? (po.uom.abbreviation || po.uom.name) : rm.unitId),
         createdBy: po.user ? po.user.name : null,
-        grnCount: po.grnReceives?.length || 0
+        grnCount: po.grnReceives?.length || 0,
+        batches: allPoBatches,
+        batchNumbersStr: allPoBatches.join(', ')
       };
     });
 
@@ -2762,7 +2778,12 @@ exports.getMaterialHistory = async (req, res, next) => {
 
     // 7. Fetch Production Usages
     const usages = await prisma.productionBatchRMUsage.findMany({
-      where: { rmId: rm.id },
+      where: {
+        OR: [
+          { rmId: rm.id },
+          ...(rm.code ? [{ rmId: rm.code }] : [])
+        ]
+      },
       include: {
         batch: {
           include: {
@@ -2772,6 +2793,11 @@ exports.getMaterialHistory = async (req, res, next) => {
       },
       orderBy: { batch: { createdAt: 'desc' } }
     });
+
+    const latestPoObj = formattedPurchases[0];
+    const latestPoRate = latestPoObj 
+      ? Number(latestPoObj.unitPriceWithGst || latestPoObj.unitPrice || 0) 
+      : Number(rm.ratePerUnit || 0);
 
     const formattedUsages = usages.map(u => {
       const batchNoStr = u.batch?.batchNo || u.batch?.referenceNo || 'N/A';
@@ -2790,8 +2816,6 @@ exports.getMaterialHistory = async (req, res, next) => {
       const isAlt = Boolean(u.selectedUom && rm.alternateUom && u.selectedUom.toLowerCase() === rm.alternateUom.toLowerCase());
 
       // Canonical Base Quantity calculation:
-      // In productionBatchRMUsage, actualUsedQty is canonical Base UOM (e.g. 4.2 Liter).
-      // Only divide if legacy/corrupt un-converted magnitude was recorded (e.g. 4200 instead of 4.2):
       let canonicalActQty = actQty;
       if (factor > 1) {
         if (reqQty > 0 && actQty >= reqQty * 10) {
@@ -2814,7 +2838,10 @@ exports.getMaterialHistory = async (req, res, next) => {
 
       const altActQty = factor > 1 ? Number((canonicalActQty * factor).toFixed(2)) : null;
       const altReqQty = factor > 1 ? Number((canonicalReqQty * factor).toFixed(2)) : null;
-      const effectiveLineCost = Number((canonicalActQty * effectiveUnitCost).toFixed(2));
+
+      const effectivePoRate = effectiveUnitCost > 0 ? effectiveUnitCost : (latestPoRate > 0 ? latestPoRate : Number(rm.ratePerUnit || 0));
+      const calculatedPrice = Number((canonicalActQty * effectivePoRate).toFixed(2));
+      const batchNoTakenFrom = u.internalBatchNo || u.supplierBatchNo || (formattedBatches.length > 0 ? formattedBatches[0].batchNumber : null) || 'Primary RM Batch';
 
       return {
         id: u.id,
@@ -2835,9 +2862,14 @@ exports.getMaterialHistory = async (req, res, next) => {
         selectedUom: u.selectedUom || (isAlt ? rm.alternateUom : rm.unitId),
         inputQty: u.inputQty || (isAlt ? actQty : canonicalActQty),
         effectiveUsedQty: isCancelled ? 0 : canonicalActQty,
-        unitCost: effectiveUnitCost,
-        totalCost: effectiveLineCost,
-        effectiveTotalCost: isCancelled ? 0 : effectiveLineCost,
+        unitCost: effectivePoRate,
+        totalCost: calculatedPrice,
+        effectiveTotalCost: isCancelled ? 0 : calculatedPrice,
+        poRate: effectivePoRate,
+        calculatedPrice,
+        batchNoTakenFrom,
+        internalBatchNo: u.internalBatchNo || null,
+        supplierBatchNo: u.supplierBatchNo || null,
         usageStatus: isCancelled ? 'CANCELLED' : u.status,
         date: u.batch?.startDate || u.batch?.createdAt || new Date()
       };
@@ -3168,7 +3200,7 @@ exports.getMaterialHistory = async (req, res, next) => {
     const closingStockValue = Math.round((currentStock * (valuationRate || 0)) * 100) / 100;
 
     const lastPurchaseInfo = formattedPurchases[0] ? {
-      date: formattedPurchases[0].orderDate,
+      date: formattedPurchases[0].invoiceDate || formattedPurchases[0].orderDate,
       partyName: formattedPurchases[0].supplierName,
       quantity: formattedPurchases[0].orderedQty,
       uom: formattedPurchases[0].uom || rm.unitId,
@@ -3176,7 +3208,9 @@ exports.getMaterialHistory = async (req, res, next) => {
       baseRate: formattedPurchases[0].unitPrice,
       gstPercentage: formattedPurchases[0].gstPercentage,
       amount: formattedPurchases[0].itemTotal,
-      referenceNo: formattedPurchases[0].referenceNo
+      referenceNo: formattedPurchases[0].referenceNo,
+      batches: formattedPurchases[0].batches,
+      batchNumbersStr: formattedPurchases[0].batchNumbersStr
     } : (formattedGRN[0] ? {
       date: formattedGRN[0].receivedDate,
       partyName: formattedGRN[0].supplierName,

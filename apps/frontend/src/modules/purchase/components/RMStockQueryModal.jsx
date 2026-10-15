@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import {
   X,
@@ -25,7 +26,8 @@ import {
   Tag,
   Boxes,
   Percent,
-  Info
+  Info,
+  Factory
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -37,10 +39,11 @@ export default function RMStockQueryModal({
   onSelectMaterial,
   allMaterials = []
 }) {
+  const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState(materialId);
   const [itemSearchTerm, setItemSearchTerm] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [activeMobileTab, setActiveMobileTab] = useState('all'); // 'all' | 'purchases' | 'sales' | 'batches' | 'same_category'
+  const [activeMobileTab, setActiveMobileTab] = useState('all'); // 'all' | 'purchases' | 'production' | 'sales' | 'same_category'
 
   // Sync selectedId when modal opens with new materialId
   useEffect(() => {
@@ -49,7 +52,7 @@ export default function RMStockQueryModal({
     }
   }, [materialId, isOpen]);
 
-  // Keyboard navigation: Esc to close, H for history, Ctrl+P for print
+  // Keyboard navigation: Esc to close, H for history, Ctrl+P for print, F4 for search
   useEffect(() => {
     if (!isOpen) return;
 
@@ -60,6 +63,9 @@ export default function RMStockQueryModal({
         } else {
           onClose();
         }
+      } else if (e.key === 'F4') {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
       } else if ((e.key === 'h' || e.key === 'H') && !['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
         if (onOpenHistory && selectedId) {
           onOpenHistory(selectedId);
@@ -97,7 +103,7 @@ export default function RMStockQueryModal({
     staleTime: 5 * 60 * 1000,
   });
 
-  const liveCompanyName = taxSettings?.companyName?.trim() || 'COMPANY';
+  const liveCompanyName = taxSettings?.companyName?.trim() || 'LEONE';
 
   // Dynamic Financial Year (e.g. 2026-2027)
   const financialYear = useMemo(() => {
@@ -112,7 +118,6 @@ export default function RMStockQueryModal({
   const summary = data?.summary;
   const costing = data?.costingSummary;
   const purchases = data?.purchases || [];
-  const grns = data?.grnReceipts || [];
   const usages = data?.productionUsages || [];
   const batches = data?.batches || [];
   const waste = data?.wasteRecords || [];
@@ -158,20 +163,27 @@ export default function RMStockQueryModal({
 
   // Inward purchases list
   const inwardList = useMemo(() => {
-    return purchases.slice(0, 15);
+    return purchases.slice(0, 25);
   }, [purchases]);
 
-  // Outward list (Production Issues, Wastage, Returns)
+  // Production Batches list
+  const productionBatchesList = useMemo(() => {
+    return usages.slice(0, 30);
+  }, [usages]);
+
+  // Outward list (Sales, Production Issues, Wastage, Returns)
   const outwardList = useMemo(() => {
     const list = [];
     usages.forEach((u) => {
       list.push({
         id: `usage-${u.id}`,
+        batchId: u.batchId,
+        batchNumber: u.batchNumber || u.batchReferenceNo,
         date: u.date,
         party: `${u.batchNumber || 'Batch'} • ${u.productOnlyName || u.productName || 'Production'}`,
         qty: Number(u.actualUsedQty || 0),
-        rate: Number(u.unitCost || 0),
-        amount: Number(u.totalCost || 0),
+        rate: Number(u.poRate || u.unitCost || 0),
+        amount: Number(u.calculatedPrice || u.totalCost || 0),
         type: 'Issue',
       });
     });
@@ -198,37 +210,18 @@ export default function RMStockQueryModal({
       });
     });
     list.sort((a, b) => new Date(b.date) - new Date(a.date));
-    return list.slice(0, 15);
+    return list.slice(0, 25);
   }, [usages, waste, returns, costPrice]);
-
-  // Godown / Batches list
-  const godownList = useMemo(() => {
-    if (batches.length > 0) {
-      return batches.slice(0, 12);
-    }
-    if (currentQty !== 0) {
-      return [
-        {
-          id: 'main-loc',
-          storageLocation: 'Main Location',
-          batchNumber: 'Primary Batch',
-          netQty: currentQty,
-          uom: baseUom,
-          status: 'ACTIVE',
-        },
-      ];
-    }
-    return [];
-  }, [batches, currentQty, baseUom]);
 
   // Last Purchase Header Banner
   const lastPurchase = costing?.lastPurchase || (purchases[0] ? {
-    date: purchases[0].orderDate,
+    date: purchases[0].invoiceDate || purchases[0].orderDate,
     partyName: purchases[0].supplierName,
     quantity: purchases[0].orderedQty,
     uom: purchases[0].uom || baseUom,
     rate: purchases[0].unitPriceWithGst || purchases[0].unitPrice,
     amount: purchases[0].itemTotal,
+    referenceNo: purchases[0].referenceNo,
   } : null);
 
   // Last Outward Header Banner
@@ -279,11 +272,12 @@ export default function RMStockQueryModal({
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Stock Overview');
 
     const purchaseRows = [
-      ['Date', 'Party Name / Supplier', 'PO Reference', 'Quantity', 'UOM', 'Rate (INR)', 'GST %', 'Total Amount (INR)'],
+      ['Invoice/Order Date', 'Supplier / Party Name', 'PO Number', 'Batch Numbers', 'Quantity', 'UOM', 'Rate (INR)', 'GST %', 'Total Amount (INR)'],
       ...purchases.map((p) => [
-        formatDate(p.orderDate),
+        formatDate(p.invoiceDate || p.orderDate),
         p.supplierName,
         p.referenceNo,
+        Array.isArray(p.batches) && p.batches.length > 0 ? p.batches.join(', ') : '—',
         p.orderedQty,
         p.uom,
         p.unitPriceWithGst || p.unitPrice,
@@ -294,8 +288,24 @@ export default function RMStockQueryModal({
     const wsPurchases = XLSX.utils.aoa_to_sheet(purchaseRows);
     XLSX.utils.book_append_sheet(wb, wsPurchases, 'Purchases (Inward)');
 
+    const productionRows = [
+      ['Batch No', 'Product Name', 'Consumed Qty', 'UOM', 'Batch No Taken From', 'PO Rate (INR)', 'Calculated Price Used (INR)', 'Batch Status'],
+      ...productionBatchesList.map((u) => [
+        u.batchNumber || u.batchReferenceNo || 'N/A',
+        u.productOnlyName || u.productName || 'Finished Product',
+        u.actualUsedQty,
+        baseUom,
+        u.batchNoTakenFrom || u.internalBatchNo || 'Primary RM Batch',
+        u.poRate || u.unitCost,
+        u.calculatedPrice || u.totalCost,
+        u.batchStatus || 'Completed'
+      ]),
+    ];
+    const wsProduction = XLSX.utils.aoa_to_sheet(productionRows);
+    XLSX.utils.book_append_sheet(wb, wsProduction, 'Production Batches');
+
     const outwardRows = [
-      ['Date', 'Particulars / Batch', 'Type', 'Quantity', 'Rate (INR)', 'Total Amount (INR)'],
+      ['Date', 'Particulars / Job', 'Type', 'Quantity', 'Rate (INR)', 'Total Amount (INR)'],
       ...outwardList.map((o) => [
         formatDate(o.date),
         o.party,
@@ -306,21 +316,21 @@ export default function RMStockQueryModal({
       ]),
     ];
     const wsOutward = XLSX.utils.aoa_to_sheet(outwardRows);
-    XLSX.utils.book_append_sheet(wb, wsOutward, 'Outward (Consumption)');
+    XLSX.utils.book_append_sheet(wb, wsOutward, 'Sales & Issues');
 
-    const godownRows = [
-      ['Godown / Location', 'Batch Number', 'Net Qty', 'UOM', 'Expiry Date', 'Status'],
-      ...batches.map((b) => [
-        b.storageLocation || 'Main RM Godown',
-        b.batchNumber,
-        b.netQty,
-        b.uom,
-        formatDate(b.expiryDate),
-        b.status,
+    const sameCategoryRows = [
+      ['Item Code', 'Item Name', 'Quantity', 'UOM', 'Cost (INR)', 'Total Value (INR)'],
+      ...categoryItems.map((ci) => [
+        ci.code,
+        ci.name,
+        ci.quantity,
+        ci.uom,
+        ci.cost,
+        ci.totalValue,
       ]),
     ];
-    const wsGodown = XLSX.utils.aoa_to_sheet(godownRows);
-    XLSX.utils.book_append_sheet(wb, wsGodown, 'Godown Details');
+    const wsCategory = XLSX.utils.aoa_to_sheet(sameCategoryRows);
+    XLSX.utils.book_append_sheet(wb, wsCategory, 'Same Category');
 
     XLSX.writeFile(wb, `Stock_Query_${material?.code || 'item'}_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
@@ -448,42 +458,41 @@ export default function RMStockQueryModal({
                   onOpenHistory(selectedId);
                 }
               }}
-              title="View Complete Audit History (Press H)"
-              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 text-[10px] sm:text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 rounded shadow-3xs cursor-pointer transition-all border border-amber-400 hover:shadow-xs"
+              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 text-[10px] sm:text-[11px] font-bold bg-amber-500 hover:bg-amber-600 text-slate-950 rounded transition-all shadow-xs cursor-pointer active:scale-95"
+              title="Open Detailed Material History Drawer (H)"
             >
-              <Clock className="w-3 h-3" />
-              <span className="hidden xs:inline">History</span>
-              <kbd className="hidden lg:inline text-[9px] bg-amber-600/30 text-amber-950 px-1 rounded font-mono font-normal">H</kbd>
+              <Clock className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">History</span>
             </button>
 
-            {/* Export to Excel */}
+            {/* Export Excel */}
             <button
               type="button"
               onClick={handleExportExcel}
+              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 text-[10px] sm:text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-all shadow-xs cursor-pointer active:scale-95"
               title="Export Stock Query to Excel (.xlsx)"
-              className="inline-flex items-center gap-1 p-1 sm:px-2 sm:py-1 text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded shadow-3xs cursor-pointer transition-all border border-emerald-500"
             >
-              <FileSpreadsheet className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+              <FileSpreadsheet className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Export</span>
             </button>
 
-            {/* Print Button */}
+            {/* Print */}
             <button
               type="button"
               onClick={() => window.print()}
+              className="inline-flex items-center gap-1 px-2 sm:px-2.5 py-1 text-[10px] sm:text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded border border-slate-700 transition-all shadow-xs cursor-pointer active:scale-95"
               title="Print Stock Query (Ctrl+P)"
-              className="hidden sm:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 rounded shadow-3xs cursor-pointer transition-all border border-slate-700"
             >
-              <Printer className="w-3 h-3" />
+              <Printer className="w-3.5 h-3.5" />
               <span className="hidden md:inline">Print</span>
             </button>
 
-            {/* Close Modal Button */}
+            {/* Close */}
             <button
               type="button"
               onClick={onClose}
-              title="Close (Esc)"
-              className="p-1 hover:bg-slate-800 text-slate-400 hover:text-white rounded transition-colors cursor-pointer"
+              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-slate-400 hover:text-white hover:bg-rose-600/80 transition-colors ml-1 cursor-pointer"
+              title="Close Stock Query (Esc)"
             >
               <X className="w-4 h-4" />
             </button>
@@ -491,12 +500,12 @@ export default function RMStockQueryModal({
         </header>
 
         {/* =========================================================
-            MODAL BODY: Responsive Scroll on Mobile (<lg), Single-Screen Fixed on Desktop (>=lg)
+            MODAL BODY CONTENT
         ========================================================= */}
-        <div className="flex-1 flex flex-col p-2 sm:p-2.5 gap-2 overflow-y-auto lg:overflow-hidden bg-slate-100 dark:bg-slate-950">
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 sm:p-2.5 flex flex-col gap-2">
           {isLoading ? (
-            <div className="flex-1 flex flex-col items-center justify-center gap-2 py-12">
-              <RefreshCw className="w-6 h-6 text-indigo-600 animate-spin" />
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-4 bg-white dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 py-16">
+              <RefreshCw className="w-8 h-8 text-indigo-600 animate-spin mb-2" />
               <p className="text-xs font-semibold text-slate-500">Fetching live stock details...</p>
             </div>
           ) : !material ? (
@@ -541,7 +550,7 @@ export default function RMStockQueryModal({
                   {/* Closing Balance */}
                   <div className="p-2 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/50">
                     <span className="text-[9px] uppercase tracking-wider font-bold text-emerald-800 dark:text-emerald-400 block">
-                      Closing Balance
+                      Closing Balance (Current Stock)
                     </span>
                     <div className="mt-0.5">
                       <span className={`font-mono font-black text-sm block ${currentQty <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300'}`}>
@@ -599,7 +608,7 @@ export default function RMStockQueryModal({
               </div>
 
               {/* =========================================================
-                  DESKTOP MASTER INFORMATION BOX (>= md: Exact Original Layout)
+                  DESKTOP MASTER INFORMATION BOX (>= md: Exact Original Tally Layout)
               ========================================================= */}
               <div className="hidden md:block bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg shadow-3xs overflow-hidden shrink-0 text-xs">
                 <div className="grid grid-cols-2 divide-x divide-slate-200 dark:divide-slate-800">
@@ -733,6 +742,17 @@ export default function RMStockQueryModal({
                 </button>
                 <button
                   type="button"
+                  onClick={() => setActiveMobileTab('production')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                    activeMobileTab === 'production'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
+                  }`}
+                >
+                  Production Batches ({productionBatchesList.length})
+                </button>
+                <button
+                  type="button"
                   onClick={() => setActiveMobileTab('sales')}
                   className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
                     activeMobileTab === 'sales'
@@ -741,17 +761,6 @@ export default function RMStockQueryModal({
                   }`}
                 >
                   Sales & Issues ({outwardList.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveMobileTab('batches')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
-                    activeMobileTab === 'batches'
-                      ? 'bg-emerald-600 text-white shadow-xs'
-                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800'
-                  }`}
-                >
-                  Batches ({godownList.length})
                 </button>
                 <button
                   type="button"
@@ -774,11 +783,16 @@ export default function RMStockQueryModal({
                 {(activeMobileTab === 'all' || activeMobileTab === 'purchases') && (
                   <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl shadow-3xs overflow-hidden">
                     <div className="bg-slate-100 dark:bg-slate-850 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                      <span className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                        <TrendingUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                        Purchases (Inflow)
-                      </span>
-                      <span className="text-[10px] text-blue-700 dark:text-blue-400 font-mono font-bold bg-blue-50 dark:bg-blue-950/60 px-2 py-0.5 rounded border border-blue-200/60 dark:border-blue-800">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                          <TrendingUp className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                          Purchases
+                        </span>
+                        <span className="text-[10px] text-blue-800 dark:text-blue-300 font-mono font-bold bg-blue-100 dark:bg-blue-950/70 px-1.5 py-0.2 rounded border border-blue-200 dark:border-blue-800">
+                          Stock: {currentQty < 0 ? `(-)${Math.abs(currentQty)}` : currentQty} {baseUom}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-mono font-semibold">
                         Total: {summary?.totalPurchasedQty || 0} {baseUom}
                       </span>
                     </div>
@@ -796,8 +810,33 @@ export default function RMStockQueryModal({
                                 {p.supplierName}
                               </span>
                               <span className="font-mono text-[10px] text-slate-400 whitespace-nowrap">
-                                {formatDate(p.orderDate)}
+                                {formatDate(p.invoiceDate || p.orderDate)}
                               </span>
+                            </div>
+
+                            {/* Clickable PO Number Redirect */}
+                            <div className="flex items-center justify-between gap-2">
+                              <a
+                                href={`/purchase-orders/${p.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-mono font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                                title="Open PO Details"
+                              >
+                                <span>PO: {p.referenceNo}</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+
+                              {/* Batches Pill List */}
+                              {Array.isArray(p.batches) && p.batches.length > 0 && (
+                                <div className="flex flex-wrap gap-1 justify-end">
+                                  {p.batches.map((bn, bIdx) => (
+                                    <span key={bIdx} className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                      {bn}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
 
                             <div className="flex items-center justify-between gap-2 text-xs">
@@ -819,12 +858,6 @@ export default function RMStockQueryModal({
                                 {formatINR(p.itemTotal)}
                               </span>
                             </div>
-
-                            {p.referenceNo && (
-                              <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
-                                PO Ref: {p.referenceNo}
-                              </div>
-                            )}
                           </div>
                         ))}
                       </div>
@@ -840,13 +873,95 @@ export default function RMStockQueryModal({
                   </div>
                 )}
 
-                {/* 2. Mobile Sales & Issues */}
+                {/* 2. Mobile Production Batches (Consumption) */}
+                {(activeMobileTab === 'all' || activeMobileTab === 'production') && (
+                  <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl shadow-3xs overflow-hidden">
+                    <div className="bg-slate-100 dark:bg-slate-850 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                          <Factory className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                          Production Batches
+                        </span>
+                        <span className="text-[10px] text-emerald-800 dark:text-emerald-300 font-mono font-bold bg-emerald-100 dark:bg-emerald-950/70 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                          Stock: {currentQty < 0 ? `(-)${Math.abs(currentQty)}` : currentQty} {baseUom}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-mono font-semibold">
+                        {productionBatchesList.length} batches
+                      </span>
+                    </div>
+
+                    {productionBatchesList.length === 0 ? (
+                      <div className="p-6 text-center text-slate-400 italic text-xs">
+                        No production batches recorded for this material
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {productionBatchesList.map((u, idx) => (
+                          <div key={u.id || idx} className="p-3 space-y-1.5 hover:bg-emerald-50/30 dark:hover:bg-emerald-950/20 transition-colors">
+                            <div className="flex items-center justify-between gap-2">
+                              {/* Clickable Production Batch Link */}
+                              <a
+                                href={`/production/standard?search=${encodeURIComponent(u.batchNumber || u.batchReferenceNo || '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 font-mono font-bold text-indigo-600 dark:text-indigo-400 text-xs hover:underline"
+                                title="Open Production Batch"
+                              >
+                                <span>{u.batchNumber || u.batchReferenceNo || 'Batch'}</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                {formatDate(u.date)}
+                              </span>
+                            </div>
+
+                            <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                              {u.productOnlyName || u.productName || 'Finished Product'}
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <div>
+                                <span className="text-[10px] text-slate-400 mr-1">Batch From:</span>
+                                <span className="font-mono text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  {u.batchNoTakenFrom || u.internalBatchNo || 'Primary RM Batch'}
+                                </span>
+                              </div>
+                              <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400 text-sm">
+                                {u.actualUsedQty} {baseUom}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
+                              <span className="font-mono text-[11px] text-slate-500">
+                                PO Rate: ₹{Number(u.poRate || u.unitCost || costPrice).toFixed(2)}
+                              </span>
+                              <span className="font-mono font-black text-slate-900 dark:text-white text-sm">
+                                {formatINR(u.calculatedPrice || u.totalCost)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Total Footer */}
+                    <div className="bg-slate-50 dark:bg-slate-950 px-3 py-1.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs font-mono">
+                      <span className="font-bold text-slate-500 uppercase text-[10px]">Total Consumed Cost:</span>
+                      <span className="font-black text-slate-900 dark:text-white">
+                        {formatINR(summary?.totalConsumedCost || 0)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Mobile Sales & Issues */}
                 {(activeMobileTab === 'all' || activeMobileTab === 'sales') && (
                   <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl shadow-3xs overflow-hidden">
                     <div className="bg-slate-100 dark:bg-slate-850 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
                       <span className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
                         <TrendingDown className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                        Sales & Issues (Outflow)
+                        Sales & Issues
                       </span>
                       <span className="text-[10px] text-amber-700 dark:text-amber-400 font-mono font-bold bg-amber-50 dark:bg-amber-950/60 px-2 py-0.5 rounded border border-amber-200/60 dark:border-amber-800">
                         Total: {summary?.totalConsumedQty || 0} {baseUom}
@@ -868,6 +983,8 @@ export default function RMStockQueryModal({
                               <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
                                 o.type === 'Issue' 
                                   ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300' 
+                                  : o.type === 'Sale'
+                                  ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300'
                                   : o.type === 'Waste'
                                   ? 'bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300'
                                   : 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300'
@@ -901,70 +1018,9 @@ export default function RMStockQueryModal({
 
                     {/* Total Footer */}
                     <div className="bg-slate-50 dark:bg-slate-950 px-3 py-1.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs font-mono">
-                      <span className="font-bold text-slate-500 uppercase text-[10px]">Total Outflow Cost:</span>
+                      <span className="font-bold text-slate-500 uppercase text-[10px]">Total Outflow:</span>
                       <span className="font-black text-slate-900 dark:text-white">
                         {formatINR(summary?.totalConsumedCost || 0)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* 3. Mobile Godown / Batch Details */}
-                {(activeMobileTab === 'all' || activeMobileTab === 'batches') && (
-                  <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-xl shadow-3xs overflow-hidden">
-                    <div className="bg-slate-100 dark:bg-slate-850 px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-                      <span className="font-bold text-xs text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
-                        <Warehouse className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                        Godown / Batch Details
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-mono font-bold">
-                        {godownList.length} locations
-                      </span>
-                    </div>
-
-                    {godownList.length === 0 ? (
-                      <div className="p-6 text-center text-slate-400 italic text-xs">
-                        No batch records logged
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                        {godownList.map((g, idx) => {
-                          const gQty = Number(g.netQty ?? g.quantity ?? 0);
-                          const gVal = gQty * costPrice;
-                          return (
-                            <div key={g.id || idx} className="p-3 space-y-1 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                  {g.storageLocation || 'Main Location'}
-                                </span>
-                                <span className="font-mono font-black text-slate-900 dark:text-slate-100 text-sm">
-                                  {gQty < 0 ? `(-)${Math.abs(gQty)}` : gQty} {g.uom || baseUom}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 text-xs">
-                                <span className="font-mono text-slate-500 dark:text-slate-400 text-[11px]">
-                                  {g.batchNumber || 'Primary Batch'}
-                                  {g.expiryDate && (
-                                    <span className="text-[9px] text-amber-600 dark:text-amber-400 ml-1">
-                                      (Exp: {formatDate(g.expiryDate)})
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="font-mono text-slate-700 dark:text-slate-300 font-bold">
-                                  {formatINR(gVal)}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* Total Footer */}
-                    <div className="bg-slate-50 dark:bg-slate-950 px-3 py-1.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs font-mono">
-                      <span className="font-bold text-slate-500 uppercase text-[10px]">Total Balance:</span>
-                      <span className="font-black text-slate-900 dark:text-white">
-                        {currentQty < 0 ? `(-)${Math.abs(currentQty)}` : currentQty} {baseUom}
                       </span>
                     </div>
                   </div>
@@ -1039,18 +1095,23 @@ export default function RMStockQueryModal({
                   DESKTOP VIEW (>= lg: 100% Intact Fixed Single-Screen 2x2 Grid)
               ========================================================= */}
               <div className="hidden lg:flex flex-col flex-1 min-h-0 gap-2 overflow-hidden">
-                {/* MIDDLE SECTION: SPLIT PURCHASES (LEFT) VS SALES (RIGHT) */}
+                {/* TOP HALF: PURCHASES (LEFT) VS SALES & ISSUES (RIGHT) */}
                 <div className="flex-1 min-h-0 grid grid-cols-2 gap-2">
                   {/* LEFT: PURCHASES */}
                   <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg shadow-3xs overflow-hidden flex flex-col min-h-0">
                     <div className="bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1 border-b border-slate-300 dark:border-slate-700 shrink-0">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-[11px] text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1">
-                          <TrendingUp className="w-3 h-3 text-blue-600 dark:text-blue-400" />
-                          Purchases
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-[11px] text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+                            Purchases
+                          </span>
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-950/70 text-blue-800 dark:text-blue-300 border border-blue-300 dark:border-blue-800">
+                            Stock: {currentQty < 0 ? `(-)${Math.abs(currentQty)}` : currentQty} {baseUom}
+                          </span>
+                        </div>
                         {lastPurchase ? (
-                          <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center gap-1.5 truncate max-w-[280px]">
+                          <div className="text-[10px] text-slate-600 dark:text-slate-300 flex items-center gap-1.5 truncate max-w-[300px]">
                             <span>Last: <strong className="font-mono text-slate-800 dark:text-slate-200">{formatDate(lastPurchase.date)}</strong></span>
                             <span className="truncate font-semibold text-indigo-600 dark:text-indigo-400" title={lastPurchase.partyName}>{lastPurchase.partyName}</span>
                             <span className="font-mono font-bold text-slate-900 dark:text-white">{lastPurchase.quantity} {lastPurchase.uom} @ {formatINR(lastPurchase.rate)}</span>
@@ -1066,7 +1127,8 @@ export default function RMStockQueryModal({
                         <thead className="bg-slate-50 dark:bg-slate-950/70 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase sticky top-0 backdrop-blur-xs">
                           <tr>
                             <th className="py-1 px-2 text-left">Date</th>
-                            <th className="py-1 px-2 text-left">Party Name</th>
+                            <th className="py-1 px-2 text-left">Party Name & (PO No)</th>
+                            <th className="py-1 px-2 text-left">Batch No</th>
                             <th className="py-1 px-2 text-right">Quantity</th>
                             <th className="py-1 px-2 text-right">Rate</th>
                             <th className="py-1 px-2 text-right">Disc/Amt</th>
@@ -1076,7 +1138,7 @@ export default function RMStockQueryModal({
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-sans">
                           {inwardList.length === 0 ? (
                             <tr>
-                              <td colSpan={6} className="py-6 text-center text-slate-400 italic text-[11px]">
+                              <td colSpan={7} className="py-6 text-center text-slate-400 italic text-[11px]">
                                 No purchases recorded
                               </td>
                             </tr>
@@ -1084,11 +1146,40 @@ export default function RMStockQueryModal({
                             inwardList.map((p, idx) => (
                               <tr key={p.id || idx} className="hover:bg-blue-50/50 dark:hover:bg-blue-950/30 transition-colors">
                                 <td className="py-1 px-2 font-mono text-slate-500 whitespace-nowrap">
-                                  {formatDate(p.orderDate)}
+                                  {formatDate(p.invoiceDate || p.orderDate)}
                                 </td>
-                                <td className="py-1 px-2 max-w-[130px] truncate" title={p.supplierName}>
+                                <td className="py-1 px-2 max-w-[150px] truncate" title={p.supplierName}>
                                   <span className="font-semibold text-slate-800 dark:text-slate-200">{p.supplierName}</span>
-                                  <span className="text-[9px] text-slate-400 font-mono ml-1">({p.referenceNo})</span>
+                                  {/* Clickable PO Number Redirect */}
+                                  <a
+                                    href={`/purchase-orders/${p.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-0.5 text-[9px] font-mono font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 hover:underline ml-1"
+                                    title="View PO Details (Opens in new tab)"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <span>({p.referenceNo})</span>
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                </td>
+                                <td className="py-1 px-2 max-w-[150px]">
+                                  {/* If multiple batches for same PO, display all in same row */}
+                                  {Array.isArray(p.batches) && p.batches.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1 items-center">
+                                      {p.batches.map((bn, bIdx) => (
+                                        <span 
+                                          key={bIdx}
+                                          className="inline-block px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-amber-50 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 border border-amber-200/80 dark:border-amber-800 whitespace-nowrap"
+                                          title={`Batch Lot: ${bn}`}
+                                        >
+                                          {bn}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-400 font-mono text-[10px]">—</span>
+                                  )}
                                 </td>
                                 <td className="py-1 px-2 text-right font-mono font-bold text-slate-900 dark:text-slate-100 whitespace-nowrap">
                                   {p.orderedQty} {p.uom || baseUom}
@@ -1122,7 +1213,7 @@ export default function RMStockQueryModal({
                     </div>
                   </div>
 
-                  {/* RIGHT: SALES & CONSUMPTION */}
+                  {/* RIGHT: SALES & ISSUES */}
                   <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg shadow-3xs overflow-hidden flex flex-col min-h-0">
                     <div className="bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1 border-b border-slate-300 dark:border-slate-700 shrink-0">
                       <div className="flex items-center justify-between">
@@ -1167,7 +1258,7 @@ export default function RMStockQueryModal({
                                 <td className="py-1 px-2 font-mono text-slate-500 whitespace-nowrap">
                                   {formatDate(o.date)}
                                 </td>
-                                <td className="py-1 px-2 max-w-[130px] truncate" title={o.party}>
+                                <td className="py-1 px-2 max-w-[140px] truncate" title={o.party}>
                                   <span className="font-semibold text-slate-800 dark:text-slate-200">{o.party}</span>
                                 </td>
                                 <td className="py-1 px-2 text-right font-mono font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">
@@ -1180,6 +1271,8 @@ export default function RMStockQueryModal({
                                   <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold uppercase ${
                                     o.type === 'Issue' 
                                       ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300' 
+                                      : o.type === 'Sale'
+                                      ? 'bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300'
                                       : o.type === 'Waste'
                                       ? 'bg-rose-100 dark:bg-rose-900/60 text-rose-700 dark:text-rose-300'
                                       : 'bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300'
@@ -1211,17 +1304,22 @@ export default function RMStockQueryModal({
                   </div>
                 </div>
 
-                {/* BOTTOM SECTION: GODOWN DETAILS (LEFT) VS SAME CATEGORY (RIGHT) */}
+                {/* BOTTOM HALF: PRODUCTION BATCHES (LEFT) VS SAME CATEGORY (RIGHT) */}
                 <div className="flex-1 min-h-0 grid grid-cols-2 gap-2">
-                  {/* LEFT: GODOWN / BATCH DETAILS */}
+                  {/* LEFT: PRODUCTION BATCH CONSUMPTION DETAILS */}
                   <div className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 rounded-lg shadow-3xs overflow-hidden flex flex-col min-h-0">
                     <div className="bg-slate-100 dark:bg-slate-800/90 px-2.5 py-1 border-b border-slate-300 dark:border-slate-700 flex items-center justify-between shrink-0">
-                      <span className="font-bold text-[11px] text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1">
-                        <Warehouse className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                        Godown / Batch Details
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-[11px] text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-1">
+                          <Factory className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                          Production Batches
+                        </span>
+                        <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800">
+                          Stock: {currentQty < 0 ? `(-)${Math.abs(currentQty)}` : currentQty} {baseUom}
+                        </span>
+                      </div>
                       <span className="text-[10px] text-slate-500 font-mono">
-                        {godownList.length} locations
+                        {productionBatchesList.length} batches
                       </span>
                     </div>
 
@@ -1229,55 +1327,74 @@ export default function RMStockQueryModal({
                       <table className="w-full text-[11px] border-collapse">
                         <thead className="bg-slate-50 dark:bg-slate-950/70 text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold uppercase sticky top-0 backdrop-blur-xs">
                           <tr>
-                            <th className="py-1 px-2 text-left">Godown</th>
-                            <th className="py-1 px-2 text-left">Batch</th>
-                            <th className="py-1 px-2 text-right">Quantity</th>
-                            <th className="py-1 px-2 text-right">Value (INR)</th>
+                            <th className="py-1 px-2 text-left">Batch No</th>
+                            <th className="py-1 px-2 text-left">Product Name</th>
+                            <th className="py-1 px-2 text-right">Consumed Qty</th>
+                            <th className="py-1 px-2 text-left">Batch Taken From</th>
+                            <th className="py-1 px-2 text-right">PO Rate</th>
+                            <th className="py-1 px-2 text-right">Calculated Price</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-sans">
-                          {godownList.length === 0 ? (
+                          {productionBatchesList.length === 0 ? (
                             <tr>
-                              <td colSpan={4} className="py-6 text-center text-slate-400 italic text-[11px]">
-                                No batch records logged
+                              <td colSpan={6} className="py-6 text-center text-slate-400 italic text-[11px]">
+                                No production batches recorded for this material
                               </td>
                             </tr>
                           ) : (
-                            godownList.map((g, idx) => {
-                              const gQty = Number(g.netQty ?? g.quantity ?? 0);
-                              const gVal = gQty * costPrice;
-                              return (
-                                <tr key={g.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                  <td className="py-1 px-2 font-semibold text-slate-800 dark:text-slate-200">
-                                    {g.storageLocation || 'Main Location'}
-                                  </td>
-                                  <td className="py-1 px-2 font-mono text-slate-600 dark:text-slate-300">
-                                    {g.batchNumber || 'Primary Batch'}
-                                    {g.expiryDate && (
-                                      <span className="text-[9px] text-amber-600 dark:text-amber-400 ml-1">
-                                        (Exp: {formatDate(g.expiryDate)})
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="py-1 px-2 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                                    {gQty < 0 ? `(-)${Math.abs(gQty)}` : gQty} {g.uom || baseUom}
-                                  </td>
-                                  <td className="py-1 px-2 text-right font-mono text-slate-700 dark:text-slate-300">
-                                    {formatINR(gVal)}
-                                  </td>
-                                </tr>
-                              );
-                            })
+                            productionBatchesList.map((u, idx) => (
+                              <tr key={u.id || idx} className="hover:bg-emerald-50/40 dark:hover:bg-emerald-950/30 transition-colors">
+                                {/* Batch No with clickable redirect link */}
+                                <td className="py-1 px-2 font-mono whitespace-nowrap">
+                                  <a
+                                    href={`/production/standard?search=${encodeURIComponent(u.batchNumber || u.batchReferenceNo || '')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 hover:underline cursor-pointer"
+                                    title="Open Production Batch in Standard Production (Opens in new tab)"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <span>{u.batchNumber || u.batchReferenceNo || 'Batch'}</span>
+                                    <ExternalLink className="w-2.5 h-2.5" />
+                                  </a>
+                                </td>
+                                <td className="py-1 px-2 max-w-[130px] truncate" title={u.productOnlyName || u.productName}>
+                                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                                    {u.productOnlyName || u.productName || 'Finished Product'}
+                                  </span>
+                                </td>
+                                <td className="py-1 px-2 text-right font-mono font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
+                                  {u.actualUsedQty} {baseUom}
+                                </td>
+                                <td className="py-1 px-2 font-mono whitespace-nowrap">
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                    {u.batchNoTakenFrom || u.internalBatchNo || 'Primary RM Batch'}
+                                  </span>
+                                </td>
+                                <td className="py-1 px-2 text-right font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                  ₹{Number(u.poRate || u.unitCost || costPrice).toFixed(2)}
+                                </td>
+                                <td className="py-1 px-2 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                  {formatINR(u.calculatedPrice || u.totalCost)}
+                                </td>
+                              </tr>
+                            ))
                           )}
                         </tbody>
                       </table>
                     </div>
 
                     <div className="bg-slate-50 dark:bg-slate-950 px-2.5 py-0.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-[10px] font-mono shrink-0">
-                      <span className="font-bold text-slate-500 uppercase">Total:</span>
-                      <span className="font-black text-slate-900 dark:text-white">
-                        {currentQty < 0 ? `(-)${Math.abs(currentQty)}` : currentQty} {baseUom}
-                      </span>
+                      <span className="font-bold text-slate-500 uppercase">Total Consumed:</span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                          {summary?.totalConsumedQty || 0} {baseUom}
+                        </span>
+                        <span className="font-black text-slate-900 dark:text-white">
+                          {formatINR(summary?.totalConsumedCost || 0)}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
