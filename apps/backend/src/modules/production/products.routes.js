@@ -918,6 +918,14 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
       where: { productId: product.id },
       include: {
         creator: { select: { name: true } },
+        order: { select: { id: true, docNo: true, referenceNo: true, type: true } },
+        rmUsages: {
+          include: {
+            rawMaterial: {
+              include: { uoms: true }
+            }
+          }
+        },
         qcTests: {
           include: {
             tester: { select: { name: true } }
@@ -928,28 +936,41 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
     });
 
     const formattedBatches = batches.map(b => {
-      const planned = Number(b.plannedQuantity || 0);
-      const actual = Number(b.actualOutput || 0);
-      const yieldPct = planned > 0 ? ((actual / planned) * 100).toFixed(1) : '100';
+      const planned = Number(b.quantity || b.plannedQuantity || 0);
+      const actual = Number(b.actualOutput !== null && b.actualOutput !== undefined ? b.actualOutput : (b.quantity || 0));
+      const yieldPct = planned > 0 ? ((actual / planned) * 100).toFixed(1) : (actual > 0 ? '100' : '0');
       const latestQc = b.qcTests && b.qcTests.length > 0 ? b.qcTests[b.qcTests.length - 1] : null;
+      const unitCostVal = Number(b.costPerUnit || b.unitCost || (planned > 0 ? Number(b.totalCost || b.grandTotal || 0) / planned : 0));
+      const grandTotalVal = Number(b.grandTotal || b.totalCost || (actual * unitCostVal));
+
       return {
         id: b.id,
         batchNo: b.batchNo || b.referenceNo || 'N/A',
-        referenceNo: b.referenceNo || 'N/A',
+        referenceNo: b.referenceNo || 'MP-000001',
+        productionType: b.productionType || (b.orderId ? 'Order-Based' : 'STANDARD'),
+        orderId: b.order?.id || null,
+        orderDocNo: b.order?.docNo || b.order?.referenceNo || null,
+        shift: b.shift || 'Morning',
+        machineLine: b.machineLine || 'Main Processing Line',
+        baseName: b.baseName || product.specifications?.baseName || product.category?.name || 'KULFI BASE',
+        templateName: b.templateId ? 'KULFI BASE TEMPLATE' : (product.specifications?.templateName || 'Standard Formula'),
+        targetProduct: product.name,
+        targetProductCode: product.code,
         plannedQuantity: planned,
         actualOutput: actual,
         unit: product.unit?.abbreviation || 'pcs',
         yieldPercent: yieldPct,
-        unitCost: Number(b.unitCost || 0),
-        totalCost: Number(b.totalCost || 0),
-        status: b.status,
-        stage: b.stage,
-        startDate: b.startDate,
-        endDate: b.endDate,
-        qcStatus: latestQc ? (latestQc.action === 'approved' ? 'APPROVED' : (latestQc.action === 'rejected' ? 'REJECTED' : 'PENDING')) : 'NOT_TESTED',
+        unitCost: unitCostVal,
+        grandTotal: grandTotalVal,
+        totalCost: grandTotalVal,
+        status: b.status || 'Completed',
+        stage: b.currentStage?.name || b.stage || 'Completed',
+        startDate: b.startDate || b.createdAt,
+        completeDate: b.completeDate || b.completedAt || b.updatedAt,
+        qcStatus: latestQc ? (latestQc.action === 'approved' ? 'APPROVED' : (latestQc.action === 'rejected' ? 'REJECTED' : 'PENDING')) : (b.qcStatus || 'EXEMPT'),
         qcResult: latestQc?.result || 'N/A',
         qcTester: latestQc?.tester?.name || 'Lab Staff',
-        supervisorName: b.supervisor?.name || b.creator?.name || 'Supervisor',
+        supervisorName: b.completedBy || b.creator?.name || 'Supervisor',
         createdAt: b.createdAt
       };
     });
@@ -971,18 +992,23 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
     const formattedOrders = orderItems.map(item => ({
       id: item.id,
       orderId: item.order?.id,
-      referenceNo: item.order?.referenceNo || 'N/A',
-      customerName: item.order?.customer?.name || 'N/A',
+      referenceNo: item.order?.docNo || item.order?.referenceNo || 'N/A',
+      docNo: item.order?.docNo || item.order?.referenceNo || 'N/A',
+      customerName: item.order?.customer?.name || item.order?.customerName || 'Walk-in Customer',
       customerContact: item.order?.customer?.phone || item.order?.customer?.email || 'N/A',
       orderDate: item.order?.createdAt,
       deliveryDate: item.deliveryDate || item.order?.deliveryDate,
       orderedQty: Number(item.quantity || 0),
       unitPrice: Number(item.unitPrice || 0),
-      subtotal: Number(item.subtotal || 0),
+      hsnCode: item.hsnCode || product.hsnCode || product.specifications?.hsnCode || '21050000',
+      gstRate: Number(item.gstRate !== undefined ? item.gstRate : (product.specifications?.gstPercent || 5)),
+      discountPercent: Number(item.discountPercent || 0),
+      subtotal: Number(item.subtotal || (Number(item.quantity || 0) * Number(item.unitPrice || 0))),
       profit: Number(item.profit || 0),
       unit: product.unit?.abbreviation || 'pcs',
-      status: item.order?.status || 'Quotation',
-      orderType: item.order?.type
+      status: item.order?.status || 'Completed',
+      orderType: item.order?.type || 'Sales Order',
+      sourceStock: '✓ Direct Warehouse Stock'
     }));
 
     // 4. Product Wastage Records
@@ -1026,27 +1052,104 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
       id: ri.id,
       returnId: ri.return?.id,
       referenceNo: ri.return?.returnNo || 'N/A',
+      orderDocNo: ri.return?.order?.docNo || ri.return?.order?.referenceNo || 'N/A',
       returnDate: ri.return?.createdAt,
-      customerName: ri.return?.order?.customer?.name || 'N/A',
+      customerName: ri.return?.order?.customer?.name || ri.return?.customerName || 'Customer Return',
       quantity: Number(ri.quantity || 0),
+      condition: ri.condition || 'Restocked',
+      unitPrice: Number(ri.unitPrice || product.salePrice || 0),
+      refundAmount: Number(ri.refundAmount || 0),
       unit: product.unit?.abbreviation || 'pcs',
       reason: ri.return?.reason || 'Customer Return',
-      status: ri.return?.status || 'PENDING',
+      status: ri.return?.status || 'Completed',
       action: 'RESTOCK'
     }));
 
-    // 6. Bill of Materials (BoM Ingredients)
+    // 6. Raw Material Consumption (Standard BoM + Actual Batch RM Usages)
     const formattedBOM = (product.bom || []).map(b => ({
       id: b.id,
       rmId: b.rmId,
       rmName: b.rawMaterial?.name || 'Raw Material',
       rmCode: b.rawMaterial?.code || 'RM',
-      rmUnit: b.rawMaterial?.unitId || 'kg',
+      rmUnit: b.rawMaterial?.unitId || b.rawMaterial?.uoms?.[0]?.uom?.abbreviation || 'kg',
       currentStock: Number(b.rawMaterial?.currentStock || 0),
       consumptionPerUnit: Number(b.consumptionPerUnit || 0),
       unitPrice: Number(b.unitPrice || 0),
       totalCost: Number(b.totalCost || 0)
     }));
+
+    // Aggregate Actual RM Consumed across all Batches
+    const actualRawMaterialsMap = new Map();
+    const batchWiseRMUsages = [];
+
+    batches.forEach(b => {
+      const bPlanned = Number(b.quantity || b.plannedQuantity || 0);
+      const bOutput = Number(b.actualOutput !== null && b.actualOutput !== undefined ? b.actualOutput : (b.quantity || 0));
+      const bUsages = b.rmUsages || [];
+
+      bUsages.forEach(u => {
+        const rm = u.rawMaterial;
+        if (!rm) return;
+
+        const usedQty = Number(u.actualUsedQty || u.requiredQty || u.inputQty || 0);
+        const unitCost = Number(u.unitCost || 0);
+        const totalCost = Number(u.totalCost || (usedQty * unitCost));
+        const uom = u.selectedUom || rm.uoms?.[0]?.uom?.abbreviation || rm.unitId || 'kg';
+
+        batchWiseRMUsages.push({
+          id: u.id,
+          batchId: b.id,
+          batchNo: b.batchNo || b.referenceNo || 'N/A',
+          referenceNo: b.referenceNo || 'N/A',
+          batchDate: b.startDate || b.createdAt,
+          shift: b.shift || 'Morning',
+          machineLine: b.machineLine || 'Main Processing Line',
+          batchStatus: b.status,
+          productionType: b.productionType || (b.orderId ? 'Order-Based' : 'STANDARD'),
+          plannedQuantity: bPlanned,
+          actualOutput: bOutput,
+          rmId: rm.id,
+          rmCode: rm.code,
+          rmName: rm.name,
+          consumedQty: usedQty,
+          rmUnit: uom,
+          unitPrice: unitCost,
+          totalCost: totalCost,
+          currentStock: Number(rm.currentStock || 0)
+        });
+
+        if (!actualRawMaterialsMap.has(rm.id)) {
+          actualRawMaterialsMap.set(rm.id, {
+            id: rm.id,
+            rmId: rm.id,
+            rmCode: rm.code,
+            rmName: rm.name,
+            rmUnit: uom,
+            currentStock: Number(rm.currentStock || 0),
+            totalConsumedQty: 0,
+            totalCost: 0,
+            batchesCount: 0,
+            unitPrice: unitCost
+          });
+        }
+
+        const agg = actualRawMaterialsMap.get(rm.id);
+        agg.totalConsumedQty += usedQty;
+        agg.totalCost += totalCost;
+        agg.batchesCount += 1;
+        if (unitCost > 0) agg.unitPrice = unitCost;
+      });
+    });
+
+    const totalBatchInflowQty = batches.reduce((sum, b) => sum + Number(b.actualOutput !== null && b.actualOutput !== undefined ? b.actualOutput : (b.quantity || 0)), 0);
+    const aggregatedActualRM = Array.from(actualRawMaterialsMap.values()).map(item => ({
+      ...item,
+      consumptionPerUnit: totalBatchInflowQty > 0 ? Number((item.totalConsumedQty / totalBatchInflowQty).toFixed(4)) : item.totalConsumedQty,
+      avgCost: item.totalConsumedQty > 0 ? Number((item.totalCost / item.totalConsumedQty).toFixed(2)) : item.unitPrice
+    }));
+
+    // If static BoM is empty, use actual consumed ingredients so the user always sees real RM data
+    const effectiveBOM = formattedBOM.length > 0 ? formattedBOM : aggregatedActualRM;
 
     // 7. Unified Chronological Timeline
     const timelineEvents = [];
@@ -1160,7 +1263,8 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
     }
 
     // Costing calculations
-    const totalBomCost = formattedBOM.reduce((sum, b) => sum + (b.totalCost || 0), 0);
+    const activeBomForCost = effectiveBOM.length > 0 ? effectiveBOM : formattedBOM;
+    const totalBomCost = activeBomForCost.reduce((sum, b) => sum + (b.totalCost || 0), 0);
     const avgCostPrice = totalBomCost > 0 ? totalBomCost : Number(product.salePrice || 0) * 0.7;
     const closingValue = currentBalance * avgCostPrice;
 
@@ -1170,8 +1274,11 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
         code: product.code,
         name: product.name,
         category: product.category?.name || 'N/A',
+        subcategory: product.subcategory?.name || product.specifications?.category || 'Kulfi Traditional',
+        hsnCode: product.hsnCode || product.specifications?.hsnCode || '21050000',
         unit: product.unit?.abbreviation || product.unit?.name || 'pcs',
         salePrice: Number(product.salePrice || 0),
+        gstPercent: Number(product.specifications?.gstPercent || 5),
         openingStock: Number(product.openingStock || 0),
         currentStock: currentBalance,
         minLevel,
@@ -1205,7 +1312,9 @@ router.get('/stock/:productId/history', authenticateToken, async (req, res, next
       ledger: ledgerMovements,
       batches: formattedBatches,
       orders: formattedOrders,
-      bom: formattedBOM,
+      bom: effectiveBOM,
+      actualRawMaterials: aggregatedActualRM,
+      batchWiseRM: batchWiseRMUsages,
       wastages: formattedWastages,
       returns: formattedReturns,
       timeline: timelineEvents
