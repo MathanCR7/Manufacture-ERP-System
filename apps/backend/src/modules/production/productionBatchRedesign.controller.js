@@ -169,7 +169,28 @@ class ProductionBatchRedesignController {
           labourStaffIds: Array.isArray(extra.labour_staff_ids) ? extra.labour_staff_ids : (typeof extra.labour_staff_ids === 'string' ? JSON.parse(extra.labour_staff_ids || '[]') : []),
           labourStaffDetails: Array.isArray(extra.labour_staff_details) ? extra.labour_staff_details : (typeof extra.labour_staff_details === 'string' ? JSON.parse(extra.labour_staff_details || '[]') : []),
           rawMaterialsCount: b.rmUsages?.length || 0,
-          rmUsages: b.rmUsages || [],
+          rmUsages: (b.rmUsages || []).map(u => {
+            let baseUom = u.rawMaterial?.unit?.abbreviation || u.rawMaterial?.unitId || 'liter';
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(baseUom)) {
+              baseUom = 'units';
+            }
+            const altUomCandidate = u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
+            const hasAlt = Boolean(u.rawMaterial?.hasAlternateUom && altUomCandidate && altUomCandidate.toLowerCase() !== baseUom.toLowerCase());
+            const altUom = hasAlt ? altUomCandidate : null;
+            const factor = hasAlt ? Number(
+              u.conversionFactorUsed ||
+              u.rawMaterial?.conversionFactor ||
+              (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
+              1000
+            ) : 1;
+            return {
+              ...u,
+              baseUom,
+              hasAlternateUom: hasAlt,
+              alternateUom: altUom,
+              conversionFactor: factor
+            };
+          }),
           createdAt: b.createdAt
         };
       });
@@ -1027,8 +1048,23 @@ class ProductionBatchRedesignController {
               const defaultUom = await tx.uOM.findFirst({ where: { isActive: true } });
 
               for (const item of validWastage) {
-                const qtyToWaste = Number(item.quantity);
-                const lossAmt = Number(item.lossAmount || (qtyToWaste * Number(item.unitCost || 0)));
+                let qtyToWaste = Number(item.quantity);
+
+                // Fetch RM to safeguard canonical base UOM
+                const rm = await tx.rawMaterial.findUnique({ where: { id: item.rmId } });
+                const baseUom = rm?.unitId || 'liter';
+                const altUom = rm?.alternateUom || rm?.consumptionUnit;
+                const hasAlt = Boolean(rm?.hasAlternateUom && altUom && altUom.toLowerCase() !== baseUom.toLowerCase());
+                const factor = hasAlt ? Number(item.conversionFactorUsed || rm?.conversionFactor || 1000) : 1;
+
+                if (hasAlt && factor > 1) {
+                  // Guard against client sending raw alternate quantity
+                  if (item.selectedUom && item.selectedUom.toLowerCase() === altUom.toLowerCase() && item.inputQty && qtyToWaste === Number(item.inputQty)) {
+                    qtyToWaste = Number((qtyToWaste / factor).toFixed(6));
+                  }
+                }
+
+                const lossAmt = Number(item.lossAmount || (qtyToWaste * Number(item.unitCost || rm?.ratePerUnit || 0)));
 
                 // Resolve UOM ID
                 let resolvedUomId = item.uomId;

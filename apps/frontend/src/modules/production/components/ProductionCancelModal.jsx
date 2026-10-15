@@ -44,16 +44,35 @@ export default function ProductionCancelModal({
 
       (batch.rmUsages || []).forEach((u, uIdx) => {
         const rm = u.rawMaterial || {};
-        const uomLabel = u.selectedUom || rm.consumptionUnit || rm.unitId || 'Kg';
-        const hasAlt = Boolean(rm.hasAlternateUom && rm.alternateUom);
-        const altUom = rm.alternateUom;
-        const convFactor = Number(
-          rm.conversionFactor ||
+
+        // 1. Resolve true Canonical Base UOM (from RM master / unit)
+        let baseUom = u.baseUom || rm.unit?.abbreviation || rm.unitId || 'Kg';
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(baseUom)) {
+          baseUom = rm.unit?.name || 'Kg';
+        }
+        if (baseUom.toLowerCase() === 'kilogram' || baseUom.toLowerCase() === 'kilograms') baseUom = 'kg';
+        if (baseUom.toLowerCase() === 'liters' || baseUom.toLowerCase() === 'litres') baseUom = 'liter';
+
+        // 2. Resolve Alternate UOM (must not match baseUom)
+        const altUomCandidate = u.alternateUom || rm.alternateUom || (rm.consumptionUnit && rm.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? rm.consumptionUnit : null);
+        const hasAlt = Boolean(
+          (u.hasAlternateUom || rm.hasAlternateUom) && 
+          altUomCandidate && 
+          altUomCandidate.toLowerCase() !== baseUom.toLowerCase()
+        );
+        const altUom = hasAlt ? altUomCandidate : null;
+
+        // 3. Conversion factor
+        const convFactor = hasAlt ? Number(
+          u.conversionFactor ||
           u.conversionFactorUsed ||
+          rm.conversionFactor ||
           (rm.alternateUomQty && rm.baseUomQty && Number(rm.baseUomQty) > 0
             ? Number(rm.alternateUomQty) / Number(rm.baseUomQty)
             : 1000)
-        );
+        ) : 1;
+
+        // 4. Rate per Canonical Base UOM
         const unitCost = Number(u.unitCost || rm.ratePerUnit || 0);
 
         // Find allocations linked to this usage
@@ -61,53 +80,65 @@ export default function ProductionCancelModal({
           ? u.allocations
           : batchAllocations.filter(a => a.usage_id === u.id || a.usageId === u.id);
 
+        const processItem = (allocQty, lotNo, lotBatchId, lineRate, keySuffix) => {
+          const rawQty = allocQty > 0 ? allocQty : Number(u.actualUsedQty || u.requiredQty || 0);
+          
+          // Determine if rawQty is recorded in Alternate UOM:
+          const isRecordedInAlt = Boolean(
+            hasAlt && altUom && (
+              (u.selectedUom && u.selectedUom.toLowerCase() === altUom.toLowerCase()) ||
+              (u.selectedUom && !u.selectedUom.toLowerCase().includes(baseUom.toLowerCase()))
+            )
+          );
+
+          let canonicalPlanned = rawQty;
+          let initialInputValue = rawQty;
+          let selectedMode = 'base';
+
+          if (isRecordedInAlt && convFactor > 0) {
+            canonicalPlanned = Number((rawQty / convFactor).toFixed(6));
+            initialInputValue = rawQty;
+            selectedMode = 'alt';
+          } else {
+            canonicalPlanned = rawQty;
+            initialInputValue = rawQty;
+            selectedMode = 'base';
+          }
+
+          items.push({
+            key: `${u.id || uIdx}-${keySuffix}`,
+            usageId: u.id,
+            rmId: u.rmId,
+            name: rm.name || 'Raw Material',
+            code: rm.code || 'RM',
+            lotNumber: lotNo,
+            batchId: lotBatchId,
+            plannedDisplayQty: rawQty,
+            plannedDisplayUom: isRecordedInAlt ? altUom : baseUom,
+            canonicalPlannedQty: canonicalPlanned,
+            unitCost: lineRate,
+            baseUom,
+            hasAlt,
+            altUom,
+            convFactor: convFactor > 0 ? convFactor : 1000,
+            selectedUnitMode: selectedMode,
+            inputValue: initialInputValue,
+            effectiveWastedQty: canonicalPlanned
+          });
+        };
+
         if (usageAllocs.length > 0) {
           usageAllocs.forEach((a, aIdx) => {
             const allocQty = Number(a.allocated_qty || a.allocatedQty || 0);
             const lotNo = a.lot_number || a.lotNumber || 'Allocated Stock Lot';
             const lotBatchId = a.inventory_batch_id || a.inventoryBatchId || null;
             const lineRate = Number(a.unit_rate || a.unitRate || unitCost);
-
-            items.push({
-              key: `${u.id || uIdx}-alloc-${a.id || aIdx}`,
-              usageId: u.id,
-              rmId: u.rmId,
-              name: rm.name || 'Raw Material',
-              code: rm.code || 'RM',
-              lotNumber: lotNo,
-              batchId: lotBatchId,
-              plannedQty: allocQty > 0 ? allocQty : Number(u.actualUsedQty || u.requiredQty || 0),
-              unitCost: lineRate,
-              baseUom: uomLabel,
-              hasAlt,
-              altUom,
-              convFactor: convFactor > 0 ? convFactor : 1000,
-              selectedUnitMode: 'base',
-              inputValue: allocQty > 0 ? allocQty : Number(u.actualUsedQty || u.requiredQty || 0),
-              effectiveWastedQty: allocQty > 0 ? allocQty : Number(u.actualUsedQty || u.requiredQty || 0)
-            });
+            processItem(allocQty, lotNo, lotBatchId, lineRate, `alloc-${a.id || aIdx}`);
           });
         } else {
           const plannedQty = Number(u.actualUsedQty || u.requiredQty || 0);
           const fallbackLot = u.internalBatchNo || 'Warehouse Stock Lot';
-          items.push({
-            key: `${u.id || uIdx}-main`,
-            usageId: u.id,
-            rmId: u.rmId,
-            name: rm.name || 'Raw Material',
-            code: rm.code || 'RM',
-            lotNumber: fallbackLot,
-            batchId: u.allocatedBatchId || null,
-            plannedQty,
-            unitCost,
-            baseUom: uomLabel,
-            hasAlt,
-            altUom,
-            convFactor: convFactor > 0 ? convFactor : 1000,
-            selectedUnitMode: 'base',
-            inputValue: plannedQty,
-            effectiveWastedQty: plannedQty
-          });
+          processItem(plannedQty, fallbackLot, u.allocatedBatchId || null, unitCost, 'main');
         }
       });
 
@@ -120,11 +151,11 @@ export default function ProductionCancelModal({
   const handleQtyChange = (index, val) => {
     const updated = [...materials];
     const m = updated[index];
-    const num = Math.max(0, Number(val) || 0);
+    const num = Math.max(0, parseFloat(val) || 0);
     m.inputValue = val;
 
     if (m.selectedUnitMode === 'alt') {
-      m.effectiveWastedQty = Number((num / m.convFactor).toFixed(4));
+      m.effectiveWastedQty = m.convFactor > 0 ? Number((num / m.convFactor).toFixed(6)) : num;
     } else {
       m.effectiveWastedQty = num;
     }
@@ -138,11 +169,11 @@ export default function ProductionCancelModal({
     if (m.selectedUnitMode === mode) return;
 
     if (mode === 'alt') {
-      const altVal = Number((m.effectiveWastedQty * m.convFactor).toFixed(2));
+      const altVal = Number((m.effectiveWastedQty * m.convFactor).toFixed(3));
       m.inputValue = altVal;
       m.selectedUnitMode = 'alt';
     } else {
-      m.inputValue = m.effectiveWastedQty;
+      m.inputValue = Number(m.effectiveWastedQty.toFixed(4));
       m.selectedUnitMode = 'base';
     }
 
@@ -152,11 +183,11 @@ export default function ProductionCancelModal({
   const handleQuickFill = (index, percent) => {
     const updated = [...materials];
     const m = updated[index];
-    const targetBase = Number((m.plannedQty * (percent / 100)).toFixed(4));
+    const targetBase = Number((m.canonicalPlannedQty * (percent / 100)).toFixed(6));
     m.effectiveWastedQty = targetBase;
 
     if (m.selectedUnitMode === 'alt') {
-      m.inputValue = Number((targetBase * m.convFactor).toFixed(2));
+      m.inputValue = Number((targetBase * m.convFactor).toFixed(3));
     } else {
       m.inputValue = targetBase;
     }
@@ -166,10 +197,11 @@ export default function ProductionCancelModal({
 
   const handleSetAllWasted = () => {
     const updated = materials.map(m => {
+      const targetBase = m.canonicalPlannedQty;
       return {
         ...m,
-        effectiveWastedQty: m.plannedQty,
-        inputValue: m.selectedUnitMode === 'alt' ? Number((m.plannedQty * m.convFactor).toFixed(2)) : m.plannedQty
+        effectiveWastedQty: targetBase,
+        inputValue: m.selectedUnitMode === 'alt' ? Number((targetBase * m.convFactor).toFixed(3)) : targetBase
       };
     });
     setMaterials(updated);
@@ -210,16 +242,24 @@ export default function ProductionCancelModal({
       if (!confirmZero.isConfirmed) return;
     }
 
-    const wastageItems = isWasting ? materials.map(m => ({
-      rmId: m.rmId,
-      quantity: Number(m.effectiveWastedQty || 0),
-      uomId: m.baseUom,
-      unitCost: m.unitCost,
-      lossAmount: Number((Number(m.effectiveWastedQty || 0) * Number(m.unitCost || 0)).toFixed(2)),
-      batchId: m.batchId,
-      batchNumber: m.lotNumber,
-      remarks: `Production Failed • Batch #${batch.referenceNo} (${batch.batchNo || batch.product?.name || ''}) - ${finalReason}`
-    })).filter(it => it.quantity > 0) : [];
+    const wastageItems = isWasting ? materials.map(m => {
+      const wastedBaseQty = Number(m.effectiveWastedQty || 0);
+      const isAlt = m.selectedUnitMode === 'alt';
+      const lossAmount = Number((wastedBaseQty * Number(m.unitCost || 0)).toFixed(2));
+      return {
+        rmId: m.rmId,
+        quantity: wastedBaseQty,
+        inputQty: Number(m.inputValue || 0),
+        selectedUom: isAlt ? m.altUom : m.baseUom,
+        conversionFactorUsed: m.convFactor,
+        uomId: m.baseUom,
+        unitCost: m.unitCost,
+        lossAmount: lossAmount,
+        batchId: m.batchId,
+        batchNumber: m.lotNumber,
+        remarks: `Production Failed • Batch #${batch.referenceNo} (${batch.batchNo || batch.product?.name || ''}) - ${finalReason}`
+      };
+    }).filter(it => it.quantity > 0) : [];
 
     try {
       setSubmitting(true);
@@ -441,7 +481,7 @@ export default function ProductionCancelModal({
                       <th className="p-3">Allocated Lot</th>
                       <th className="p-3 text-right">Planned Qty</th>
                       <th className="p-3 text-center">Wasted Qty Entry</th>
-                      <th className="p-3 text-right">Unit Rate</th>
+                      <th className="p-3 text-right">Unit Rate (Base)</th>
                       <th className="p-3 text-right">Wastage Loss</th>
                     </tr>
                   </thead>
@@ -462,7 +502,18 @@ export default function ProductionCancelModal({
                             </span>
                           </td>
                           <td className="p-3 text-right font-mono font-medium text-slate-600 dark:text-slate-300">
-                            {m.plannedQty} {m.baseUom}
+                            <div className="font-bold text-slate-800 dark:text-slate-200">
+                              {m.plannedDisplayQty} {m.plannedDisplayUom}
+                            </div>
+                            {m.hasAlt && (
+                              <div className="text-[10px] text-slate-400 font-mono">
+                                {m.plannedDisplayUom.toLowerCase() === m.baseUom.toLowerCase() ? (
+                                  <span>({Number((m.canonicalPlannedQty * m.convFactor).toFixed(2)).toLocaleString()} {m.altUom})</span>
+                                ) : (
+                                  <span>({m.canonicalPlannedQty.toFixed(4)} {m.baseUom})</span>
+                                )}
+                              </div>
+                            )}
                           </td>
                           <td className="p-3">
                             <div className="flex items-center justify-center gap-2">
@@ -487,7 +538,7 @@ export default function ProductionCancelModal({
                                   <option value="alt">{m.altUom}</option>
                                 </select>
                               ) : (
-                                <span className="text-[11px] font-mono font-bold text-slate-500 w-8">
+                                <span className="text-[11px] font-mono font-bold text-slate-500 w-8 text-center uppercase">
                                   {m.baseUom}
                                 </span>
                               )}
@@ -502,14 +553,19 @@ export default function ProductionCancelModal({
                                 Max
                               </button>
                             </div>
-                            {m.selectedUnitMode === 'alt' && (
+                            {m.hasAlt && (
                               <div className="text-[9.5px] font-mono text-slate-400 text-center pt-0.5">
-                                ≈ {m.effectiveWastedQty} {m.baseUom}
+                                {m.selectedUnitMode === 'alt' ? (
+                                  <span>≈ {m.effectiveWastedQty.toFixed(4)} {m.baseUom}</span>
+                                ) : (
+                                  <span>≈ {Number((m.effectiveWastedQty * m.convFactor).toFixed(2)).toLocaleString()} {m.altUom}</span>
+                                )}
                               </div>
                             )}
                           </td>
                           <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-300">
-                            ₹{m.unitCost.toFixed(2)}
+                            <div>₹{m.unitCost.toFixed(2)}</div>
+                            <span className="text-[9.5px] text-slate-400 font-sans">per {m.baseUom}</span>
                           </td>
                           <td className="p-3 text-right font-mono font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
                             ₹{lineLoss.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
