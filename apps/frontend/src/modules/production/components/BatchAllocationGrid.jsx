@@ -674,6 +674,8 @@ export default function BatchAllocationGrid({
           grnNumber: lot.grnNumber || lot.grnRef || (lot.isManualOverride ? 'GRN-MANUAL-OVERRIDE' : null),
           poNumber: lot.poNumber || lot.poReferenceNo || (lot.isManualOverride ? 'PO-MANUAL-OVERRIDE' : null),
           allocatedQty: qty,
+          availableQty: Number(lot.availableQty || lot.netQty || 0),
+          remainingQty: Number(Math.max(0, Number(lot.availableQty || lot.netQty || 0) - qty).toFixed(3)),
           poOriginalQty: poOrigQty,
           poTotalAmount: poTotAmt,
           allocatedAmount,
@@ -970,7 +972,9 @@ export default function BatchAllocationGrid({
                                 </span>
                               )}
                               <span className="text-[9px] text-indigo-900 dark:text-indigo-200 font-black">
-                                ({b.allocatedQty} {row.baseUom || row.selectedUom})
+                                ({b.allocatedQty} {baseUomClean}
+                                {hasAlt && altUomClean ? ` / ${Number((b.allocatedQty * factor).toFixed(2)).toLocaleString()} ${altUomClean}` : ''}
+                                {b.availableQty ? ` • Rem: ${Number(Math.max(0, Number(b.availableQty) - Number(b.allocatedQty)).toFixed(3))} ${baseUomClean}` : ''})
                               </span>
                             </span>
                           ))}
@@ -1655,9 +1659,24 @@ export default function BatchAllocationGrid({
                             {/* 3. Available Qty */}
                             <div>
                               <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Available Qty:</span>
-                              <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-xs">
+                              <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-xs block">
                                 {avail} {uomLabel}
                               </span>
+                              {(() => {
+                                const rowItem = rawMaterials[activeItemIndex];
+                                const m = findMaster(rowItem);
+                                const hAlt = Boolean(m ? (m.hasAlternateUom && m.alternateUom) : (rowItem?.hasAlternateUom && rowItem?.alternateUom));
+                                const aUom = m?.alternateUom || rowItem?.alternateUom;
+                                const f = Number(m?.conversionFactor || rowItem?.conversionFactor || 1000);
+                                if (hAlt && aUom) {
+                                  return (
+                                    <span className="text-[9.5px] font-mono text-slate-400 block">
+                                      ≈ {Number((avail * f).toFixed(2)).toLocaleString()} {aUom}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </div>
 
                             {/* 4. MFG Batch (Supplier) - Strictly Read-Only */}
@@ -1737,25 +1756,45 @@ export default function BatchAllocationGrid({
                               )}
                             </div>
 
-                            <div className="flex items-center gap-2 self-end sm:self-auto">
-                              <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
-                                Allocate Qty:
-                              </label>
-                              <div className="w-28">
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  max={avail}
-                                  step="any"
-                                  value={currentAlloc}
-                                  onChange={(e) => handleSetLotQty(lot.id, e.target.value, avail)}
-                                  placeholder={`0 / ${avail}`}
-                                  className="h-8 text-center font-mono font-black text-xs rounded-xl border-indigo-300 dark:border-indigo-700 focus:ring-2 focus:ring-indigo-500"
-                                />
+                            <div className="flex flex-col items-end gap-1 self-end sm:self-auto">
+                              <div className="flex items-center gap-2">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-wider">
+                                  Allocate Qty:
+                                </label>
+                                <div className="w-28">
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={avail}
+                                    step="any"
+                                    value={currentAlloc}
+                                    onChange={(e) => handleSetLotQty(lot.id, e.target.value, avail)}
+                                    placeholder={`0 / ${avail}`}
+                                    className="h-8 text-center font-mono font-black text-xs rounded-xl border-indigo-300 dark:border-indigo-700 focus:ring-2 focus:ring-indigo-500"
+                                  />
+                                </div>
+                                <span className="text-xs font-mono font-bold text-slate-400">
+                                  {uomLabel}
+                                </span>
                               </div>
-                              <span className="text-xs font-mono font-bold text-slate-400">
-                                {uomLabel}
-                              </span>
+                              {Number(currentAlloc) > 0 && (() => {
+                                const rowItem = rawMaterials[activeItemIndex];
+                                const m = findMaster(rowItem);
+                                const hAlt = Boolean(m ? (m.hasAlternateUom && m.alternateUom) : (rowItem?.hasAlternateUom && rowItem?.alternateUom));
+                                const aUom = m?.alternateUom || rowItem?.alternateUom;
+                                const f = Number(m?.conversionFactor || rowItem?.conversionFactor || 1000);
+                                const rem = Math.max(0, avail - Number(currentAlloc));
+                                return (
+                                  <div className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                    Remaining: {Number(rem.toFixed(3))} {uomLabel}
+                                    {hAlt && aUom && (
+                                      <span className="text-slate-400 font-normal ml-1">
+                                        (≈ {Number((rem * f).toFixed(2)).toLocaleString()} {aUom})
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </div>
                           </div>
 

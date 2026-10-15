@@ -40,22 +40,51 @@ export default function BatchCompletionModal({
       setActiveTab('yield');
 
       const usages = (batch.rmUsages || []).map(u => {
-        const uomLabel = u.selectedUom || u.rawMaterial?.consumptionUnit || u.rawMaterial?.unit?.abbreviation || 'units';
-        const hasAlt = Boolean(u.rawMaterial?.hasAlternateUom);
-        const altUom = u.rawMaterial?.alternateUom;
-        const convFactor = Number(u.conversionFactorUsed || u.rawMaterial?.conversionFactor || 1.0);
+        let baseUom = u.rawMaterial?.unit?.abbreviation || u.rawMaterial?.unitId || 'liter';
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(baseUom)) {
+          baseUom = 'units';
+        }
+
+        const altUomCandidate = u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
+        const hasAlt = Boolean(u.rawMaterial?.hasAlternateUom && altUomCandidate && altUomCandidate.toLowerCase() !== baseUom.toLowerCase());
+        const altUom = hasAlt ? altUomCandidate : null;
+        const convFactor = hasAlt ? Number(
+          u.conversionFactorUsed ||
+          u.rawMaterial?.conversionFactor ||
+          (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
+          1000
+        ) : 1;
+
+        const baseReqQty = Number(u.requiredQty || 0);
+
+        // Determine initial selected unit:
+        // If batch was pre-selected in alternate UOM (or u.selectedUom equals altUom), start in alt UOM ('sub')
+        const isAltSelected = Boolean(hasAlt && (u.selectedUom && u.selectedUom.toLowerCase() === altUom.toLowerCase()));
+        const selectedUnit = isAltSelected ? 'sub' : 'base';
+
+        // Calculate initial input value:
+        // If starting in 'sub' (alt UOM), show baseReqQty * convFactor, otherwise baseReqQty
+        let initialVal = baseReqQty;
+        if (u.actualUsedQty !== null && u.actualUsedQty !== undefined) {
+          const act = Number(u.actualUsedQty);
+          // If stored act is canonical base, convert to selectedUnit
+          initialVal = selectedUnit === 'sub' ? Number((act * convFactor).toFixed(3)) : act;
+        } else if (selectedUnit === 'sub') {
+          initialVal = Number((baseReqQty * convFactor).toFixed(3));
+        }
 
         return {
           rmId: u.rmId,
           name: u.rawMaterial?.name || 'Raw Material',
           code: u.rawMaterial?.code,
-          requiredQty: Number(u.requiredQty || 0),
-          unit: uomLabel,
+          baseRequiredQty: baseReqQty,
+          requiredQty: baseReqQty,
+          unit: baseUom,
           hasAlt,
           altUom,
           convFactor,
-          selectedUnit: 'base',
-          inputValue: Number(u.actualUsedQty || u.requiredQty || 0),
+          selectedUnit,
+          inputValue: initialVal,
           standardTolerancePct: 2.0
         };
       });
@@ -86,17 +115,22 @@ export default function BatchCompletionModal({
     if (current.selectedUnit === unitChoice) return;
 
     const factor = current.convFactor > 0 ? current.convFactor : 1000;
-    let newInputValue = Number(current.inputValue || 0);
+    let val = parseFloat(current.inputValue);
+    if (isNaN(val)) val = 0;
+
+    let newInputValue = val;
     if (unitChoice === 'sub' && current.selectedUnit === 'base') {
-      newInputValue = newInputValue * factor;
+      // Switching from Base (e.g. Liter / Kg) -> Alternate (e.g. ml / gm)
+      newInputValue = Number((val * factor).toFixed(3));
     } else if (unitChoice === 'base' && current.selectedUnit === 'sub') {
-      newInputValue = factor > 0 ? newInputValue / factor : newInputValue;
+      // Switching from Alternate (e.g. ml / gm) -> Base (e.g. Liter / Kg)
+      newInputValue = factor > 0 ? Number((val / factor).toFixed(4)) : val;
     }
 
     updated[index] = {
       ...current,
       selectedUnit: unitChoice,
-      inputValue: Number(newInputValue.toFixed(3))
+      inputValue: newInputValue
     };
     setActualRmUsages(updated);
   };
@@ -115,10 +149,18 @@ export default function BatchCompletionModal({
       ebRatePerUnit: Number(ebRatePerUnit || 8.50),
       rmUsages: actualRmUsages.map(u => {
         const factor = u.convFactor > 0 ? u.convFactor : 1000;
-        const actualVal = u.selectedUnit === 'sub' ? Number(u.inputValue) / factor : Number(u.inputValue);
+        const inputNum = parseFloat(u.inputValue) || 0;
+        const isSub = u.selectedUnit === 'sub';
+        // Canonical base quantity for inventory stock deduction
+        const canonicalBaseQty = isSub ? (factor > 0 ? inputNum / factor : inputNum) : inputNum;
+        const selectedUom = isSub ? (u.altUom || u.unit) : u.unit;
         return {
           rmId: u.rmId,
-          actualUsedQty: Number(actualVal.toFixed(3))
+          actualUsedQty: Number(canonicalBaseQty.toFixed(4)),
+          inputQty: inputNum,
+          selectedUom: selectedUom,
+          conversionFactorUsed: factor,
+          isAlternateUom: isSub
         };
       }),
       note: completionNote
@@ -439,7 +481,22 @@ export default function BatchCompletionModal({
                     </div>
 
                     <div className="col-span-3 text-right font-mono text-slate-600 dark:text-slate-400 text-[11px]">
-                      {rm.requiredQty.toFixed(2)} {rm.unit}
+                      {rm.hasAlt && rm.altUom ? (
+                        <div>
+                          <div className="font-bold text-slate-700 dark:text-slate-300">
+                            {rm.selectedUnit === 'sub'
+                              ? `${Number((rm.baseRequiredQty * rm.convFactor).toFixed(2)).toLocaleString()} ${rm.altUom}`
+                              : `${rm.baseRequiredQty.toFixed(2)} ${rm.unit}`}
+                          </div>
+                          <div className="text-[9.5px] text-slate-400">
+                            {rm.selectedUnit === 'sub'
+                              ? `(${rm.baseRequiredQty.toFixed(2)} ${rm.unit})`
+                              : `(${Number((rm.baseRequiredQty * rm.convFactor).toFixed(2)).toLocaleString()} ${rm.altUom})`}
+                          </div>
+                        </div>
+                      ) : (
+                        <span>{rm.baseRequiredQty.toFixed(2)} {rm.unit}</span>
+                      )}
                     </div>
 
                     <div className="col-span-4 flex flex-col items-end gap-1">
@@ -451,7 +508,7 @@ export default function BatchCompletionModal({
                           required
                           value={rm.inputValue}
                           onChange={(e) => handleInputChange(idx, e.target.value)}
-                          className="w-20 px-2 py-1 font-mono font-bold text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right text-slate-800 dark:text-white"
+                          className="w-24 px-2 py-1 font-mono font-bold text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-right text-slate-800 dark:text-white"
                         />
 
                         {rm.hasAlt && rm.altUom ? (
@@ -459,14 +516,16 @@ export default function BatchCompletionModal({
                             <button
                               type="button"
                               onClick={() => handleUnitToggle(idx, 'base')}
-                              className={`px-1.5 py-0.5 rounded cursor-pointer ${rm.selectedUnit === 'base' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-extrabold' : 'text-slate-500'}`}
+                              title={`Switch to Base UOM (${rm.unit})`}
+                              className={`px-1.5 py-0.5 rounded cursor-pointer transition-colors ${rm.selectedUnit === 'base' ? 'bg-indigo-600 text-white shadow-2xs font-extrabold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                             >
                               {rm.unit}
                             </button>
                             <button
                               type="button"
                               onClick={() => handleUnitToggle(idx, 'sub')}
-                              className={`px-1.5 py-0.5 rounded cursor-pointer ${rm.selectedUnit === 'sub' ? 'bg-white dark:bg-slate-700 text-indigo-600 shadow-2xs font-extrabold' : 'text-slate-500'}`}
+                              title={`Switch to Alternate UOM (${rm.altUom})`}
+                              className={`px-1.5 py-0.5 rounded cursor-pointer transition-colors ${rm.selectedUnit === 'sub' ? 'bg-indigo-600 text-white shadow-2xs font-extrabold' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}
                             >
                               {rm.altUom}
                             </button>
@@ -479,7 +538,27 @@ export default function BatchCompletionModal({
                       </div>
 
                       <span className="font-mono text-[9px] font-bold text-indigo-600 dark:text-indigo-400">
-                        ≈ {(Number(actualOutput) > 0 ? (Number(rm.inputValue || 0) / Number(actualOutput)) : 0).toFixed(4)} {rm.unit}/pc
+                        {Number(actualOutput) > 0 ? (
+                          rm.selectedUnit === 'sub' ? (
+                            <span>
+                              ≈ {(Number(rm.inputValue || 0) / Number(actualOutput)).toFixed(4)} {rm.altUom}/pc{' '}
+                              <span className="text-slate-400 font-normal">
+                                (= {(Number(rm.inputValue || 0) / Number(actualOutput) / (rm.convFactor || 1000)).toFixed(4)} {rm.unit}/pc)
+                              </span>
+                            </span>
+                          ) : (
+                            <span>
+                              ≈ {(Number(rm.inputValue || 0) / Number(actualOutput)).toFixed(4)} {rm.unit}/pc{' '}
+                              {rm.hasAlt && rm.altUom && (
+                                <span className="text-slate-400 font-normal">
+                                  (= {(Number(rm.inputValue || 0) / Number(actualOutput) * (rm.convFactor || 1000)).toFixed(2)} {rm.altUom}/pc)
+                                </span>
+                              )}
+                            </span>
+                          )
+                        ) : (
+                          `0 ${rm.selectedUnit === 'sub' ? (rm.altUom || rm.unit) : rm.unit}/pc`
+                        )}
                       </span>
                     </div>
                   </div>

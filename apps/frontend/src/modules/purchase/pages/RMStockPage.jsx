@@ -405,6 +405,8 @@ export default function RMStockPage() {
       'Material Name': item.name,
       'Available Quantity': item.availableQuantity,
       'Unit': item.unit,
+      'Alternate Qty': item.hasAlternateUom && item.alternateUom ? Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)) : 'N/A',
+      'Alternate Unit': item.hasAlternateUom && item.alternateUom ? item.alternateUom : 'N/A',
       'Floating Stock': item.floatingStock,
       'Valuation Status': item.hasPo ? 'PO DERIVED PRICING' : 'AWAITING PO (UNVALUED)',
       'PO Reference No': item.poReferenceNo || 'N/A',
@@ -859,12 +861,17 @@ export default function RMStockPage() {
                         </span>
                         <div className="flex items-baseline gap-1 mt-0.5">
                           <span className={`font-mono font-black text-sm ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
-                            {Number(item.availableQuantity || 0).toLocaleString()}
+                            {Number(item.availableQuantity || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
                           </span>
                           <span className="text-[10px] text-slate-500 uppercase font-semibold">
                             {item.unit}
                           </span>
                         </div>
+                        {item.hasAlternateUom && item.alternateUom && (
+                          <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 mt-0.5 truncate" title={`Equivalent to ${Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} ${item.alternateUom}`}>
+                            ≈ {Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} {item.alternateUom}
+                          </div>
+                        )}
                       </div>
 
                       <div className="p-2 rounded-lg bg-slate-50 dark:bg-slate-950/60 border border-slate-100 dark:border-slate-800/80">
@@ -1215,13 +1222,18 @@ export default function RMStockPage() {
                         <TableCell className="py-1.5 px-3 whitespace-nowrap">
                           <div className="flex items-center gap-1.5">
                             <span className={`font-mono font-bold text-xs ${isLowStock ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'}`}>
-                              {Number(item.availableQuantity || 0).toLocaleString()}
+                              {Number(item.availableQuantity || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
                             </span>
                             <span className="text-[10px] text-slate-500 uppercase font-semibold">{item.unit}</span>
                             {isLowStock && (
                               <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" title="Low Stock Alert" />
                             )}
                           </div>
+                          {item.hasAlternateUom && item.alternateUom && (
+                            <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400 leading-tight mt-0.5">
+                              ≈ {Number((Number(item.availableQuantity || 0) * (Number(item.conversionFactor) || 1)).toFixed(3)).toLocaleString()} {item.alternateUom}
+                            </div>
+                          )}
                         </TableCell>
 
                         {/* 6. Floating Stock */}

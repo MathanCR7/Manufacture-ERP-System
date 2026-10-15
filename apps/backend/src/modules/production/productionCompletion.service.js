@@ -172,21 +172,67 @@ class ProductionCompletionService {
 
       for (const usage of batch.rmUsages) {
         const customRm = Array.isArray(data.rmUsages) ? data.rmUsages.find(r => r.rmId === usage.rmId) : null;
-        const consumedQty = customRm?.actualUsedQty !== undefined 
-          ? Number(customRm.actualUsedQty) 
-          : Number(usage.actualUsedQty || usage.requiredQty || 0);
+        const factor = Number(
+          customRm?.conversionFactorUsed ||
+          usage.conversionFactorUsed ||
+          usage.rawMaterial?.conversionFactor ||
+          (usage.rawMaterial?.alternateUomQty && usage.rawMaterial?.baseUomQty ? (usage.rawMaterial.alternateUomQty / usage.rawMaterial.baseUomQty) : 1000) ||
+          1000
+        );
+
+        let canonicalConsumed = 0;
+        let userEnteredQty = null;
+        let selectedUom = customRm?.selectedUom || usage.selectedUom || usage.rawMaterial?.unitId || 'liter';
+
+        if (customRm) {
+          userEnteredQty = customRm.inputQty !== undefined ? Number(customRm.inputQty) : null;
+          const rawAct = Number(customRm.actualUsedQty !== undefined ? customRm.actualUsedQty : (usage.actualUsedQty || usage.requiredQty || 0));
+          const stdReq = Number(usage.requiredQty || 0);
+
+          const isAltUnit = Boolean(
+            customRm.isAlternateUom ||
+            (selectedUom && usage.rawMaterial?.alternateUom && selectedUom.toLowerCase() === usage.rawMaterial.alternateUom.toLowerCase())
+          );
+
+          if (isAltUnit && factor > 1) {
+            if (userEnteredQty !== null && userEnteredQty > 0) {
+              // Canonical base quantity is userEnteredQty / factor (e.g. 4200 ml / 1000 = 4.2 liter)
+              canonicalConsumed = Number((userEnteredQty / factor).toFixed(4));
+            } else if (rawAct > stdReq * 10 && stdReq > 0) {
+              // Obvious un-divided alternate quantity (e.g. 4200 instead of 4.2)
+              canonicalConsumed = Number((rawAct / factor).toFixed(4));
+              userEnteredQty = rawAct;
+            } else {
+              canonicalConsumed = rawAct;
+              userEnteredQty = Number((rawAct * factor).toFixed(3));
+            }
+          } else {
+            // Base UOM: check if user passed un-divided alternate quantity
+            if (rawAct > stdReq * 10 && stdReq > 0 && factor > 1) {
+              canonicalConsumed = Number((rawAct / factor).toFixed(4));
+              userEnteredQty = rawAct;
+              selectedUom = usage.rawMaterial?.alternateUom || selectedUom;
+            } else {
+              canonicalConsumed = rawAct;
+              userEnteredQty = userEnteredQty !== null ? userEnteredQty : rawAct;
+            }
+          }
+        } else {
+          canonicalConsumed = Number(usage.actualUsedQty || usage.requiredQty || 0);
+          userEnteredQty = usage.inputQty || canonicalConsumed;
+        }
 
         const standardQty = Number(usage.requiredQty || 0);
-        const varianceQty = Number((consumedQty - standardQty).toFixed(4));
+        const varianceQty = Number((canonicalConsumed - standardQty).toFixed(4));
         const variancePct = standardQty > 0 ? Number(((varianceQty / standardQty) * 100).toFixed(2)) : 0;
-        const lineTotalCost = Number((consumedQty * Number(usage.unitCost || 0)).toFixed(2));
+        const lineTotalCost = Number((canonicalConsumed * Number(usage.unitCost || 0)).toFixed(2));
         totalMaterialCost += lineTotalCost;
 
         // Ratio per single unit output
-        const singlePieceRatio = goodQty > 0 ? Number((consumedQty / goodQty).toFixed(6)) : 0;
+        const singlePieceRatio = goodQty > 0 ? Number((canonicalConsumed / goodQty).toFixed(6)) : 0;
         latestRatios.push({
           rmId: usage.rmId,
-          consumedQty,
+          consumedQty: canonicalConsumed,
           singlePieceRatio
         });
 
@@ -194,17 +240,20 @@ class ProductionCompletionService {
         await tx.productionBatchRMUsage.update({
           where: { id: usage.id },
           data: {
-            actualUsedQty: consumedQty,
-            totalCost: lineTotalCost
+            actualUsedQty: canonicalConsumed,
+            totalCost: lineTotalCost,
+            inputQty: userEnteredQty,
+            selectedUom: selectedUom,
+            conversionFactorUsed: factor
           }
         });
 
-        // Deduct from RawMaterial main stock table
-        if (usage.rmId && consumedQty > 0) {
+        // Deduct from RawMaterial main stock table in CANONICAL BASE QUANTITY (e.g. 4.2 liter, never 4200)
+        if (usage.rmId && canonicalConsumed > 0) {
           await tx.rawMaterial.update({
             where: { id: usage.rmId },
             data: {
-              currentStock: { decrement: consumedQty }
+              currentStock: { decrement: canonicalConsumed }
             }
           });
         }

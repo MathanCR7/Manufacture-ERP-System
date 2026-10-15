@@ -291,6 +291,11 @@ export default function RMHistoryDrawer({
                       {material?.currentStock?.toLocaleString()}
                       <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
                     </div>
+                    {material?.hasAlternateUom && material?.alternateUom && (
+                      <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        ≈ {Number((Number(material?.currentStock || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom}
+                      </div>
+                    )}
                     <div className="text-[10px] text-indigo-700 dark:text-indigo-300 font-medium truncate">
                       Valued: {formatCurrency(material?.stockValue)}
                     </div>
@@ -333,6 +338,11 @@ export default function RMHistoryDrawer({
                       {summary?.totalConsumedQty?.toLocaleString() || 0}
                       <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
                     </div>
+                    {material?.hasAlternateUom && material?.alternateUom && (
+                      <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                        ≈ {Number((Number(summary?.totalConsumedQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom}
+                      </div>
+                    )}
                     <div className="text-[10px] text-slate-500 font-medium truncate flex items-center justify-between">
                       <span>Cost: {formatCurrency(summary?.totalConsumedCost || 0)}</span>
                       {productionUsages.some(u => u.isCancelled) && (
@@ -1348,7 +1358,12 @@ export default function RMHistoryDrawer({
                                       {formatShortDate(usage.date)}
                                     </td>
                                     <td className="p-3 text-right text-slate-500 font-medium">
-                                      {usage.requiredQty?.toLocaleString()} {material?.unit}
+                                      <div>{usage.requiredQty?.toLocaleString()} {material?.unit}</div>
+                                      {material?.hasAlternateUom && material?.alternateUom && (
+                                        <div className="text-[9.5px] text-slate-400 font-mono">
+                                          ({Number((Number(usage.requiredQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom})
+                                        </div>
+                                      )}
                                     </td>
                                     <td className="p-3 text-right font-black whitespace-nowrap">
                                       {usage.isCancelled ? (
@@ -1361,9 +1376,16 @@ export default function RMHistoryDrawer({
                                           </span>
                                         </div>
                                       ) : (
-                                        <span className="text-slate-900 dark:text-white">
-                                          {usage.actualUsedQty?.toLocaleString()} {material?.unit}
-                                        </span>
+                                        <div>
+                                          <div className="text-slate-900 dark:text-white">
+                                            {usage.actualUsedQty?.toLocaleString()} {material?.unit}
+                                          </div>
+                                          {material?.hasAlternateUom && material?.alternateUom && (
+                                            <div className="text-[9.5px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
+                                              ({Number((Number(usage.actualUsedQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom})
+                                            </div>
+                                          )}
+                                        </div>
                                       )}
                                     </td>
                                     <td className="p-3 text-right font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">

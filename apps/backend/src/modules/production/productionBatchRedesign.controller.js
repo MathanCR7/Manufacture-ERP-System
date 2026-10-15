@@ -249,20 +249,62 @@ class ProductionBatchRedesignController {
         allocations = [];
       }
 
-      // Compute per-piece ratios
+      // Compute per-piece ratios and dual UOMs
       const batchQty = Number(batch.quantity || 1);
       const actualYield = batch.actualOutput ? Number(batch.actualOutput) : null;
 
       const enrichedUsages = (batch.rmUsages || []).map(u => {
+        let baseUom = u.rawMaterial?.unit?.abbreviation || u.rawMaterial?.unitId || 'liter';
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(baseUom)) {
+          baseUom = 'units';
+        }
+
+        const altUomCandidate = u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
+        const hasAlt = Boolean(u.rawMaterial?.hasAlternateUom && altUomCandidate && altUomCandidate.toLowerCase() !== baseUom.toLowerCase());
+        const altUom = hasAlt ? altUomCandidate : null;
+        const factor = hasAlt ? Number(
+          u.conversionFactorUsed ||
+          u.rawMaterial?.conversionFactor ||
+          (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
+          1000
+        ) : 1;
+
         const reqQty = Number(u.requiredQty || 0);
-        const actQty = u.actualUsedQty !== null ? Number(u.actualUsedQty) : null;
+        let actQty = u.actualUsedQty !== null ? Number(u.actualUsedQty) : null;
+
+        // Historical corruption protection: if actQty was recorded 1000x of requiredQty (e.g. 4200 instead of 4.2):
+        if (actQty !== null && hasAlt && factor > 1 && reqQty > 0 && actQty > reqQty * 10) {
+          actQty = Number((actQty / factor).toFixed(4));
+        }
+
         const allocs = (allocations || []).filter(a => a.usage_id === u.id);
+        const effectiveSelectedUom = u.selectedUom || (hasAlt ? altUom : baseUom);
+
+        // Dual quantities (Base & Alternate)
+        const altRequiredQty = hasAlt ? Number((reqQty * factor).toFixed(2)) : null;
+        const altActualUsedQty = (hasAlt && actQty !== null) ? Number((actQty * factor).toFixed(2)) : null;
+
+        const basePerPiece = batchQty > 0 ? Number((reqQty / batchQty).toFixed(6)) : 0;
+        const altPerPiece = hasAlt ? Number((basePerPiece * factor).toFixed(4)) : null;
+
+        const actualBasePerPiece = (actualYield && actualYield > 0 && actQty !== null) ? Number((actQty / actualYield).toFixed(6)) : null;
+        const actualAltPerPiece = (actualBasePerPiece !== null && hasAlt) ? Number((actualBasePerPiece * factor).toFixed(4)) : null;
+
         return {
           ...u,
+          baseUom,
+          hasAlternateUom: hasAlt,
+          alternateUom: altUom,
+          conversionFactor: factor,
+          selectedUom: effectiveSelectedUom,
           requiredQty: reqQty,
+          altRequiredQty,
           actualUsedQty: actQty,
-          perPieceQty: batchQty > 0 ? Number((reqQty / batchQty).toFixed(6)) : 0,
-          actualPerPieceQty: actualYield && actualYield > 0 && actQty !== null ? Number((actQty / actualYield).toFixed(6)) : null,
+          altActualUsedQty,
+          perPieceQty: basePerPiece,
+          altPerPieceQty: altPerPiece,
+          actualPerPieceQty: actualBasePerPiece,
+          actualAltPerPieceQty: actualAltPerPiece,
           allocations: allocs
         };
       });

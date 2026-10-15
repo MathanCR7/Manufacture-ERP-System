@@ -1139,29 +1139,112 @@ export default function ProductionBatchDetailModal({
                           <th className="p-3 text-right">Actual Consumed</th>
                           <th className="p-3 text-right">Single Pcs Consumption</th>
                           <th className="p-3 text-right">Rate (₹)</th>
-                          <th className="p-3 text-right">Allocated FEFO Lots</th>
+                          <th className="p-3">Batch Allocations</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                         {(batch.rmUsages || []).map((u, idx) => {
                           const rmName = u.rawMaterial?.name || u.rmName || 'Raw Material';
-                          const uom = u.rawMaterial?.uom?.abbreviation || u.selectedUom || 'Kg';
+                          let baseUom = u.baseUom || u.rawMaterial?.unit?.abbreviation || u.rawMaterial?.unitId || 'liter';
+                          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(baseUom)) baseUom = 'units';
+
+                          const altUomCandidate = u.alternateUom || u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
+                          const hasAlt = Boolean(
+                            (u.hasAlternateUom || u.rawMaterial?.hasAlternateUom) && 
+                            altUomCandidate && 
+                            altUomCandidate.toLowerCase() !== baseUom.toLowerCase()
+                          );
+                          const altUom = hasAlt ? altUomCandidate : null;
+                          const convFactor = hasAlt ? Number(
+                            u.conversionFactor || 
+                            u.conversionFactorUsed || 
+                            u.rawMaterial?.conversionFactor || 
+                            (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
+                            1000
+                          ) : 1;
+
+                          const baseReq = Number(u.requiredQty || 0);
+                          let baseAct = u.actualUsedQty !== null ? Number(u.actualUsedQty) : null;
+                          if (baseAct !== null && hasAlt && convFactor > 1 && baseReq > 0 && baseAct > baseReq * 10) {
+                            baseAct = Number((baseAct / convFactor).toFixed(4));
+                          }
+
+                          const batchQty = Number(batch.quantity || 1);
+                          const actualYield = batch.actualOutput ? Number(batch.actualOutput) : null;
+
                           return (
                             <tr key={idx} className="hover:bg-slate-50/50">
                               <td className="p-3 font-mono font-bold text-slate-400">{idx + 1}</td>
                               <td className="p-3 font-extrabold text-slate-800 dark:text-slate-200">
-                                {rmName}
+                                <div>{rmName}</div>
+                                {hasAlt && altUom && (
+                                  <span className="text-[10px] font-mono font-semibold text-indigo-600 dark:text-indigo-400">
+                                    1 {baseUom} = {convFactor.toLocaleString()} {altUom}
+                                  </span>
+                                )}
                               </td>
-                              <td className="p-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
-                                {Number(u.requiredQty || 0).toFixed(2)} {uom}
+                              <td className="p-3 text-right font-mono">
+                                <div className="font-bold text-slate-800 dark:text-slate-200">
+                                  {baseReq.toFixed(2)} {baseUom}
+                                </div>
+                                {hasAlt && altUom && (
+                                  <div className="text-[10px] text-slate-400">
+                                    ({Number((baseReq * convFactor).toFixed(2)).toLocaleString()} {altUom})
+                                  </div>
+                                )}
                               </td>
-                              <td className="p-3 text-right font-mono font-black text-indigo-600">
-                                {u.actualUsedQty !== null ? `${Number(u.actualUsedQty).toFixed(2)} ${uom}` : 'Pending Yield'}
+                              <td className="p-3 text-right font-mono">
+                                {baseAct !== null ? (
+                                  hasAlt && altUom ? (
+                                    <div>
+                                      <div className="font-black text-indigo-600 dark:text-indigo-400">
+                                        {Number((baseAct * convFactor).toFixed(2)).toLocaleString()} {altUom}
+                                      </div>
+                                      <div className="text-[10px] text-slate-500 font-bold">
+                                        ({baseAct.toFixed(2)} {baseUom})
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="font-black text-indigo-600">
+                                      {baseAct.toFixed(2)} {baseUom}
+                                    </div>
+                                  )
+                                ) : (
+                                  <span className="text-slate-400 italic">Pending Yield</span>
+                                )}
                               </td>
-                              <td className="p-3 text-right font-mono font-bold text-emerald-600">
-                                {u.actualPerPieceQty !== null 
-                                  ? `${u.actualPerPieceQty} ${uom} / unit` 
-                                  : `${u.perPieceQty} ${uom} / unit`}
+                              <td className="p-3 text-right font-mono">
+                                {baseAct !== null && actualYield && actualYield > 0 ? (
+                                  hasAlt && altUom ? (
+                                    <div>
+                                      <div className="font-bold text-emerald-600">
+                                        {(baseAct / actualYield).toFixed(4)} {baseUom} / unit
+                                      </div>
+                                      <div className="text-[10px] text-emerald-500/80 font-mono">
+                                        ({((baseAct * convFactor) / actualYield).toFixed(2)} {altUom} / unit)
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="font-bold text-emerald-600">
+                                      {(baseAct / actualYield).toFixed(4)} {baseUom} / unit
+                                    </div>
+                                  )
+                                ) : (
+                                  hasAlt && altUom ? (
+                                    <div>
+                                      <div className="font-bold text-emerald-600">
+                                        {(baseReq / batchQty).toFixed(4)} {baseUom} / unit
+                                      </div>
+                                      <div className="text-[10px] text-slate-400 font-mono">
+                                        ({((baseReq * convFactor) / batchQty).toFixed(2)} {altUom} / unit)
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="font-bold text-emerald-600">
+                                      {(baseReq / batchQty).toFixed(4)} {baseUom} / unit
+                                    </div>
+                                  )
+                                )}
                               </td>
                               <td className="p-3 text-right font-mono">
                                 ₹{Number(u.unitCost || 0).toFixed(2)}
@@ -1175,6 +1258,7 @@ export default function ProductionBatchDetailModal({
                                         (a.lot_number && a.lot_number.toLowerCase().includes('override')) ||
                                         (a.grn_number && a.grn_number.toLowerCase().includes('override'))
                                       );
+                                      const allocNum = Number(a.allocated_qty || 0);
                                       return (
                                         <div 
                                           key={a.id || aIdx} 
@@ -1200,7 +1284,7 @@ export default function ProductionBatchDetailModal({
                                               {a.lot_number}
                                             </strong>
                                             <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                                              ({a.allocated_qty} {uom})
+                                              ({allocNum.toFixed(2)} {baseUom}{hasAlt ? ` / ${Number((allocNum * convFactor).toFixed(2)).toLocaleString()} ${altUom}` : ''})
                                             </span>
                                           </div>
                                           <div className="flex items-center gap-2 mt-1 text-[9.5px] text-slate-500 font-mono">
@@ -1234,7 +1318,31 @@ export default function ProductionBatchDetailModal({
                   <div className="lg:hidden space-y-3">
                     {(batch.rmUsages || []).map((u, idx) => {
                       const rmName = u.rawMaterial?.name || u.rmName || 'Raw Material';
-                      const uom = u.rawMaterial?.uom?.abbreviation || u.selectedUom || 'Kg';
+                      let baseUom = u.baseUom || u.rawMaterial?.unit?.abbreviation || u.rawMaterial?.unitId || 'liter';
+                      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(baseUom)) baseUom = 'units';
+
+                      const altUomCandidate = u.alternateUom || u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
+                      const hasAlt = Boolean(
+                        (u.hasAlternateUom || u.rawMaterial?.hasAlternateUom) && 
+                        altUomCandidate && 
+                        altUomCandidate.toLowerCase() !== baseUom.toLowerCase()
+                      );
+                      const altUom = hasAlt ? altUomCandidate : null;
+                      const convFactor = hasAlt ? Number(
+                        u.conversionFactor || 
+                        u.conversionFactorUsed || 
+                        u.rawMaterial?.conversionFactor || 
+                        (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
+                        1000
+                      ) : 1;
+
+                      const baseReq = Number(u.requiredQty || 0);
+                      let baseAct = u.actualUsedQty !== null ? Number(u.actualUsedQty) : null;
+                      if (baseAct !== null && hasAlt && convFactor > 1 && baseReq > 0 && baseAct > baseReq * 10) {
+                        baseAct = Number((baseAct / convFactor).toFixed(4));
+                      }
+                      const actualYield = batch.actualOutput ? Number(batch.actualOutput) : null;
+
                       return (
                         <div 
                           key={idx} 
@@ -1250,28 +1358,54 @@ export default function ProductionBatchDetailModal({
                               </h5>
                             </div>
                             <span className="font-mono text-xs font-bold text-slate-600 dark:text-slate-300">
-                              ₹{Number(u.unitCost || 0).toFixed(2)} / {uom}
+                              ₹{Number(u.unitCost || 0).toFixed(2)} / {baseUom}
                             </span>
                           </div>
 
                           <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl font-mono text-[10.5px]">
                             <div>
                               <span className="text-[9px] text-slate-400 block uppercase font-bold">Planned</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200">
-                                {Number(u.requiredQty || 0).toFixed(2)} {uom}
+                              <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                                {baseReq.toFixed(2)} {baseUom}
                               </span>
+                              {hasAlt && altUom && (
+                                <span className="text-[9px] text-slate-400 block">
+                                  ({Number((baseReq * convFactor).toFixed(2)).toLocaleString()} {altUom})
+                                </span>
+                              )}
                             </div>
                             <div>
                               <span className="text-[9px] text-slate-400 block uppercase font-bold">Consumed</span>
-                              <span className="font-black text-indigo-600 dark:text-indigo-400">
-                                {u.actualUsedQty !== null ? `${Number(u.actualUsedQty).toFixed(2)} ${uom}` : 'Pending'}
-                              </span>
+                              {baseAct !== null ? (
+                                hasAlt && altUom ? (
+                                  <div>
+                                    <span className="font-black text-indigo-600 dark:text-indigo-400 block">
+                                      {Number((baseAct * convFactor).toFixed(2)).toLocaleString()} {altUom}
+                                    </span>
+                                    <span className="text-[9px] text-slate-400 block">
+                                      ({baseAct.toFixed(2)} {baseUom})
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="font-black text-indigo-600 dark:text-indigo-400 block">
+                                    {baseAct.toFixed(2)} {baseUom}
+                                  </span>
+                                )
+                              ) : (
+                                <span className="text-slate-400 italic block">Pending</span>
+                              )}
                             </div>
                             <div>
                               <span className="text-[9px] text-slate-400 block uppercase font-bold">Per Piece</span>
-                              <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                                {u.actualPerPieceQty !== null ? u.actualPerPieceQty : u.perPieceQty} {uom}
-                              </span>
+                              {baseAct !== null && actualYield && actualYield > 0 ? (
+                                <span className="font-bold text-emerald-600 dark:text-emerald-400 block">
+                                  {(baseAct / actualYield).toFixed(4)} {baseUom}
+                                </span>
+                              ) : (
+                                <span className="font-bold text-emerald-600 dark:text-emerald-400 block">
+                                  {(baseReq / Number(batch.quantity || 1)).toFixed(4)} {baseUom}
+                                </span>
+                              )}
                             </div>
                           </div>
 
@@ -1288,9 +1422,10 @@ export default function ProductionBatchDetailModal({
                                     (a.lot_number && a.lot_number.toLowerCase().includes('override')) ||
                                     (a.grn_number && a.grn_number.toLowerCase().includes('override'))
                                   );
+                                  const allocNum = Number(a.allocated_qty || 0);
                                   return (
                                     <div 
-                                      key={a.id || aIdx}
+                                      key={a.id || aIdx} 
                                       className={`p-2.5 rounded-xl border text-xs font-mono space-y-1 ${
                                         isManual
                                           ? 'bg-amber-50/70 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700'
@@ -1312,7 +1447,7 @@ export default function ProductionBatchDetailModal({
                                         )}
                                       </div>
                                       <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5 border-t border-slate-200/60 dark:border-slate-800">
-                                        <span>Allocated: <strong className="text-slate-800 dark:text-slate-200">{a.allocated_qty} {uom}</strong></span>
+                                        <span>Allocated: <strong className="text-slate-800 dark:text-slate-200">{allocNum.toFixed(2)} {baseUom}{hasAlt ? ` (${Number((allocNum * convFactor).toFixed(2)).toLocaleString()} ${altUom})` : ''}</strong></span>
                                         <span>{a.po_number ? `PO: ${a.po_number}` : ''} {a.grn_number ? `• GRN: ${a.grn_number}` : ''}</span>
                                       </div>
                                     </div>
@@ -1320,9 +1455,9 @@ export default function ProductionBatchDetailModal({
                                 })}
                               </div>
                             ) : (
-                              <p className="text-[10px] text-slate-400 font-mono italic">
-                                {u.batchAllocation || 'Direct Inventory Stock'}
-                              </p>
+                              <span className="text-[11px] text-slate-400 font-mono italic">
+                                General warehouse stock (No specific lot)
+                              </span>
                             )}
                           </div>
                         </div>

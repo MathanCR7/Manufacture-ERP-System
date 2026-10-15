@@ -2332,6 +2332,12 @@ exports.getStock = async (req, res, next) => {
         floatingStock: 0,
         unit: rm.unitId,
         alertLevel: rm.alertLevel,
+        hasAlternateUom: Boolean(rm.hasAlternateUom),
+        alternateUom: rm.alternateUom || null,
+        conversionFactor: Number(rm.conversionFactor || 1),
+        consumptionUnit: rm.consumptionUnit || null,
+        baseUomQty: Number(rm.baseUomQty || 1),
+        alternateUomQty: Number(rm.alternateUomQty || 1),
 
         // PO Derived Line Rate Per Quantity
         hasPo,
@@ -2777,6 +2783,18 @@ exports.getMaterialHistory = async (req, res, next) => {
         Boolean(u.batch?.cancelledAt);
       const batchStatus = isCancelled ? 'Cancelled' : rawBatchStatus;
 
+      const reqQty = Number(u.requiredQty || 0);
+      let actQty = Number(u.actualUsedQty || 0);
+      const factor = Number(u.conversionFactorUsed || rm.conversionFactor || 1);
+      const isAlt = Boolean(
+        (u.selectedUom && rm.alternateUom && u.selectedUom.toLowerCase() === rm.alternateUom.toLowerCase()) ||
+        (factor > 1 && reqQty > 0 && actQty > reqQty * 10)
+      );
+
+      // Canonical base used quantity
+      const canonicalActQty = (isAlt && factor > 1) ? Number((actQty / factor).toFixed(4)) : actQty;
+      const altActQty = factor > 1 ? Number((canonicalActQty * factor).toFixed(2)) : null;
+
       return {
         id: u.id,
         batchId: u.batchId,
@@ -2788,10 +2806,14 @@ exports.getMaterialHistory = async (req, res, next) => {
         productCode: u.batch?.product?.code || '',
         batchStatus,
         isCancelled,
-        requiredQty: Number(u.requiredQty || 0),
+        requiredQty: reqQty,
+        altRequiredQty: factor > 1 ? Number((reqQty * factor).toFixed(2)) : null,
         availableQtyAtTime: Number(u.availableQtyAtTime || 0),
-        actualUsedQty: Number(u.actualUsedQty || 0),
-        effectiveUsedQty: isCancelled ? 0 : Number(u.actualUsedQty || 0),
+        actualUsedQty: canonicalActQty,
+        altActualUsedQty: altActQty,
+        selectedUom: u.selectedUom || (isAlt ? rm.alternateUom : rm.unitId),
+        inputQty: u.inputQty || (isAlt ? actQty : canonicalActQty),
+        effectiveUsedQty: isCancelled ? 0 : canonicalActQty,
         unitCost: Number(u.unitCost || 0),
         totalCost: Number(u.totalCost || 0),
         effectiveTotalCost: isCancelled ? 0 : Number(u.totalCost || 0),
@@ -2849,7 +2871,7 @@ exports.getMaterialHistory = async (req, res, next) => {
     
     // Only active (non-cancelled) production batches count towards consumed metrics
     const activeUsages = formattedUsages.filter(u => !u.isCancelled);
-    const totalConsumedQty = activeUsages.reduce((acc, u) => acc + u.actualUsedQty, 0);
+    const totalConsumedQty = Number(activeUsages.reduce((acc, u) => acc + u.effectiveUsedQty, 0).toFixed(4));
     const totalConsumedCost = activeUsages.reduce((acc, u) => acc + u.totalCost, 0);
 
     const totalAdjustmentAddition = formattedAdjustments
@@ -3028,7 +3050,7 @@ exports.getMaterialHistory = async (req, res, next) => {
         timelineEvents.push({
           id: `usage-${u.id}`,
           type: 'PRODUCTION_USAGE',
-          title: `Consumed in Production: ${u.actualUsedQty} ${rm.unitId}`,
+          title: `Consumed in Production: ${u.actualUsedQty} ${rm.unitId}${u.altActualUsedQty ? ` (${u.altActualUsedQty.toLocaleString()} ${rm.alternateUom})` : ''}`,
           subtitle: `Batch: ${u.batchNumber} • ${u.productName}`,
           timestamp: u.date,
           status: u.usageStatus,
