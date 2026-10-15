@@ -120,6 +120,41 @@ export default function RMHistoryDrawer({
     });
   };
 
+  const getBatchStatusMeta = (usage) => {
+    if (usage.isCancelled || String(usage.batchStatus || '').toLowerCase() === 'cancelled') {
+      return {
+        key: 'cancelled',
+        label: 'Production Cancelled',
+        shortLabel: 'Cancelled',
+        badgeClass: 'bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border-rose-200 dark:border-rose-900',
+        noteClass: 'text-rose-500 dark:text-rose-400',
+        note: 'Stock Released',
+        icon: AlertCircle
+      };
+    }
+    const s = String(usage.batchStatus || '').toLowerCase();
+    if (['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(s)) {
+      return {
+        key: 'completed',
+        label: 'Production Yielded',
+        shortLabel: 'Yield Completed',
+        badgeClass: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
+        noteClass: 'text-emerald-600 dark:text-emerald-400',
+        note: 'Stock Deducted',
+        icon: CheckCircle2
+      };
+    }
+    return {
+      key: 'in_progress',
+      label: 'In Progress',
+      shortLabel: 'In Progress',
+      badgeClass: 'bg-amber-50 text-amber-700 dark:bg-amber-950/70 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+      noteClass: 'text-amber-600 dark:text-amber-400',
+      note: 'Pending Yield',
+      icon: Clock
+    };
+  };
+
   const handleExportExcel = async () => {
     if (!material || !data) return;
 
@@ -333,7 +368,7 @@ export default function RMHistoryDrawer({
 
                   {/* Consumed in Production */}
                   <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800 space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                       <Cpu className="w-3 h-3" /> Consumed
                     </span>
                     <div className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-baseline gap-1">
@@ -341,17 +376,29 @@ export default function RMHistoryDrawer({
                       <span className="text-xs font-semibold text-slate-500 uppercase">{material?.unit}</span>
                     </div>
                     {material?.hasAlternateUom && material?.alternateUom && (
-                      <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                      <div className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">
                         ≈ {Number((Number(summary?.totalConsumedQty || 0) * convFactor).toFixed(2)).toLocaleString()} {material?.alternateUom}
                       </div>
                     )}
-                    <div className="text-[10px] text-slate-500 font-medium truncate flex items-center justify-between">
+                    <div className="text-[10px] text-slate-500 font-medium truncate flex items-center justify-between gap-1 flex-wrap">
                       <span>Cost: {formatCurrency(summary?.totalConsumedCost || 0)}</span>
-                      {productionUsages.some(u => u.isCancelled) && (
-                        <span className="text-rose-500 font-bold text-[9px] bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900">
-                          {productionUsages.filter(u => u.isCancelled).length} Cancelled Excluded
-                        </span>
-                      )}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {productionUsages.some(u => !u.isCancelled && ['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(String(u.batchStatus || '').toLowerCase())) && (
+                          <span className="text-emerald-600 font-bold text-[9px] bg-emerald-50 dark:bg-emerald-950/60 px-1.5 py-0.2 rounded border border-emerald-200 dark:border-emerald-800">
+                            {productionUsages.filter(u => !u.isCancelled && ['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(String(u.batchStatus || '').toLowerCase())).length} Yielded
+                          </span>
+                        )}
+                        {productionUsages.some(u => !u.isCancelled && ['in progress', 'planned', 'draft'].includes(String(u.batchStatus || '').toLowerCase())) && (
+                          <span className="text-amber-600 font-bold text-[9px] bg-amber-50 dark:bg-amber-950/60 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800">
+                            {productionUsages.filter(u => !u.isCancelled && ['in progress', 'planned', 'draft'].includes(String(u.batchStatus || '').toLowerCase())).length} In Progress
+                          </span>
+                        )}
+                        {productionUsages.some(u => u.isCancelled) && (
+                          <span className="text-rose-500 font-bold text-[9px] bg-rose-50 dark:bg-rose-950/60 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-900">
+                            {productionUsages.filter(u => u.isCancelled).length} Cancelled
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -1316,6 +1363,7 @@ export default function RMHistoryDrawer({
                                   <th className="p-3 w-10 text-center">#</th>
                                   <th className="p-3">Batch Number</th>
                                   <th className="p-3">Finished Product</th>
+                                  <th className="p-3 text-center">Batch Status</th>
                                   <th className="p-3">Date</th>
                                   <th className="p-3 text-right">Required Qty</th>
                                   <th className="p-3 text-right">Used Qty</th>
@@ -1324,107 +1372,146 @@ export default function RMHistoryDrawer({
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {productionUsages.map((usage, uIdx) => (
-                                  <tr key={usage.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
-                                    <td className="p-3 text-center text-slate-400 font-mono font-medium">{uIdx + 1}</td>
-                                    <td className="p-3 font-mono font-bold">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (usage.batchId) {
-                                              window.open(`/production/batches?id=${usage.batchId}&from=rm_stock`, '_blank');
-                                            }
-                                          }}
-                                          className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold transition-colors"
-                                          title="View batch in /production/batches (New Tab)"
-                                        >
-                                          <span>{usage.batchNumber}</span>
-                                          <ArrowUpRight className="w-3 h-3 opacity-70" />
-                                        </button>
-                                        {usage.isCancelled && (
-                                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 dark:bg-rose-950/70 dark:text-rose-300 border border-rose-200 dark:border-rose-900 inline-flex items-center gap-1 shadow-2xs">
-                                            <AlertCircle className="w-3 h-3 text-rose-600" />
-                                            Production Cancelled
-                                          </span>
+                                {productionUsages.map((usage, uIdx) => {
+                                  const statusMeta = getBatchStatusMeta(usage);
+                                  const StatusIcon = statusMeta.icon;
+
+                                  return (
+                                    <tr key={usage.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                                      <td className="p-3 text-center text-slate-400 font-mono font-medium">{uIdx + 1}</td>
+                                      <td className="p-3 font-mono font-bold">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              if (usage.batchId) {
+                                                window.open(`/production/batches?id=${usage.batchId}&from=rm_stock`, '_blank');
+                                              }
+                                            }}
+                                            className="text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:underline inline-flex items-center gap-1 cursor-pointer font-bold transition-colors"
+                                            title="View batch in /production/batches (New Tab)"
+                                          >
+                                            <span>{usage.batchNumber}</span>
+                                            <ArrowUpRight className="w-3 h-3 opacity-70" />
+                                          </button>
+                                        </div>
+                                      </td>
+                                      <td className="p-3 font-semibold text-slate-900 dark:text-white">
+                                        <div className="font-bold">{usage.productName}</div>
+                                        {usage.batchReferenceNo && usage.batchNo && usage.batchNo !== usage.batchReferenceNo && (
+                                          <span className="text-[10px] text-slate-400 font-mono">Ref: {usage.batchReferenceNo}</span>
                                         )}
-                                      </div>
-                                    </td>
-                                    <td className="p-3 font-semibold text-slate-900 dark:text-white">
-                                      <div className="font-bold">{usage.productName}</div>
-                                      {usage.batchReferenceNo && usage.batchNo && usage.batchNo !== usage.batchReferenceNo && (
-                                        <span className="text-[10px] text-slate-400 font-mono">Ref: {usage.batchReferenceNo}</span>
-                                      )}
-                                    </td>
-                                    <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap font-medium">
-                                      {formatShortDate(usage.date)}
-                                    </td>
-                                    <td className="p-3 text-right text-slate-500 font-medium">
-                                      <div>{usage.requiredQty?.toLocaleString()} {material?.unit}</div>
-                                      {material?.hasAlternateUom && material?.alternateUom && (
-                                        <div className="text-[9.5px] text-slate-400 font-mono">
-                                          ({Number((Number(usage.requiredQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom})
+                                      </td>
+                                      <td className="p-3 text-center whitespace-nowrap">
+                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-2xs ${statusMeta.badgeClass}`}>
+                                          <StatusIcon className="w-3 h-3 shrink-0" />
+                                          <span>{statusMeta.label}</span>
+                                        </span>
+                                        <div className={`text-[9px] font-semibold mt-0.5 ${statusMeta.noteClass}`}>
+                                          {statusMeta.note}
                                         </div>
-                                      )}
-                                    </td>
-                                    <td className="p-3 text-right font-black whitespace-nowrap">
-                                      {usage.isCancelled ? (
-                                        <div className="flex flex-col items-end">
-                                          <span className="line-through text-slate-400 text-[11px] font-normal">
-                                            {usage.actualUsedQty?.toLocaleString()} {material?.unit}
-                                          </span>
-                                          <span className="text-rose-600 dark:text-rose-400 font-bold text-xs">
-                                            0 {material?.unit}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <div>
-                                          <div className="text-slate-900 dark:text-white">
-                                            {usage.actualUsedQty?.toLocaleString()} {material?.unit}
+                                      </td>
+                                      <td className="p-3 text-slate-600 dark:text-slate-300 whitespace-nowrap font-medium">
+                                        {formatShortDate(usage.date)}
+                                      </td>
+                                      <td className="p-3 text-right text-slate-500 font-medium">
+                                        <div>{usage.requiredQty?.toLocaleString()} {material?.unit}</div>
+                                        {material?.hasAlternateUom && material?.alternateUom && (
+                                          <div className="text-[9.5px] text-slate-400 font-mono">
+                                            ({Number((Number(usage.requiredQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom})
                                           </div>
-                                          {material?.hasAlternateUom && material?.alternateUom && (
-                                            <div className="text-[9.5px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-                                              ({Number((Number(usage.actualUsedQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom})
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-right font-black whitespace-nowrap">
+                                        {statusMeta.key === 'cancelled' ? (
+                                          <div className="flex flex-col items-end">
+                                            <span className="line-through text-slate-400 text-[11px] font-normal">
+                                              {usage.actualUsedQty?.toLocaleString()} {material?.unit}
+                                            </span>
+                                            <span className="text-rose-600 dark:text-rose-400 font-bold text-xs">
+                                              0 {material?.unit}
+                                            </span>
+                                          </div>
+                                        ) : statusMeta.key === 'in_progress' ? (
+                                          <div className="flex flex-col items-end">
+                                            <div className="text-slate-900 dark:text-white font-bold">
+                                              {usage.actualUsedQty?.toLocaleString()} {material?.unit}
                                             </div>
-                                          )}
-                                        </div>
-                                      )}
-                                    </td>
-                                    <td className="p-3 text-right font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                      {formatCurrency(usage.unitCost)}
-                                    </td>
-                                    <td className="p-3 text-right font-bold whitespace-nowrap font-mono">
-                                      {usage.isCancelled ? (
-                                        <div className="flex flex-col items-end">
-                                          <span className="line-through text-slate-400 text-[11px] font-normal">
+                                            {material?.hasAlternateUom && material?.alternateUom && (
+                                              <div className="text-[9.5px] font-mono text-amber-600 dark:text-amber-400 font-bold">
+                                                ({Number((Number(usage.actualUsedQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom})
+                                              </div>
+                                            )}
+                                            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-medium">
+                                              Allocated
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <div className="flex flex-col items-end">
+                                            <div className="text-slate-900 dark:text-white font-black">
+                                              {usage.actualUsedQty?.toLocaleString()} {material?.unit}
+                                            </div>
+                                            {material?.hasAlternateUom && material?.alternateUom && (
+                                              <div className="text-[9.5px] font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                                                ({Number((Number(usage.actualUsedQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom})
+                                              </div>
+                                            )}
+                                            <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-medium">
+                                              Deducted
+                                            </span>
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="p-3 text-right font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                        {formatCurrency(usage.unitCost)}
+                                      </td>
+                                      <td className="p-3 text-right font-bold whitespace-nowrap font-mono">
+                                        {statusMeta.key === 'cancelled' ? (
+                                          <div className="flex flex-col items-end">
+                                            <span className="line-through text-slate-400 text-[11px] font-normal">
+                                              {formatCurrency(usage.totalCost)}
+                                            </span>
+                                            <span className="text-rose-600 dark:text-rose-400 font-bold text-xs">
+                                              {formatCurrency(0)}
+                                            </span>
+                                          </div>
+                                        ) : (
+                                          <span className={statusMeta.key === 'completed' ? 'text-slate-900 dark:text-white font-black' : 'text-slate-700 dark:text-slate-300'}>
                                             {formatCurrency(usage.totalCost)}
                                           </span>
-                                          <span className="text-rose-600 dark:text-rose-400 font-bold text-xs">
-                                            {formatCurrency(0)}
-                                          </span>
-                                        </div>
-                                      ) : (
-                                        <span className="text-slate-900 dark:text-white">
-                                          {formatCurrency(usage.totalCost)}
-                                        </span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                ))}
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
                               </tbody>
                               <tfoot className="bg-slate-50/90 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700 text-xs">
                                 <tr>
-                                  <td colSpan={4} className="p-3 text-right text-slate-600 dark:text-slate-300">
-                                    Total Consumption ({productionUsages.filter(u => !u.isCancelled).length} Active{productionUsages.some(u => u.isCancelled) ? ` / ${productionUsages.length} Total` : ''} Batches):
+                                  <td colSpan={5} className="p-3 text-right text-slate-600 dark:text-slate-300">
+                                    <div className="font-bold">Total Consumed (Deducted from Stock):</div>
+                                    <div className="text-[10px] text-slate-400 font-normal">
+                                      {productionUsages.filter(u => ['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(String(u.batchStatus || '').toLowerCase()) && !u.isCancelled).length} Completed Yield
+                                      {productionUsages.filter(u => ['in progress', 'planned', 'draft'].includes(String(u.batchStatus || '').toLowerCase()) && !u.isCancelled).length > 0 && (
+                                        <span> • {productionUsages.filter(u => ['in progress', 'planned', 'draft'].includes(String(u.batchStatus || '').toLowerCase()) && !u.isCancelled).length} In Progress (Allocated)</span>
+                                      )}
+                                      {productionUsages.filter(u => u.isCancelled).length > 0 && (
+                                        <span> • {productionUsages.filter(u => u.isCancelled).length} Cancelled (Released)</span>
+                                      )}
+                                    </div>
                                   </td>
                                   <td className="p-3 text-right text-slate-600 dark:text-slate-300">
                                     {productionUsages.reduce((acc, u) => acc + (u.isCancelled ? 0 : Number(u.requiredQty || 0)), 0).toLocaleString()} {material?.unit}
                                   </td>
                                   <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap">
-                                    {summary?.totalConsumedQty?.toLocaleString() || 0} {material?.unit}
+                                    <div>{summary?.totalConsumedQty?.toLocaleString() || 0} {material?.unit}</div>
+                                    {material?.hasAlternateUom && material?.alternateUom && (
+                                      <div className="text-[9.5px] font-mono text-emerald-600 dark:text-emerald-400">
+                                        ≈ {Number((Number(summary?.totalConsumedQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom}
+                                      </div>
+                                    )}
                                   </td>
                                   <td></td>
-                                  <td className="p-3 text-right font-black text-slate-900 dark:text-white whitespace-nowrap font-mono">
+                                  <td className="p-3 text-right font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap font-mono text-sm">
                                     {formatCurrency(summary?.totalConsumedCost || 0)}
                                   </td>
                                 </tr>

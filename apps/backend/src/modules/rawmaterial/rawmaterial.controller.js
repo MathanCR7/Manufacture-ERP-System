@@ -2787,16 +2787,34 @@ exports.getMaterialHistory = async (req, res, next) => {
       const reqQty = Number(u.requiredQty || 0);
       let actQty = Number(u.actualUsedQty || 0);
       const factor = getConversionFactor(rm.unitId, u.selectedUom || rm.alternateUom, u.conversionFactorUsed, rm);
+      const isAlt = Boolean(u.selectedUom && rm.alternateUom && u.selectedUom.toLowerCase() === rm.alternateUom.toLowerCase());
 
-      // In productionBatchRMUsage, actualUsedQty is already recorded in canonical Base UOM (e.g. Liter).
+      // Canonical Base Quantity calculation:
+      // In productionBatchRMUsage, actualUsedQty is canonical Base UOM (e.g. 4.2 Liter).
       // Only divide if legacy/corrupt un-converted magnitude was recorded (e.g. 4200 instead of 4.2):
-      const canonicalActQty = (factor > 1 && reqQty > 0 && actQty >= reqQty * 10)
-        ? Number((actQty / factor).toFixed(4))
-        : actQty;
+      let canonicalActQty = actQty;
+      if (factor > 1) {
+        if (reqQty > 0 && actQty >= reqQty * 10) {
+          canonicalActQty = Number((actQty / factor).toFixed(4));
+        } else if (isAlt && actQty >= 50) {
+          canonicalActQty = Number((actQty / factor).toFixed(4));
+        }
+      }
+
+      let canonicalReqQty = reqQty;
+      if (factor > 1 && isAlt && reqQty >= 50) {
+        canonicalReqQty = Number((reqQty / factor).toFixed(4));
+      }
+
+      // Unit Cost normalization (ensure ₹/BaseUOM, e.g. ₹48/L instead of ₹0.048/ml):
+      let effectiveUnitCost = Number(u.unitCost || 0);
+      if (factor > 1 && effectiveUnitCost > 0 && effectiveUnitCost < 1 && (isAlt || Number(rm.ratePerUnit || 0) >= 10)) {
+        effectiveUnitCost = Number((effectiveUnitCost * factor).toFixed(2));
+      }
 
       const altActQty = factor > 1 ? Number((canonicalActQty * factor).toFixed(2)) : null;
-      const effectiveLineCost = Number((canonicalActQty * Number(u.unitCost || 0)).toFixed(2));
-      const isAlt = Boolean(u.selectedUom && rm.alternateUom && u.selectedUom.toLowerCase() === rm.alternateUom.toLowerCase());
+      const altReqQty = factor > 1 ? Number((canonicalReqQty * factor).toFixed(2)) : null;
+      const effectiveLineCost = Number((canonicalActQty * effectiveUnitCost).toFixed(2));
 
       return {
         id: u.id,
@@ -2809,15 +2827,15 @@ exports.getMaterialHistory = async (req, res, next) => {
         productCode: u.batch?.product?.code || '',
         batchStatus,
         isCancelled,
-        requiredQty: reqQty,
-        altRequiredQty: factor > 1 ? Number((reqQty * factor).toFixed(2)) : null,
+        requiredQty: canonicalReqQty,
+        altRequiredQty: altReqQty,
         availableQtyAtTime: Number(u.availableQtyAtTime || 0),
         actualUsedQty: canonicalActQty,
         altActualUsedQty: altActQty,
         selectedUom: u.selectedUom || (isAlt ? rm.alternateUom : rm.unitId),
         inputQty: u.inputQty || (isAlt ? actQty : canonicalActQty),
         effectiveUsedQty: isCancelled ? 0 : canonicalActQty,
-        unitCost: Number(u.unitCost || 0),
+        unitCost: effectiveUnitCost,
         totalCost: effectiveLineCost,
         effectiveTotalCost: isCancelled ? 0 : effectiveLineCost,
         usageStatus: isCancelled ? 'CANCELLED' : u.status,
@@ -2876,10 +2894,17 @@ exports.getMaterialHistory = async (req, res, next) => {
     // In-progress or planned batches have not been deducted from warehouse stock yet.
     const completedUsages = formattedUsages.filter(u => 
       !u.isCancelled && 
-      ['completed', 'qc_exempt', 'closed'].includes(String(u.batchStatus || '').toLowerCase())
+      ['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(String(u.batchStatus || '').toLowerCase())
     );
+    const inProgressUsages = formattedUsages.filter(u =>
+      !u.isCancelled &&
+      ['in progress', 'planned', 'draft'].includes(String(u.batchStatus || '').toLowerCase())
+    );
+    const cancelledUsages = formattedUsages.filter(u => u.isCancelled);
+
     const totalConsumedQty = Number(completedUsages.reduce((acc, u) => acc + u.effectiveUsedQty, 0).toFixed(4));
-    const totalConsumedCost = completedUsages.reduce((acc, u) => acc + u.effectiveTotalCost, 0);
+    const totalConsumedCost = Number(completedUsages.reduce((acc, u) => acc + u.effectiveTotalCost, 0).toFixed(2));
+    const totalAllocatedQty = Number(inProgressUsages.reduce((acc, u) => acc + u.requiredQty, 0).toFixed(4));
 
     const totalAdjustmentAddition = formattedAdjustments
       .filter(a => a.type === 'ADDITION')
@@ -3050,25 +3075,30 @@ exports.getMaterialHistory = async (req, res, next) => {
             batchNumber: u.batchNumber,
             productName: u.productName,
             totalCost: 0,
-            isCancelled: true
+            isCancelled: true,
+            batchStatus: 'Cancelled'
           }
         });
       } else {
+        const isCompleted = ['completed', 'qc_exempt', 'closed', 'yield completed', 'yielded'].includes(String(u.batchStatus || '').toLowerCase());
         timelineEvents.push({
           id: `usage-${u.id}`,
           type: 'PRODUCTION_USAGE',
-          title: `Consumed in Production: ${u.actualUsedQty} ${rm.unitId}${u.altActualUsedQty ? ` (${u.altActualUsedQty.toLocaleString()} ${rm.alternateUom})` : ''}`,
-          subtitle: `Batch: ${u.batchNumber} • ${u.productName}`,
+          title: isCompleted
+            ? `Consumed in Production (Yield Completed): ${u.actualUsedQty} ${rm.unitId}${u.altActualUsedQty ? ` (${u.altActualUsedQty.toLocaleString()} ${rm.alternateUom})` : ''}`
+            : `Allocated for Production (In Progress): ${u.actualUsedQty} ${rm.unitId}${u.altActualUsedQty ? ` (${u.altActualUsedQty.toLocaleString()} ${rm.alternateUom})` : ''}`,
+          subtitle: `Batch: ${u.batchNumber} • ${u.productName} • Status: ${u.batchStatus}`,
           timestamp: u.date,
-          status: u.usageStatus,
-          badgeColor: 'indigo',
+          status: isCompleted ? 'YIELD_COMPLETED' : 'IN_PROGRESS',
+          badgeColor: isCompleted ? 'emerald' : 'amber',
           user: 'Production System',
           metadata: {
             batchId: u.batchId,
             batchNumber: u.batchNumber,
             productName: u.productName,
             totalCost: u.totalCost,
-            isCancelled: false
+            isCancelled: false,
+            batchStatus: u.batchStatus
           }
         });
       }
@@ -3215,6 +3245,10 @@ exports.getMaterialHistory = async (req, res, next) => {
         totalInwardedQty,
         totalConsumedQty,
         totalConsumedCost,
+        totalAllocatedQty,
+        completedBatchCount: completedUsages.length,
+        inProgressBatchCount: inProgressUsages.length,
+        cancelledBatchCount: cancelledUsages.length,
         totalAdjustmentAddition,
         totalAdjustmentSubtraction,
         netAdjustedQty,
