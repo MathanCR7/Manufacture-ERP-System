@@ -2787,15 +2787,16 @@ exports.getMaterialHistory = async (req, res, next) => {
       const reqQty = Number(u.requiredQty || 0);
       let actQty = Number(u.actualUsedQty || 0);
       const factor = getConversionFactor(rm.unitId, u.selectedUom || rm.alternateUom, u.conversionFactorUsed, rm);
-      const isAlt = Boolean(
-        (u.selectedUom && rm.alternateUom && u.selectedUom.toLowerCase() === rm.alternateUom.toLowerCase()) ||
-        (factor > 1 && reqQty > 0 && actQty >= reqQty * 10)
-      );
 
-      // Canonical base used quantity
-      const canonicalActQty = (isAlt && factor > 1) ? Number((actQty / factor).toFixed(4)) : actQty;
+      // In productionBatchRMUsage, actualUsedQty is already recorded in canonical Base UOM (e.g. Liter).
+      // Only divide if legacy/corrupt un-converted magnitude was recorded (e.g. 4200 instead of 4.2):
+      const canonicalActQty = (factor > 1 && reqQty > 0 && actQty >= reqQty * 10)
+        ? Number((actQty / factor).toFixed(4))
+        : actQty;
+
       const altActQty = factor > 1 ? Number((canonicalActQty * factor).toFixed(2)) : null;
       const effectiveLineCost = Number((canonicalActQty * Number(u.unitCost || 0)).toFixed(2));
+      const isAlt = Boolean(u.selectedUom && rm.alternateUom && u.selectedUom.toLowerCase() === rm.alternateUom.toLowerCase());
 
       return {
         id: u.id,
