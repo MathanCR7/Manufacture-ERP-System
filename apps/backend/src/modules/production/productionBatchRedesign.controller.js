@@ -6,6 +6,7 @@ const productionCompletionService = require('./productionCompletion.service');
 const { getTaxSettingsData } = require('../setup/tax.controller');
 const { ensureProductionBatchesRedesignSchema } = require('../../database/migrations/ensure_production_batches_redesign_schema');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
+const { getConversionFactor } = require('../../utils/uomConversion');
 
 const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
@@ -177,12 +178,7 @@ class ProductionBatchRedesignController {
             const altUomCandidate = u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
             const hasAlt = Boolean(u.rawMaterial?.hasAlternateUom && altUomCandidate && altUomCandidate.toLowerCase() !== baseUom.toLowerCase());
             const altUom = hasAlt ? altUomCandidate : null;
-            const factor = hasAlt ? Number(
-              u.conversionFactorUsed ||
-              u.rawMaterial?.conversionFactor ||
-              (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
-              1000
-            ) : 1;
+            const factor = hasAlt ? getConversionFactor(baseUom, altUom, u.conversionFactorUsed, u.rawMaterial) : 1;
             return {
               ...u,
               baseUom,
@@ -696,6 +692,14 @@ class ProductionBatchRedesignController {
             ? rm.allocatedBatches.map(b => `${b.lotNumber} (${b.allocatedQty} ${rm.selectedUom})`).join(' + ')
             : firstAlloc?.lotNumber || null;
 
+          const selectedUom = rm.selectedUom || rmRecord?.unitId || 'Kg';
+          const convFactor = getConversionFactor(
+            rmRecord?.unitId,
+            rm.selectedUom || rmRecord?.alternateUom || rmRecord?.consumptionUnit,
+            rm.conversionFactor || rmRecord?.conversionFactor,
+            rmRecord
+          );
+
           const usage = await tx.productionBatchRMUsage.create({
             data: {
               batchId: batch.id,
@@ -705,8 +709,9 @@ class ProductionBatchRedesignController {
               actualUsedQty: Number(rm.actualUsedQty || rm.requiredQty || 0),
               unitCost: Number(rm.unitRate || 0),
               totalCost: Number(rm.totalCost || 0),
-              selectedUom: rm.selectedUom || rmRecord?.unitId || 'Kg',
+              selectedUom: selectedUom,
               inputQty: Number(rm.inputQty || rm.requiredQty || 0),
+              conversionFactorUsed: convFactor,
               allocatedBatchId: firstAlloc?.batchId || null,
               internalBatchNo: combinedBatchSummary
             }

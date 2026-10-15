@@ -1,6 +1,7 @@
 const prisma = require('../../database/prisma');
 const stockReservationService = require('../../services/stockReservation.service');
 const notificationService = require('../notifications/notifications.service');
+const { getConversionFactor } = require('../../utils/uomConversion');
 
 /**
  * Service to execute atomic "Complete Production" transaction:
@@ -172,17 +173,17 @@ class ProductionCompletionService {
 
       for (const usage of batch.rmUsages) {
         const customRm = Array.isArray(data.rmUsages) ? data.rmUsages.find(r => r.rmId === usage.rmId) : null;
-        const factor = Number(
-          customRm?.conversionFactorUsed ||
-          usage.conversionFactorUsed ||
-          usage.rawMaterial?.conversionFactor ||
-          (usage.rawMaterial?.alternateUomQty && usage.rawMaterial?.baseUomQty ? (usage.rawMaterial.alternateUomQty / usage.rawMaterial.baseUomQty) : 1000) ||
-          1000
+        let selectedUom = customRm?.selectedUom || usage.selectedUom || usage.rawMaterial?.unitId || 'liter';
+
+        const factor = getConversionFactor(
+          usage.rawMaterial?.unitId,
+          usage.rawMaterial?.alternateUom || selectedUom,
+          customRm?.conversionFactorUsed || usage.conversionFactorUsed,
+          usage.rawMaterial
         );
 
         let canonicalConsumed = 0;
         let userEnteredQty = null;
-        let selectedUom = customRm?.selectedUom || usage.selectedUom || usage.rawMaterial?.unitId || 'liter';
 
         if (customRm) {
           userEnteredQty = customRm.inputQty !== undefined ? Number(customRm.inputQty) : null;
@@ -195,20 +196,14 @@ class ProductionCompletionService {
           );
 
           if (isAltUnit && factor > 1) {
-            if (userEnteredQty !== null && userEnteredQty > 0) {
-              // Canonical base quantity is userEnteredQty / factor (e.g. 4200 ml / 1000 = 4.2 liter)
-              canonicalConsumed = Number((userEnteredQty / factor).toFixed(4));
-            } else if (rawAct > stdReq * 10 && stdReq > 0) {
-              // Obvious un-divided alternate quantity (e.g. 4200 instead of 4.2)
-              canonicalConsumed = Number((rawAct / factor).toFixed(4));
-              userEnteredQty = rawAct;
-            } else {
-              canonicalConsumed = rawAct;
-              userEnteredQty = Number((rawAct * factor).toFixed(3));
-            }
+            // User entered in alternate UOM (e.g. 4200 ml, 800 gm)
+            const rawVal = (userEnteredQty !== null && userEnteredQty > 0) ? userEnteredQty : rawAct;
+            canonicalConsumed = Number((rawVal / factor).toFixed(4));
+            userEnteredQty = rawVal;
           } else {
-            // Base UOM: check if user passed un-divided alternate quantity
-            if (rawAct > stdReq * 10 && stdReq > 0 && factor > 1) {
+            // Base UOM (e.g. liter, kg)
+            // Safeguard: Check if un-divided alternate magnitude was passed into base unit (e.g. 4200 instead of 4.2)
+            if (factor > 1 && rawAct >= (stdReq > 0 ? stdReq * 10 : 100)) {
               canonicalConsumed = Number((rawAct / factor).toFixed(4));
               userEnteredQty = rawAct;
               selectedUom = usage.rawMaterial?.alternateUom || selectedUom;

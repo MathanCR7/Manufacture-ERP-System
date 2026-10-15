@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/axios';
 import { exportRMHistoryToExcel } from '../utils/exportRMHistoryExcel';
+import { getConversionFactor } from '@/utils/uomConversion';
 import Swal from 'sweetalert2';
 import {
   X,
@@ -71,6 +72,7 @@ export default function RMHistoryDrawer({
   if (!isOpen) return null;
 
   const material = data?.material;
+  const convFactor = getConversionFactor(material?.unit, material?.alternateUom, material?.conversionFactor);
   const summary = data?.summary;
   const timeline = data?.timeline || [];
   const purchases = data?.purchases || [];
@@ -293,7 +295,7 @@ export default function RMHistoryDrawer({
                     </div>
                     {material?.hasAlternateUom && material?.alternateUom && (
                       <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        ≈ {Number((Number(material?.currentStock || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom}
+                        ≈ {Number((Number(material?.currentStock || 0) * convFactor).toFixed(2)).toLocaleString()} {material?.alternateUom}
                       </div>
                     )}
                     <div className="text-[10px] text-indigo-700 dark:text-indigo-300 font-medium truncate">
@@ -340,7 +342,7 @@ export default function RMHistoryDrawer({
                     </div>
                     {material?.hasAlternateUom && material?.alternateUom && (
                       <div className="text-[10px] font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                        ≈ {Number((Number(summary?.totalConsumedQty || 0) * (Number(material?.conversionFactor) || 1000)).toFixed(2)).toLocaleString()} {material?.alternateUom}
+                        ≈ {Number((Number(summary?.totalConsumedQty || 0) * convFactor).toFixed(2)).toLocaleString()} {material?.alternateUom}
                       </div>
                     )}
                     <div className="text-[10px] text-slate-500 font-medium truncate flex items-center justify-between">

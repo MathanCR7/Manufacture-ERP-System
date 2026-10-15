@@ -2,6 +2,7 @@ const { z } = require('zod');
 const prisma = require('../../database/prisma');
 const { generateRmId } = require('../../utils/rmIdGenerator');
 const { generateReferenceNo } = require('../../utils/referenceGenerator');
+const { getConversionFactor } = require('../../utils/uomConversion');
 const workflowNotifications = require('../notifications/workflow.notifications');
 const { receivePOAndProcess, cleanupPOReceiptsAndBatches, autoHealMultiItemGrnBatches } = require('../grn/grn.helper');
 const { savePaymentImageToDisk, saveSupplierInvoiceToDisk, renameInvoiceFileOnDisk, deletePaymentImageFromDisk } = require('../../utils/paymentFileStorage');
@@ -2785,15 +2786,16 @@ exports.getMaterialHistory = async (req, res, next) => {
 
       const reqQty = Number(u.requiredQty || 0);
       let actQty = Number(u.actualUsedQty || 0);
-      const factor = Number(u.conversionFactorUsed || rm.conversionFactor || 1);
+      const factor = getConversionFactor(rm.unitId, u.selectedUom || rm.alternateUom, u.conversionFactorUsed, rm);
       const isAlt = Boolean(
         (u.selectedUom && rm.alternateUom && u.selectedUom.toLowerCase() === rm.alternateUom.toLowerCase()) ||
-        (factor > 1 && reqQty > 0 && actQty > reqQty * 10)
+        (factor > 1 && reqQty > 0 && actQty >= reqQty * 10)
       );
 
       // Canonical base used quantity
       const canonicalActQty = (isAlt && factor > 1) ? Number((actQty / factor).toFixed(4)) : actQty;
       const altActQty = factor > 1 ? Number((canonicalActQty * factor).toFixed(2)) : null;
+      const effectiveLineCost = Number((canonicalActQty * Number(u.unitCost || 0)).toFixed(2));
 
       return {
         id: u.id,
@@ -2815,8 +2817,8 @@ exports.getMaterialHistory = async (req, res, next) => {
         inputQty: u.inputQty || (isAlt ? actQty : canonicalActQty),
         effectiveUsedQty: isCancelled ? 0 : canonicalActQty,
         unitCost: Number(u.unitCost || 0),
-        totalCost: Number(u.totalCost || 0),
-        effectiveTotalCost: isCancelled ? 0 : Number(u.totalCost || 0),
+        totalCost: effectiveLineCost,
+        effectiveTotalCost: isCancelled ? 0 : effectiveLineCost,
         usageStatus: isCancelled ? 'CANCELLED' : u.status,
         date: u.batch?.startDate || u.batch?.createdAt || new Date()
       };
@@ -2869,10 +2871,14 @@ exports.getMaterialHistory = async (req, res, next) => {
     const totalPurchasedValue = formattedPurchases.reduce((acc, p) => acc + (p.itemTotal || 0), 0);
     const totalInwardedQty = formattedGRN.reduce((acc, g) => acc + g.actualReceivedQty, 0);
     
-    // Only active (non-cancelled) production batches count towards consumed metrics
-    const activeUsages = formattedUsages.filter(u => !u.isCancelled);
-    const totalConsumedQty = Number(activeUsages.reduce((acc, u) => acc + u.effectiveUsedQty, 0).toFixed(4));
-    const totalConsumedCost = activeUsages.reduce((acc, u) => acc + u.totalCost, 0);
+    // Only completed (non-cancelled) production batches count towards consumed metrics
+    // In-progress or planned batches have not been deducted from warehouse stock yet.
+    const completedUsages = formattedUsages.filter(u => 
+      !u.isCancelled && 
+      ['completed', 'qc_exempt', 'closed'].includes(String(u.batchStatus || '').toLowerCase())
+    );
+    const totalConsumedQty = Number(completedUsages.reduce((acc, u) => acc + u.effectiveUsedQty, 0).toFixed(4));
+    const totalConsumedCost = completedUsages.reduce((acc, u) => acc + u.effectiveTotalCost, 0);
 
     const totalAdjustmentAddition = formattedAdjustments
       .filter(a => a.type === 'ADDITION')

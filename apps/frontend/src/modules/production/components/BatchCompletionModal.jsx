@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import Swal from 'sweetalert2';
 
+import { getConversionFactor } from '@/utils/uomConversion';
+
 export default function BatchCompletionModal({
   isOpen,
   onClose,
@@ -48,37 +50,42 @@ export default function BatchCompletionModal({
         const altUomCandidate = u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
         const hasAlt = Boolean(u.rawMaterial?.hasAlternateUom && altUomCandidate && altUomCandidate.toLowerCase() !== baseUom.toLowerCase());
         const altUom = hasAlt ? altUomCandidate : null;
-        const convFactor = hasAlt ? Number(
-          u.conversionFactorUsed ||
-          u.rawMaterial?.conversionFactor ||
-          (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
-          1000
-        ) : 1;
+        const convFactor = hasAlt
+          ? getConversionFactor(baseUom, altUom, u.conversionFactorUsed, u.rawMaterial)
+          : 1;
 
-        const baseReqQty = Number(u.requiredQty || 0);
-
-        // Determine initial selected unit:
-        // If batch was pre-selected in alternate UOM (or u.selectedUom equals altUom), start in alt UOM ('sub')
+        const rawReq = Number(u.requiredQty || 0);
         const isAltSelected = Boolean(hasAlt && (u.selectedUom && u.selectedUom.toLowerCase() === altUom.toLowerCase()));
+
+        // Canonical base required quantity (always in base UOM: kg, liter)
+        let canonicalBaseReqQty = rawReq;
+        if (isAltSelected && convFactor > 1) {
+          canonicalBaseReqQty = Number((rawReq / convFactor).toFixed(4));
+        }
+
         const selectedUnit = isAltSelected ? 'sub' : 'base';
 
         // Calculate initial input value:
-        // If starting in 'sub' (alt UOM), show baseReqQty * convFactor, otherwise baseReqQty
-        let initialVal = baseReqQty;
+        let initialVal = selectedUnit === 'sub'
+          ? Number((canonicalBaseReqQty * convFactor).toFixed(3))
+          : canonicalBaseReqQty;
+
         if (u.actualUsedQty !== null && u.actualUsedQty !== undefined) {
           const act = Number(u.actualUsedQty);
-          // If stored act is canonical base, convert to selectedUnit
-          initialVal = selectedUnit === 'sub' ? Number((act * convFactor).toFixed(3)) : act;
-        } else if (selectedUnit === 'sub') {
-          initialVal = Number((baseReqQty * convFactor).toFixed(3));
+          // If stored act is alternate magnitude (e.g. 4200 when base is 4):
+          if (convFactor > 1 && act >= canonicalBaseReqQty * 50) {
+            initialVal = selectedUnit === 'sub' ? act : Number((act / convFactor).toFixed(4));
+          } else {
+            initialVal = selectedUnit === 'sub' ? Number((act * convFactor).toFixed(3)) : act;
+          }
         }
 
         return {
           rmId: u.rmId,
           name: u.rawMaterial?.name || 'Raw Material',
           code: u.rawMaterial?.code,
-          baseRequiredQty: baseReqQty,
-          requiredQty: baseReqQty,
+          baseRequiredQty: canonicalBaseReqQty,
+          requiredQty: canonicalBaseReqQty,
           unit: baseUom,
           hasAlt,
           altUom,
@@ -92,6 +99,18 @@ export default function BatchCompletionModal({
       setCompletionNote('');
     }
   }, [batch]);
+
+  const formatQtyDisplay = (val, isBase = true) => {
+    const num = Number(val || 0);
+    if (num === 0) return '0';
+    if (isBase) {
+      if (num < 0.01) return num.toFixed(4);
+      if (num < 1) return num.toFixed(3);
+      return num.toFixed(2);
+    }
+    if (Number.isInteger(num)) return num.toLocaleString();
+    return Number(num.toFixed(2)).toLocaleString();
+  };
 
   if (!isOpen || !batch) return null;
 
@@ -485,17 +504,17 @@ export default function BatchCompletionModal({
                         <div>
                           <div className="font-bold text-slate-700 dark:text-slate-300">
                             {rm.selectedUnit === 'sub'
-                              ? `${Number((rm.baseRequiredQty * rm.convFactor).toFixed(2)).toLocaleString()} ${rm.altUom}`
-                              : `${rm.baseRequiredQty.toFixed(2)} ${rm.unit}`}
+                              ? `${formatQtyDisplay(rm.baseRequiredQty * rm.convFactor, false)} ${rm.altUom}`
+                              : `${formatQtyDisplay(rm.baseRequiredQty, true)} ${rm.unit}`}
                           </div>
                           <div className="text-[9.5px] text-slate-400">
                             {rm.selectedUnit === 'sub'
-                              ? `(${rm.baseRequiredQty.toFixed(2)} ${rm.unit})`
-                              : `(${Number((rm.baseRequiredQty * rm.convFactor).toFixed(2)).toLocaleString()} ${rm.altUom})`}
+                              ? `(${formatQtyDisplay(rm.baseRequiredQty, true)} ${rm.unit})`
+                              : `(${formatQtyDisplay(rm.baseRequiredQty * rm.convFactor, false)} ${rm.altUom})`}
                           </div>
                         </div>
                       ) : (
-                        <span>{rm.baseRequiredQty.toFixed(2)} {rm.unit}</span>
+                        <span>{formatQtyDisplay(rm.baseRequiredQty, true)} {rm.unit}</span>
                       )}
                     </div>
 
