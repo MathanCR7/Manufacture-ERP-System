@@ -197,13 +197,21 @@ const resolveStageId = async (tx, value) => {
 // Handler for master dropdowns and form metadata
 const getProductMastersHandler = async (req, res, next) => {
   try {
-    const categories = await prisma.productCategory.findMany({
-      where: { status: 'ACTIVE' },
-      include: {
-        _count: { select: { finishedProducts: true, subcategories: true } }
-      },
-      orderBy: { name: 'asc' }
-    });
+    let categories = [];
+    try {
+      categories = await prisma.productCategory.findMany({
+        where: { status: 'ACTIVE' },
+        include: {
+          _count: { select: { finishedProducts: true } }
+        },
+        orderBy: { name: 'asc' }
+      });
+    } catch (catErr) {
+      categories = await prisma.productCategory.findMany({
+        where: { status: 'ACTIVE' },
+        orderBy: { name: 'asc' }
+      });
+    }
 
     const units = await prisma.uOM.findMany({
       where: { isActive: true },
@@ -256,26 +264,54 @@ const getProductMastersHandler = async (req, res, next) => {
       select: { id: true, name: true, role: true }
     });
 
-    // Subcategories with their category and base templates
-    const subcategories = await prisma.productSubcategory.findMany({
-      where: { status: 'ACTIVE' },
-      include: {
-        _count: { select: { products: true } },
-        category: { select: { id: true, name: true, code: true } },
-        defaultUom: { select: { id: true, name: true, abbreviation: true } },
-        baseTemplates: {
-          select: { id: true, name: true, wastagePercent: true, overheadPercent: true }
-        },
-        specTemplate: {
-          include: {
-            fields: {
-              orderBy: [{ section: 'asc' }, { displayOrder: 'asc' }]
+    // Subcategories with their category and base templates (with resilient fallback)
+    let subcategories = [];
+    try {
+      subcategories = await prisma.productSubcategory.findMany({
+        where: { status: 'ACTIVE' },
+        include: {
+          _count: { select: { products: true } },
+          category: { select: { id: true, name: true, code: true } },
+          defaultUom: { select: { id: true, name: true, abbreviation: true } },
+          baseTemplates: {
+            select: { id: true, name: true, wastagePercent: true, overheadPercent: true }
+          },
+          specTemplate: {
+            include: {
+              fields: {
+                orderBy: [{ section: 'asc' }, { displayOrder: 'asc' }]
+              }
             }
           }
-        }
-      },
-      orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }]
-    });
+        },
+        orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }]
+      });
+    } catch (subErr) {
+      try {
+        const prods = await prisma.finishedProduct.findMany({
+          where: { deletedAt: null },
+          select: { categoryId: true, specifications: true },
+          take: 500
+        });
+        const subMap = new Map();
+        prods.forEach(p => {
+          const catName = p.specifications?.category;
+          if (catName && !subMap.has(catName)) {
+            subMap.set(catName, {
+              id: catName,
+              name: catName,
+              categoryId: p.categoryId,
+              code: catName.substring(0, 3).toUpperCase(),
+              _count: { products: 1 },
+              category: categories.find(c => c.id === p.categoryId) || null
+            });
+          }
+        });
+        subcategories = Array.from(subMap.values());
+      } catch (e) {
+        subcategories = [];
+      }
+    }
 
     res.json({ categories, subcategories, units, stages, nonInventoryItems, rawMaterials, users });
   } catch (error) {
@@ -1631,26 +1667,41 @@ router.get('/next-code', authenticateToken, async (req, res, next) => {
 // GET /api/products/:id - product detail
 router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
-    const product = await prisma.finishedProduct.findFirst({
-      where: { id: req.params.id, deletedAt: null },
-      include: {
-        category: true,
-        subcategory: {
-          include: {
-            specTemplate: {
-              include: {
-                fields: { orderBy: [{ section: 'asc' }, { displayOrder: 'asc' }] }
+    let product = null;
+    try {
+      product = await prisma.finishedProduct.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        include: {
+          category: true,
+          subcategory: {
+            include: {
+              specTemplate: {
+                include: {
+                  fields: { orderBy: [{ section: 'asc' }, { displayOrder: 'asc' }] }
+                }
               }
             }
-          }
-        },
-        unit: true,
-        bom: { include: { rawMaterial: true } },
-        nonInventoryCosts: { include: { item: true } },
-        stages: { include: { stage: true } },
-        stockLevels: true
-      }
-    });
+          },
+          unit: true,
+          bom: { include: { rawMaterial: true } },
+          nonInventoryCosts: { include: { item: true } },
+          stages: { include: { stage: true } },
+          stockLevels: true
+        }
+      });
+    } catch (errWithSub) {
+      product = await prisma.finishedProduct.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        include: {
+          category: true,
+          unit: true,
+          bom: { include: { rawMaterial: true } },
+          nonInventoryCosts: { include: { item: true } },
+          stages: { include: { stage: true } },
+          stockLevels: true
+        }
+      });
+    }
 
     if (!product) {
       return res.status(404).json({ error: 'Product not found' });

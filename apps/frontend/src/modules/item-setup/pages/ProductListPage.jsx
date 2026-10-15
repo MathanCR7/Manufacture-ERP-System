@@ -740,21 +740,40 @@ function ProductForm({ editId, onBack }) {
           const prodRes = await api.get(`/products/${editId}`);
           const prod = prodRes.data;
           
-          setName(prod.name ? prod.name.toUpperCase() : '');
-          setCode(prod.code || '');
+          setName(prod.name ? prod.name.toUpperCase() : (prod.productName ? prod.productName.toUpperCase() : ''));
+          
+          // Strict requirement: Never overwrite existing product system code in edit mode!
+          const existingSystemCode = prod.code || prod.systemCode || prod.specifications?.itemCode || '';
+          setCode(existingSystemCode);
+          if (!existingSystemCode) {
+            await handleFetchNextSystemCode();
+          }
+
           const catId = prod.categoryId || prod.category?.id || '';
           const matchedCategory = (mastersData.categories || []).find(c => 
             c.id === catId || 
-            (c.name && prod.category?.name && c.name.toLowerCase() === prod.category.name.toLowerCase())
+            (c.name && prod.category?.name && c.name.toLowerCase() === prod.category.name.toLowerCase()) ||
+            (c.name && prod.specifications?.group && c.name.toLowerCase() === prod.specifications.group.toLowerCase())
           );
           setCategoryId(matchedCategory ? matchedCategory.id : catId);
-          setSubcategoryId(prod.subcategoryId || '');
-          setSku(prod.sku || '');
-          setBarcode(prod.barcode || '');
+
+          const matchedSubcategory = (mastersData.subcategories || []).find(s =>
+            s.id === prod.subcategoryId ||
+            (s.name && prod.subcategory?.name && s.name.toLowerCase() === prod.subcategory.name.toLowerCase()) ||
+            (s.name && prod.specifications?.category && s.name.toLowerCase() === prod.specifications.category.toLowerCase()) ||
+            (s.code && prod.specifications?.series && s.code.toLowerCase() === prod.specifications.series.toLowerCase())
+          );
+          setSubcategoryId(matchedSubcategory ? matchedSubcategory.id : (prod.subcategoryId || ''));
+
+          setSku(prod.sku || prod.specifications?.itemCode || prod.specifications?.sku || prod.code || '');
+          const existingBarcode = prod.barcode || prod.upcEan || prod.specifications?.barcode || prod.specifications?.upcEan || '';
+          setBarcode(existingBarcode);
+          setUpcEan(existingBarcode);
+
           setSpecifications(prod.specifications || {});
           setCustomAttributes(Array.isArray(prod.customAttributes) ? prod.customAttributes : []);
-          setBrand(prod.brand || '');
-          setDescription(prod.description || '');
+          setBrand(prod.brand || prod.specifications?.brand || '');
+          setDescription(prod.description || prod.specifications?.description || '');
           setDimensionLength(prod.dimensionLength != null ? String(prod.dimensionLength) : '');
           setDimensionWidth(prod.dimensionWidth != null ? String(prod.dimensionWidth) : '');
           setDimensionHeight(prod.dimensionHeight != null ? String(prod.dimensionHeight) : '');
@@ -763,27 +782,39 @@ function ProductForm({ editId, onBack }) {
           setWeightUnit(prod.weightUnit || 'kg');
           setMaterial(prod.material || '');
           setColor(prod.color || '');
-          setSize(prod.size || '');
+          setSize(prod.size || prod.specifications?.sizeML || '');
           setModelNumber(prod.modelNumber || '');
-          setUpcEan(prod.upcEan || '');
           setCountryOfOrigin(prod.countryOfOrigin || '');
           setWarranty(prod.warranty || '');
           setKeyFeatures(prod.keyFeatures || '');
-          const initialUnit = (prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '').toLowerCase();
-          const matchedOption = UOM_OPTIONS.find(u => u.toLowerCase() === initialUnit) || prod.unit?.abbreviation || prod.unit?.name || prod.unitId || '';
+          const initialUnit = (prod.unit?.abbreviation || prod.unit?.name || prod.unitId || prod.specifications?.dimensionUnit || 'pcs').toLowerCase();
+          const matchedOption = UOM_OPTIONS.find(u => u.toLowerCase() === initialUnit) || prod.unit?.abbreviation || prod.unit?.name || prod.unitId || 'pcs';
           setUnitId(matchedOption);
           setStockMethod(prod.stockMethod || 'FIFO');
           setOpeningStock(Number(prod.openingStock || 0));
           setAlertLevel(Number(prod.alertLevel || 0));
-          setHsnCode(prod.hsnCode || '');
+          setHsnCode(prod.hsnCode || prod.specifications?.hsnCode || '');
           setProfitMargin(Number(prod.profitMargin || 0));
-          setCgst(Number(prod.cgst || 0));
-          setSgst(Number(prod.sgst || 0));
-          setIgst(Number(prod.igst || 0));
-          setSalePrice(Number(prod.salePrice || 0));
+
+          if (prod.cgst !== undefined && prod.cgst !== null && Number(prod.cgst) > 0) {
+            setCgst(Number(prod.cgst));
+            setSgst(Number(prod.sgst || 0));
+            setIgst(Number(prod.igst || 0));
+          } else if (prod.specifications?.gstPercent !== undefined) {
+            const gstP = Number(prod.specifications.gstPercent || 0);
+            setCgst(gstP / 2);
+            setSgst(gstP / 2);
+            setIgst(gstP);
+          } else {
+            setCgst(Number(prod.cgst || 0));
+            setSgst(Number(prod.sgst || 0));
+            setIgst(Number(prod.igst || 0));
+          }
+
+          setSalePrice(Number(prod.salePrice || prod.specifications?.factoryPrice || prod.specifications?.salePrice || 0));
           
           setExpectedOutput(Number(prod.expectedOutput || 1));
-          setSopSteps(prod.sopSteps || [{ stepNumber: 1, instruction: '', tempTime: '', safetyNote: '' }]);
+          setSopSteps(prod.sopSteps && prod.sopSteps.length > 0 ? prod.sopSteps : [{ stepNumber: 1, instruction: '', tempTime: '', safetyNote: '' }]);
           setImageUrl(prod.imageUrl || '');
           setIsSopLocked(!!prod.isSopLocked);
           setSopHistory(prod.sopHistory || []);
@@ -836,10 +867,9 @@ function ProductForm({ editId, onBack }) {
               sortOrder: item.sortOrder || 0
             })));
           }
-          await handleFetchNextSystemCode();
 
           const companySettings = useCompanyStore.getState().company;
-          if (companySettings?.taxes && Array.isArray(companySettings.taxes)) {
+          if (companySettings?.taxes && Array.isArray(companySettings.taxes) && (!prod.cgst && !prod.specifications?.gstPercent)) {
             const cgstTax = companySettings.taxes.find(t => t.name.toUpperCase() === 'CGST');
             const sgstTax = companySettings.taxes.find(t => t.name.toUpperCase() === 'SGST');
             const igstTax = companySettings.taxes.find(t => t.name.toUpperCase() === 'IGST');
@@ -847,6 +877,9 @@ function ProductForm({ editId, onBack }) {
             if (sgstTax) setSgst(Number(sgstTax.rate));
             if (igstTax) setIgst(Number(igstTax.rate));
           }
+        } else {
+          // New product formulation mode: automatically get next FP- code
+          await handleFetchNextSystemCode();
         }
       } catch (err) {
         console.error(err);
