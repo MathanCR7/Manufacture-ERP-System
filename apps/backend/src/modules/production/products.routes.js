@@ -674,17 +674,27 @@ router.post('/bulk-import', authenticateToken, roleMiddleware(['MAIN_MASTER', 'S
 // GET /api/products/stock - Current stock per finished product
 router.get('/stock', authenticateToken, async (req, res, next) => {
   try {
+    let subcategoryMap = {};
+    try {
+      const subs = await prisma.productSubcategory.findMany({ select: { id: true, name: true } });
+      subs.forEach(s => { subcategoryMap[s.id] = s.name; });
+    } catch (e) {
+      // Graceful fallback if product_subcategories table has permission limits or is absent
+    }
+
     const productsData = await prisma.$queryRaw`
       SELECT 
         p.id, 
         p.code, 
         p.name, 
+        p.subcategory_id AS "subcategoryId",
         p.opening_stock AS "openingStock", 
+        p.current_stock AS "currentStock",
         p.sale_price AS "salePrice", 
         p.alert_level AS "alertLevel",
         p.unit_id AS "unitId",
+        p.specifications,
         c.name AS "categoryName",
-        sc.name AS "subcategoryName",
         u.abbreviation AS "unitAbbr", 
         u.name AS "unitName",
         psl.min_level AS "minLevel", 
@@ -693,7 +703,6 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
         COALESCE(sm.net_movement, 0)::float AS "netMovement"
       FROM products p
       LEFT JOIN "ProductCategory" c ON p.category_id = c.id
-      LEFT JOIN "ProductSubcategory" sc ON p.subcategory_id = sc.id
       LEFT JOIN "UOM" u ON p.unit_id = u.id
       LEFT JOIN product_stock_levels psl ON p.id = psl.product_id
       LEFT JOIN (
@@ -702,15 +711,46 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
         GROUP BY product_id
       ) sm ON p.id = sm.product_id
       WHERE p.deleted_at IS NULL
+      ORDER BY p.name ASC
     `;
+
+    // Also get active batch stock count if any
+    let batchStockMap = {};
+    try {
+      const batchSums = await prisma.productionBatchNew.groupBy({
+        by: ['productId'],
+        _sum: { remainingQty: true },
+        where: {
+          status: { in: ['Completed', 'qc_passed'] },
+          remainingQty: { gt: 0 },
+          deletedAt: null
+        }
+      });
+      batchSums.forEach(b => {
+        batchStockMap[b.productId] = Number(b._sum.remainingQty || 0);
+      });
+    } catch (e) {
+      // batch map fallback
+    }
 
     const result = [];
     for (const row of productsData) {
-      const currentStock = Number(row.openingStock || 0) + Number(row.netMovement || 0);
+      const ledgerMovementStock = Number(row.openingStock || 0) + Number(row.netMovement || 0);
+      const rawCurrentStock = row.currentStock !== null && row.currentStock !== undefined ? Number(row.currentStock) : null;
+      const batchStock = batchStockMap[row.id] || 0;
+
+      let currentStock = 0;
+      if (batchStock > 0) {
+        currentStock = batchStock;
+      } else if (rawCurrentStock !== null && !isNaN(rawCurrentStock) && rawCurrentStock !== 0) {
+        currentStock = rawCurrentStock;
+      } else {
+        currentStock = ledgerMovementStock;
+      }
       
-      const minLevel = row.minLevel !== null ? Number(row.minLevel) : Number(row.alertLevel || 0) * 0.5;
-      const maxLevel = row.maxLevel !== null ? Number(row.maxLevel) : 0;
-      const reorderPoint = row.reorderPoint !== null ? Number(row.reorderPoint) : Number(row.alertLevel || 0);
+      const minLevel = row.minLevel !== null && row.minLevel !== undefined ? Number(row.minLevel) : Number(row.alertLevel || 0) * 0.5;
+      const maxLevel = row.maxLevel !== null && row.maxLevel !== undefined ? Number(row.maxLevel) : 0;
+      const reorderPoint = row.reorderPoint !== null && row.reorderPoint !== undefined ? Number(row.reorderPoint) : Number(row.alertLevel || 0);
 
       let status = 'OK';
       if (currentStock <= minLevel && minLevel > 0) {
@@ -719,19 +759,24 @@ router.get('/stock', authenticateToken, async (req, res, next) => {
         status = 'Low';
       }
 
+      const subcategoryName = subcategoryMap[row.subcategoryId] || row.specifications?.category || row.specifications?.series || '-';
+
       result.push({
         id: row.id,
         code: row.code,
         systemCode: row.code,
         name: row.name,
         productName: row.name,
-        category: row.categoryName || 'General',
-        baseCategory: row.categoryName || 'General',
-        subcategory: row.subcategoryName || '-',
+        category: row.categoryName || row.specifications?.group || 'General',
+        baseCategory: row.categoryName || row.specifications?.group || 'General',
+        subcategory: subcategoryName,
         unit: row.unitAbbr || row.unitName || row.unitId || 'pcs',
         unitOfSale: row.unitAbbr || row.unitName || row.unitId || 'pcs',
         currentStock,
         stock: currentStock,
+        batchStock,
+        ledgerStock: ledgerMovementStock,
+        directStock: rawCurrentStock,
         minLevel,
         maxLevel,
         reorderPoint,
