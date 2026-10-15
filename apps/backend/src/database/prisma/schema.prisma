@@ -564,6 +564,7 @@ model RawMaterial {
   productionLossMaterials ProductionLossMaterial[]
   baseTemplateItems ProductBaseTemplateItem[]
   learnedRecipeItems ProductLearnedRecipeItem[]
+  orderItems CustomerOrderItem[]
 }
 
 model RMStockAdjustment {
@@ -1516,7 +1517,11 @@ model CustomerOrder {
 model CustomerOrderItem {
   id           String          @id @default(uuid())
   orderId      String          @map("order_id")
-  productId    String          @map("product_id")
+  productId    String?         @map("product_id")
+  rawMaterialId String?        @map("raw_material_id")
+  itemType     String          @default("PRODUCT") @map("item_type")
+  isPackingCharge Boolean      @default(false) @map("is_packing_charge")
+  batchAllocationsData Json?   @map("batch_allocations_data")
   quantity     Decimal
   unitPrice    Decimal         @map("unit_price")
   discount     Decimal         @default(0)
@@ -1543,8 +1548,9 @@ model CustomerOrderItem {
   isStockItem     Boolean         @default(true) @map("is_stock_item")
   expectedDate    DateTime?       @map("expected_date")
 
-  order           CustomerOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product         FinishedProduct @relation(fields: [productId], references: [id])
+  order           CustomerOrder    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         FinishedProduct? @relation(fields: [productId], references: [id])
+  rawMaterial     RawMaterial?     @relation(fields: [rawMaterialId], references: [id])
   batchAllocations BatchAllocation[]
 
   @@map("customer_order_items")

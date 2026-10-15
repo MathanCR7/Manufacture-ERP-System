@@ -33,7 +33,8 @@ import {
   IndianRupee,
   RotateCcw,
   FileSpreadsheet,
-  Download
+  Download,
+  ShoppingBag
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -83,6 +84,7 @@ export default function RMHistoryDrawer({
   const wasteRecords = data?.wasteRecords || [];
   const productionUsages = data?.productionUsages || [];
   const purchaseReturns = data?.purchaseReturns || [];
+  const resales = data?.resales || [];
 
   const formatDate = (d) => {
     if (!d) return '—';
@@ -200,6 +202,8 @@ export default function RMHistoryDrawer({
         return <Cpu className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />;
       case 'PURCHASE_RETURN':
         return <RotateCcw className="w-4 h-4 text-red-600 dark:text-red-400" />;
+      case 'RESALE_OUTFLOW':
+        return <ShoppingBag className="w-4 h-4 text-purple-600 dark:text-purple-400" />;
       default:
         return <Clock className="w-4 h-4 text-slate-500" />;
     }
@@ -318,7 +322,7 @@ export default function RMHistoryDrawer({
             ) : (
               <>
                 {/* ────────────────── EXECUTIVE KPI TILES ────────────────── */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
                   {/* Current Stock */}
                   <div className="p-3 rounded-2xl bg-gradient-to-br from-indigo-50/70 to-indigo-100/40 dark:from-indigo-950/40 dark:to-indigo-900/20 border border-indigo-100 dark:border-indigo-900/50 space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
@@ -433,6 +437,24 @@ export default function RMHistoryDrawer({
                       Loss: {formatCurrency(summary?.totalWastedLoss)}
                     </div>
                   </div>
+
+                  {/* Resale & Dispatches */}
+                  <div className={`p-3 rounded-2xl transition-all space-y-1 ${
+                    (summary?.totalResaleQty || 0) > 0
+                      ? 'bg-purple-50/90 dark:bg-purple-950/40 border-2 border-purple-300 dark:border-purple-800 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-800'
+                  }`}>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                      <ShoppingBag className="w-3 h-3 text-purple-600" /> Resale & Sold
+                    </span>
+                    <div className="text-base sm:text-lg font-black text-purple-700 dark:text-purple-300 flex items-baseline gap-1">
+                      {summary?.totalResaleQty?.toLocaleString() || 0}
+                      <span className="text-xs font-semibold text-purple-500 uppercase">{material?.unit}</span>
+                    </div>
+                    <div className="text-[10px] text-purple-600 dark:text-purple-400 font-bold truncate">
+                      Value: {formatCurrency(summary?.totalResaleAmount || 0)} ({resales.length})
+                    </div>
+                  </div>
                 </div>
 
                 {/* ────────────────── EMPTY STATE IF NO HISTORY ────────────────── */}
@@ -475,6 +497,7 @@ export default function RMHistoryDrawer({
                           { id: 'adjustments', label: 'Stock Adjustments', count: stockAdjustments.length, icon: RotateCcw },
                           { id: 'waste', label: 'RM Wastage', count: wasteRecords.length, icon: Trash2 },
                           { id: 'usage', label: 'Production Usage', count: productionUsages.length, icon: Cpu },
+                          { id: 'resales', label: 'Resale & Dispatches', count: resales.length, icon: ShoppingBag },
                           ...(purchaseReturns.length > 0 ? [{ id: 'returns', label: 'Returns', count: purchaseReturns.length, icon: RotateCcw }] : []),
                         ].map((tab) => {
                           const Icon = tab.icon;
@@ -1580,6 +1603,123 @@ export default function RMHistoryDrawer({
                             </tbody>
                           </table>
                         </div>
+                      </div>
+                    )}
+
+                    {/* 9. RESALE & DISPATCHES TAB */}
+                    {activeTab === 'resales' && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                            Resale Orders & Packing Item Dispatches ({resales.length})
+                          </h3>
+                          <div className="text-xs font-mono font-bold text-purple-700 dark:text-purple-300">
+                            Total Resold: {summary?.totalResaleQty || 0} {material?.unit} • {formatCurrency(summary?.totalResaleAmount || 0)}
+                          </div>
+                        </div>
+
+                        {resales.length === 0 ? (
+                          <div className="py-12 px-6 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-2 bg-slate-50/50 dark:bg-slate-850">
+                            <ShoppingBag className="w-8 h-8 text-purple-400 mx-auto" />
+                            <p className="text-xs font-bold text-slate-700 dark:text-slate-300">No resale orders or dispatches recorded</p>
+                            <p className="text-[11px] text-slate-400">
+                              When this raw material is sold on Sales Orders, POS Billing, or added as packing material, dispatches will appear here.
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+                            <table className="w-full text-xs text-left">
+                              <thead className="bg-slate-50/80 dark:bg-slate-800/60 text-slate-500 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
+                                <tr>
+                                  <th className="p-3">Doc # & Type</th>
+                                  <th className="p-3">Date</th>
+                                  <th className="p-3">Customer</th>
+                                  <th className="p-3 text-right">Sold Qty</th>
+                                  <th className="p-3 text-right">Unit Price</th>
+                                  <th className="p-3 text-right">Line Total</th>
+                                  <th className="p-3">Allocated Batch / GRN</th>
+                                  <th className="p-3 text-center">Status</th>
+                                  <th className="p-3 text-center">Action</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                                {resales.map((sale) => {
+                                  const isInvoice = sale.docType === 'Invoice' || sale.docType === 'POS';
+                                  return (
+                                    <tr key={sale.id} className="hover:bg-purple-50/30 dark:hover:bg-purple-950/20 transition-colors">
+                                      <td className="p-3">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          <span className={`px-1.5 py-0.5 rounded font-mono font-black text-[9px] uppercase tracking-wider ${
+                                            sale.docType === 'Invoice'
+                                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200 border border-blue-300'
+                                              : sale.docType === 'POS'
+                                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200 border border-emerald-300'
+                                              : sale.docType === 'Quotation'
+                                              ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-200 border border-purple-300'
+                                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 border border-amber-300'
+                                          }`}>
+                                            {sale.docType}
+                                          </span>
+                                          <span className="font-mono font-bold text-slate-900 dark:text-white">
+                                            {sale.docNo}
+                                          </span>
+                                          {sale.isPackingCharge && (
+                                            <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 text-[9px] font-bold border border-amber-200" title="Added as packing charge material (e.g. Thermocol box / Dry Ice)">
+                                              📦 Packing
+                                            </span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="p-3 text-slate-600 dark:text-slate-400 whitespace-nowrap font-mono text-[11px]">
+                                        {formatShortDate(sale.orderDate)}
+                                      </td>
+                                      <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">
+                                        {sale.customerName}
+                                      </td>
+                                      <td className="p-3 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap">
+                                        {sale.quantity} {sale.uom || material?.unit}
+                                      </td>
+                                      <td className="p-3 text-right font-mono text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                                        {formatCurrency(sale.unitPrice)}
+                                      </td>
+                                      <td className="p-3 text-right font-mono font-bold text-purple-700 dark:text-purple-300 whitespace-nowrap">
+                                        {formatCurrency(sale.subtotal)}
+                                      </td>
+                                      <td className="p-3">
+                                        <div className="font-mono text-[11px] text-slate-700 dark:text-slate-300">
+                                          <span className="font-semibold">{sale.batchNo || 'Direct Stock'}</span>
+                                        </div>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold inline-flex items-center gap-1 ${
+                                          ['Delivered', 'Invoiced', 'Completed', 'Paid'].includes(sale.status)
+                                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                        }`}>
+                                          <span className={`w-1.5 h-1.5 rounded-full ${
+                                            ['Delivered', 'Invoiced', 'Completed', 'Paid'].includes(sale.status) ? 'bg-emerald-500' : 'bg-amber-500'
+                                          }`}></span>
+                                          <span>{sale.status}</span>
+                                        </span>
+                                      </td>
+                                      <td className="p-3 text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => window.open(`/sales/order?id=${sale.orderId}`, '_blank')}
+                                          className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950 dark:hover:bg-indigo-900 rounded-lg inline-flex items-center gap-1 transition-colors cursor-pointer"
+                                          title="Open document in new tab"
+                                        >
+                                          <span>View</span>
+                                          <ArrowUpRight className="w-3 h-3 opacity-80" />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                       </div>
                     )}
                   </>

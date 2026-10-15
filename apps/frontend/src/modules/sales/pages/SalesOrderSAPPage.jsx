@@ -8,7 +8,7 @@ import {
   ChevronDown, ChevronUp, RefreshCw, Search, ArrowLeft, ShieldAlert,
   Sparkles, Layers, Receipt, Clock, CheckCircle2, Download, Tag, UserPlus, Eye,
   GitFork, CheckCheck, Lock,
-  Package, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
+  Package, Boxes, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
   SlidersHorizontal, CheckSquare, Square, MapPin, Globe, Moon, Sun,
   ExternalLink, ChevronRight, Minimize2, Maximize2, LayoutGrid, Table,
   Camera, Image as ImageIcon, Paperclip, UploadCloud
@@ -16,6 +16,7 @@ import {
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
+import RMLotAllocationModal from '@/modules/sales/components/RMLotAllocationModal';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin, round2 } from '@/utils/gstEngine';
 import { generateA4TaxInvoice, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
@@ -521,6 +522,12 @@ export default function SalesOrderPage() {
   const [gridPopupPos, setGridPopupPos] = useState({ top: 0, left: 0, width: 840, openAbove: false });
   const inGridSearchRef = useRef(null);
 
+  // Raw Material Resale & Packing Lot Allocation States
+  const [activeRMLotLine, setActiveRMLotLine] = useState(null);
+  const [isRMLotModalOpen, setIsRMLotModalOpen] = useState(false);
+  const [catalogScope, setCatalogScope] = useState('PRODUCTS'); // 'PRODUCTS' | 'RAW_MATERIALS'
+  const [gridSearchScope, setGridSearchScope] = useState('PRODUCTS'); // 'PRODUCTS' | 'RAW_MATERIALS'
+
   // Stock Synchronization State & Feedback
   const [isSyncingStock, setIsSyncingStock] = useState(false);
   const [lastStockSyncTime, setLastStockSyncTime] = useState(null);
@@ -553,6 +560,24 @@ export default function SalesOrderPage() {
     return map;
   }, [products]);
 
+  // 2b. Fetch Raw Materials for Resale & Packing Items
+  const { data: rawMaterials = [], isLoading: isLoadingRM, refetch: refetchRM } = useQuery({
+    queryKey: ['rm-stock-sales'],
+    queryFn: async () => {
+      const res = await api.get('/rm-stock');
+      return Array.isArray(res.data) ? res.data : (res.data?.data || []);
+    },
+    staleTime: 30000,
+    refetchOnWindowFocus: true
+  });
+
+  // Fast Lookup Map for Real-Time Raw Material Stock & Attributes
+  const rmMap = useMemo(() => {
+    const map = new Map();
+    rawMaterials.forEach(rm => map.set(rm.id, rm));
+    return map;
+  }, [rawMaterials]);
+
   // Synchronize Live Warehouse Inventory with Real-Time Feedback
   const handleSyncStock = async () => {
     try {
@@ -562,22 +587,37 @@ export default function SalesOrderPage() {
         text: '🔄 Synchronizing live warehouse stock with database...'
       });
 
-      const res = await refetchProducts();
-      const freshList = Array.isArray(res.data) ? res.data : (res.data?.data || []);
+      const [resProd, resRM] = await Promise.all([
+        refetchProducts(),
+        refetchRM()
+      ]);
+      const freshList = Array.isArray(resProd.data) ? resProd.data : (resProd.data?.data || []);
+      const freshRMList = Array.isArray(resRM.data) ? resRM.data : (resRM.data?.data || []);
 
       await queryClient.invalidateQueries({ queryKey: ['products-catalog-sap'] });
       await queryClient.invalidateQueries({ queryKey: ['products-search-list'] });
+      await queryClient.invalidateQueries({ queryKey: ['rm-stock-sales'] });
 
       // Synchronize existing lines with updated warehouse stock
       setLines(prev => prev.map(line => {
-        if (!line.productId) return line;
-        const freshItem = freshList.find(p => p.id === line.productId);
-        if (freshItem) {
-          return {
-            ...line,
-            stock: getProductLiveStock(freshItem),
-            rawProduct: freshItem
-          };
+        if (line.productId) {
+          const freshItem = freshList.find(p => p.id === line.productId);
+          if (freshItem) {
+            return {
+              ...line,
+              stock: getProductLiveStock(freshItem),
+              rawProduct: freshItem
+            };
+          }
+        } else if (line.rawMaterialId) {
+          const freshRM = freshRMList.find(r => r.id === line.rawMaterialId);
+          if (freshRM) {
+            return {
+              ...line,
+              stock: Number(freshRM.currentStock || 0),
+              rawMaterial: freshRM
+            };
+          }
         }
         return line;
       }));
@@ -588,14 +628,14 @@ export default function SalesOrderPage() {
 
       setStatusMessage({
         type: 'ready',
-        text: `✔ Stock Synchronized at ${timeStr} • Live inventory updated across ${freshList.length} products.`
+        text: `✔ Stock Synchronized at ${timeStr} • Live inventory updated across ${freshList.length} products & ${freshRMList.length} raw materials.`
       });
 
       Swal.fire({
         toast: true,
         position: 'top-end',
         icon: 'success',
-        title: `Stock Synchronized (${freshList.length} Items)`,
+        title: `Stock Synchronized (${freshList.length} FG + ${freshRMList.length} RM)`,
         text: `Live stock updated at ${timeStr}`,
         showConfirmButton: false,
         timer: 2200,
@@ -944,11 +984,17 @@ export default function SalesOrderPage() {
       const discAmt = gross * (discPct / 100);
       const lineTotal = Math.max(0, gross - discAmt);
       
+      const isRM = line.itemType === 'RAW_MATERIAL' || Boolean(line.rawMaterialId);
       const matchedProd = line.productId ? productMap.get(line.productId) : null;
-      const onHand = matchedProd 
-        ? getProductLiveStock(matchedProd) 
-        : Number(line.stock !== undefined ? line.stock : (line.rawProduct ? getProductLiveStock(line.rawProduct) : 0));
-      const freeStock = Math.max(0, onHand - Number(matchedProd?.totalReserved || 0));
+      const matchedRM = line.rawMaterialId ? rmMap.get(line.rawMaterialId) : null;
+      const onHand = isRM
+        ? (matchedRM ? Number(matchedRM.currentStock || 0) : Number(line.stock || 0))
+        : (matchedProd 
+            ? getProductLiveStock(matchedProd) 
+            : Number(line.stock !== undefined ? line.stock : (line.rawProduct ? getProductLiveStock(line.rawProduct) : 0)));
+      const freeStock = isRM
+        ? onHand
+        : Math.max(0, onHand - Number(matchedProd?.totalReserved || 0));
       
       const lineReserved = Number(line.sourceReservedQty || 0);
       const availableForInvoice = freeStock + lineReserved;
@@ -991,12 +1037,19 @@ export default function SalesOrderPage() {
         lineTotal: lineTotal
       };
     });
-  }, [lines, productMap, orderMode]);
+  }, [lines, productMap, rmMap, orderMode]);
 
-  // Active (Non-Empty) Lines
+  // Active (Non-Empty) Lines (Finished Products or Raw Materials)
   const activeLines = useMemo(() => {
-    return computedLines.filter(l => l.productId && l.quantity > 0);
+    return computedLines.filter(l => (l.productId || l.rawMaterialId) && l.quantity > 0);
   }, [computedLines]);
+
+  // Total Packing Lines Value (When user marks lines as packing charges)
+  const packingItemsSum = useMemo(() => {
+    return activeLines
+      .filter(l => l.isPackingCharge)
+      .reduce((sum, l) => sum + (l.lineTotal || 0), 0);
+  }, [activeLines]);
 
   // Total Quantity across all document rows
   const totalDocumentQuantity = useMemo(() => {
@@ -1046,14 +1099,17 @@ export default function SalesOrderPage() {
       buyerStateCode: String(targetBuyerState || '33'),
       customerGstin: selectedCustomer?.gstin || taxRegNo,
       items: activeLines.map(l => ({
-        productId: l.productId,
+        productId: l.productId || l.rawMaterialId,
+        rawMaterialId: l.rawMaterialId || undefined,
+        itemType: l.itemType || (l.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+        isPackingCharge: Boolean(l.isPackingCharge),
         productName: l.itemDescription,
         quantity: Number(l.quantity) || 0,
         unitPrice: Number(l.unitPrice) || 0,
         discount: Number(l.lineDiscount) || 0,
         discountPercent: Number(l.discountPercent) || 0,
         gstRate: Number(l.gstRate !== undefined ? l.gstRate : 5),
-        hsnCode: l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
+        hsnCode: l.rawProduct?.hsnCode || l.rawMaterial?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
         uomName: l.unitOfSale
       })),
       charges: {
@@ -1174,9 +1230,100 @@ export default function SalesOrderPage() {
     });
   };
 
+  // Select Raw Material for resale / packing item in a specific line
+  const handleSelectRawMaterialForLine = (lineId, rm, asPacking = false) => {
+    if (isDocumentLocked || !rm) return;
+    const price = Number(rm.ratePerUnit || 0);
+    const gstPct = 18;
+    const taxCd = isInterState ? 'IGST18' : 'SCG18';
+    const liveStock = Number(rm.currentStock || 0);
+    const isPack = asPacking || (rm.category?.name || '').toUpperCase().includes('PACKING') || (rm.name || '').toUpperCase().includes('BOX') || (rm.name || '').toUpperCase().includes('ICE');
+
+    setLines(prev => prev.map(l => {
+      if (l.id !== lineId) return l;
+      return {
+        ...l,
+        productId: null,
+        rawMaterialId: rm.id,
+        itemType: 'RAW_MATERIAL',
+        systemCode: rm.code || 'RM',
+        itemDescription: rm.printName || rm.name,
+        category: rm.category?.name || rm.category || 'Raw Material',
+        baseCategory: rm.category?.name || 'Raw Material',
+        subcategory: '-',
+        unitOfSale: rm.unitId || 'kg',
+        unitPrice: price,
+        discountPercent: 0,
+        taxCode: taxCd,
+        gstRate: gstPct,
+        stock: liveStock,
+        rawMaterial: rm,
+        rawProduct: null,
+        isPackingCharge: isPack,
+        batchAllocations: []
+      };
+    }));
+
+    setActiveGridSearchLineId(null);
+
+    // Append fresh empty line if this was the last row
+    setLines(prev => {
+      const idx = prev.findIndex(l => l.id === lineId);
+      if (idx === prev.length - 1) {
+        return [...prev, createEmptyLine(prev.length + 1)];
+      }
+      return prev;
+    });
+
+    setStatusMessage({
+      type: 'ready',
+      text: `✔ Added Raw Material "${rm.name}" (${rm.code}) @ ₹${price.toFixed(2)} • Live Stock: ${liveStock} ${rm.unitId || 'kg'}`
+    });
+  };
+
+  // Add Raw Material from Catalog modal
+  const handleAddRawMaterialFromCatalog = (rm, asPacking = false) => {
+    if (isDocumentLocked || !rm) return;
+    let emptyLine = lines.find(l => !l.productId && !l.rawMaterialId);
+    if (emptyLine) {
+      handleSelectRawMaterialForLine(emptyLine.id, rm, asPacking);
+    } else {
+      const newLine = createEmptyLine(lines.length + 1);
+      setLines(prev => [...prev, newLine]);
+      setTimeout(() => {
+        handleSelectRawMaterialForLine(newLine.id, rm, asPacking);
+      }, 50);
+    }
+  };
+
+  // Open compact FEFO Stock Lot Allocation Modal
+  const handleOpenRMLotModal = (line) => {
+    setActiveRMLotLine(line);
+    setIsRMLotModalOpen(true);
+  };
+
+  // Apply batch lot allocations returned from RMLotAllocationModal
+  const handleApplyRMLotAllocations = (allocations, totalAllocatedQty) => {
+    if (!activeRMLotLine) return;
+    setLines(prev => prev.map(l => {
+      if (l.id !== activeRMLotLine.id) return l;
+      return {
+        ...l,
+        batchAllocations: allocations,
+        quantity: totalAllocatedQty > 0 ? totalAllocatedQty : l.quantity
+      };
+    }));
+    setStatusMessage({
+      type: 'ready',
+      text: `✔ Allocated ${allocations.length} lot batch(es) for "${activeRMLotLine.itemDescription}".`
+    });
+    setIsRMLotModalOpen(false);
+    setActiveRMLotLine(null);
+  };
+
   // Add line to grid from top search bar or catalog modal
   const handleAddProductFromCatalog = (product) => {
-    let emptyLine = lines.find(l => !l.productId);
+    let emptyLine = lines.find(l => !l.productId && !l.rawMaterialId);
     if (emptyLine) {
       handleSelectProductForLine(emptyLine.id, product);
     } else {
@@ -1434,27 +1581,29 @@ export default function SalesOrderPage() {
       setIsRoundingEnabled(true);
 
       // Clean remarks & parse attachments, payment details, and terms from internalNote
+      let loadedAttachments = [];
       if (ord.internalNote && ord.internalNote.includes('[[ATTACHMENT:')) {
         const match = ord.internalNote.match(/\[\[ATTACHMENT:(.*?)\]\]/);
         if (match && match[1]) {
           try {
             const parsed = JSON.parse(match[1]);
-            if (Array.isArray(parsed) && parsed.length > 0) setAttachments(parsed);
+            if (Array.isArray(parsed) && parsed.length > 0) loadedAttachments = parsed;
           } catch (e) {
             console.error('Error parsing attachments:', e);
           }
         }
       } else if (ord.attachmentUrl) {
         const urls = ord.attachmentUrl.split(',').map(u => u.trim()).filter(Boolean);
-        setAttachments(urls.map((u, i) => ({
+        loadedAttachments = urls.map((u, i) => ({
           id: `att_${Date.now()}_${i}`,
           url: u,
           filename: u.split('/').pop() || `attachment_${i + 1}.jpg`,
           fileSize: 'Uploaded',
           uploadedAt: new Date().toLocaleTimeString(),
           orderId: ord.docNo || ord.referenceNo
-        })));
+        }));
       }
+      setAttachments(loadedAttachments);
 
       // Restore dynamic payment settlement details
       let pDetails = ord.paymentDetails;
@@ -1503,18 +1652,20 @@ export default function SalesOrderPage() {
       }
 
       // Restore custom order terms & conditions
+      let loadedOrderTerms = '';
       if (ord.termsAndConditions) {
-        setOrderTerms(ord.termsAndConditions);
+        loadedOrderTerms = ord.termsAndConditions;
       } else if (ord.internalNote && ord.internalNote.includes('[[TERMS_AND_CONDITIONS:')) {
         const m = ord.internalNote.match(/\[\[TERMS_AND_CONDITIONS:(.*?)\]\]/);
         if (m && m[1]) {
           try {
-            setOrderTerms(decodeURIComponent(m[1]));
+            loadedOrderTerms = decodeURIComponent(m[1]);
           } catch (e) {
-            setOrderTerms(m[1]);
+            loadedOrderTerms = m[1];
           }
         }
       }
+      setOrderTerms(loadedOrderTerms);
 
       const cleanNote = (ord.internalNote || ord.quotationNote || '')
         .replace(/\[\[ATTACHMENT:.*?\]\]/gs, '')
@@ -1550,48 +1701,59 @@ export default function SalesOrderPage() {
 
       if (Array.isArray(ord.items) && ord.items.length > 0) {
         setLines(ord.items.map((it, idx) => {
-          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (it.product?.gstRate || 5));
+          const isRM = it.itemType === 'RAW_MATERIAL' || (!it.productId && Boolean(it.rawMaterialId));
+          const rmObj = isRM ? (it.rawMaterial || rmMap.get(it.rawMaterialId)) : null;
+          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (it.product?.gstRate || 5)));
           const taxCd = itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : 'SCG5'));
-          const liveStock = it.product ? getProductLiveStock(it.product) : 0;
+          const liveStock = isRM ? Number(rmObj?.currentStock || 0) : (it.product ? getProductLiveStock(it.product) : 0);
           const uPrice = Number(it.unitPrice || 0);
           const lineDisc = Number(it.discount || 0);
           const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
           return {
             id: `line_${it.id || idx}`,
             rowNo: idx + 1,
-            productId: it.productId,
-            systemCode: it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`,
-            itemDescription: it.productName || it.product?.productName || it.product?.name || '',
-            category: it.product?.category?.name || it.product?.category || 'Ice Cream',
-            baseCategory: it.product?.baseCategory || it.product?.category?.name || 'General',
-            subcategory: it.product?.subcategory?.name || it.product?.subcategory || '-',
-            unitOfSale: it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs',
+            productId: isRM ? null : it.productId,
+            rawMaterialId: isRM ? (it.rawMaterialId || it.productId) : null,
+            itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
+            isPackingCharge: Boolean(it.isPackingCharge),
+            batchAllocations: it.batchAllocationsData || it.batchAllocations || [],
+            systemCode: isRM ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || `RM-${idx + 1}`) : (it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`),
+            itemDescription: isRM ? (it.productName || rmObj?.name || it.rawMaterial?.name || '') : (it.productName || it.product?.productName || it.product?.name || ''),
+            category: isRM ? (rmObj?.category?.name || rmObj?.category || 'Raw Material') : (it.product?.category?.name || it.product?.category || 'Ice Cream'),
+            baseCategory: isRM ? 'Raw Material' : (it.product?.baseCategory || it.product?.category?.name || 'General'),
+            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (it.product?.subcategory?.name || it.product?.subcategory || '-'),
+            unitOfSale: isRM ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') : (it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs'),
             quantity: Number(it.quantity || 1),
             unitPrice: uPrice,
             discountPercent: discPct,
             taxCode: taxCd,
             gstRate: itemGst,
-            distrRule: 'Main FG Warehouse',
+            distrRule: isRM ? 'Raw Material Warehouse' : 'Main FG Warehouse',
             stock: liveStock,
-            rawProduct: it.product
+            rawProduct: isRM ? null : it.product,
+            rawMaterial: isRM ? (rmObj || it.rawMaterial) : null
           };
         }));
       }
 
       const rawLines = Array.isArray(ord.items) ? ord.items : [];
       const snapLines = rawLines.map((it) => {
-        const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (it.product?.gstRate || 5));
+        const isRM = it.itemType === 'RAW_MATERIAL' || (!it.productId && Boolean(it.rawMaterialId));
+        const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? 18 : (it.product?.gstRate || 5)));
         const uPrice = Number(it.unitPrice || 0);
         const lineDisc = Number(it.discount || 0);
         const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
         return {
-          productId: it.productId,
+          productId: isRM ? null : it.productId,
+          rawMaterialId: isRM ? (it.rawMaterialId || it.productId) : null,
+          itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
+          isPackingCharge: Boolean(it.isPackingCharge),
           quantity: Number(it.quantity || 1),
           unitPrice: uPrice,
           discountPercent: discPct,
           gstRate: itemGst
         };
-      }).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''));
+      }).sort((a, b) => ((a.productId || a.rawMaterialId || '')).localeCompare(b.productId || b.rawMaterialId || ''));
 
       const calcDiscPct = Number(ord.discountPercent !== undefined && ord.discountPercent !== null && Number(ord.discountPercent) > 0
         ? Number(ord.discountPercent)
@@ -1611,6 +1773,8 @@ export default function SalesOrderPage() {
         documentDate: ord.createdAt ? ord.createdAt.split('T')[0] : '',
         salesEmployee: ord.salesEmployee || '-No Sales Employee-',
         remarks: cleanNote,
+        orderTerms: (loadedOrderTerms || '').trim(),
+        attachments: (loadedAttachments || []).map(a => a.url || a.filename || '').sort().join(','),
         discountPercent: calcDiscPct,
         freight: Number(ord.freight || 0),
         loadingCharges: Number(ord.loadingCharges || 0),
@@ -1691,9 +1855,11 @@ export default function SalesOrderPage() {
 
       if (Array.isArray(ord.items) && ord.items.length > 0) {
         setLines(ord.items.map((it, idx) => {
-          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (it.product?.gstRate || 5));
+          const isRM = it.itemType === 'RAW_MATERIAL' || (!it.productId && Boolean(it.rawMaterialId));
+          const rmObj = isRM ? (it.rawMaterial || rmMap.get(it.rawMaterialId)) : null;
+          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (it.product?.gstRate || 5)));
           const taxCd = itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : 'SCG5'));
-          const liveStock = it.product ? getProductLiveStock(it.product) : 0;
+          const liveStock = isRM ? Number(rmObj?.currentStock || 0) : (it.product ? getProductLiveStock(it.product) : 0);
           const uPrice = Number(it.unitPrice || 0);
           const lineDisc = Number(it.discount || 0);
           const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
@@ -1705,19 +1871,24 @@ export default function SalesOrderPage() {
             id: `line_${it.id || idx}`,
             sourceOrderItemId: it.id,
             rowNo: idx + 1,
-            productId: it.productId,
-            systemCode: it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`,
-            itemDescription: it.productName || it.product?.productName || it.product?.name || '',
-            category: it.product?.category?.name || it.product?.category || 'Ice Cream',
-            baseCategory: it.product?.baseCategory || it.product?.category?.name || 'General',
-            subcategory: it.product?.subcategory?.name || it.product?.subcategory || '-',
-            unitOfSale: it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs',
+            productId: isRM ? null : it.productId,
+            rawMaterialId: isRM ? (it.rawMaterialId || it.productId) : null,
+            itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
+            isPackingCharge: Boolean(it.isPackingCharge),
+            batchAllocations: it.batchAllocationsData || it.batchAllocations || [],
+            systemCode: isRM ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || `RM-${idx + 1}`) : (it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`),
+            itemDescription: isRM ? (it.productName || rmObj?.name || it.rawMaterial?.name || '') : (it.productName || it.product?.productName || it.product?.name || ''),
+            category: isRM ? (rmObj?.category?.name || rmObj?.category || 'Raw Material') : (it.product?.category?.name || it.product?.category || 'Ice Cream'),
+            baseCategory: isRM ? 'Raw Material' : (it.product?.baseCategory || it.product?.category?.name || 'General'),
+            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (it.product?.subcategory?.name || it.product?.subcategory || '-'),
+            unitOfSale: isRM ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') : (it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs'),
             quantity: remainingToBill > 0 ? remainingToBill : totalOrderQty,
             unitPrice: uPrice,
             discountPercent: discPct,
             taxCode: taxCd,
             gstRate: itemGst,
-            rawProduct: it.product,
+            rawProduct: isRM ? null : it.product,
+            rawMaterial: isRM ? (rmObj || it.rawMaterial) : null,
             sourceReservedQty: Number(it.reservedQty || 0),
             sourceShortfallQty: Number(it.shortfallQty || 0),
             stock: liveStock
@@ -1904,6 +2075,8 @@ export default function SalesOrderPage() {
         documentDate: parseDMYtoYMD(documentDate) || '',
         salesEmployee: salesEmployee || '-No Sales Employee-',
         remarks: (remarks || '').replace(/\[\[ATTACHMENT:.*?\]\]/g, '').replace(/\[Fulfillment Mode:.*?\]/g, '').trim(),
+        orderTerms: (orderTerms || '').trim(),
+        attachments: (attachments || []).map(a => a.url || a.filename || '').sort().join(','),
         discountPercent: Number(discountPercent || 0),
         freight: Number(freight || 0),
         loadingCharges: Number(loadingCharges || 0),
@@ -1919,12 +2092,15 @@ export default function SalesOrderPage() {
         advancePaid: Number(advancePaid || 0),
         placeOfSupply: placeOfSupply || '33',
         lines: activeLines.map(l => ({
-          productId: l.productId,
+          productId: l.productId || null,
+          rawMaterialId: l.rawMaterialId || null,
+          itemType: l.itemType || (l.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+          isPackingCharge: Boolean(l.isPackingCharge),
           quantity: Number(l.quantity || 1),
           unitPrice: Number(l.unitPrice || 0),
           discountPercent: Number(l.discountPercent || 0),
           gstRate: Number(l.gstRate || 5)
-        })).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''))
+        })).sort((a, b) => ((a.productId || a.rawMaterialId || '')).localeCompare(b.productId || b.rawMaterialId || ''))
       });
 
       if (currentSnap === initialSnapshot) {
@@ -2057,19 +2233,23 @@ export default function SalesOrderPage() {
       roundOff: financials.roundOff,
       grandTotal: financials.grandTotal,
       items: activeLines.map(l => ({
-        productId: l.productId,
+        productId: l.productId || undefined,
+        rawMaterialId: l.rawMaterialId || undefined,
+        itemType: l.itemType || (l.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+        isPackingCharge: Boolean(l.isPackingCharge),
+        batchAllocationsData: l.batchAllocations || [],
         sourceOrderItemId: l.sourceOrderItemId || undefined,
-        productCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
-        systemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
-        category: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
-        categoryName: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
+        productCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        systemCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        category: l.category || (l.rawMaterialId ? (l.rawMaterial?.category?.name || l.rawMaterial?.category) : (l.rawProduct?.category?.name || l.rawProduct?.categoryName)) || '',
+        categoryName: l.category || (l.rawMaterialId ? (l.rawMaterial?.category?.name || l.rawMaterial?.category) : (l.rawProduct?.category?.name || l.rawProduct?.categoryName)) || '',
         productName: l.itemDescription,
-        hsnCode: l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
+        hsnCode: (l.rawMaterialId ? (l.rawMaterial?.hsnCode || '392310') : (l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode)) || '21050000',
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
         discountPercent: Number(l.discountPercent) || 0,
         discount: Number(l.lineDiscount) || 0,
-        gstRate: Number(l.gstRate) || 5,
+        gstRate: Number(l.gstRate) || (l.rawMaterialId ? 18 : 5),
         subtotal: Number(l.lineTotal),
         uomName: l.unitOfSale,
         deliveryDate: parseDMYtoYMD(deliveryDate) || new Date().toISOString().split('T')[0]
@@ -2199,13 +2379,17 @@ export default function SalesOrderPage() {
     try {
       const res = await api.post(`/orders/${editOrderId}/convert-to-invoice`, {
         items: activeLines.map(l => ({
-          productId: l.productId,
+          productId: l.productId || undefined,
+          rawMaterialId: l.rawMaterialId || undefined,
+          itemType: l.itemType || (l.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+          isPackingCharge: Boolean(l.isPackingCharge),
+          batchAllocationsData: l.batchAllocations || [],
           productName: l.itemDescription,
           quantity: Number(l.quantity),
           unitPrice: Number(l.unitPrice),
           discountPercent: Number(l.discountPercent) || 0,
           discount: Number(l.lineDiscount) || 0,
-          gstRate: Number(l.gstRate) || 5,
+          gstRate: Number(l.gstRate) || (l.rawMaterialId ? 18 : 5),
           subtotal: Number(l.lineTotal),
           uomName: l.unitOfSale
         }))
@@ -2450,6 +2634,34 @@ export default function SalesOrderPage() {
 
     return pool.map(item => item.product);
   }, [productsWithSearchIndex, selectedBaseCategory, selectedSubcategory, searchCatalogQuery]);
+
+  // Filtered Raw Materials for In-Grid Search (System Code, Name, Category)
+  const gridFilteredRawMaterials = useMemo(() => {
+    let pool = rawMaterials;
+    if (gridSearchQuery.trim()) {
+      const q = gridSearchQuery.toLowerCase().trim();
+      pool = pool.filter(rm => 
+        (rm.code || '').toLowerCase().includes(q) ||
+        (rm.name || '').toLowerCase().includes(q) ||
+        (rm.category?.name || rm.category || '').toLowerCase().includes(q)
+      );
+    }
+    return pool.slice(0, 80);
+  }, [rawMaterials, gridSearchQuery]);
+
+  // Filtered Raw Materials for Catalog Modal Browser
+  const filteredCatalogRawMaterials = useMemo(() => {
+    let pool = rawMaterials;
+    if (searchCatalogQuery.trim()) {
+      const q = searchCatalogQuery.toLowerCase().trim();
+      pool = pool.filter(rm => 
+        (rm.code || '').toLowerCase().includes(q) ||
+        (rm.name || '').toLowerCase().includes(q) ||
+        (rm.category?.name || rm.category || '').toLowerCase().includes(q)
+      );
+    }
+    return pool;
+  }, [rawMaterials, searchCatalogQuery]);
 
   return (
     <div className="sap-doc-container min-h-screen w-full bg-[var(--sap-bg-window)] text-[var(--sap-text)] font-sans text-xs antialiased selection:bg-amber-300 selection:text-slate-900 flex flex-col">
@@ -3315,6 +3527,7 @@ export default function SalesOrderPage() {
                     <th className="w-36 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Category *</th>
                     <th className="w-44 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Base / Subcategory</th>
                     <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">Unit of Sale *</th>
+                    <th className="w-16 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">Packing?</th>
                     <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Quantity</th>
                     <th className="w-28 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Sale Price (INR) *</th>
                     <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Discount %</th>
@@ -3391,6 +3604,19 @@ export default function SalesOrderPage() {
                               ➔
                             </button>
                           )}
+                          {line.rawMaterialId && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenRMLotModal(line);
+                              }}
+                              className="w-5 h-full text-blue-600 font-extrabold text-[12px] flex items-center justify-center shrink-0 hover:scale-125 cursor-pointer"
+                              title="Drill-down into RM Batches / FEFO lots"
+                            >
+                              ➔
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -3441,6 +3667,20 @@ export default function SalesOrderPage() {
                       {/* Unit of Sale * */}
                       <td className="border-r border-[var(--sap-border-inner)] text-center text-[11px] font-semibold text-[var(--sap-text)]">
                         {line.unitOfSale || 'pcs'}
+                      </td>
+
+                      {/* Packing? Checkbox */}
+                      <td className="border-r border-[var(--sap-border-inner)] text-center p-0">
+                        <div className="flex items-center justify-center h-full">
+                          <input
+                            type="checkbox"
+                            checked={Boolean(line.isPackingCharge)}
+                            disabled={isDocumentLocked}
+                            onChange={(e) => handleLineChange(line.id, 'isPackingCharge', e.target.checked)}
+                            className="w-3.5 h-3.5 text-blue-600 rounded border-slate-300 dark:border-slate-700 cursor-pointer"
+                            title="Check to mark line as Packing Charge (e.g. Thermocol Box, Dry Ice)"
+                          />
+                        </div>
                       </td>
 
                       {/* Quantity */}
@@ -3525,22 +3765,42 @@ export default function SalesOrderPage() {
 
                       {/* On-Hand */}
                       <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
-                        {line.productId ? line.onHand : '-'}
+                        {(line.productId || line.rawMaterialId) ? line.onHand : '-'}
                       </td>
 
                       {/* Free Stock */}
                       <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
-                        {line.productId ? line.freeStock : '-'}
+                        {(line.productId || line.rawMaterialId) ? line.freeStock : '-'}
                       </td>
 
                       {/* Reserved */}
                       <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono font-semibold text-[11px] text-emerald-700 dark:text-emerald-400 bg-[var(--sap-input-readonly)]">
-                        {line.productId ? (orderMode === 'QUOTATION' ? 0 : line.reservedQty) : '-'}
+                        {line.productId ? (orderMode === 'QUOTATION' ? 0 : line.reservedQty) : (line.rawMaterialId ? 0 : '-')}
                       </td>
 
                       {/* Shortfall or Stock Check */}
                       <td className="border-r border-[var(--sap-border-inner)] text-center px-1 text-[10.5px]">
-                        {line.productId ? (
+                        {line.rawMaterialId ? (
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenRMLotModal(line)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                                (line.batchAllocations && line.batchAllocations.length > 0)
+                                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 hover:bg-amber-200'
+                              }`}
+                              title="Select Batches / Lots (FEFO)"
+                            >
+                              <Boxes className="w-3 h-3" />
+                              <span>
+                                {line.batchAllocations && line.batchAllocations.length > 0
+                                  ? `${line.batchAllocations.reduce((s, b) => s + Number(b.allocatedQty || b.quantity || 0), 0)} Allocated`
+                                  : 'Select Lots'}
+                              </span>
+                            </button>
+                          </div>
+                        ) : line.productId ? (
                           orderMode === 'INVOICE' ? (
                             line.isSufficient ? (
                               <span className="px-2 py-0.5 rounded-xs font-mono font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 inline-flex items-center gap-1">
@@ -3610,11 +3870,32 @@ export default function SalesOrderPage() {
                     <div className="flex items-center gap-2">
                       <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                       <span className="font-bold text-xs">
-                        Select Product for Row #{lines.find(l => l.id === activeGridSearchLineId)?.rowNo || 1}
+                        Select Item for Row #{lines.find(l => l.id === activeGridSearchLineId)?.rowNo || 1}
                       </span>
-                      <span className="text-[10px] text-amber-300 font-mono bg-slate-700/80 px-1.5 py-0.2 rounded-xs">
-                        {gridFilteredProducts.length} items
-                      </span>
+                      <div className="flex items-center bg-slate-900 rounded p-0.5 ml-2 border border-slate-700">
+                        <button
+                          type="button"
+                          onClick={() => setGridSearchScope('PRODUCTS')}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            gridSearchScope === 'PRODUCTS'
+                              ? 'bg-amber-500 text-slate-950'
+                              : 'text-slate-300 hover:text-white'
+                          }`}
+                        >
+                          Finished Products ({gridFilteredProducts.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGridSearchScope('RAW_MATERIALS')}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors cursor-pointer ${
+                            gridSearchScope === 'RAW_MATERIALS'
+                              ? 'bg-amber-500 text-slate-950'
+                              : 'text-slate-300 hover:text-white'
+                          }`}
+                        >
+                          Raw Materials / Resale ({gridFilteredRawMaterials.length})
+                        </button>
+                      </div>
                     </div>
                     <button
                       type="button"
@@ -3635,13 +3916,21 @@ export default function SalesOrderPage() {
                         value={gridSearchQuery}
                         onChange={(e) => setGridSearchQuery(e.target.value)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter' && gridFilteredProducts.length > 0) {
-                            e.preventDefault();
-                            handleSelectProductForLine(activeGridSearchLineId, gridFilteredProducts[0]);
-                            setActiveGridSearchLineId(null);
+                          if (e.key === 'Enter') {
+                            if (gridSearchScope === 'PRODUCTS' && gridFilteredProducts.length > 0) {
+                              e.preventDefault();
+                              handleSelectProductForLine(activeGridSearchLineId, gridFilteredProducts[0]);
+                              setActiveGridSearchLineId(null);
+                            } else if (gridSearchScope === 'RAW_MATERIALS' && gridFilteredRawMaterials.length > 0) {
+                              e.preventDefault();
+                              handleSelectRawMaterialForLine(activeGridSearchLineId, gridFilteredRawMaterials[0], false);
+                              setActiveGridSearchLineId(null);
+                            }
                           }
                         }}
-                        placeholder="Search System Code, Product Name, Category, Subcategory (e.g. K123, kulfistick, kulfi almond)..."
+                        placeholder={gridSearchScope === 'PRODUCTS'
+                          ? "Search System Code, Product Name, Category, Subcategory (e.g. K123, kulfistick, kulfi almond)..."
+                          : "Search Raw Material Code, Name, Category (e.g. RM-00008, Box, Ice, Flavor)..."}
                         className="w-full pl-8 pr-7 py-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-xs font-semibold text-slate-800 dark:text-slate-100 outline-none focus:border-amber-500"
                       />
                       {gridSearchQuery && (
@@ -3656,157 +3945,235 @@ export default function SalesOrderPage() {
                     </div>
                   </div>
 
-                  {/* 2-Tier Screening in Grid: Base Category -> Subcategory */}
-                  <div className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 space-y-1.5">
-                    {/* Level 1: Base Category Selector */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
-                      <div className="relative shrink-0 flex items-center">
-                        <Search className="w-3 h-3 text-slate-400 absolute left-1.5" />
-                        <input
-                          type="text"
-                          value={gridCategorySearchQuery}
-                          onChange={(e) => setGridCategorySearchQuery(e.target.value)}
-                          placeholder="Search Base Category..."
-                          className="w-36 h-[20px] pl-5 pr-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10px] outline-none focus:border-amber-500"
-                        />
-                      </div>
-                      <span className="text-[9.5px] font-bold uppercase text-slate-500 shrink-0">
-                        Base Category:
-                      </span>
-                      {gridFilteredBaseCategories.map(cat => (
-                        <button
-                          key={cat}
-                          type="button"
-                          onClick={() => handleGridSelectBaseCategory(cat)}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 cursor-pointer transition-colors ${
-                            gridSelectedBaseCategory === cat
-                              ? 'bg-amber-500 text-slate-950 shadow-xs'
-                              : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
-                          }`}
-                        >
-                          {cat}
-                        </button>
-                      ))}
-                    </div>
-
-                    {/* Level 2: Subcategories (ONLY for the selected Base Category) */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-slate-200/60 dark:border-slate-700/60 scrollbar-thin">
-                      <span className="text-[9.5px] font-bold uppercase text-indigo-600 dark:text-indigo-400 shrink-0">
-                        Subcategory:
-                      </span>
-                      {gridSelectedBaseCategory === 'All' ? (
-                        <span className="text-[10px] text-slate-500 italic">
-                          👉 Click any Base Category above to screen subcategories (e.g. Family Pack ➔ Family Pack 700ML)
-                        </span>
-                      ) : (
-                        <>
+                  {/* PRODUCTS SCOPE */}
+                  {gridSearchScope === 'PRODUCTS' && (
+                    <>
+                      {/* 2-Tier Screening in Grid: Base Category -> Subcategory */}
+                      <div className="px-2 py-1.5 bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 space-y-1.5">
+                        {/* Level 1: Base Category Selector */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
                           <div className="relative shrink-0 flex items-center">
+                            <Search className="w-3 h-3 text-slate-400 absolute left-1.5" />
                             <input
                               type="text"
-                              value={gridSubcategorySearchQuery}
-                              onChange={(e) => setGridSubcategorySearchQuery(e.target.value)}
-                              placeholder={`Screen ${gridSelectedBaseCategory} subcategories...`}
-                              className="w-40 h-[19px] px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[9.5px] outline-none focus:border-indigo-500"
+                              value={gridCategorySearchQuery}
+                              onChange={(e) => setGridCategorySearchQuery(e.target.value)}
+                              placeholder="Search Base Category..."
+                              className="w-36 h-[20px] pl-5 pr-1 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10px] outline-none focus:border-amber-500"
                             />
                           </div>
-                          {gridScreenedSubcategories.map(sub => (
+                          <span className="text-[9.5px] font-bold uppercase text-slate-500 shrink-0">
+                            Base Category:
+                          </span>
+                          {gridFilteredBaseCategories.map(cat => (
                             <button
-                              key={sub}
+                              key={cat}
                               type="button"
-                              onClick={() => setGridSelectedSubcategory(sub)}
-                              className={`px-2 py-0.2 rounded-full text-[9.5px] font-semibold shrink-0 cursor-pointer transition-colors ${
-                                gridSelectedSubcategory === sub
-                                  ? 'bg-indigo-600 text-white shadow-xs font-bold'
-                                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-indigo-50'
+                              onClick={() => handleGridSelectBaseCategory(cat)}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 cursor-pointer transition-colors ${
+                                gridSelectedBaseCategory === cat
+                                  ? 'bg-amber-500 text-slate-950 shadow-xs'
+                                  : 'bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
                               }`}
                             >
-                              {sub === 'All' ? `All (${gridSelectedBaseCategory})` : sub}
+                              {cat}
                             </button>
                           ))}
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Products Table Grid in Popup */}
-                  <div className="flex-1 overflow-y-auto max-h-[250px] divide-y divide-slate-100 dark:divide-slate-800">
-                    <div className="grid grid-cols-12 gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
-                      <div className="col-span-2">System Code *</div>
-                      <div className="col-span-3">Product Name *</div>
-                      <div className="col-span-2">Category *</div>
-                      <div className="col-span-2">Base / Subcategory</div>
-                      <div className="col-span-1 text-center">Unit *</div>
-                      <div className="col-span-1 text-right">Sale Price *</div>
-                      <div className="col-span-1 text-center">Stock</div>
-                    </div>
-
-                    {gridFilteredProducts.map(p => {
-                      const sysCode = getProductSystemCode(p);
-                      const pName = getProductName(p);
-                      const cat = getProductCategory(p);
-                      const baseCat = getProductBaseCategory(p);
-                      const subcat = getProductSubcategory(p);
-                      const unitOfSale = getProductUnitOfSale(p);
-                      const price = getProductSalePrice(p);
-                      const liveStock = getProductLiveStock(p);
-
-                      return (
-                        <div
-                          key={p.id}
-                          onClick={() => {
-                            handleSelectProductForLine(activeGridSearchLineId, p);
-                            setActiveGridSearchLineId(null);
-                          }}
-                          className="grid grid-cols-12 gap-1.5 px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-slate-800 cursor-pointer items-center transition-colors group text-[11px]"
-                        >
-                          <div className="col-span-2 font-mono font-bold text-amber-700 dark:text-amber-400 truncate">
-                            {sysCode}
-                          </div>
-                          <div className="col-span-3 font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors truncate">
-                            {pName}
-                          </div>
-                          <div className="col-span-2 text-slate-600 dark:text-slate-300 font-medium truncate text-[10.5px]">
-                            {cat}
-                          </div>
-                          <div className="col-span-2 text-slate-500 text-[10px] truncate">
-                            {baseCat} {subcat && subcat !== '-' ? `• ${subcat}` : ''}
-                          </div>
-                          <div className="col-span-1 text-center text-slate-700 dark:text-slate-300 font-medium">
-                            {unitOfSale}
-                          </div>
-                          <div className="col-span-1 text-right font-bold text-slate-900 dark:text-white">
-                            ₹{price.toFixed(0)}
-                          </div>
-                          <div className="col-span-1 text-center">
-                            <span className={`px-1.5 py-0.2 rounded-xs font-mono font-bold text-[9.5px] inline-flex items-center gap-1 ${
-                              liveStock > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              <span className={`w-1 h-1 rounded-full ${liveStock > 0 ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                              {liveStock}
-                            </span>
-                          </div>
                         </div>
-                      );
-                    })}
 
-                    {gridFilteredProducts.length === 0 && (
-                      <div className="p-6 text-center text-slate-400">
-                        <div>No product found matching "{gridSearchQuery}" {gridSelectedBaseCategory !== 'All' ? `in ${gridSelectedBaseCategory}` : ''}</div>
-                        {gridSelectedBaseCategory !== 'All' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setGridSelectedBaseCategory('All');
-                              setGridSelectedSubcategory('All');
-                            }}
-                            className="mt-2.5 px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
-                          >
-                            <span>Search in All Categories</span>
-                          </button>
+                        {/* Level 2: Subcategories (ONLY for the selected Base Category) */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-slate-200/60 dark:border-slate-700/60 scrollbar-thin">
+                          <span className="text-[9.5px] font-bold uppercase text-indigo-600 dark:text-indigo-400 shrink-0">
+                            Subcategory:
+                          </span>
+                          {gridSelectedBaseCategory === 'All' ? (
+                            <span className="text-[10px] text-slate-500 italic">
+                              👉 Click any Base Category above to screen subcategories (e.g. Family Pack ➔ Family Pack 700ML)
+                            </span>
+                          ) : (
+                            <>
+                              <div className="relative shrink-0 flex items-center">
+                                <input
+                                  type="text"
+                                  value={gridSubcategorySearchQuery}
+                                  onChange={(e) => setGridSubcategorySearchQuery(e.target.value)}
+                                  placeholder={`Screen ${gridSelectedBaseCategory} subcategories...`}
+                                  className="w-40 h-[19px] px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[9.5px] outline-none focus:border-indigo-500"
+                                />
+                              </div>
+                              {gridScreenedSubcategories.map(sub => (
+                                <button
+                                  key={sub}
+                                  type="button"
+                                  onClick={() => setGridSelectedSubcategory(sub)}
+                                  className={`px-2 py-0.2 rounded-full text-[9.5px] font-semibold shrink-0 cursor-pointer transition-colors ${
+                                    gridSelectedSubcategory === sub
+                                      ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-indigo-50'
+                                  }`}
+                                >
+                                  {sub === 'All' ? `All (${gridSelectedBaseCategory})` : sub}
+                                </button>
+                              ))}
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Products Table Grid in Popup */}
+                      <div className="flex-1 overflow-y-auto max-h-[250px] divide-y divide-slate-100 dark:divide-slate-800">
+                        <div className="grid grid-cols-12 gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
+                          <div className="col-span-2">System Code *</div>
+                          <div className="col-span-3">Product Name *</div>
+                          <div className="col-span-2">Category *</div>
+                          <div className="col-span-2">Base / Subcategory</div>
+                          <div className="col-span-1 text-center">Unit *</div>
+                          <div className="col-span-1 text-right">Sale Price *</div>
+                          <div className="col-span-1 text-center">Stock</div>
+                        </div>
+
+                        {gridFilteredProducts.map(p => {
+                          const sysCode = getProductSystemCode(p);
+                          const pName = getProductName(p);
+                          const cat = getProductCategory(p);
+                          const baseCat = getProductBaseCategory(p);
+                          const subcat = getProductSubcategory(p);
+                          const unitOfSale = getProductUnitOfSale(p);
+                          const price = getProductSalePrice(p);
+                          const liveStock = getProductLiveStock(p);
+
+                          return (
+                            <div
+                              key={p.id}
+                              onClick={() => {
+                                handleSelectProductForLine(activeGridSearchLineId, p);
+                                setActiveGridSearchLineId(null);
+                              }}
+                              className="grid grid-cols-12 gap-1.5 px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-slate-800 cursor-pointer items-center transition-colors group text-[11px]"
+                            >
+                              <div className="col-span-2 font-mono font-bold text-amber-700 dark:text-amber-400 truncate">
+                                {sysCode}
+                              </div>
+                              <div className="col-span-3 font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors truncate">
+                                {pName}
+                              </div>
+                              <div className="col-span-2 text-slate-600 dark:text-slate-300 font-medium truncate text-[10.5px]">
+                                {cat}
+                              </div>
+                              <div className="col-span-2 text-slate-500 text-[10px] truncate">
+                                {baseCat} {subcat && subcat !== '-' ? `• ${subcat}` : ''}
+                              </div>
+                              <div className="col-span-1 text-center text-slate-700 dark:text-slate-300 font-medium">
+                                {unitOfSale}
+                              </div>
+                              <div className="col-span-1 text-right font-bold text-slate-900 dark:text-white">
+                                ₹{price.toFixed(0)}
+                              </div>
+                              <div className="col-span-1 text-center">
+                                <span className={`px-1.5 py-0.2 rounded-xs font-mono font-bold text-[9.5px] inline-flex items-center gap-1 ${
+                                  liveStock > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                                }`}>
+                                  <span className={`w-1 h-1 rounded-full ${liveStock > 0 ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                                  {liveStock}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {gridFilteredProducts.length === 0 && (
+                          <div className="p-6 text-center text-slate-400">
+                            <div>No product found matching "{gridSearchQuery}" {gridSelectedBaseCategory !== 'All' ? `in ${gridSelectedBaseCategory}` : ''}</div>
+                            {gridSelectedBaseCategory !== 'All' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setGridSelectedBaseCategory('All');
+                                  setGridSelectedSubcategory('All');
+                                }}
+                                className="mt-2.5 px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
+                              >
+                                <span>Search in All Categories</span>
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
+                    </>
+                  )}
+
+                  {/* RAW MATERIALS SCOPE */}
+                  {gridSearchScope === 'RAW_MATERIALS' && (
+                    <div className="flex-1 overflow-y-auto max-h-[290px] divide-y divide-slate-100 dark:divide-slate-800">
+                      <div className="grid grid-cols-12 gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200 dark:border-slate-700">
+                        <div className="col-span-2">RM Code</div>
+                        <div className="col-span-4">Raw Material Name</div>
+                        <div className="col-span-2">Category</div>
+                        <div className="col-span-1 text-center">UOM</div>
+                        <div className="col-span-1 text-right">Unit Rate</div>
+                        <div className="col-span-1 text-center">Stock</div>
+                        <div className="col-span-1 text-center">Action</div>
+                      </div>
+
+                      {gridFilteredRawMaterials.map(rm => {
+                        const price = Number(rm.ratePerUnit || 0);
+                        const liveStock = Number(rm.currentStock || 0);
+                        return (
+                          <div
+                            key={rm.id}
+                            onClick={() => {
+                              handleSelectRawMaterialForLine(activeGridSearchLineId, rm, false);
+                              setActiveGridSearchLineId(null);
+                            }}
+                            className="grid grid-cols-12 gap-1.5 px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-slate-800 cursor-pointer items-center transition-colors group text-[11px]"
+                          >
+                            <div className="col-span-2 font-mono font-bold text-amber-700 dark:text-amber-400 truncate">
+                              {rm.code}
+                            </div>
+                            <div className="col-span-4 font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors truncate">
+                              {rm.printName || rm.name}
+                            </div>
+                            <div className="col-span-2 text-slate-600 dark:text-slate-300 font-medium truncate text-[10.5px]">
+                              {rm.category?.name || rm.category || 'Raw Material'}
+                            </div>
+                            <div className="col-span-1 text-center text-slate-700 dark:text-slate-300 font-medium">
+                              {rm.unitId || 'kg'}
+                            </div>
+                            <div className="col-span-1 text-right font-bold text-slate-900 dark:text-white">
+                              ₹{price.toFixed(2)}
+                            </div>
+                            <div className="col-span-1 text-center">
+                              <span className={`px-1.5 py-0.2 rounded-xs font-mono font-bold text-[9.5px] inline-flex items-center gap-1 ${
+                                liveStock > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                              }`}>
+                                <span className={`w-1 h-1 rounded-full ${liveStock > 0 ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                                {liveStock}
+                              </span>
+                            </div>
+                            <div className="col-span-1 text-center flex items-center justify-center gap-1" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleSelectRawMaterialForLine(activeGridSearchLineId, rm, true);
+                                  setActiveGridSearchLineId(null);
+                                }}
+                                className="px-1.5 py-0.5 bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-900/60 dark:text-blue-200 text-[9px] font-bold rounded cursor-pointer"
+                                title="Add as Packing Line"
+                              >
+                                📦 Pack
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {gridFilteredRawMaterials.length === 0 && (
+                        <div className="p-6 text-center text-slate-400">
+                          <div>No raw material found matching "{gridSearchQuery}"</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Footer */}
                   <div className="px-3 py-1 bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-500 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center">
@@ -4389,7 +4756,24 @@ export default function SalesOrderPage() {
                   <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
                     <div className="flex items-center justify-between">
                       <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Packing (₹)</label>
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
+                      {packingItemsSum > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPackingCharges(Number(packingItemsSum.toFixed(2)));
+                            setStatusMessage({
+                              type: 'ready',
+                              text: `✔ Synced ₹${packingItemsSum.toFixed(2)} from document lines marked as packing charges.`
+                            });
+                          }}
+                          className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-colors"
+                          title="Auto-fill total from document lines where Packing? is checked"
+                        >
+                          Sync Lines (₹{packingItemsSum.toFixed(2)})
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5">
                       <input
@@ -5187,9 +5571,35 @@ export default function SalesOrderPage() {
             
             {/* Modal Header */}
             <div className="bg-slate-800 text-white px-4 py-2.5 flex items-center justify-between select-none">
-              <div className="flex items-center gap-2 font-bold text-sm">
-                <Package className="w-4 h-4 text-amber-400" />
-                <span>Finished Product Catalog ({products.length} Items)</span>
+              <div className="flex items-center gap-3 font-bold text-sm">
+                <div className="flex items-center gap-2">
+                  <Package className="w-4 h-4 text-amber-400" />
+                  <span>Item Catalog Browser</span>
+                </div>
+                <div className="flex items-center bg-slate-900 rounded p-0.5 border border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogScope('PRODUCTS')}
+                    className={`px-2.5 py-0.5 rounded text-xs font-bold transition-colors cursor-pointer ${
+                      catalogScope === 'PRODUCTS'
+                        ? 'bg-amber-500 text-slate-950 shadow-xs'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Finished Products ({products.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogScope('RAW_MATERIALS')}
+                    className={`px-2.5 py-0.5 rounded text-xs font-bold transition-colors cursor-pointer ${
+                      catalogScope === 'RAW_MATERIALS'
+                        ? 'bg-amber-500 text-slate-950 shadow-xs'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    Raw Materials & Packing ({rawMaterials.length})
+                  </button>
+                </div>
                 <span className="text-xs font-normal text-slate-300 opacity-80 pl-2 border-l border-slate-600 flex items-center gap-1.5">
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                   <span>Live Stock</span>
@@ -5249,7 +5659,9 @@ export default function SalesOrderPage() {
                   type="text"
                   value={searchCatalogQuery}
                   onChange={(e) => setSearchCatalogQuery(e.target.value)}
-                  placeholder="Search System Code, Product Name, Category, Subcategory (e.g. K123, kulfistick, kulfi almond)..."
+                  placeholder={catalogScope === 'PRODUCTS' 
+                    ? "Search System Code, Product Name, Category, Subcategory (e.g. K123, kulfistick, kulfi almond)..."
+                    : "Search Raw Material Code, Name, Category (e.g. RM-00008, Thermocol Box, Dry Ice)..."}
                   className="w-full pl-9 pr-8 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-xs font-semibold outline-none focus:border-amber-500"
                 />
                 {searchCatalogQuery && (
@@ -5263,96 +5675,193 @@ export default function SalesOrderPage() {
                 )}
               </div>
 
-              {/* 2-Tier Filtering: Base Category -> Subcategory Pills */}
-              <div className="space-y-1.5 pt-1">
-                {/* Level 1: Base Category with Search Filter */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                  <div className="relative shrink-0 flex items-center">
-                    <Search className="w-3 h-3 text-slate-400 absolute left-2" />
-                    <input
-                      type="text"
-                      value={categorySearchQuery}
-                      onChange={(e) => setCategorySearchQuery(e.target.value)}
-                      placeholder="Search Base Category..."
-                      className="w-36 h-[22px] pl-6 pr-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10.5px] outline-none focus:border-amber-500"
-                    />
+              {catalogScope === 'PRODUCTS' && (
+                /* 2-Tier Filtering: Base Category -> Subcategory Pills */
+                <div className="space-y-1.5 pt-1">
+                  {/* Level 1: Base Category with Search Filter */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                    <div className="relative shrink-0 flex items-center">
+                      <Search className="w-3 h-3 text-slate-400 absolute left-2" />
+                      <input
+                        type="text"
+                        value={categorySearchQuery}
+                        onChange={(e) => setCategorySearchQuery(e.target.value)}
+                        placeholder="Search Base Category..."
+                        className="w-36 h-[22px] pl-6 pr-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10.5px] outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">Base Category:</span>
+                    {filteredBaseCategories.map(cat => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => handleSelectBaseCategory(cat)}
+                        className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shrink-0 cursor-pointer transition-colors ${
+                          selectedBaseCategory === cat
+                            ? 'bg-amber-500 text-slate-950 shadow-xs'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
                   </div>
-                  <span className="text-[10px] font-bold text-slate-500 uppercase shrink-0">Base Category:</span>
-                  {filteredBaseCategories.map(cat => (
-                    <button
-                      key={cat}
-                      type="button"
-                      onClick={() => handleSelectBaseCategory(cat)}
-                      className={`px-2.5 py-0.5 rounded-full text-[10.5px] font-bold shrink-0 cursor-pointer transition-colors ${
-                        selectedBaseCategory === cat
-                          ? 'bg-amber-500 text-slate-950 shadow-xs'
-                          : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-300'
-                      }`}
-                    >
-                      {cat}
-                    </button>
-                  ))}
-                </div>
 
-                {/* Level 2: Subcategories for selected Base Category only */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5 border-t border-slate-200/60 dark:border-slate-700/60">
-                  <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase shrink-0">
-                    Subcategory:
-                  </span>
-                  {selectedBaseCategory === 'All' ? (
-                    <span className="text-[10.5px] text-slate-500 italic">
-                      👉 Click any Base Category above to screen and display its subcategories only
+                  {/* Level 2: Subcategories for selected Base Category only */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5 border-t border-slate-200/60 dark:border-slate-700/60">
+                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase shrink-0">
+                      Subcategory:
                     </span>
-                  ) : (
-                    <>
-                      <div className="relative shrink-0 flex items-center">
-                        <input
-                          type="text"
-                          value={subcategorySearchQuery}
-                          onChange={(e) => setSubcategorySearchQuery(e.target.value)}
-                          placeholder={`Screen ${selectedBaseCategory} subcategories...`}
-                          className="w-44 h-[20px] px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10px] outline-none focus:border-indigo-500"
-                        />
-                      </div>
-                      {screenedSubcategories.map(sub => (
-                        <button
-                          key={sub}
-                          type="button"
-                          onClick={() => setSelectedSubcategory(sub)}
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 cursor-pointer transition-colors ${
-                            selectedSubcategory === sub
-                              ? 'bg-indigo-600 text-white shadow-xs font-bold'
-                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-50'
-                          }`}
-                        >
-                          {sub === 'All' ? `All (${selectedBaseCategory})` : sub}
-                        </button>
-                      ))}
-                    </>
-                  )}
+                    {selectedBaseCategory === 'All' ? (
+                      <span className="text-[10.5px] text-slate-500 italic">
+                        👉 Click any Base Category above to screen and display its subcategories only
+                      </span>
+                    ) : (
+                      <>
+                        <div className="relative shrink-0 flex items-center">
+                          <input
+                            type="text"
+                            value={subcategorySearchQuery}
+                            onChange={(e) => setSubcategorySearchQuery(e.target.value)}
+                            placeholder={`Screen ${selectedBaseCategory} subcategories...`}
+                            className="w-44 h-[20px] px-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xs text-[10px] outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        {screenedSubcategories.map(sub => (
+                          <button
+                            key={sub}
+                            type="button"
+                            onClick={() => setSelectedSubcategory(sub)}
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0 cursor-pointer transition-colors ${
+                              selectedSubcategory === sub
+                                ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                                : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-indigo-50'
+                            }`}
+                          >
+                            {sub === 'All' ? `All (${selectedBaseCategory})` : sub}
+                          </button>
+                        ))}
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Catalog Content Area */}
             <div className="flex-1 overflow-y-auto p-3">
-              {catalogViewMode === 'table' ? (
-                /* TABLE VIEW MATCHING PRODUCT PAGE */
-                <table className="w-full border-collapse text-xs select-text">
-                  <thead>
-                    <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 font-bold sticky top-0 z-10 select-none">
-                      <th className="py-2 px-2 text-left w-28">System Code *</th>
-                      <th className="py-2 px-2 text-left">Product Name *</th>
-                      <th className="py-2 px-2 text-left w-36">Category *</th>
-                      <th className="py-2 px-2 text-left w-44">Base Category</th>
-                      <th className="py-2 px-2 text-left w-36">Subcategory</th>
-                      <th className="py-2 px-2 text-center w-24">Unit of Sale *</th>
-                      <th className="py-2 px-2 text-right w-32">Sale Price (INR) *</th>
-                      <th className="py-2 px-2 text-center w-24">Live Stock</th>
-                      <th className="py-2 px-2 text-center w-24">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {catalogScope === 'PRODUCTS' ? (
+                catalogViewMode === 'table' ? (
+                  /* TABLE VIEW MATCHING PRODUCT PAGE */
+                  <table className="w-full border-collapse text-xs select-text">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 font-bold sticky top-0 z-10 select-none">
+                        <th className="py-2 px-2 text-left w-28">System Code *</th>
+                        <th className="py-2 px-2 text-left">Product Name *</th>
+                        <th className="py-2 px-2 text-left w-36">Category *</th>
+                        <th className="py-2 px-2 text-left w-44">Base Category</th>
+                        <th className="py-2 px-2 text-left w-36">Subcategory</th>
+                        <th className="py-2 px-2 text-center w-24">Unit of Sale *</th>
+                        <th className="py-2 px-2 text-right w-32">Sale Price (INR) *</th>
+                        <th className="py-2 px-2 text-center w-24">Live Stock</th>
+                        <th className="py-2 px-2 text-center w-24">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredCatalogItems.map(p => {
+                        const sysCode = getProductSystemCode(p);
+                        const pName = getProductName(p);
+                        const cat = getProductCategory(p);
+                        const baseCat = getProductBaseCategory(p);
+                        const subcat = getProductSubcategory(p);
+                        const unitOfSale = getProductUnitOfSale(p);
+                        const price = getProductSalePrice(p);
+                        const liveStock = getProductLiveStock(p);
+                        const gstRate = (p.cgst || 0) + (p.sgst || 0) || 5;
+
+                        return (
+                          <tr
+                            key={p.id}
+                            className="hover:bg-amber-50 dark:hover:bg-slate-800/60 transition-colors"
+                          >
+                            <td className="py-2 px-2 font-mono font-bold text-amber-700 dark:text-amber-400">
+                              {sysCode}
+                            </td>
+                            <td className="py-2 px-2 font-bold text-slate-900 dark:text-white">
+                              {pName}
+                            </td>
+                            <td className="py-2 px-2 text-slate-600 dark:text-slate-300 font-medium">
+                              {cat}
+                            </td>
+                            <td className="py-2 px-2 text-slate-500 text-[11px]">
+                              {baseCat}
+                            </td>
+                            <td className="py-2 px-2 text-slate-500 text-[11px]">
+                              {subcat}
+                            </td>
+                            <td className="py-2 px-2 text-center font-semibold text-slate-700 dark:text-slate-300">
+                              {unitOfSale}
+                            </td>
+                            <td className="py-2 px-2 text-right">
+                              <div className="font-extrabold text-slate-900 dark:text-white">
+                                ₹{price.toFixed(2)}
+                              </div>
+                              <div className="text-[10px] text-emerald-600 font-semibold">
+                                +{gstRate}% GST
+                              </div>
+                            </td>
+                            <td className="py-2 px-2 text-center">
+                              <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center justify-center gap-1 ${
+                                liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                                <span>{liveStock}</span>
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleAddProductFromCatalog(p);
+                                  setShowCatalogModal(false);
+                                }}
+                                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10.5px] rounded-xs shadow-xs flex items-center gap-1 mx-auto cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Add</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {filteredCatalogItems.length === 0 && (
+                        <tr>
+                          <td colSpan={9} className="py-12 text-center text-slate-400">
+                            <div className="font-bold text-sm text-slate-600 dark:text-slate-300">No products found</div>
+                            <div className="text-xs text-slate-400 mt-1">
+                              No product matching "{searchCatalogQuery}" {selectedBaseCategory !== 'All' ? `in ${selectedBaseCategory}` : ''}
+                            </div>
+                            {(selectedBaseCategory !== 'All' || selectedSubcategory !== 'All') && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedBaseCategory('All');
+                                  setSelectedSubcategory('All');
+                                }}
+                                className="mt-3 px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
+                              >
+                                <span>Search across All Categories</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                ) : (
+                  /* CARDS VIEW */
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     {filteredCatalogItems.map(p => {
                       const sysCode = getProductSystemCode(p);
                       const pName = getProductName(p);
@@ -5365,178 +5874,255 @@ export default function SalesOrderPage() {
                       const gstRate = (p.cgst || 0) + (p.sgst || 0) || 5;
 
                       return (
-                        <tr
+                        <div
                           key={p.id}
-                          className="hover:bg-amber-50 dark:hover:bg-slate-800/60 transition-colors"
+                          className="p-3 border border-slate-200 dark:border-slate-800 rounded-xs bg-white dark:bg-slate-900 hover:border-amber-400 dark:hover:border-amber-500 transition-all flex flex-col justify-between shadow-xs group"
                         >
-                          <td className="py-2 px-2 font-mono font-bold text-amber-700 dark:text-amber-400">
-                            {sysCode}
-                          </td>
-                          <td className="py-2 px-2 font-bold text-slate-900 dark:text-white">
-                            {pName}
-                          </td>
-                          <td className="py-2 px-2 text-slate-600 dark:text-slate-300 font-medium">
-                            {cat}
-                          </td>
-                          <td className="py-2 px-2 text-slate-500 text-[11px]">
-                            {baseCat}
-                          </td>
-                          <td className="py-2 px-2 text-slate-500 text-[11px]">
-                            {subcat}
-                          </td>
-                          <td className="py-2 px-2 text-center font-semibold text-slate-700 dark:text-slate-300">
-                            {unitOfSale}
-                          </td>
-                          <td className="py-2 px-2 text-right">
-                            <div className="font-extrabold text-slate-900 dark:text-white">
-                              ₹{price.toFixed(2)}
+                          <div>
+                            <div className="flex items-center justify-between text-[10.5px] mb-1.5">
+                              <span className="font-mono font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-xs border border-amber-200 dark:border-amber-900/60">
+                                {sysCode}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center gap-1 ${
+                                liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                                <span>Stock: {liveStock}</span>
+                              </span>
                             </div>
-                            <div className="text-[10px] text-emerald-600 font-semibold">
-                              +{gstRate}% GST
+                            <div className="font-bold text-slate-900 dark:text-white text-xs line-clamp-1 group-hover:text-amber-600 transition-colors">
+                              {pName}
                             </div>
-                          </td>
-                          <td className="py-2 px-2 text-center">
-                            <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center justify-center gap-1 ${
-                              liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
-                              <span>{liveStock}</span>
-                            </span>
-                          </td>
-                          <td className="py-2 px-2 text-center">
+                            <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
+                              <div><span className="font-semibold text-slate-600 dark:text-slate-400">Category:</span> {cat}</div>
+                              <div><span className="font-semibold text-slate-600 dark:text-slate-400">Base:</span> {baseCat} {subcat && subcat !== '-' ? `• ${subcat}` : ''}</div>
+                              <div><span className="font-semibold text-slate-600 dark:text-slate-400">Unit of Sale:</span> {unitOfSale}</div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                            <div>
+                              <div className="font-extrabold text-slate-900 dark:text-white text-xs">
+                                ₹{price.toFixed(2)}
+                              </div>
+                              <div className="text-[10px] text-emerald-600 font-semibold">
+                                +{gstRate}% GST
+                              </div>
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
                                 handleAddProductFromCatalog(p);
                                 setShowCatalogModal(false);
                               }}
-                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10.5px] rounded-xs shadow-xs flex items-center gap-1 mx-auto cursor-pointer"
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-xs shadow-xs flex items-center gap-1 cursor-pointer"
                             >
                               <Plus className="w-3 h-3" />
-                              <span>Add</span>
+                              <span>Add to Grid</span>
                             </button>
-                          </td>
-                        </tr>
+                          </div>
+                        </div>
                       );
                     })}
 
                     {filteredCatalogItems.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="py-12 text-center text-slate-400">
-                          <div className="font-bold text-sm text-slate-600 dark:text-slate-300">No products found</div>
-                          <div className="text-xs text-slate-400 mt-1">
-                            No product matching "{searchCatalogQuery}" {selectedBaseCategory !== 'All' ? `in ${selectedBaseCategory}` : ''}
-                          </div>
-                          {(selectedBaseCategory !== 'All' || selectedSubcategory !== 'All') && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedBaseCategory('All');
-                                setSelectedSubcategory('All');
-                              }}
-                              className="mt-3 px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
-                            >
-                              <span>Search across All Categories</span>
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              ) : (
-                /* CARDS VIEW */
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {filteredCatalogItems.map(p => {
-                    const sysCode = getProductSystemCode(p);
-                    const pName = getProductName(p);
-                    const cat = getProductCategory(p);
-                    const baseCat = getProductBaseCategory(p);
-                    const subcat = getProductSubcategory(p);
-                    const unitOfSale = getProductUnitOfSale(p);
-                    const price = getProductSalePrice(p);
-                    const liveStock = getProductLiveStock(p);
-                    const gstRate = (p.cgst || 0) + (p.sgst || 0) || 5;
-
-                    return (
-                      <div
-                        key={p.id}
-                        className="p-3 border border-slate-200 dark:border-slate-800 rounded-xs bg-white dark:bg-slate-900 hover:border-amber-400 dark:hover:border-amber-500 transition-all flex flex-col justify-between shadow-xs group"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between text-[10.5px] mb-1.5">
-                            <span className="font-mono font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-xs border border-amber-200 dark:border-amber-900/60">
-                              {sysCode}
-                            </span>
-                            <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center gap-1 ${
-                              liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
-                            }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
-                              <span>Stock: {liveStock}</span>
-                            </span>
-                          </div>
-                          <div className="font-bold text-slate-900 dark:text-white text-xs line-clamp-1 group-hover:text-amber-600 transition-colors">
-                            {pName}
-                          </div>
-                          <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
-                            <div><span className="font-semibold text-slate-600 dark:text-slate-400">Category:</span> {cat}</div>
-                            <div><span className="font-semibold text-slate-600 dark:text-slate-400">Base:</span> {baseCat} {subcat && subcat !== '-' ? `• ${subcat}` : ''}</div>
-                            <div><span className="font-semibold text-slate-600 dark:text-slate-400">Unit of Sale:</span> {unitOfSale}</div>
-                          </div>
+                      <div className="col-span-full py-12 text-center text-slate-400">
+                        <div className="font-bold text-sm text-slate-600 dark:text-slate-300">No products found</div>
+                        <div className="text-xs text-slate-400 mt-1">
+                          No product matching "{searchCatalogQuery}" {selectedBaseCategory !== 'All' ? `in ${selectedBaseCategory}` : ''}
                         </div>
-
-                        <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                          <div>
-                            <div className="font-extrabold text-slate-900 dark:text-white text-xs">
-                              ₹{price.toFixed(2)}
-                            </div>
-                            <div className="text-[10px] text-emerald-600 font-semibold">
-                              +{gstRate}% GST
-                            </div>
-                          </div>
+                        {(selectedBaseCategory !== 'All' || selectedSubcategory !== 'All') && (
                           <button
                             type="button"
                             onClick={() => {
-                              handleAddProductFromCatalog(p);
-                              setShowCatalogModal(false);
+                              setSelectedBaseCategory('All');
+                              setSelectedSubcategory('All');
                             }}
-                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-xs shadow-xs flex items-center gap-1 cursor-pointer"
+                            className="mt-3 px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
                           >
-                            <Plus className="w-3 h-3" />
-                            <span>Add to Grid</span>
+                            <span>Search across All Categories</span>
                           </button>
-                        </div>
+                        )}
                       </div>
-                    );
-                  })}
+                    )}
+                  </div>
+                )
+              ) : (
+                /* RAW MATERIALS SCOPE */
+                catalogViewMode === 'table' ? (
+                  <table className="w-full border-collapse text-xs select-text">
+                    <thead>
+                      <tr className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-b border-slate-200 dark:border-slate-700 font-bold sticky top-0 z-10 select-none">
+                        <th className="py-2 px-2 text-left w-28">RM Code</th>
+                        <th className="py-2 px-2 text-left">Raw Material Name</th>
+                        <th className="py-2 px-2 text-left w-40">Category</th>
+                        <th className="py-2 px-2 text-center w-24">UOM</th>
+                        <th className="py-2 px-2 text-right w-32">Unit Rate (INR)</th>
+                        <th className="py-2 px-2 text-center w-28">Live Stock</th>
+                        <th className="py-2 px-2 text-center w-48">Add to Document</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {filteredCatalogRawMaterials.map(rm => {
+                        const price = Number(rm.ratePerUnit || 0);
+                        const liveStock = Number(rm.currentStock || 0);
+                        const gstRate = 18;
 
-                  {filteredCatalogItems.length === 0 && (
-                    <div className="col-span-full py-12 text-center text-slate-400">
-                      <div className="font-bold text-sm text-slate-600 dark:text-slate-300">No products found</div>
-                      <div className="text-xs text-slate-400 mt-1">
-                        No product matching "{searchCatalogQuery}" {selectedBaseCategory !== 'All' ? `in ${selectedBaseCategory}` : ''}
-                      </div>
-                      {(selectedBaseCategory !== 'All' || selectedSubcategory !== 'All') && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedBaseCategory('All');
-                            setSelectedSubcategory('All');
-                          }}
-                          className="mt-3 px-3.5 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-xs text-xs hover:bg-amber-400 cursor-pointer shadow-xs inline-flex items-center gap-1"
-                        >
-                          <span>Search across All Categories</span>
-                        </button>
+                        return (
+                          <tr
+                            key={rm.id}
+                            className="hover:bg-amber-50 dark:hover:bg-slate-800/60 transition-colors"
+                          >
+                            <td className="py-2 px-2 font-mono font-bold text-amber-700 dark:text-amber-400">
+                              {rm.code}
+                            </td>
+                            <td className="py-2 px-2 font-bold text-slate-900 dark:text-white">
+                              {rm.printName || rm.name}
+                            </td>
+                            <td className="py-2 px-2 text-slate-600 dark:text-slate-300 font-medium">
+                              {rm.category?.name || rm.category || 'Raw Material'}
+                            </td>
+                            <td className="py-2 px-2 text-center font-semibold text-slate-700 dark:text-slate-300">
+                              {rm.unitId || 'kg'}
+                            </td>
+                            <td className="py-2 px-2 text-right">
+                              <div className="font-extrabold text-slate-900 dark:text-white">
+                                ₹{price.toFixed(2)}
+                              </div>
+                              <div className="text-[10px] text-emerald-600 font-semibold">
+                                +{gstRate}% GST
+                              </div>
+                            </td>
+                            <td className="py-2 px-2 text-center">
+                              <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center justify-center gap-1 ${
+                                liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                                <span>{liveStock}</span>
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleAddRawMaterialFromCatalog(rm, false);
+                                    setShowCatalogModal(false);
+                                  }}
+                                  className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10.5px] rounded-xs shadow-xs flex items-center gap-1 cursor-pointer"
+                                  title="Add as resale raw material item"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Resale</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleAddRawMaterialFromCatalog(rm, true);
+                                    setShowCatalogModal(false);
+                                  }}
+                                  className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10.5px] rounded-xs shadow-xs flex items-center gap-1 cursor-pointer"
+                                  title="Add as packing charge line"
+                                >
+                                  <span>📦 Packing</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {filteredCatalogRawMaterials.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-12 text-center text-slate-400">
+                            <div className="font-bold text-sm text-slate-600 dark:text-slate-300">No raw materials found</div>
+                            <div className="text-xs text-slate-400 mt-1">
+                              No raw material matching "{searchCatalogQuery}"
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </div>
-                  )}
-                </div>
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {filteredCatalogRawMaterials.map(rm => {
+                      const price = Number(rm.ratePerUnit || 0);
+                      const liveStock = Number(rm.currentStock || 0);
+                      const gstRate = 18;
+
+                      return (
+                        <div
+                          key={rm.id}
+                          className="p-3 border border-slate-200 dark:border-slate-800 rounded-xs bg-white dark:bg-slate-900 hover:border-amber-400 dark:hover:border-amber-500 transition-all flex flex-col justify-between shadow-xs group"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between text-[10.5px] mb-1.5">
+                              <span className="font-mono font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded-xs border border-amber-200 dark:border-amber-900/60">
+                                {rm.code}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded-xs font-mono font-bold flex items-center gap-1 ${
+                                liveStock > 0 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-600 border border-slate-300'
+                              }`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${liveStock > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`}></span>
+                                <span>Stock: {liveStock}</span>
+                              </span>
+                            </div>
+                            <div className="font-bold text-slate-900 dark:text-white text-xs line-clamp-1 group-hover:text-amber-600 transition-colors">
+                              {rm.printName || rm.name}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-1 space-y-0.5">
+                              <div><span className="font-semibold text-slate-600 dark:text-slate-400">Category:</span> {rm.category?.name || rm.category || 'Raw Material'}</div>
+                              <div><span className="font-semibold text-slate-600 dark:text-slate-400">UOM:</span> {rm.unitId || 'kg'}</div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                            <div>
+                              <div className="font-extrabold text-slate-900 dark:text-white text-xs">
+                                ₹{price.toFixed(2)}
+                              </div>
+                              <div className="text-[10px] text-emerald-600 font-semibold">
+                                +{gstRate}% GST
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleAddRawMaterialFromCatalog(rm, false);
+                                  setShowCatalogModal(false);
+                                }}
+                                className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[10.5px] rounded-xs shadow-xs flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Resale</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleAddRawMaterialFromCatalog(rm, true);
+                                  setShowCatalogModal(false);
+                                }}
+                                className="px-1.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[10.5px] rounded-xs shadow-xs flex items-center gap-0.5 cursor-pointer"
+                              >
+                                <span>📦 Pack</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               )}
             </div>
 
             {/* Modal Footer */}
             <div className="p-3 bg-slate-100 dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 flex justify-between items-center text-slate-600 dark:text-slate-300 text-xs">
-              <span className="font-semibold">Showing {filteredCatalogItems.length} of {products.length} Products</span>
+              <span className="font-semibold">
+                Showing {catalogScope === 'PRODUCTS' ? filteredCatalogItems.length : filteredCatalogRawMaterials.length} of {catalogScope === 'PRODUCTS' ? products.length : rawMaterials.length} Items
+              </span>
               <button
                 type="button"
                 onClick={() => setShowCatalogModal(false)}
@@ -5605,6 +6191,21 @@ export default function SalesOrderPage() {
             setIsStockQueryOpen(false);
             setStockQueryProductId(null);
           }}
+        />
+      )}
+
+      {/* RAW MATERIAL BATCH / LOT ALLOCATION MODAL */}
+      {isRMLotModalOpen && activeRMLotLine && (
+        <RMLotAllocationModal
+          isOpen={isRMLotModalOpen}
+          onClose={() => {
+            setIsRMLotModalOpen(false);
+            setActiveRMLotLine(null);
+          }}
+          item={activeRMLotLine}
+          initialAllocations={activeRMLotLine.batchAllocations || []}
+          onApplyAllocations={handleApplyRMLotAllocations}
+          readOnly={isDocumentLocked}
         />
       )}
 

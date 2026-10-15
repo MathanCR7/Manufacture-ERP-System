@@ -553,7 +553,10 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
 
     let currentY = tableY + 18;
 
-    (invoice.items || []).forEach((item, index) => {
+    const printableInvoiceItems = (invoice.items || []).filter(item => !item.isPackingCharge);
+    const displayInvoiceItems = printableInvoiceItems.length > 0 ? printableInvoiceItems : (invoice.items || []);
+
+    displayInvoiceItems.forEach((item, index) => {
       const prodCode = (item.product?.code || item.productCode || item.systemCode || item.itemCode || item.product?.sku || '').trim();
       const subcatName = (item.subcategoryName || item.subcategory || item.product?.subcategory?.name || item.product?.specifications?.category || '').trim();
       const baseCat = (item.categoryName || item.category || item.product?.category?.name || item.product?.specifications?.group || '').trim();

@@ -436,7 +436,7 @@ router.get('/', authenticateToken, async (req, res, next) => {
       where: { deletedAt: null },
       include: {
         customer: true,
-        items: { include: { product: true } },
+        items: { include: { product: true, rawMaterial: true } },
         deliveries: true
       },
       orderBy: { createdAt: 'desc' }
@@ -555,6 +555,16 @@ router.get('/:id/details', authenticateToken, async (req, res, next) => {
   }
 });
 
+// GET /api/orders/raw-materials/:id/available-batches - Batches for FEFO & manual picking for raw materials
+router.get('/raw-materials/:id/available-batches', authenticateToken, async (req, res, next) => {
+  try {
+    const batches = await batchAllocationService.getAvailableRMBatches(req.params.id);
+    res.json(batches);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /api/orders/:id - detail
 router.get('/:id', authenticateToken, async (req, res, next) => {
   try {
@@ -569,6 +579,11 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
                 unit: true,
                 category: true,
                 subcategory: true
+              }
+            },
+            rawMaterial: {
+              include: {
+                category: true
               }
             },
             batchAllocations: true
@@ -754,6 +769,11 @@ const getOrderPdfHandler = async (req, res, next) => {
             product: {
               include: {
                 unit: true,
+                category: true
+              }
+            },
+            rawMaterial: {
+              include: {
                 category: true
               }
             },
@@ -1183,18 +1203,35 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     const itemsPrepared = [];
 
     for (const item of data.items) {
-      const prod = await tx.finishedProduct.findUnique({
-        where: { id: item.productId },
-        include: { unit: true }
-      });
-      if (!prod) throw new Error(`Product not found: ${item.productId}`);
+      const isRawMaterial = item.itemType === 'RAW_MATERIAL' || Boolean(item.rawMaterialId && !item.productId);
+      const rawMatId = item.rawMaterialId || (isRawMaterial ? item.productId : null);
+      let prod = null;
+      let rm = null;
+
+      if (isRawMaterial) {
+        rm = await tx.rawMaterial.findUnique({
+          where: { id: rawMatId },
+          include: { category: true }
+        });
+        if (!rm) throw new Error(`Raw Material not found: ${rawMatId}`);
+      } else {
+        prod = await tx.finishedProduct.findUnique({
+          where: { id: item.productId },
+          include: { unit: true }
+        });
+        if (!prod) throw new Error(`Product not found: ${item.productId}`);
+      }
 
       const qty = Number(item.quantity);
-      const unitPrice = Number(item.unitPrice !== undefined ? item.unitPrice : prod.salePrice);
+      const unitPrice = isRawMaterial
+        ? Number(item.unitPrice !== undefined ? item.unitPrice : (rm.ratePerUnit || 0))
+        : Number(item.unitPrice !== undefined ? item.unitPrice : prod.salePrice);
       const discPercent = Number(item.discountPercent || 0);
       const discAmt = Number(item.discount || (unitPrice * (discPercent / 100)));
       const subtotal = Math.max(0, (unitPrice - discAmt) * qty);
-      const cost = Number(prod.totalCost || 0) * qty;
+      const cost = isRawMaterial
+        ? Number(rm.ratePerUnit || 0) * qty
+        : Number(prod.totalCost || 0) * qty;
       const profit = subtotal - cost;
 
       totalCost += cost;
@@ -1202,40 +1239,54 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
 
       let reservedQty = 0;
       let shortfallQty = 0;
-      let isStockItem = prod.isStockItem !== false;
+      let isStockItem = isRawMaterial ? true : prod.isStockItem !== false;
 
-      // ─── STRICT ATOMIC STOCK CHECK FOR INVOICES ───
-      if (docType === 'Invoice') {
-        if (isStockItem) {
-          let sourceItemId = item.sourceOrderItemId || null;
-          if (!sourceItemId && data.sourceOrderId) {
-            const matchedSourceItem = await tx.customerOrderItem.findFirst({
-              where: { orderId: data.sourceOrderId, productId: item.productId }
-            });
-            if (matchedSourceItem) sourceItemId = matchedSourceItem.id;
+      if (isRawMaterial) {
+        const rmStock = Number(rm.currentStock || 0);
+        // STRICT ATOMIC STOCK CHECK FOR INVOICES & POS
+        if (docType === 'Invoice' || docType === 'POS') {
+          if (qty > rmStock) {
+            const shortage = qty - rmStock;
+            throw new Error(`Insufficient stock for Raw Material "${rm.name}" (${rm.code || rm.id}): Required ${qty}, Available ${rmStock}, Short ${shortage}. Invoice cannot be posted without stock.`);
           }
-          const check = await stockReservationService.getAvailableForInvoice(
-            item.productId,
-            sourceItemId,
-            tx
-          );
-          if (qty > check.available) {
-            const shortage = qty - check.available;
-            throw new Error(`Insufficient stock for "${prod.name}" (${prod.code}): Required ${qty}, Available ${check.available}, Short ${shortage}. Invoice cannot be posted without stock.`);
-          }
-        }
-      } else if (docType === 'Sales Order') {
-        // ─── STANDARD ORDER: NEVER BLOCK; RESERVE AVAILABLE FREE STOCK & TRACK SHORTAGE ───
-        if (isStockItem) {
-          const stockSummary = await stockReservationService.getProductStockSummary(item.productId, tx);
-          reservedQty = Math.min(qty, stockSummary.freeStock);
+        } else if (docType === 'Sales Order') {
+          reservedQty = Math.min(qty, rmStock);
           shortfallQty = Math.max(0, qty - reservedQty);
         }
-      } else if (docType === 'POS') {
-        if (isStockItem) {
-          const stockSummary = await stockReservationService.getProductStockSummary(item.productId, tx);
-          if (qty > stockSummary.onHand || stockSummary.onHand <= 0) {
-            throw new Error(`Stock Unavailable: Cannot complete POS sale for "${prod.name}" (Required: ${qty}, In Stock: ${stockSummary.onHand}).`);
+      } else {
+        // ─── STRICT ATOMIC STOCK CHECK FOR INVOICES ───
+        if (docType === 'Invoice') {
+          if (isStockItem) {
+            let sourceItemId = item.sourceOrderItemId || null;
+            if (!sourceItemId && data.sourceOrderId) {
+              const matchedSourceItem = await tx.customerOrderItem.findFirst({
+                where: { orderId: data.sourceOrderId, productId: item.productId }
+              });
+              if (matchedSourceItem) sourceItemId = matchedSourceItem.id;
+            }
+            const check = await stockReservationService.getAvailableForInvoice(
+              item.productId,
+              sourceItemId,
+              tx
+            );
+            if (qty > check.available) {
+              const shortage = qty - check.available;
+              throw new Error(`Insufficient stock for "${prod.name}" (${prod.code}): Required ${qty}, Available ${check.available}, Short ${shortage}. Invoice cannot be posted without stock.`);
+            }
+          }
+        } else if (docType === 'Sales Order') {
+          // ─── STANDARD ORDER: NEVER BLOCK; RESERVE AVAILABLE FREE STOCK & TRACK SHORTAGE ───
+          if (isStockItem) {
+            const stockSummary = await stockReservationService.getProductStockSummary(item.productId, tx);
+            reservedQty = Math.min(qty, stockSummary.freeStock);
+            shortfallQty = Math.max(0, qty - reservedQty);
+          }
+        } else if (docType === 'POS') {
+          if (isStockItem) {
+            const stockSummary = await stockReservationService.getProductStockSummary(item.productId, tx);
+            if (qty > stockSummary.onHand || stockSummary.onHand <= 0) {
+              throw new Error(`Stock Unavailable: Cannot complete POS sale for "${prod.name}" (Required: ${qty}, In Stock: ${stockSummary.onHand}).`);
+            }
           }
         }
       }
@@ -1250,8 +1301,8 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       if ((docType === 'Invoice' || docType === 'POS') && isStockItem) {
         if (item.allocations && item.allocations.length > 0) {
           allocations = item.allocations;
-          batchId = allocations[0].batchId;
-          batchNo = allocations[0].batchNo;
+          batchId = allocations[0].batchId || allocations[0].id;
+          batchNo = allocations[0].batchNo || allocations[0].batchNumber;
           expiryDate = allocations[0].expiryDate ? new Date(allocations[0].expiryDate) : null;
         } else if (item.batchId) {
           allocations = [{
@@ -1260,8 +1311,18 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
             quantity: qty,
             expiryDate: item.expiryDate
           }];
+        } else if (isRawMaterial) {
+          // FEFO auto-allocation for raw material
+          const rmFefo = await batchAllocationService.allocateRMFEFO(rawMatId, qty, tx);
+          allocations = rmFefo.allocations;
+          if (allocations.length > 0) {
+            batchId = allocations[0].batchId;
+            batchNo = allocations[0].batchNo;
+            mfgDate = allocations[0].mfgDate ? new Date(allocations[0].mfgDate) : null;
+            expiryDate = allocations[0].expiryDate ? new Date(allocations[0].expiryDate) : null;
+          }
         } else {
-          // FEFO auto-allocation
+          // FEFO auto-allocation for finished goods
           const fefoResult = await batchAllocationService.allocateFEFO(item.productId, qty, tx);
           allocations = fefoResult.allocations;
           if (allocations.length > 0) {
@@ -1274,11 +1335,14 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       }
 
       itemsPrepared.push({
-        productId: item.productId,
-        productName: prod.name,
-        hsnCode: item.hsnCode || prod.hsnCode || '21050000',
-        gstRate: item.gstRate !== undefined ? Number(item.gstRate) : (prod.gstRate !== undefined ? Number(prod.gstRate) : 18),
-        uomName: item.uomName || prod.unit?.abbreviation || prod.unit?.name || 'pcs',
+        productId: isRawMaterial ? null : item.productId,
+        rawMaterialId: isRawMaterial ? rawMatId : null,
+        itemType: isRawMaterial ? 'RAW_MATERIAL' : 'PRODUCT',
+        isPackingCharge: Boolean(item.isPackingCharge),
+        productName: isRawMaterial ? (item.productName || rm.name) : prod.name,
+        hsnCode: item.hsnCode || (isRawMaterial ? (rm.hsnCode || '21069099') : (prod.hsnCode || '21050000')),
+        gstRate: item.gstRate !== undefined ? Number(item.gstRate) : (isRawMaterial ? (rm.gstRate !== undefined ? Number(rm.gstRate) : 18) : (prod.gstRate !== undefined ? Number(prod.gstRate) : 18)),
+        uomName: item.uomName || (isRawMaterial ? (rm.unitId || 'kg') : (prod.unit?.abbreviation || prod.unit?.name || 'pcs')),
         quantity: qty,
         unitPrice,
         discount: discAmt,
@@ -1310,7 +1374,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     // 6. Precise GST Engine calculation
     const gstResult = gstEngine.calculateGST({
       items: itemsPrepared.map(it => ({
-        productId: it.productId,
+        productId: it.productId || it.rawMaterialId,
         quantity: it.quantity,
         unitPrice: it.unitPrice,
         discount: it.discount,
@@ -1442,7 +1506,11 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       const createdItem = await tx.customerOrderItem.create({
         data: {
           orderId: createdOrder.id,
-          productId: item.productId,
+          productId: item.productId || null,
+          rawMaterialId: item.rawMaterialId || null,
+          itemType: item.itemType || 'PRODUCT',
+          isPackingCharge: Boolean(item.isPackingCharge),
+          batchAllocationsData: item.allocations && item.allocations.length > 0 ? item.allocations : null,
           batchId: item.batchId,
           batchNo: item.batchNo,
           mfgDate: item.mfgDate,
@@ -1481,7 +1549,13 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       if (data.sourceOrderId) {
         for (const item of itemsPrepared) {
           const sourceItem = await tx.customerOrderItem.findFirst({
-            where: { orderId: data.sourceOrderId, productId: item.productId }
+            where: {
+              orderId: data.sourceOrderId,
+              OR: [
+                ...(item.productId ? [{ productId: item.productId }] : []),
+                ...(item.rawMaterialId ? [{ rawMaterialId: item.rawMaterialId }] : [])
+              ]
+            }
           });
           if (sourceItem) {
             const consumedRes = Math.min(Number(item.quantity), Number(sourceItem.reservedQty || 0));
@@ -1741,7 +1815,7 @@ router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_
     const sourceOrderId = req.params.id;
     const sourceOrder = await prisma.customerOrder.findUnique({
       where: { id: sourceOrderId },
-      include: { customer: true, items: { include: { product: true } } }
+      include: { customer: true, items: { include: { product: true, rawMaterial: true } } }
     });
 
     if (!sourceOrder) {
@@ -1754,14 +1828,22 @@ router.post('/:id/convert-to-invoice', authenticateToken, roleMiddleware(['MAIN_
 
     const itemsToBill = req.body.items && req.body.items.length > 0 
       ? req.body.items.map(it => {
-          const matchSourceItem = sourceOrder.items.find(si => si.productId === it.productId);
+          const matchSourceItem = sourceOrder.items.find(si => (si.productId && si.productId === it.productId) || (si.rawMaterialId && si.rawMaterialId === it.rawMaterialId));
           return {
             ...it,
+            rawMaterialId: it.rawMaterialId || matchSourceItem?.rawMaterialId || null,
+            itemType: it.itemType || matchSourceItem?.itemType || (it.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+            isPackingCharge: it.isPackingCharge !== undefined ? Boolean(it.isPackingCharge) : Boolean(matchSourceItem?.isPackingCharge),
+            batchAllocationsData: it.batchAllocationsData || it.allocations || matchSourceItem?.batchAllocationsData || null,
             sourceOrderItemId: it.sourceOrderItemId || matchSourceItem?.id || null
           };
         })
       : sourceOrder.items.map(it => ({
           productId: it.productId,
+          rawMaterialId: it.rawMaterialId,
+          itemType: it.itemType || (it.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+          isPackingCharge: Boolean(it.isPackingCharge),
+          batchAllocationsData: it.batchAllocationsData,
           sourceOrderItemId: it.id,
           quantity: Number(it.quantity) - Number(it.invoicedQty || 0),
           unitPrice: it.unitPrice,
@@ -1829,7 +1911,7 @@ router.post('/:id/convert-to-order', authenticateToken, roleMiddleware(['MAIN_MA
   try {
     const quotation = await prisma.customerOrder.findUnique({
       where: { id: req.params.id },
-      include: { customer: true, items: { include: { product: true } } }
+      include: { customer: true, items: { include: { product: true, rawMaterial: true } } }
     });
     if (!quotation) return res.status(404).json({ error: 'Quotation not found' });
     if (quotation.status === 'Converted') {
@@ -1871,6 +1953,10 @@ router.post('/:id/convert-to-order', authenticateToken, roleMiddleware(['MAIN_MA
       salesEmployee: quotation.salesEmployee,
       items: quotation.items.map(it => ({
         productId: it.productId,
+        rawMaterialId: it.rawMaterialId,
+        itemType: it.itemType || (it.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+        isPackingCharge: Boolean(it.isPackingCharge),
+        batchAllocationsData: it.batchAllocationsData,
         quantity: it.quantity,
         unitPrice: it.unitPrice,
         discount: it.discount,
@@ -2316,7 +2402,13 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       shipToAddress: z.string().optional(),
       skipStockDeduction: z.boolean().optional().default(false),
       items: z.array(z.object({
-        productId: z.string().min(1),
+        productId: z.string().optional().nullable(),
+        rawMaterialId: z.string().optional().nullable(),
+        itemType: z.string().optional().default('PRODUCT'),
+        isPackingCharge: z.boolean().optional().default(false),
+        batchAllocationsData: z.any().optional(),
+        batchId: z.string().optional().nullable(),
+        batchNo: z.string().optional().nullable(),
         productName: z.string().optional(),
         quantity: z.coerce.number().positive(),
         unitPrice: z.coerce.number().positive(),
@@ -2351,13 +2443,39 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       const orderItemsData = [];
 
       for (const item of data.items) {
-        const prod = await tx.finishedProduct.findUnique({
-          where: { id: item.productId }
-        });
-        if (!prod) throw new Error(`Product not found: ${item.productId}`);
+        const isRawMaterial = item.itemType === 'RAW_MATERIAL' || Boolean(item.rawMaterialId && !item.productId);
+        const rawMatId = item.rawMaterialId || (isRawMaterial ? item.productId : null);
+        let prod = null;
+        let rm = null;
+        let costPerUnit = 0;
+        let name = item.productName || '';
+        let hsn = item.hsnCode || '';
+        let gst = item.gstRate !== undefined ? Number(item.gstRate) : 18;
+        let uom = item.uomName || 'pcs';
+
+        if (isRawMaterial) {
+          rm = await tx.rawMaterial.findUnique({ where: { id: rawMatId } });
+          if (!rm) throw new Error(`Raw Material not found: ${rawMatId}`);
+          costPerUnit = Number(rm.ratePerUnit || 0);
+          name = name || rm.name;
+          hsn = hsn || rm.hsnCode || '21069099';
+          gst = item.gstRate !== undefined ? Number(item.gstRate) : (rm.gstRate !== undefined ? Number(rm.gstRate) : 18);
+          uom = uom || rm.unitId || 'kg';
+        } else {
+          prod = await tx.finishedProduct.findUnique({
+            where: { id: item.productId },
+            include: { unit: true }
+          });
+          if (!prod) throw new Error(`Product not found: ${item.productId}`);
+          costPerUnit = Number(prod.totalCost || 0);
+          name = name || prod.name;
+          hsn = hsn || prod.hsnCode || '21050000';
+          gst = item.gstRate !== undefined ? Number(item.gstRate) : (prod.gstRate !== undefined ? Number(prod.gstRate) : 5);
+          uom = uom || prod.unit?.abbreviation || prod.unit?.name || 'pcs';
+        }
 
         const itemSubtotal = (Number(item.unitPrice) - Number(item.discount)) * item.quantity;
-        const itemCost = Number(prod.totalCost || 0) * item.quantity;
+        const itemCost = costPerUnit * item.quantity;
         const itemProfit = itemSubtotal - itemCost;
 
         totalSubtotal += itemSubtotal;
@@ -2365,15 +2483,21 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         totalProfit += itemProfit;
 
         orderItemsData.push({
-          productId: item.productId,
-          productName: item.productName || prod.name,
+          productId: isRawMaterial ? null : item.productId,
+          rawMaterialId: isRawMaterial ? rawMatId : null,
+          itemType: isRawMaterial ? 'RAW_MATERIAL' : 'PRODUCT',
+          isPackingCharge: Boolean(item.isPackingCharge),
+          batchAllocationsData: item.batchAllocationsData || null,
+          batchId: item.batchId || null,
+          batchNo: item.batchNo || null,
+          productName: name,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discount: item.discount,
           discountPercent: item.discountPercent || 0,
-          gstRate: item.gstRate !== undefined ? Number(item.gstRate) : (prod.gstRate !== undefined ? Number(prod.gstRate) : 5),
-          hsnCode: item.hsnCode || prod.hsnCode || '21050000',
-          uomName: item.uomName || prod.unit?.abbreviation || prod.unit?.name || 'pcs',
+          gstRate: gst,
+          hsnCode: hsn,
+          uomName: uom,
           subtotal: itemSubtotal,
           cost: itemCost,
           profit: itemProfit,
@@ -2467,6 +2591,12 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         data: orderItemsData.map(it => ({
           orderId: id,
           productId: it.productId,
+          rawMaterialId: it.rawMaterialId,
+          itemType: it.itemType,
+          isPackingCharge: it.isPackingCharge,
+          batchAllocationsData: it.batchAllocationsData,
+          batchId: it.batchId,
+          batchNo: it.batchNo,
           productName: it.productName,
           quantity: it.quantity,
           unitPrice: it.unitPrice,
@@ -2507,17 +2637,19 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         // Delete old movements for this order and recreate based on updated items
         await tx.productStockMovement.deleteMany({ where: { orderId: id, type: 'order_allocation' } });
         for (const item of orderItemsData) {
-          await tx.productStockMovement.create({
-            data: {
-              productId: item.productId,
-              orderId: id,
-              type: 'order_allocation',
-              quantity: item.quantity,
-              direction: -1,
-              note: `Stock allocated for Order ${existing.referenceNo} (Updated)`,
-              createdBy: req.user.id
-            }
-          });
+          if (item.productId) {
+            await tx.productStockMovement.create({
+              data: {
+                productId: item.productId,
+                orderId: id,
+                type: 'order_allocation',
+                quantity: item.quantity,
+                direction: -1,
+                note: `Stock allocated for Order ${existing.referenceNo} (Updated)`,
+                createdBy: req.user.id
+              }
+            });
+          }
         }
       } else {
         // If orderMode is INVOICE, Quotation, or unallocated, clear any stock allocations
@@ -2526,7 +2658,9 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
 
       // Check stock alerts for all items involved
       for (const item of orderItemsData) {
-        await notificationService.checkProductStockAlerts(item.productId, tx);
+        if (item.productId) {
+          await notificationService.checkProductStockAlerts(item.productId, tx);
+        }
       }
 
       return existing;

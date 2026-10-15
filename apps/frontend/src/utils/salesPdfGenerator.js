@@ -295,8 +295,9 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
   curY += 7;
 
-  // Items Table Rows
-  const items = order.items || [];
+  // Items Table Rows: filter out items marked as packing charge so they appear only in the summary
+  const printableItems = (order.items || []).filter(it => !it.isPackingCharge);
+  const items = printableItems.length > 0 ? printableItems : (order.items || []);
   let totalTaxableValue = 0;
   let computedGstTotal = 0;
 
@@ -769,7 +770,8 @@ export function generateThermalReceipt(order, companyDetails = {}) {
   const companyAddress = companyDetails.companyAddress || 'Main Outlet, Salem, TN';
   const companyGstin = companyDetails.companyGstin || '33AAAAA0000A1Z5';
 
-  const items = order.items || [];
+  const printableItems = (order.items || []).filter(it => !it.isPackingCharge);
+  const items = printableItems.length > 0 ? printableItems : (order.items || []);
   const itemsCount = items.length;
   const dynamicHeight = Math.max(160, 115 + (itemsCount * 7.5));
 

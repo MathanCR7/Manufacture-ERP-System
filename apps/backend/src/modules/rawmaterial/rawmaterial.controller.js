@@ -2912,6 +2912,62 @@ exports.getMaterialHistory = async (req, res, next) => {
       createdByName: r.creator?.name || 'Staff'
     }));
 
+    // 8.b Fetch Resale & Sales Dispatches
+    const resaleItems = await prisma.customerOrderItem.findMany({
+      where: {
+        rawMaterialId: rm.id,
+        order: { deletedAt: null }
+      },
+      include: {
+        order: {
+          include: {
+            customer: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const formattedResales = resaleItems.map(item => {
+      const order = item.order;
+      const customerName = order?.customer?.name || order?.customerName || 'Direct Customer';
+      const docType = order?.type || 'Sales Order';
+      const docNo = order?.docNo || order?.referenceNo || 'N/A';
+      const referenceNo = order?.referenceNo || 'N/A';
+      const primaryBatchNo = item.batchNo || (item.batchAllocationsData && Array.isArray(item.batchAllocationsData) && item.batchAllocationsData[0]?.batchNo) || 'Direct Warehouse Stock';
+
+      return {
+        id: item.id,
+        orderId: item.orderId,
+        docType,
+        docNo,
+        referenceNo,
+        orderDate: order?.createdAt || item.createdAt,
+        deliveryDate: item.deliveryDate || order?.deliveryDate,
+        customerName,
+        customerId: order?.customerId,
+        customerPhone: order?.customerPhone || order?.customer?.phone || null,
+        quantity: Number(item.quantity || 0),
+        uom: item.uomName || rm.unitId,
+        unitPrice: Number(item.unitPrice || 0),
+        discount: Number(item.discount || 0),
+        subtotal: Number(item.subtotal || 0),
+        isPackingCharge: Boolean(item.isPackingCharge),
+        batchNo: primaryBatchNo,
+        batchAllocations: item.batchAllocationsData || null,
+        status: order?.status || 'Confirmed',
+        orderMode: order?.orderMode || 'STANDARD'
+      };
+    });
+
+    const deliveredResales = formattedResales.filter(r => 
+      ['Delivered', 'Invoiced', 'Completed', 'Paid'].includes(r.status) || 
+      r.docType === 'Invoice' || 
+      r.docType === 'POS'
+    );
+    const totalResaleQty = Number(deliveredResales.reduce((acc, r) => acc + r.quantity, 0).toFixed(4));
+    const totalResaleAmount = Number(deliveredResales.reduce((acc, r) => acc + r.subtotal, 0).toFixed(2));
+
     // 9. Calculate Aggregate Metrics
     const currentStock = Number(rm.currentStock || 0);
     const latestPurchase = formattedPurchases[0];
@@ -2959,11 +3015,35 @@ exports.getMaterialHistory = async (req, res, next) => {
       formattedAdjustments.length > 0 ||
       formattedWaste.length > 0 ||
       formattedUsages.length > 0 ||
-      formattedReturns.length > 0
+      formattedReturns.length > 0 ||
+      formattedResales.length > 0
     );
 
     // 10. Generate Unified Chronological Timeline
     const timelineEvents = [];
+
+    formattedResales.forEach(r => {
+      timelineEvents.push({
+        id: `resale-${r.id}`,
+        type: 'RESALE_OUTFLOW',
+        title: `${r.docType}: ${r.quantity} ${r.uom} ${r.isPackingCharge ? '(Packing Item)' : 'Sold/Dispatched'}`,
+        subtitle: `Doc: ${r.docNo} • Customer: ${r.customerName} • Batch: ${r.batchNo}`,
+        timestamp: r.orderDate,
+        status: r.status,
+        badgeColor: 'purple',
+        user: 'Sales Team',
+        metadata: {
+          orderId: r.orderId,
+          docNo: r.docNo,
+          referenceNo: r.referenceNo,
+          docType: r.docType,
+          quantity: r.quantity,
+          subtotal: r.subtotal,
+          customerName: r.customerName,
+          isPackingCharge: r.isPackingCharge
+        }
+      });
+    });
 
     formattedPurchases.forEach(p => {
       timelineEvents.push({
@@ -3287,7 +3367,10 @@ exports.getMaterialHistory = async (req, res, next) => {
         totalAdjustmentSubtraction,
         netAdjustedQty,
         totalWastedQty,
-        totalWastedLoss
+        totalWastedLoss,
+        totalResaleQty,
+        totalResaleAmount,
+        resaleCount: formattedResales.length
       },
       costingSummary: {
         avgCostPrice,
@@ -3309,7 +3392,7 @@ exports.getMaterialHistory = async (req, res, next) => {
         cost: Number(item.ratePerUnit || 0),
         totalValue: Math.round((Number(item.currentStock || 0) * Number(item.ratePerUnit || 0)) * 100) / 100
       })),
-      timeline: timelineEvents,
+      timeline: timelineEvents.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)),
       purchases: formattedPurchases,
       grnReceipts: formattedGRN,
       batches: formattedBatches,
@@ -3317,7 +3400,8 @@ exports.getMaterialHistory = async (req, res, next) => {
       stockAdjustments: formattedAdjustments,
       wasteRecords: formattedWaste,
       productionUsages: formattedUsages,
-      purchaseReturns: formattedReturns
+      purchaseReturns: formattedReturns,
+      resales: formattedResales
     });
   } catch (error) {
     next(error);

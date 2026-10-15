@@ -9,7 +9,7 @@ import {
   Sparkles, Layers, Receipt, Clock, CheckCircle2, Download, Tag, UserPlus, Eye,
   Compass, Package, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
   SlidersHorizontal, CheckSquare, Square, CornerDownLeft, Globe, MapPin,
-  QrCode, PauseCircle, PlayCircle, MessageCircle, Send, Lock
+  QrCode, PauseCircle, PlayCircle, MessageCircle, Send, Lock, Boxes
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import DatePicker from '@/components/ui/DatePicker';
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
+import RMLotAllocationModal from '@/modules/sales/components/RMLotAllocationModal';
 import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin } from '@/utils/gstEngine';
 import { generateA4TaxInvoice, generateThermalReceipt } from '@/utils/salesPdfGenerator';
 import PosHeader from '@/modules/sales/components/pos/PosHeader';
@@ -134,10 +135,13 @@ export default function SalesBillingPage() {
   // Search & Catalog Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [catalogScope, setCatalogScope] = useState('PRODUCTS'); // 'PRODUCTS' | 'RAW_MATERIALS'
 
-  // Stock Query Modal State
+  // Stock Query & RM Lot Modal State
   const [stockQueryProductId, setStockQueryProductId] = useState(null);
   const [isStockQueryOpen, setIsStockQueryOpen] = useState(false);
+  const [activeRMLotLine, setActiveRMLotLine] = useState(null);
+  const [isRMLotModalOpen, setIsRMLotModalOpen] = useState(false);
 
   // Customer & Order Setup States
   const [customerId, setCustomerId] = useState('');
@@ -265,19 +269,23 @@ export default function SalesBillingPage() {
         if (ord.items && ord.items.length > 0) {
           loadedItems = ord.items.map((it, idx) => ({
             id: it.id || idx + 1,
-            productId: it.productId,
-            productName: it.productName || it.product?.name || 'Item',
-            code: it.product?.code || '',
-            hsnCode: it.hsnCode || it.product?.hsnCode || '21050000',
-            uomName: it.uomName || it.product?.unit?.abbreviation || 'pcs',
+            productId: it.productId || undefined,
+            rawMaterialId: it.rawMaterialId || undefined,
+            itemType: it.itemType || (it.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+            isPackingCharge: Boolean(it.isPackingCharge || it.is_packing_charge),
+            batchAllocations: it.batchAllocationsData || it.batch_allocations_data || [],
+            productName: it.productName || it.product?.name || it.rawMaterial?.name || 'Item',
+            code: it.product?.code || it.rawMaterial?.code || '',
+            hsnCode: it.hsnCode || it.product?.hsnCode || it.rawMaterial?.hsnCode || '21050000',
+            uomName: it.uomName || it.product?.unit?.abbreviation || it.rawMaterial?.unitId || 'pcs',
             quantity: Number(it.quantity || 1),
             unitPrice: Number(it.unitPrice || 0),
             discount: Number(it.discount || 0),
-            gstRate: Number(it.gstRate || 18),
+            gstRate: Number(it.gstRate || (it.rawMaterialId ? 18 : 5)),
             batchId: it.batchId || null,
             batchNo: it.batchNo || '',
             expiryDate: it.expiryDate || null,
-            availableStock: it.product?.currentStock || 0
+            availableStock: it.product?.currentStock || it.rawMaterial?.currentStock || 0
           }));
           setItems(loadedItems);
         }
@@ -304,11 +312,13 @@ export default function SalesBillingPage() {
           discountValue: String(Number(ord.discountValue || 0)),
           deliveryDate: ord.deliveryDate ? ord.deliveryDate.split('T')[0] : '',
           items: loadedItems.map(it => ({
-            productId: it.productId,
+            productId: it.productId || undefined,
+            rawMaterialId: it.rawMaterialId || undefined,
+            isPackingCharge: Boolean(it.isPackingCharge),
             quantity: Number(it.quantity || 1),
             unitPrice: Number(it.unitPrice || 0),
             discount: Number(it.discount || 0)
-          })).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''))
+          })).sort((a, b) => ((a.productId || a.rawMaterialId || '') + (a.isPackingCharge ? '_P' : '')).localeCompare((b.productId || b.rawMaterialId || '') + (b.isPackingCharge ? '_P' : '')))
         });
         setInitialSnapshot(snap);
       }).catch(err => console.error('Failed to pre-fetch edit order:', err));
@@ -370,6 +380,24 @@ export default function SalesBillingPage() {
       p.code?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (p.hsnCode && p.hsnCode.includes(searchQuery));
     return matchCategory && matchSearch;
+  });
+
+  // Fetch Raw Materials for Resale & Packing
+  const { data: rawMaterials = [], isLoading: loadingRawMaterials } = useQuery({
+    queryKey: ['rm-stock-pos'],
+    queryFn: () => api.get('/rm-stock').then(r => r.data || []),
+  });
+
+  // Filtered Raw Materials
+  const filteredRawMaterials = rawMaterials.filter(rm => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      (rm.code || '').toLowerCase().includes(q) ||
+      (rm.name || '').toLowerCase().includes(q) ||
+      (rm.printName || '').toLowerCase().includes(q) ||
+      (rm.category?.name || rm.category || '').toLowerCase().includes(q)
+    );
   });
 
   // Handle Customer Selection & Auto GSTIN State Resolution
@@ -503,6 +531,86 @@ export default function SalesBillingPage() {
     });
   };
 
+  // Add Raw Material to Selected Item Lines (as Resale or as Packing Line)
+  const handleAddRawMaterial = (rm, asPacking = false) => {
+    const stockAvailable = Number(rm.currentStock || 0);
+
+    // Strict POS Stock Validation: Cannot add to cart if out of stock
+    if (orderType === 'POS' && stockAvailable <= 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Out of Stock',
+        text: `Cannot add "${rm.printName || rm.name}" to POS cart: Available stock is 0.`,
+        timer: 2500,
+        showConfirmButton: false,
+        toast: true,
+        position: 'top-end'
+      });
+      return;
+    }
+
+    setItems(prev => {
+      const existingIdx = prev.findIndex(item => item.rawMaterialId === rm.id && Boolean(item.isPackingCharge) === asPacking);
+      if (existingIdx >= 0) {
+        const currentQty = prev[existingIdx].quantity;
+        if (orderType === 'POS' && currentQty + 1 > stockAvailable) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'Stock Limit Reached',
+            text: `Cannot add more: Only ${stockAvailable} in stock for "${rm.printName || rm.name}".`,
+            timer: 2500,
+            showConfirmButton: false,
+            toast: true,
+            position: 'top-end'
+          });
+          return prev;
+        }
+        const updated = [...prev];
+        updated[existingIdx].quantity += 1;
+        return updated;
+      }
+
+      return [
+        ...prev,
+        {
+          id: Date.now() + Math.random(),
+          rawMaterialId: rm.id,
+          itemType: 'RAW_MATERIAL',
+          isPackingCharge: asPacking,
+          batchAllocations: [],
+          productName: rm.printName || rm.name,
+          code: rm.code,
+          hsnCode: rm.hsnCode || '0401',
+          uomName: rm.unitId || 'kg',
+          quantity: 1,
+          unitPrice: Number(rm.ratePerUnit || 0),
+          discount: 0,
+          gstRate: 18,
+          availableStock: rm.currentStock || 0
+        }
+      ];
+    });
+  };
+
+  // Handle Apply Raw Material Lots from RMLotAllocationModal
+  const handleApplyRMLotAllocations = (allocations, totalAllocatedQty) => {
+    if (!activeRMLotLine) return;
+    setItems(prev => {
+      return prev.map(it => {
+        if (it.id === activeRMLotLine.id || (activeRMLotLine.lineIndex !== undefined && prev[activeRMLotLine.lineIndex] === it)) {
+          return {
+            ...it,
+            batchAllocations: allocations,
+            quantity: totalAllocatedQty > 0 ? totalAllocatedQty : it.quantity
+          };
+        }
+        return it;
+      });
+    });
+    setIsRMLotModalOpen(false);
+    setActiveRMLotLine(null);
+  };
+
   // Global GST Rate Change (0, 5, 12, 18, 28)
   const handleGlobalGstRateChange = (rate) => {
     setSelectedGstRate(rate);
@@ -580,6 +688,16 @@ export default function SalesBillingPage() {
 
   const taxableSubtotal = Math.max(0, rawSubtotal - calculatedDiscount);
 
+  // Packing lines total
+  const packingItemsSum = items
+    .filter(it => it.isPackingCharge)
+    .reduce((sum, it) => {
+      const rate = Number(it.unitPrice || 0);
+      const disc = Number(it.discount || 0);
+      const qty = Number(it.quantity || 0);
+      return sum + ((rate - disc) * qty);
+    }, 0);
+
   // Additional Charges
   const freightNum = Number(freight || 0);
   const loadingNum = Number(loadingCharges || 0);
@@ -597,7 +715,7 @@ export default function SalesBillingPage() {
       const lineTaxable = ((Number(it.unitPrice || 0) - Number(it.discount || 0)) * Number(it.quantity || 0));
       const ratio = rawSubtotal > 0 ? (lineTaxable / rawSubtotal) : 0;
       const discountedLine = Math.max(0, lineTaxable - (calculatedDiscount * ratio));
-      const lineGstRate = Number(it.gstRate !== undefined ? it.gstRate : selectedGstRate);
+      const lineGstRate = Number(it.gstRate !== undefined ? it.gstRate : (it.rawMaterialId ? 18 : selectedGstRate));
       const lineTax = (discountedLine * lineGstRate) / 100;
       totalGstTax += lineTax;
     });
@@ -642,6 +760,9 @@ export default function SalesBillingPage() {
       queryClient.invalidateQueries({ queryKey: ['pos-products'] });
       queryClient.invalidateQueries({ queryKey: ['products-search-list'] });
       queryClient.invalidateQueries({ queryKey: ['next-pos-invoice-sequence'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stock-pos'] });
+      queryClient.invalidateQueries({ queryKey: ['rm-stock-sales'] });
+      queryClient.invalidateQueries({ queryKey: ['raw-materials'] });
       refetchNextInvoice();
 
       if (editOrderId) {
@@ -761,11 +882,13 @@ export default function SalesBillingPage() {
         discountValue: String(Number(calculatedDiscount || 0)),
         deliveryDate: deliveryDate || '',
         items: items.map(it => ({
-          productId: it.productId,
+          productId: it.productId || undefined,
+          rawMaterialId: it.rawMaterialId || undefined,
+          isPackingCharge: Boolean(it.isPackingCharge),
           quantity: Number(it.quantity || 1),
           unitPrice: Number(it.unitPrice || 0),
           discount: Number(it.discount || 0)
-        })).sort((a, b) => (a.productId || '').localeCompare(b.productId || ''))
+        })).sort((a, b) => ((a.productId || a.rawMaterialId || '') + (a.isPackingCharge ? '_P' : '')).localeCompare((b.productId || b.rawMaterialId || '') + (b.isPackingCharge ? '_P' : '')))
       });
 
       if (currentSnap === initialSnapshot) {
@@ -821,11 +944,15 @@ export default function SalesBillingPage() {
       customerRefNo: liveServingNumber,
       orderMode: fulfillmentType.toUpperCase(),
       items: items.map(it => ({
-        productId: it.productId,
+        productId: it.productId || undefined,
+        rawMaterialId: it.rawMaterialId || undefined,
+        itemType: it.itemType || (it.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+        isPackingCharge: Boolean(it.isPackingCharge),
+        batchAllocationsData: it.batchAllocations || [],
         quantity: Number(it.quantity || 1),
         unitPrice: Number(it.unitPrice || 0),
         discount: Number(it.discount || 0),
-        gstRate: Number(it.gstRate || 18),
+        gstRate: Number(it.gstRate || (it.rawMaterialId ? 18 : 18)),
         hsnCode: it.hsnCode,
         uomName: it.uomName,
         batchId: it.batchId || null,
@@ -1068,80 +1195,196 @@ export default function SalesBillingPage() {
         {/* LEFT 7 COLUMNS: Finished Product Catalog & FEFO Stock Grid */}
         <div className="lg:col-span-7 space-y-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-xs dark:shadow-xl">
-            <div className="py-3 px-4 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
-              <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-indigo-500" /> Finished Product Catalog
-              </h3>
+            <div className="py-2.5 px-4 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-950 p-0.5 rounded-xl border border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCatalogScope('PRODUCTS')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    catalogScope === 'PRODUCTS'
+                      ? 'bg-indigo-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Finished Products</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCatalogScope('RAW_MATERIALS')}
+                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    catalogScope === 'RAW_MATERIALS'
+                      ? 'bg-amber-500 text-slate-950 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <Boxes className="w-3.5 h-3.5" />
+                  <span>Raw Materials (Resale & Packing)</span>
+                </button>
+              </div>
               <span className="text-[10px] bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 px-2.5 py-0.5 rounded-full font-black border border-indigo-100 dark:border-indigo-900">
-                {filteredProducts.length} Items Available
+                {catalogScope === 'PRODUCTS' ? filteredProducts.length : filteredRawMaterials.length} Items Available
               </span>
             </div>
 
             <div className="p-3.5 space-y-3">
-              {/* Product Search & Dropdown Input */}
+              {/* Product / RM Search & Dropdown Input */}
               <div className="relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500" />
                 <Input
-                  placeholder="Search product by name, code (e.g. FP-000006), or HSN..."
+                  placeholder={catalogScope === 'PRODUCTS'
+                    ? "Search product by name, code (e.g. FP-000006), or HSN..."
+                    : "Search raw material by name, code (e.g. RM-00008), or category..."}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 h-9.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white focus:ring-indigo-500"
                 />
               </div>
 
-              {/* Category Filter Chips */}
-              <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1">
-                {categories.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => setSelectedCategory(cat)}
-                    className={`px-2.5 py-1 rounded-xl text-3xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
-                      selectedCategory === cat
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              {/* Product Cards Grid with Auto-FEFO Batch & Expiry Display */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 max-h-[620px] overflow-y-auto pr-1">
-                {loadingProducts ? (
-                  <div className="col-span-full py-12 text-center text-slate-400 text-xs">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
-                    Loading product catalog & FEFO stock...
-                  </div>
-                ) : filteredProducts.length === 0 ? (
-                  <div className="col-span-full py-12 text-center text-slate-400 text-xs italic">
-                    No products matched your search.
-                  </div>
-                ) : (
-                  filteredProducts.map((p) => {
-                    const nextBatch = p.nextExpiringBatch;
-                    const hasBatch = Boolean(nextBatch && nextBatch.batchNo);
-                    const isExpDate = nextBatch?.expiryDate ? new Date(nextBatch.expiryDate).toLocaleDateString('en-GB') : null;
-
-                    const stockQty = Number(p.currentStock || 0);
-                    const isOutOfStock = stockQty <= 0;
-
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => handleAddProduct(p)}
-                        className={`border rounded-xl p-3 transition-all shadow-2xs flex flex-col justify-between group active:scale-[0.99] ${
-                          isOutOfStock && orderType === 'POS'
-                            ? 'bg-slate-100/80 dark:bg-slate-950/40 border-dashed border-rose-300 dark:border-rose-900/60 opacity-60 cursor-not-allowed'
-                            : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md cursor-pointer'
+              {catalogScope === 'PRODUCTS' ? (
+                <>
+                  {/* Category Filter Chips */}
+                  <div className="flex flex-wrap gap-1.5 overflow-x-auto pb-1">
+                    {categories.map((cat) => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setSelectedCategory(cat)}
+                        className={`px-2.5 py-1 rounded-xl text-3xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                          selectedCategory === cat
+                            ? 'bg-indigo-600 text-white shadow-xs'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                         }`}
-                        title={isOutOfStock && orderType === 'POS' ? 'Out of Stock: Cannot add to POS cart' : p.name}
                       >
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
-                            <span className="font-bold">{p.code}</span>
-                            <div className="flex items-center gap-1.5">
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Product Cards Grid with Auto-FEFO Batch & Expiry Display */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 max-h-[620px] overflow-y-auto pr-1">
+                    {loadingProducts ? (
+                      <div className="col-span-full py-12 text-center text-slate-400 text-xs">
+                        <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
+                        Loading product catalog & FEFO stock...
+                      </div>
+                    ) : filteredProducts.length === 0 ? (
+                      <div className="col-span-full py-12 text-center text-slate-400 text-xs italic">
+                        No products matched your search.
+                      </div>
+                    ) : (
+                      filteredProducts.map((p) => {
+                        const nextBatch = p.nextExpiringBatch;
+                        const hasBatch = Boolean(nextBatch && nextBatch.batchNo);
+                        const isExpDate = nextBatch?.expiryDate ? new Date(nextBatch.expiryDate).toLocaleDateString('en-GB') : null;
+
+                        const stockQty = Number(p.currentStock || 0);
+                        const isOutOfStock = stockQty <= 0;
+
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => handleAddProduct(p)}
+                            className={`border rounded-xl p-3 transition-all shadow-2xs flex flex-col justify-between group active:scale-[0.99] ${
+                              isOutOfStock && orderType === 'POS'
+                                ? 'bg-slate-100/80 dark:bg-slate-950/40 border-dashed border-rose-300 dark:border-rose-900/60 opacity-60 cursor-not-allowed'
+                                : 'bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 hover:border-indigo-500 dark:hover:border-indigo-500 hover:shadow-md cursor-pointer'
+                            }`}
+                            title={isOutOfStock && orderType === 'POS' ? 'Out of Stock: Cannot add to POS cart' : p.name}
+                          >
+                            <div className="space-y-1.5">
+                              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                                <span className="font-bold">{p.code}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-1.5 py-0.2 rounded font-bold text-[9px] ${
+                                    isOutOfStock
+                                      ? 'bg-rose-600 text-white'
+                                      : stockQty > 10
+                                      ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                      : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
+                                  }`}>
+                                    {isOutOfStock ? 'OUT OF STOCK (0)' : `Stock: ${stockQty}`}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    title="Inspect Stock & BOM Details"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setStockQueryProductId(p.id);
+                                      setIsStockQueryOpen(true);
+                                    }}
+                                    className="p-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-100 line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                {p.name}
+                              </h4>
+
+                              {/* Auto-FEFO Allocation Batch & Expiry Display */}
+                              {hasBatch ? (
+                                <div className="mt-1 space-y-0.5">
+                                  <span className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold">
+                                    ⚡ FEFO: {nextBatch.batchNo}
+                                  </span>
+                                  {isExpDate && (
+                                    <span className="block text-[9px] font-mono text-slate-400">
+                                      Exp: {isExpDate} ({nextBatch.remainingQty} pcs)
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="mt-1">
+                                  <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.2 rounded text-[9px] font-mono">
+                                    📦 Direct Stock
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex items-baseline justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800/80 mt-2">
+                              <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
+                                ₹{Number(p.salePrice || 0).toFixed(2)}
+                              </span>
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                +{p.gstRate || 18}% GST
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              ) : (
+                /* RAW MATERIALS CARDS GRID */
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5 max-h-[620px] overflow-y-auto pr-1">
+                  {loadingRawMaterials ? (
+                    <div className="col-span-full py-12 text-center text-slate-400 text-xs">
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-amber-500" />
+                      Loading raw material inventory...
+                    </div>
+                  ) : filteredRawMaterials.length === 0 ? (
+                    <div className="col-span-full py-12 text-center text-slate-400 text-xs italic">
+                      No raw materials matched your search.
+                    </div>
+                  ) : (
+                    filteredRawMaterials.map((rm) => {
+                      const stockQty = Number(rm.currentStock || 0);
+                      const isOutOfStock = stockQty <= 0;
+                      const price = Number(rm.ratePerUnit || 0);
+
+                      return (
+                        <div
+                          key={rm.id}
+                          className="border rounded-xl p-3 bg-slate-50 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 hover:border-amber-500 dark:hover:border-amber-500 hover:shadow-md transition-all shadow-2xs flex flex-col justify-between group"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                              <span className="font-bold text-amber-700 dark:text-amber-400">{rm.code}</span>
                               <span className={`px-1.5 py-0.2 rounded font-bold text-[9px] ${
                                 isOutOfStock
                                   ? 'bg-rose-600 text-white'
@@ -1149,61 +1392,65 @@ export default function SalesBillingPage() {
                                   ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
                                   : 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300'
                               }`}>
-                                {isOutOfStock ? 'OUT OF STOCK (0)' : `Stock: ${stockQty}`}
+                                {isOutOfStock ? 'OUT OF STOCK (0)' : `Stock: ${stockQty} ${rm.unitId || 'kg'}`}
                               </span>
-                              <button
-                                type="button"
-                                title="Inspect Stock & BOM Details"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setStockQueryProductId(p.id);
-                                  setIsStockQueryOpen(true);
-                                }}
-                                className="p-0.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
+                            </div>
+
+                            <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-100 line-clamp-2 group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">
+                              {rm.printName || rm.name}
+                            </h4>
+
+                            <div className="text-[10px] text-slate-500">
+                              <span>Category: {rm.category?.name || rm.category || 'Raw Material'}</span>
                             </div>
                           </div>
 
-                          <h4 className="font-extrabold text-xs text-slate-800 dark:text-slate-100 line-clamp-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                            {p.name}
-                          </h4>
-
-                          {/* Auto-FEFO Allocation Batch & Expiry Display */}
-                          {hasBatch ? (
-                            <div className="mt-1 space-y-0.5">
-                              <span className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold">
-                                ⚡ FEFO: {nextBatch.batchNo}
+                          <div>
+                            <div className="flex items-baseline justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800/80 mt-2 mb-2">
+                              <span className="text-sm font-black text-amber-600 dark:text-amber-400 font-mono">
+                                ₹{price.toFixed(2)}
                               </span>
-                              {isExpDate && (
-                                <span className="block text-[9px] font-mono text-slate-400">
-                                  Exp: {isExpDate} ({nextBatch.remainingQty} pcs)
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="mt-1">
-                              <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-500 px-1.5 py-0.2 rounded text-[9px] font-mono">
-                                📦 Direct Stock
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                +18% GST
                               </span>
                             </div>
-                          )}
-                        </div>
 
-                        <div className="flex items-baseline justify-between pt-2 border-t border-slate-200/60 dark:border-slate-800/80 mt-2">
-                          <span className="text-sm font-black text-indigo-600 dark:text-indigo-400 font-mono">
-                            ₹{Number(p.salePrice || 0).toFixed(2)}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            +{p.gstRate || 18}% GST
-                          </span>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                disabled={isOutOfStock && orderType === 'POS'}
+                                onClick={() => handleAddRawMaterial(rm, false)}
+                                className={`flex-1 py-1 px-2 font-bold text-[10.5px] rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs ${
+                                  isOutOfStock && orderType === 'POS'
+                                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 cursor-pointer'
+                                }`}
+                                title="Add as standard resale raw material item"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Resale</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isOutOfStock && orderType === 'POS'}
+                                onClick={() => handleAddRawMaterial(rm, true)}
+                                className={`flex-1 py-1 px-2 font-bold text-[10.5px] rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs ${
+                                  isOutOfStock && orderType === 'POS'
+                                    ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                                    : 'bg-blue-600 hover:bg-blue-500 text-white cursor-pointer'
+                                }`}
+                                title="Add as packing material / charge line"
+                              >
+                                <span>📦 Pack</span>
+                              </button>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1525,11 +1772,48 @@ export default function SalesBillingPage() {
                               {idx + 1}
                             </span>
                             <div className="truncate flex-1">
-                              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 truncate">
-                                {item.productName} <span className="text-[9px] text-slate-400 font-mono">({item.code})</span>
+                              <h4 className="text-xs font-black text-slate-800 dark:text-slate-200 truncate flex items-center gap-1.5">
+                                <span>{item.productName}</span>
+                                <span className="text-[9px] text-slate-400 font-mono">({item.code})</span>
+                                {item.rawMaterialId && (
+                                  <span className="px-1.5 py-0.2 rounded text-[8.5px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
+                                    RM
+                                  </span>
+                                )}
                               </h4>
-                              {/* FEFO Batch Badge */}
-                              {item.batchNo ? (
+                              {/* FEFO Batch Badge or RM Lot Allocation */}
+                              {item.rawMaterialId ? (
+                                <div className="flex items-center gap-2 mt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveRMLotLine({ ...item, lineIndex: idx });
+                                      setIsRMLotModalOpen(true);
+                                    }}
+                                    className={`px-2 py-0.5 rounded text-[9.5px] font-bold flex items-center gap-1 transition-colors cursor-pointer ${
+                                      (item.batchAllocations && item.batchAllocations.length > 0)
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-amber-100 hover:bg-amber-200 text-amber-900 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                                    }`}
+                                  >
+                                    <Boxes className="w-3 h-3" />
+                                    <span>
+                                      {item.batchAllocations && item.batchAllocations.length > 0
+                                        ? `Lots: ${item.batchAllocations.reduce((s, b) => s + Number(b.allocatedQty || b.quantity || 0), 0)} ${item.uomName || 'kg'}`
+                                        : 'Select FEFO Lots'}
+                                    </span>
+                                  </button>
+                                  <label className="flex items-center gap-1 text-[9px] font-bold text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(item.isPackingCharge)}
+                                      onChange={(e) => handleItemChange(idx, 'isPackingCharge', e.target.checked)}
+                                      className="rounded accent-blue-600 w-3 h-3"
+                                    />
+                                    <span>Packing Line</span>
+                                  </label>
+                                </div>
+                              ) : item.batchNo ? (
                                 <div className="text-[9px] font-mono font-bold text-amber-700 dark:text-amber-300 mt-0.5">
                                   ⚡ Batch: {item.batchNo} {item.expiryDate ? `• Exp: ${new Date(item.expiryDate).toLocaleDateString('en-GB')}` : ''}
                                 </div>
@@ -1719,11 +2003,23 @@ export default function SalesBillingPage() {
                   <Input type="number" min="0" value={loadingCharges} onChange={(e) => setLoadingCharges(e.target.value)} className="h-7.5 text-xs bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono" />
                 </div>
                 <div className="space-y-0.5">
-                  <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                  <div className="flex justify-between items-center text-[9px] text-slate-400 font-bold">
                     <span>Packing (₹)</span>
-                    <label className="cursor-pointer flex items-center gap-0.5">
-                      <input type="checkbox" checked={packingGst} onChange={() => setPackingGst(!packingGst)} className="w-2.5 h-2.5 accent-indigo-600" /> GST
-                    </label>
+                    <div className="flex items-center gap-1.5">
+                      {packingItemsSum > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setPackingCharges(String(packingItemsSum.toFixed(2)))}
+                          className="text-[8px] bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 font-bold px-1.5 py-0.2 rounded cursor-pointer transition-colors"
+                          title="Auto-fill total from packing lines"
+                        >
+                          Sync Lines (₹{packingItemsSum.toFixed(2)})
+                        </button>
+                      )}
+                      <label className="cursor-pointer flex items-center gap-0.5">
+                        <input type="checkbox" checked={packingGst} onChange={() => setPackingGst(!packingGst)} className="w-2.5 h-2.5 accent-indigo-600" /> GST
+                      </label>
+                    </div>
                   </div>
                   <Input type="number" min="0" value={packingCharges} onChange={(e) => setPackingCharges(e.target.value)} className="h-7.5 text-xs bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-mono" />
                 </div>
@@ -1999,6 +2295,21 @@ export default function SalesBillingPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* RAW MATERIAL BATCH LOT ALLOCATION MODAL */}
+      {isRMLotModalOpen && activeRMLotLine && (
+        <RMLotAllocationModal
+          isOpen={isRMLotModalOpen}
+          onClose={() => {
+            setIsRMLotModalOpen(false);
+            setActiveRMLotLine(null);
+          }}
+          item={activeRMLotLine}
+          initialAllocations={activeRMLotLine.batchAllocations || []}
+          onApplyAllocations={handleApplyRMLotAllocations}
+          readOnly={isOrderLocked}
+        />
       )}
 
     </div>
