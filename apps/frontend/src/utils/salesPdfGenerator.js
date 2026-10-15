@@ -296,12 +296,22 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   curY += 7;
 
   // Items Table Rows: filter out items marked as packing charge so they appear only in the summary
-  const printableItems = (order.items || []).filter(it => !it.isPackingCharge);
-  const items = printableItems.length > 0 ? printableItems : (order.items || []);
+  const printableItems = (order.items || []).filter(it => !it.isPackingCharge && !it.is_packing_charge);
+  const items = printableItems;
   let totalTaxableValue = 0;
   let computedGstTotal = 0;
 
-  items.forEach((it, idx) => {
+  if (items.length === 0) {
+    const rowH = 9.5;
+    doc.setFillColor(248, 250, 252);
+    doc.rect(margin, curY, contentWidth, rowH, 'F');
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(7.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text('No merchandise goods line items. Packing, logistics and service charges itemized in summary below.', margin + 4, curY + 6);
+    curY += rowH;
+  } else {
+    items.forEach((it, idx) => {
     const rowH = 9.5;
     if (curY + rowH > pageHeight - 75) {
       doc.addPage();
@@ -542,6 +552,7 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
     curY += rowH;
   });
+  }
 
   // Table bottom border
   doc.setDrawColor(226, 232, 240);
@@ -676,7 +687,10 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
     printRow('Loading Charges:', loadingAmt);
   }
 
-  const packingAmt = Number(order.packingCharges || 0);
+  const packingLinesSum = (order.items || [])
+    .filter(it => it.isPackingCharge || it.is_packing_charge)
+    .reduce((sum, it) => sum + (Number(it.subtotal) || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+  const packingAmt = Math.max(Number(order.packingCharges || 0), packingLinesSum);
   if (packingAmt > 0) {
     printRow('Packing Charges:', packingAmt);
   }
@@ -770,8 +784,8 @@ export function generateThermalReceipt(order, companyDetails = {}) {
   const companyAddress = companyDetails.companyAddress || 'Main Outlet, Salem, TN';
   const companyGstin = companyDetails.companyGstin || '33AAAAA0000A1Z5';
 
-  const printableItems = (order.items || []).filter(it => !it.isPackingCharge);
-  const items = printableItems.length > 0 ? printableItems : (order.items || []);
+  const printableItems = (order.items || []).filter(it => !it.isPackingCharge && !it.is_packing_charge);
+  const items = printableItems;
   const itemsCount = items.length;
   const dynamicHeight = Math.max(160, 115 + (itemsCount * 7.5));
 

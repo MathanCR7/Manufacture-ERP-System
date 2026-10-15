@@ -553,10 +553,17 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
 
     let currentY = tableY + 18;
 
-    const printableInvoiceItems = (invoice.items || []).filter(item => !item.isPackingCharge);
-    const displayInvoiceItems = printableInvoiceItems.length > 0 ? printableInvoiceItems : (invoice.items || []);
+    const printableInvoiceItems = (invoice.items || []).filter(item => !item.isPackingCharge && !item.is_packing_charge);
+    const displayInvoiceItems = printableInvoiceItems;
 
-    displayInvoiceItems.forEach((item, index) => {
+    if (displayInvoiceItems.length === 0) {
+      doc.fillColor('#f8fafc').rect(30, currentY, 535, 20).fill();
+      doc.fillColor('#64748b').fontSize(7.5).font('Helvetica-Oblique');
+      doc.text('No merchandise goods line items. Packing & delivery charges itemized below.', 40, currentY + 6);
+      currentY += 20;
+      doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, currentY).lineTo(565, currentY).stroke();
+    } else {
+      displayInvoiceItems.forEach((item, index) => {
       const prodCode = (item.product?.code || item.productCode || item.systemCode || item.itemCode || item.product?.sku || '').trim();
       const subcatName = (item.subcategoryName || item.subcategory || item.product?.subcategory?.name || item.product?.specifications?.category || '').trim();
       const baseCat = (item.categoryName || item.category || item.product?.category?.name || item.product?.specifications?.group || '').trim();
@@ -610,7 +617,8 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
 
       currentY += 22;
       doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, currentY).lineTo(565, currentY).stroke();
-    });
+      });
+    }
 
     currentY += 10;
 
@@ -632,20 +640,33 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     doc.fillColor('#ffffff').roundedRect(305, totalsY, 260, 96, 4).fill();
     doc.strokeColor('#cbd5e1').lineWidth(0.75).roundedRect(305, totalsY, 260, 96, 4).stroke();
 
-    let calcLineY = totalsY + 8;
+    let calcLineY = totalsY + 6;
     const printCalcLine = (label, val, bold = false, color = '#334155', bg = null) => {
       if (bg) {
-        doc.fillColor(bg).rect(307, calcLineY - 2, 256, 14).fill();
+        doc.fillColor(bg).rect(307, calcLineY - 2, 256, 12).fill();
       }
-      doc.fillColor(color).fontSize(8).font(bold ? 'Helvetica-Bold' : 'Helvetica');
+      doc.fillColor(color).fontSize(7.5).font(bold ? 'Helvetica-Bold' : 'Helvetica');
       doc.text(label, 313, calcLineY);
       doc.text(val, 455, calcLineY, { width: 102, align: 'right' });
-      calcLineY += 14;
+      calcLineY += 12;
     };
 
-    printCalcLine('Taxable Subtotal:', `Rs. ${taxableSubtotal.toFixed(2)}`);
-    printCalcLine('CGST (Central Tax 2.5%):', `Rs. ${cgst.toFixed(2)}`);
-    printCalcLine('SGST (State Tax 2.5%):', `Rs. ${sgst.toFixed(2)}`);
+    const freightAmt = Number(invoice.freight || 0);
+    const packingLinesSum = (invoice.items || [])
+      .filter(i => i.isPackingCharge || i.is_packing_charge)
+      .reduce((s, i) => s + Number(i.subtotal || (Number(i.quantity || 1) * Number(i.unitPrice || 0))), 0);
+    const packingAmt = Math.max(Number(invoice.packingCharges || 0), packingLinesSum);
+    const loadingAmt = Number(invoice.loadingCharges || 0);
+    const otherAmt = Number(invoice.otherCharges || 0);
+
+    printCalcLine('Taxable Goods / Subtotal:', `Rs. ${taxableSubtotal.toFixed(2)}`);
+    if (freightAmt > 0) printCalcLine('Freight & Logistics:', `Rs. ${freightAmt.toFixed(2)}`);
+    if (packingAmt > 0) printCalcLine('Packing Charges:', `Rs. ${packingAmt.toFixed(2)}`);
+    if (loadingAmt > 0) printCalcLine('Loading Charges:', `Rs. ${loadingAmt.toFixed(2)}`);
+    if (otherAmt > 0) printCalcLine('Other Charges:', `Rs. ${otherAmt.toFixed(2)}`);
+    printCalcLine('CGST Tax:', `Rs. ${cgst.toFixed(2)}`);
+    printCalcLine('SGST Tax:', `Rs. ${sgst.toFixed(2)}`);
+    if (igst > 0) printCalcLine('IGST Tax:', `Rs. ${igst.toFixed(2)}`);
     printCalcLine('Round-Off Adjustment:', roundOffDisplay, true, '#92400e', '#fef3c7');
 
     doc.strokeColor('#0f172a').lineWidth(1).moveTo(305, calcLineY).lineTo(565, calcLineY).stroke();

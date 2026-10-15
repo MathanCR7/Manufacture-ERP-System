@@ -410,6 +410,8 @@ export default function SalesOrderPage() {
 
   // Discount & Rounding
   const [discountPercent, setDiscountPercent] = useState(0);
+  const [discountAmountInput, setDiscountAmountInput] = useState(0);
+  const [discountMode, setDiscountMode] = useState('percent'); // 'percent' | 'amount'
   const [isRoundingEnabled, setIsRoundingEnabled] = useState(true);
 
   // Additional Charges & Tax Ledger
@@ -1078,12 +1080,27 @@ export default function SalesOrderPage() {
     const lineDiscountTotal = computedLines.reduce((sum, l) => sum + (l.lineDiscount || 0), 0);
     const netLinesTotal = Math.max(0, totalBeforeDiscount - lineDiscountTotal);
 
-    const docDiscAmt = Number(discountPercent) > 0 ? (netLinesTotal * (Number(discountPercent) / 100)) : 0;
+    let docDiscAmt = 0;
+    let effectiveDiscountPercent = Number(discountPercent) || 0;
+    if (discountMode === 'amount') {
+      docDiscAmt = Math.min(netLinesTotal, Math.max(0, Number(discountAmountInput) || 0));
+      effectiveDiscountPercent = netLinesTotal > 0 ? (docDiscAmt / netLinesTotal) * 100 : 0;
+    } else {
+      docDiscAmt = effectiveDiscountPercent > 0 ? (netLinesTotal * (effectiveDiscountPercent / 100)) : 0;
+    }
 
     const fAmt = Number(freight) || 0;
     const lAmt = Number(loadingCharges) || 0;
     const pAmt = Number(packingCharges) || 0;
     const oAmt = Number(otherCharges) || 0;
+
+    // Line items marked as packing charges
+    const packingLinesAmount = activeLines
+      .filter(l => l.isPackingCharge)
+      .reduce((sum, l) => sum + (l.lineTotal || 0), 0);
+
+    // Extra manual packing beyond line items
+    const extraPackingCharges = Math.max(0, pAmt - packingLinesAmount);
 
     const targetBuyerState = isInterState
       ? (placeOfSupply && String(placeOfSupply) !== String(sellerStateCode) ? placeOfSupply : (sellerStateCode === '33' ? '29' : '33'))
@@ -1119,7 +1136,7 @@ export default function SalesOrderPage() {
         loadingCharges: lAmt,
         loadingGst: lRate > 0,
         loadingChargesRate: lRate,
-        packingCharges: pAmt,
+        packingCharges: extraPackingCharges,
         packingGst: pRate > 0,
         packingChargesRate: pRate,
         insurance: 0,
@@ -1141,6 +1158,7 @@ export default function SalesOrderPage() {
       totalBeforeDiscount: round2(totalBeforeDiscount),
       lineDiscountTotal: round2(lineDiscountTotal),
       docDiscAmt: round2(docDiscAmt),
+      discountPercent: effectiveDiscountPercent,
       taxableSubtotal: gstCalcResult.taxableSubtotal,
       netTaxableSubtotal: gstCalcResult.netTaxableSubtotal,
       totalChargesAmount: gstCalcResult.totalChargesAmount,
@@ -1155,12 +1173,18 @@ export default function SalesOrderPage() {
       grandTotal: grandTotal,
       balanceDue: round2(balanceDue),
       amountInWords: gstCalcResult.amountInWords || numberToWordsINR(grandTotal),
+      packingChargesDisplay: pAmt,
+      freightDisplay: fAmt,
+      loadingChargesDisplay: lAmt,
+      otherChargesDisplay: oAmt,
       gstCalcResult
     };
   }, [
     computedLines,
     activeLines,
     discountPercent,
+    discountAmountInput,
+    discountMode,
     freight, freightTaxCode,
     loadingCharges, loadingTaxCode,
     packingCharges, packingTaxCode,
@@ -1174,10 +1198,29 @@ export default function SalesOrderPage() {
   // Update specific line field
   const handleLineChange = (lineId, field, value) => {
     if (isDocumentLocked) return;
-    setLines(prev => prev.map(l => {
-      if (l.id !== lineId) return l;
-      return { ...l, [field]: value };
-    }));
+    setLines(prev => {
+      const updated = prev.map(l => {
+        if (l.id !== lineId) return l;
+        return { ...l, [field]: value };
+      });
+
+      // Automatically recalculate packing charges sum if packing status or price/quantity changes
+      if (field === 'isPackingCharge' || field === 'quantity' || field === 'unitPrice' || field === 'discountPercent') {
+        const packingSum = updated
+          .filter(l => (l.productId || l.rawMaterialId) && (field === 'isPackingCharge' && l.id === lineId ? value : l.isPackingCharge))
+          .reduce((sum, l) => {
+            const qty = Number(l.quantity) || 1;
+            const price = Number(l.unitPrice) || 0;
+            const discPct = Number(l.discountPercent) || 0;
+            const discAmt = price * (discPct / 100);
+            return sum + ((price - discAmt) * qty);
+          }, 0);
+        
+        setPackingCharges(round2(packingSum));
+      }
+
+      return updated;
+    });
   };
 
   // Select product for a line
@@ -1340,9 +1383,20 @@ export default function SalesOrderPage() {
     if (isDocumentLocked) return;
     setLines(prev => {
       if (prev.length <= 1) {
+        setPackingCharges(0);
         return [createEmptyLine(1)];
       }
       const filtered = prev.filter(l => l.id !== lineId);
+      const packingSum = filtered
+        .filter(l => (l.productId || l.rawMaterialId) && l.isPackingCharge)
+        .reduce((sum, l) => {
+          const qty = Number(l.quantity) || 1;
+          const price = Number(l.unitPrice) || 0;
+          const discPct = Number(l.discountPercent) || 0;
+          const discAmt = price * (discPct / 100);
+          return sum + ((price - discAmt) * qty);
+        }, 0);
+      setPackingCharges(round2(packingSum));
       return filtered.map((l, i) => ({ ...l, rowNo: i + 1 }));
     });
   };
@@ -1356,8 +1410,9 @@ export default function SalesOrderPage() {
   // Clear all empty lines
   const handleClearEmptyLines = () => {
     if (isDocumentLocked) return;
-    const filled = lines.filter(l => l.productId);
+    const filled = lines.filter(l => l.productId || l.rawMaterialId);
     if (filled.length === 0) {
+      setPackingCharges(0);
       setLines([createEmptyLine(1)]);
     } else {
       setLines(filled.map((l, i) => ({ ...l, rowNo: i + 1 })));
@@ -2431,6 +2486,8 @@ export default function SalesOrderPage() {
     setAttachments([]);
     setRemovedAttachmentUrls([]);
     setDiscountPercent(0);
+    setDiscountAmountInput(0);
+    setDiscountMode('percent');
     setFreight(0);
     setLoadingCharges(0);
     setPackingCharges(0);
@@ -2490,18 +2547,22 @@ export default function SalesOrderPage() {
       amountPaid: advancePaid,
       items: activeLines.map(l => ({
         productId: l.productId,
-        productCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
-        systemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
-        itemCode: l.systemCode || l.rawProduct?.code || l.rawProduct?.sku || '',
-        category: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
-        categoryName: l.category || l.rawProduct?.category?.name || l.rawProduct?.categoryName || '',
+        rawMaterialId: l.rawMaterialId,
+        itemType: l.itemType || (l.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+        isPackingCharge: Boolean(l.isPackingCharge),
+        is_packing_charge: Boolean(l.isPackingCharge),
+        productCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        systemCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        itemCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        category: l.category || (l.rawMaterialId ? (l.rawMaterial?.category?.name || l.rawMaterial?.category) : (l.rawProduct?.category?.name || l.rawProduct?.categoryName)) || '',
+        categoryName: l.category || (l.rawMaterialId ? (l.rawMaterial?.category?.name || l.rawMaterial?.category) : (l.rawProduct?.category?.name || l.rawProduct?.categoryName)) || '',
         productName: l.itemDescription,
-        hsnCode: l.rawProduct?.hsnCode || '21050000',
+        hsnCode: (l.rawMaterialId ? (l.rawMaterial?.hsnCode || '392310') : (l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode)) || '21050000',
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
         discountPercent: Number(l.discountPercent) || 0,
         subtotal: Number(l.lineTotal),
-        gstRate: Number(l.gstRate) || 5,
+        gstRate: Number(l.gstRate) || (l.rawMaterialId ? 18 : 5),
         uomName: l.unitOfSale
       })),
       totalSubtotal: financials.taxableSubtotal,
@@ -3306,7 +3367,7 @@ export default function SalesOrderPage() {
                   <Table className="w-3.5 h-3.5 text-amber-500" />
                   <span>Document Rows:</span>
                   <span className="text-slate-500 dark:text-slate-400 font-semibold text-[11px]">
-                    ({lines.filter(l => l.productId).length} filled / {lines.length} total)
+                    ({lines.filter(l => l.productId || l.rawMaterialId).length} filled / {lines.length} total)
                   </span>
                   <span className="ml-1.5 px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 font-bold text-[11px] flex items-center gap-1 shadow-xs">
                     <span className="text-[10px] text-blue-600/80 dark:text-blue-400/80 uppercase font-medium">Total Qty:</span>
@@ -5179,22 +5240,79 @@ export default function SalesOrderPage() {
             />
           </div>
 
-          {/* Discount Amount */}
+          {/* Discount Amount with % and ₹ Option */}
           <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Discount Amount</label>
-            <div className="flex items-center gap-0.5">
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="100"
-                value={discountPercent}
-                onChange={(e) => setDiscountPercent(parseFloat(e.target.value) || 0)}
-                className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                title="Discount Percentage (%)"
-              />
-              <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">%</span>
+            <div className="flex items-center gap-1.5 pr-1">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-right">Discount</label>
+              {/* % or ₹ Mode Toggle */}
+              <div className="inline-flex rounded-xs border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] p-0.5 text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setDiscountMode('percent')}
+                  className={`px-1.5 py-0.5 rounded-xs transition-colors cursor-pointer ${
+                    discountMode === 'percent'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="Percentage Mode (%)"
+                >
+                  %
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDiscountMode('amount')}
+                  className={`px-1.5 py-0.5 rounded-xs transition-colors cursor-pointer ${
+                    discountMode === 'amount'
+                      ? 'bg-amber-500 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                  title="Direct Rupee Amount (₹)"
+                >
+                  ₹
+                </button>
+              </div>
             </div>
+
+            {discountMode === 'percent' ? (
+              <div className="flex items-center gap-0.5">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={discountPercent}
+                  onChange={(e) => {
+                    const pct = Math.max(0, Math.min(100, parseFloat(e.target.value) || 0));
+                    setDiscountPercent(pct);
+                    const netSub = Math.max(0, financials.totalBeforeDiscount - financials.lineDiscountTotal);
+                    setDiscountAmountInput(round2(netSub * (pct / 100)));
+                  }}
+                  className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Discount Percentage (%)"
+                />
+                <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">%</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-0.5">
+                <span className="text-[var(--sap-text-muted)] text-[11px] font-bold">₹</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={discountAmountInput}
+                  onChange={(e) => {
+                    const amt = Math.max(0, parseFloat(e.target.value) || 0);
+                    setDiscountAmountInput(amt);
+                    const netSub = Math.max(0, financials.totalBeforeDiscount - financials.lineDiscountTotal);
+                    const pct = netSub > 0 ? (amt / netSub) * 100 : 0;
+                    setDiscountPercent(round2(pct));
+                  }}
+                  className="w-16 h-[24px] px-1 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Direct Rupee Amount (₹)"
+                />
+              </div>
+            )}
+
             <input
               type="text"
               readOnly
@@ -5204,22 +5322,147 @@ export default function SalesOrderPage() {
           </div>
 
           {/* Freight & Logistics Charges */}
-          <div className="flex items-center justify-end w-full max-w-[420px]">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Freight & Logistics Charges</label>
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Freight & Logistics Charges</label>
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
-                className="text-amber-600 font-extrabold hover:scale-125 cursor-pointer text-sm"
-                title="Configure Freight, Loading, Packing in Tax Tab"
+                className="text-amber-600 font-extrabold hover:scale-125 cursor-pointer text-xs"
+                title="Configure Freight Tax Code in Tax Tab"
               >
                 ➔
               </button>
+              <div className="relative flex items-center">
+                <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={freight}
+                  onChange={(e) => setFreight(Math.max(0, parseFloat(e.target.value) || 0))}
+                  placeholder="0.00"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Enter Freight & Logistics Amount in INR (₹)"
+                />
+              </div>
               <input
                 type="text"
                 readOnly
-                value={`₹${(financials.totalChargesAmount || 0).toFixed(2)} INR`}
-                className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                value={`₹${(Number(freight) || 0).toFixed(2)} INR`}
+                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Package Charges (Auto-Calculated from Packing lines or Manual) */}
+          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
+            <div className="flex items-center gap-1 pr-2">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-right">Package Charges</label>
+              {packingItemsSum > 0 && (
+                <span
+                  className="text-[9.5px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-bold"
+                  title={`Auto-calculated ₹${packingItemsSum.toFixed(2)} from document lines marked as Packing?`}
+                >
+                  📦 Auto
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('tax')}
+                className="text-amber-600 font-extrabold hover:scale-125 cursor-pointer text-xs"
+                title="Configure Packing Tax Code in Tax Tab"
+              >
+                ➔
+              </button>
+              <div className="relative flex items-center">
+                <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={packingCharges}
+                  onChange={(e) => setPackingCharges(Math.max(0, parseFloat(e.target.value) || 0))}
+                  placeholder="0.00"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Packing Charges Amount in INR (₹)"
+                />
+              </div>
+              <input
+                type="text"
+                readOnly
+                value={`₹${(Number(packingCharges) || 0).toFixed(2)} INR`}
+                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Loading Charges */}
+          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Loading Charges</label>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('tax')}
+                className="text-amber-600 font-extrabold hover:scale-125 cursor-pointer text-xs"
+                title="Configure Loading Tax Code in Tax Tab"
+              >
+                ➔
+              </button>
+              <div className="relative flex items-center">
+                <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={loadingCharges}
+                  onChange={(e) => setLoadingCharges(Math.max(0, parseFloat(e.target.value) || 0))}
+                  placeholder="0.00"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Loading Charges Amount in INR (₹)"
+                />
+              </div>
+              <input
+                type="text"
+                readOnly
+                value={`₹${(Number(loadingCharges) || 0).toFixed(2)} INR`}
+                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              />
+            </div>
+          </div>
+
+          {/* Other Charges */}
+          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Other Charges</label>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActiveTab('tax')}
+                className="text-amber-600 font-extrabold hover:scale-125 cursor-pointer text-xs"
+                title="Configure Other Charges Tax Code in Tax Tab"
+              >
+                ➔
+              </button>
+              <div className="relative flex items-center">
+                <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={otherCharges}
+                  onChange={(e) => setOtherCharges(Math.max(0, parseFloat(e.target.value) || 0))}
+                  placeholder="0.00"
+                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Other Charges Amount in INR (₹)"
+                />
+              </div>
+              <input
+                type="text"
+                readOnly
+                value={`₹${(Number(otherCharges) || 0).toFixed(2)} INR`}
+                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
