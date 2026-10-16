@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import Swal from 'sweetalert2';
 import StockRMSearchSelect from './StockRMSearchSelect';
-import BatchDateInput from './BatchDateInput';
+import BatchDateInput, { validateAndParseDate } from './BatchDateInput';
 import { STOCK_ADJUSTMENT_REASONS, ALL_REASON_OPTIONS } from '../constants/adjustmentReasons';
 
 export default function StockAdjustmentForm({ editData = null, onBack }) {
@@ -78,6 +78,7 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
   const [batchSearchTerm, setBatchSearchTerm] = useState('');
 
   const [error, setError] = useState(null);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   // 1. Fetch available raw materials catalog
   const { data: rawMaterials = [], isLoading: isRmLoading } = useQuery({
@@ -349,24 +350,29 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
   const handleSubmit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     setError(null);
+    setHasAttemptedSubmit(true);
 
     if (!form.rawMaterialId) {
       setError('Please select a Raw Material from catalog');
+      Swal.fire({ icon: 'warning', title: 'Missing Raw Material', text: 'Please select a Raw Material from the catalog.', confirmButtonColor: '#4f46e5' });
       return;
     }
 
     if (!form.type) {
       setError('Please select an Adjustment Type (Addition or Subtraction)');
+      Swal.fire({ icon: 'warning', title: 'Missing Type', text: 'Please select an Adjustment Type.', confirmButtonColor: '#4f46e5' });
       return;
     }
 
     if (!form.quantity || numericQuantity <= 0) {
       setError('Please enter a valid positive quantity greater than 0');
+      Swal.fire({ icon: 'warning', title: 'Invalid Quantity', text: 'Please enter a valid positive adjustment quantity.', confirmButtonColor: '#4f46e5' });
       return;
     }
 
     if (isExceedingStock) {
       setError(`Cannot subtract ${numericQuantity} ${selectedRm?.unit || ''}. Current available stock is only ${currentAvailableStock.toFixed(2)} ${selectedRm?.unit || ''}.`);
+      Swal.fire({ icon: 'error', title: 'Exceeds Stock', text: `Cannot subtract ${numericQuantity} ${selectedRm?.unit || ''}. Current available stock is only ${currentAvailableStock.toFixed(2)} ${selectedRm?.unit || ''}.`, confirmButtonColor: '#e11d48' });
       return;
     }
 
@@ -374,36 +380,104 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
     let finalBatches = [];
 
     if (form.type === 'ADDITION') {
-      if (additionBatches.length > 0) {
-        // Validate each addition batch
-        for (let i = 0; i < additionBatches.length; i++) {
-          const b = additionBatches[i];
-          if (!b.batchNumber?.trim()) {
-            setError(`Batch #${i + 1} must have a valid Batch Number`);
-            return;
-          }
-          const bQty = parseFloat(b.quantity) || 0;
-          if (bQty <= 0) {
-            setError(`Batch #${i + 1} (${b.batchNumber}) must have a quantity greater than 0`);
-            return;
-          }
-        }
+      if (additionBatches.length === 0) {
+        setError('At least one batch must be configured for stock addition.');
+        Swal.fire({
+          icon: 'warning',
+          title: 'Missing Batch Details',
+          text: 'Please configure at least one batch with Batch Qty, Weight, MFG Batch, MFG Date, and Exp Date.',
+          confirmButtonColor: '#4f46e5'
+        });
+        return;
+      }
 
-        if (!isAdditionExact) {
-          setError(`Allocated batch quantity (${additionTotalAllocated}) does not match adjustment total quantity (${numericQuantity})`);
+      // Validate each addition batch
+      for (let i = 0; i < additionBatches.length; i++) {
+        const b = additionBatches[i];
+        const batchLabel = b.batchNumber ? `Batch #${i + 1} (${b.batchNumber})` : `Batch #${i + 1}`;
+
+        if (!b.batchNumber?.trim()) {
+          setError(`Batch #${i + 1}: Our Batch number is mandatory`);
+          Swal.fire({ icon: 'warning', title: 'Batch Number Missing', text: `Batch #${i + 1} must have a valid Batch Number.`, confirmButtonColor: '#4f46e5' });
           return;
         }
 
-        finalBatches = additionBatches.map(b => ({
+        const bQty = parseFloat(b.quantity) || 0;
+        if (bQty <= 0) {
+          setError(`${batchLabel}: Batch Qty is mandatory and must be greater than 0`);
+          Swal.fire({ icon: 'warning', title: 'Batch Qty Missing', text: `Please enter a valid Batch Quantity for ${batchLabel}.`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+
+        if (!b.weight || !String(b.weight).trim()) {
+          setError(`${batchLabel}: Weight is mandatory`);
+          Swal.fire({ icon: 'warning', title: 'Weight Missing', text: `Please enter the Weight for ${batchLabel}.`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+
+        if (!b.mfgBatchNo || !String(b.mfgBatchNo).trim()) {
+          setError(`${batchLabel}: MFG Batch is mandatory`);
+          Swal.fire({ icon: 'warning', title: 'MFG Batch Missing', text: `Please enter the Manufacturer Batch (MFG Batch) for ${batchLabel}.`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+
+        if (!b.mfgDate || !String(b.mfgDate).trim()) {
+          setError(`${batchLabel}: MFG Date is mandatory`);
+          Swal.fire({ icon: 'warning', title: 'MFG Date Missing', text: `Please enter the Manufacturing Date (MFG Date) for ${batchLabel}.`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+
+        const mfgParsed = validateAndParseDate(b.mfgDate);
+        if (!mfgParsed.valid || mfgParsed.empty) {
+          setError(`${batchLabel}: Invalid MFG Date format (${mfgParsed.error || 'e.g. DD-MM-YYYY'})`);
+          Swal.fire({ icon: 'warning', title: 'Invalid MFG Date', text: `${batchLabel}: ${mfgParsed.error || 'Please enter a valid date in DD-MM-YYYY format'}`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+
+        if (!b.expDate || !String(b.expDate).trim()) {
+          setError(`${batchLabel}: Exp Date is mandatory`);
+          Swal.fire({ icon: 'warning', title: 'Exp Date Missing', text: `Please enter the Expiry Date (Exp Date) for ${batchLabel}.`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+
+        const expParsed = validateAndParseDate(b.expDate);
+        if (!expParsed.valid || expParsed.empty) {
+          setError(`${batchLabel}: Invalid Exp Date format (${expParsed.error || 'e.g. DD-MM-YYYY'})`);
+          Swal.fire({ icon: 'warning', title: 'Invalid Exp Date', text: `${batchLabel}: ${expParsed.error || 'Please enter a valid date in DD-MM-YYYY format'}`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+
+        if (expParsed.iso && mfgParsed.iso && expParsed.iso < mfgParsed.iso) {
+          setError(`${batchLabel}: Exp Date (${b.expDate}) cannot be earlier than MFG Date (${b.mfgDate})`);
+          Swal.fire({ icon: 'warning', title: 'Invalid Date Range', text: `${batchLabel}: Expiry Date cannot be earlier than Manufacturing Date.`, confirmButtonColor: '#4f46e5' });
+          return;
+        }
+      }
+
+      if (!isAdditionExact) {
+        setError(`Allocated batch quantity (${additionTotalAllocated}) does not match adjustment total quantity (${numericQuantity})`);
+        Swal.fire({
+          icon: 'warning',
+          title: 'Quantity Mismatch',
+          text: `Allocated batch quantity (${additionTotalAllocated}) does not match adjustment total quantity (${numericQuantity})`,
+          confirmButtonColor: '#4f46e5'
+        });
+        return;
+      }
+
+      finalBatches = additionBatches.map(b => {
+        const mfgParsed = validateAndParseDate(b.mfgDate);
+        const expParsed = validateAndParseDate(b.expDate);
+        return {
           batchNumber: b.batchNumber.trim(),
           quantity: parseFloat(b.quantity) || 0,
-          weight: b.weight || null,
-          mfgBatchNo: b.mfgBatchNo || null,
-          mfgDate: b.mfgDate || null,
-          expDate: b.expDate || null,
+          weight: String(b.weight).trim(),
+          mfgBatchNo: String(b.mfgBatchNo).trim(),
+          mfgDate: mfgParsed.iso || b.mfgDate,
+          expDate: expParsed.iso || b.expDate,
           storageLocation: b.storageLocation || 'Main RM Store'
-        }));
-      }
+        };
+      });
     } else if (form.type === 'SUBTRACTION') {
       const selectedKeys = Object.keys(subtractionAllocations);
       if (selectedKeys.length > 0) {
@@ -737,7 +811,9 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
 
                   {/* Batch Quantity */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Batch Qty:</span>
+                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                      Batch Qty: <span className="text-rose-500 font-bold">*</span>
+                    </span>
                     <Input
                       type="number"
                       min="0"
@@ -745,7 +821,11 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
                       value={batch.quantity}
                       onChange={(e) => handleUpdateAdditionBatch(bIdx, 'quantity', e.target.value)}
                       placeholder="1"
-                      className="h-8 w-20 text-xs font-mono font-bold rounded-lg text-center px-1.5 border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      className={`h-8 w-20 text-xs font-mono font-bold rounded-lg text-center px-1.5 border transition-all ${
+                        hasAttemptedSubmit && (!batch.quantity || Number(batch.quantity) <= 0)
+                          ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20'
+                          : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                      }`}
                     />
                     <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 select-none shrink-0 lowercase">
                       {selectedRm?.unit || selectedRm?.unitId || 'units'}
@@ -755,40 +835,58 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
                   {/* Weight */}
                   <div className="flex items-center gap-1.5 min-w-[160px] flex-1 max-w-[210px]">
                     <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
+                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                      Weight: <span className="text-rose-500 font-bold">*</span>
+                    </span>
                     <Input
                       type="text"
                       value={batch.weight || ''}
                       onChange={(e) => handleUpdateAdditionBatch(bIdx, 'weight', e.target.value)}
-                      placeholder="e.g. 25 kg / 50"
-                      className="h-8 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2.5 py-0 w-full"
+                      placeholder="e.g. 23"
+                      className={`h-8 text-xs rounded-lg font-medium px-2.5 py-0 w-full border transition-all ${
+                        hasAttemptedSubmit && !batch.weight?.trim()
+                          ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20'
+                          : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                      }`}
                     />
                   </div>
 
                   {/* MFG Batch */}
                   <div className="flex items-center gap-1.5 min-w-[150px] flex-1 max-w-[200px]">
                     <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Batch:</span>
+                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                      MFG Batch: <span className="text-rose-500 font-bold">*</span>
+                    </span>
                     <Input
                       type="text"
                       value={batch.mfgBatchNo || ''}
                       onChange={(e) => handleUpdateAdditionBatch(bIdx, 'mfgBatchNo', e.target.value)}
-                      placeholder="e.g. BATCH-01"
-                      className="h-8 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2 py-0 w-full"
+                      placeholder="e.g. batch 1"
+                      className={`h-8 text-xs rounded-lg font-mono uppercase font-medium px-2 py-0 w-full border transition-all ${
+                        hasAttemptedSubmit && !batch.mfgBatchNo?.trim()
+                          ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20'
+                          : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                      }`}
                     />
                   </div>
 
                   {/* MFG Date */}
                   <div className="flex items-center gap-1.5 min-w-[170px] flex-1 max-w-[220px]">
                     <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
+                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                      MFG Date: <span className="text-rose-500 font-bold">*</span>
+                    </span>
                     <div className="flex-1 min-w-0">
                       <BatchDateInput
                         value={batch.mfgDate || ''}
                         onChange={(val) => handleUpdateAdditionBatch(bIdx, 'mfgDate', val)}
                         placeholder="dd-mm-yyyy"
                         title="MFG Date"
-                        className="h-8"
+                        className={`h-8 ${
+                          hasAttemptedSubmit && !batch.mfgDate?.trim()
+                            ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20 rounded-md'
+                            : ''
+                        }`}
                       />
                     </div>
                   </div>
@@ -796,14 +894,20 @@ export default function StockAdjustmentForm({ editData = null, onBack }) {
                   {/* Exp Date */}
                   <div className="flex items-center gap-1.5 min-w-[170px] flex-1 max-w-[220px]">
                     <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
+                    <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                      Exp Date: <span className="text-rose-500 font-bold">*</span>
+                    </span>
                     <div className="flex-1 min-w-0">
                       <BatchDateInput
                         value={batch.expDate || ''}
                         onChange={(val) => handleUpdateAdditionBatch(bIdx, 'expDate', val)}
                         placeholder="dd-mm-yyyy"
                         title="Exp Date"
-                        className="h-8"
+                        className={`h-8 ${
+                          hasAttemptedSubmit && !batch.expDate?.trim()
+                            ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20 rounded-md'
+                            : ''
+                        }`}
                       />
                     </div>
                   </div>

@@ -63,6 +63,60 @@ const parseDateSafe = (val) => {
   return isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const validatePOBatches = (items) => {
+  if (!Array.isArray(items)) return null;
+  for (let itIdx = 0; itIdx < items.length; itIdx++) {
+    const item = items[itIdx];
+    const itemTitle = item.name || `Item #${itIdx + 1}`;
+    if (Array.isArray(item.batches) && item.batches.length > 0) {
+      for (let bIdx = 0; bIdx < item.batches.length; bIdx++) {
+        const b = item.batches[bIdx];
+        const batchLabel = `Item "${itemTitle}" Batch #${bIdx + 1}${b.batchNumber ? ` (${b.batchNumber})` : ''}`;
+
+        if (!b.batchNumber || !String(b.batchNumber).trim()) {
+          return `${batchLabel}: Our Batch is mandatory.`;
+        }
+
+        const bQty = parseFloat(b.quantity ?? b.batchQuantity) || 0;
+        if (bQty <= 0) {
+          return `${batchLabel}: Batch Quantity is mandatory and must be greater than 0.`;
+        }
+
+        if (!b.weight || !String(b.weight).trim()) {
+          return `${batchLabel}: Weight is mandatory.`;
+        }
+
+        if (!b.mfgBatchNo || !String(b.mfgBatchNo).trim()) {
+          return `${batchLabel}: MFG Batch is mandatory.`;
+        }
+
+        if (!b.mfgDate || !String(b.mfgDate).trim()) {
+          return `${batchLabel}: MFG Date is mandatory.`;
+        }
+
+        const mfgParsed = parseDateSafe(b.mfgDate);
+        if (!mfgParsed) {
+          return `${batchLabel}: Invalid MFG Date format.`;
+        }
+
+        if (!b.expDate || !String(b.expDate).trim()) {
+          return `${batchLabel}: Exp Date is mandatory.`;
+        }
+
+        const expParsed = parseDateSafe(b.expDate);
+        if (!expParsed) {
+          return `${batchLabel}: Invalid Exp Date format.`;
+        }
+
+        if (expParsed < mfgParsed) {
+          return `${batchLabel}: Exp Date cannot be earlier than MFG Date.`;
+        }
+      }
+    }
+  }
+  return null;
+};
+
 exports.generateRmId = async (req, res, next) => {
   try {
     const candidateId = await generateRmId(prisma);
@@ -580,6 +634,10 @@ const createPOSchema = z.object({
 exports.createPO = async (req, res, next) => {
   try {
     const parsedData = createPOSchema.parse(req.body);
+    const batchError = validatePOBatches(parsedData.items);
+    if (batchError) {
+      return res.status(400).json({ error: batchError });
+    }
     const resolvedUomId = await resolveUomId(parsedData.uomId);
     
     if (!resolvedUomId) {
@@ -899,6 +957,12 @@ exports.updatePO = async (req, res, next) => {
     await cleanupPOReceiptsAndBatches({ poId: id, tx: prisma });
 
     const parsedData = updatePOSchema.parse(req.body);
+    if (parsedData.items !== undefined) {
+      const batchError = validatePOBatches(parsedData.items);
+      if (batchError) {
+        return res.status(400).json({ error: batchError });
+      }
+    }
 
     let resolvedUomId = existing.uomId;
     if (parsedData.uomId) {

@@ -47,8 +47,7 @@ import { Badge } from '@/components/ui/badge';
 
 /* ─────────────────────── Inline Add Supplier ─────────────────────── */
 import QuickAddSupplierModal from '@/components/forms/QuickAddSupplierModal';
-const AddSupplierInline = QuickAddSupplierModal;
-import BatchDateInput from '../components/BatchDateInput';
+import BatchDateInput, { validateAndParseDate } from '../components/BatchDateInput';
 import PaymentFieldsSection from '../components/PaymentFieldsSection';
 import PurchaseOrderPrintModal from '../components/PurchaseOrderPrintModal';
 import { exportPurchaseOrderToExcel } from '../utils/poExportPrintUtils';
@@ -183,6 +182,7 @@ export default function EditPOPage({ id: propId, onBack }) {
   const [form, setForm] = useState(null);          // null until PO loaded
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const storeCompany = useCompanyStore((s) => s.company);
@@ -1059,6 +1059,7 @@ export default function EditPOPage({ id: propId, onBack }) {
     if (e && e.preventDefault) e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
+    setHasAttemptedSubmit(true);
 
     if (!form.expectedDelivery) {
       setErrorMsg('Expected Delivery Date is required.');
@@ -1079,6 +1080,129 @@ export default function EditPOPage({ id: propId, onBack }) {
             icon: 'error',
             title: 'Batch Quantity Exceeded',
             html: `Total batch quantity (<b>${batchTotal} ${it.uomLabel}</b>) for item <b>${it.name}</b> exceeds the ordered quantity (<b>${itemQty} ${it.uomLabel}</b>).<br/><br/>Please reduce batch quantities so their sum does not exceed the item quantity.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+      }
+    }
+
+    // Validate mandatory batch details for every item and split batch
+    for (let itIdx = 0; itIdx < form.items.length; itIdx++) {
+      const it = form.items[itIdx];
+      const itemTitle = it.name || `Item #${itIdx + 1}`;
+      const batchesList = Array.isArray(it.batches) && it.batches.length > 0
+        ? it.batches
+        : [{
+            batchNumber: it.batchNumber || it.baseBatchNumber,
+            quantity: it.quantity,
+            weight: it.weight,
+            mfgBatchNo: it.mfgBatchNo,
+            mfgDate: it.mfgDate,
+            expDate: it.expDate,
+          }];
+
+      for (let bIdx = 0; bIdx < batchesList.length; bIdx++) {
+        const b = batchesList[bIdx];
+        const batchLabel = `Item "${itemTitle}" Batch #${bIdx + 1}${b.batchNumber ? ` (${b.batchNumber})` : ''}`;
+
+        if (!b.batchNumber || !String(b.batchNumber).trim()) {
+          setErrorMsg(`${batchLabel}: Our Batch number is mandatory`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Batch Number Missing',
+            text: `Our Batch is mandatory for ${batchLabel}.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        const bQty = parseFloat(b.quantity ?? b.batchQuantity) || 0;
+        if (bQty <= 0) {
+          setErrorMsg(`${batchLabel}: Batch Quantity is mandatory and must be greater than 0`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Batch Qty Missing',
+            text: `Please enter a valid Batch Quantity (> 0) for ${batchLabel}.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        if (!b.weight || !String(b.weight).trim()) {
+          setErrorMsg(`${batchLabel}: Weight is mandatory`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Weight Missing',
+            text: `Weight is mandatory for ${batchLabel}.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        if (!b.mfgBatchNo || !String(b.mfgBatchNo).trim()) {
+          setErrorMsg(`${batchLabel}: MFG Batch is mandatory`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'MFG Batch Missing',
+            text: `MFG Batch is mandatory for ${batchLabel}.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        if (!b.mfgDate || !String(b.mfgDate).trim()) {
+          setErrorMsg(`${batchLabel}: MFG Date is mandatory`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'MFG Date Missing',
+            text: `Manufacturing Date (MFG Date) is mandatory for ${batchLabel}.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        const mfgParsed = validateAndParseDate(b.mfgDate);
+        if (!mfgParsed.valid || mfgParsed.empty) {
+          setErrorMsg(`${batchLabel}: Invalid MFG Date format (${mfgParsed.error || 'e.g. DD-MM-YYYY'})`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Invalid MFG Date',
+            text: `${batchLabel}: ${mfgParsed.error || 'Please enter a valid date in DD-MM-YYYY format'}`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        if (!b.expDate || !String(b.expDate).trim()) {
+          setErrorMsg(`${batchLabel}: Exp Date is mandatory`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Exp Date Missing',
+            text: `Expiry Date (Exp Date) is mandatory for ${batchLabel}.`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        const expParsed = validateAndParseDate(b.expDate);
+        if (!expParsed.valid || expParsed.empty) {
+          setErrorMsg(`${batchLabel}: Invalid Exp Date format (${expParsed.error || 'e.g. DD-MM-YYYY'})`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Invalid Exp Date',
+            text: `${batchLabel}: ${expParsed.error || 'Please enter a valid date in DD-MM-YYYY format'}`,
+            confirmButtonColor: '#4f46e5'
+          });
+          return;
+        }
+
+        if (expParsed.iso && mfgParsed.iso && expParsed.iso < mfgParsed.iso) {
+          setErrorMsg(`${batchLabel}: Exp Date (${b.expDate}) cannot be earlier than MFG Date (${b.mfgDate})`);
+          Swal.fire({
+            icon: 'warning',
+            title: 'Invalid Date Range',
+            text: `${batchLabel}: Expiry Date (${b.expDate}) cannot be earlier than Manufacturing Date (${b.mfgDate}).`,
             confirmButtonColor: '#4f46e5'
           });
           return;
@@ -1116,15 +1240,33 @@ export default function EditPOPage({ id: propId, onBack }) {
       sgst: sgstAmount,
       igst: igstAmount,
       grandTotal: grandTotal,
-      items: (form.items || []).map(it => ({
-        ...it,
-        batchQuantity: it.batches?.[0]?.quantity !== undefined ? parseFloat(it.batches[0].quantity) : (parseFloat(it.quantity) || null),
-        batches: Array.isArray(it.batches) ? it.batches.map(b => ({
-          ...b,
-          quantity: parseFloat(b.quantity ?? b.batchQuantity) || 0,
-          batchQuantity: parseFloat(b.batchQuantity ?? b.quantity) || 0,
-        })) : null,
-      })),
+      items: (form.items || []).map(it => {
+        const firstB = it.batches?.[0] || {};
+        const firstMfg = firstB.mfgDate ? validateAndParseDate(firstB.mfgDate) : null;
+        const firstExp = firstB.expDate ? validateAndParseDate(firstB.expDate) : null;
+        return {
+          ...it,
+          batchQuantity: firstB.quantity !== undefined ? parseFloat(firstB.quantity) : (parseFloat(it.quantity) || null),
+          weight: firstB.weight ? String(firstB.weight).trim() : (it.weight ? String(it.weight).trim() : null),
+          mfgBatchNo: firstB.mfgBatchNo ? String(firstB.mfgBatchNo).trim() : (it.mfgBatchNo ? String(it.mfgBatchNo).trim() : null),
+          mfgDate: firstMfg?.iso || (firstB.mfgDate ? String(firstB.mfgDate).trim() : null),
+          expDate: firstExp?.iso || (firstB.expDate ? String(firstB.expDate).trim() : null),
+          batches: Array.isArray(it.batches) ? it.batches.map(b => {
+            const mfgP = validateAndParseDate(b.mfgDate);
+            const expP = validateAndParseDate(b.expDate);
+            return {
+              ...b,
+              batchNumber: String(b.batchNumber || '').trim(),
+              quantity: parseFloat(b.quantity ?? b.batchQuantity) || 0,
+              batchQuantity: parseFloat(b.batchQuantity ?? b.quantity) || 0,
+              weight: String(b.weight || '').trim(),
+              mfgBatchNo: String(b.mfgBatchNo || '').trim(),
+              mfgDate: mfgP.iso || b.mfgDate,
+              expDate: expP.iso || b.expDate,
+            };
+          }) : null,
+        };
+      }),
 
       // Payment Details
       paymentStatus: form.paymentStatus || 'UNPAID',
@@ -1136,10 +1278,10 @@ export default function EditPOPage({ id: propId, onBack }) {
 
       // Directly sync top-level batch columns on RawMaterialPO model
       batchQuantity: firstItem?.batches?.[0]?.quantity !== undefined ? parseFloat(firstItem.batches[0].quantity) : (parseFloat(firstItem?.quantity) || null),
-      weight: firstItem.weight || null,
-      mfgBatchNo: firstItem.mfgBatchNo || null,
-      mfgDate: firstItem.mfgDate ? new Date(firstItem.mfgDate).toISOString() : null,
-      expDate: firstItem.expDate ? new Date(firstItem.expDate).toISOString() : null,
+      weight: firstItem?.batches?.[0]?.weight ? String(firstItem.batches[0].weight).trim() : (firstItem?.weight || null),
+      mfgBatchNo: firstItem?.batches?.[0]?.mfgBatchNo ? String(firstItem.batches[0].mfgBatchNo).trim() : (firstItem?.mfgBatchNo || null),
+      mfgDate: firstItem?.batches?.[0]?.mfgDate ? (validateAndParseDate(firstItem.batches[0].mfgDate)?.iso || null) : (firstItem?.mfgDate ? (validateAndParseDate(firstItem.mfgDate)?.iso || null) : null),
+      expDate: firstItem?.batches?.[0]?.expDate ? (validateAndParseDate(firstItem.batches[0].expDate)?.iso || null) : (firstItem?.expDate ? (validateAndParseDate(firstItem.expDate)?.iso || null) : null),
 
       // Supplier Invoice & Logistics / E-Way Bill Details
       supplierInvoiceNo: form.supplierInvoiceNo?.trim() || null,
@@ -1986,17 +2128,21 @@ export default function EditPOPage({ id: propId, onBack }) {
 
                                         {/* Batch Quantity */}
                                         <div className="flex items-center gap-1.5 shrink-0">
-                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Batch Qty:</span>
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                                            Batch Qty: <span className="text-rose-500 font-bold">*</span>
+                                          </span>
                                           <Input
                                             type="number"
                                             min="0"
                                             step="any"
                                             value={batch.quantity}
                                             onChange={(e) => updateBatchField(item.id, batch.id, 'quantity', e.target.value)}
-                                            className={`h-7 w-20 text-xs font-bold rounded-lg text-center px-2 ${
+                                            className={`h-7 w-20 text-xs font-bold rounded-lg text-center px-2 transition-all ${
                                               isAllocatedExceeded 
                                                 ? 'border-rose-400 bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300' 
-                                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100'
+                                                : (hasAttemptedSubmit && (!batch.quantity || parseFloat(batch.quantity) <= 0))
+                                                  ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20 text-rose-700'
+                                                  : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100'
                                             }`}
                                           />
                                           <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 select-none shrink-0">
@@ -2007,40 +2153,58 @@ export default function EditPOPage({ id: propId, onBack }) {
                                         {/* Weight */}
                                         <div className="flex items-center gap-1.5 min-w-[170px] sm:min-w-[185px] flex-1 max-w-[240px]">
                                           <Scale className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Weight:</span>
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                                            Weight: <span className="text-rose-500 font-bold">*</span>
+                                          </span>
                                           <Input
                                             type="text"
                                             value={batch.weight || ''}
                                             onChange={(e) => updateBatchField(item.id, batch.id, 'weight', e.target.value)}
                                             placeholder="e.g. 25 kg / 50"
-                                            className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-medium px-2.5 py-0 w-full"
+                                            className={`h-7 text-xs rounded-lg font-medium px-2.5 py-0 w-full transition-all ${
+                                              hasAttemptedSubmit && !batch.weight?.trim()
+                                                ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20'
+                                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                                            }`}
                                           />
                                         </div>
 
                                         {/* MFG Batch No */}
                                         <div className="flex items-center gap-1.5 min-w-[160px] sm:min-w-[175px] flex-1 max-w-[230px]">
                                           <Tag className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Batch:</span>
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                                            MFG Batch: <span className="text-rose-500 font-bold">*</span>
+                                          </span>
                                           <Input
                                             type="text"
                                             value={batch.mfgBatchNo || ''}
                                             onChange={(e) => updateBatchField(item.id, batch.id, 'mfgBatchNo', e.target.value)}
                                             placeholder="e.g. BATCH-01"
-                                            className="h-7 text-xs rounded-lg border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono uppercase font-medium px-2.5 py-0 w-full"
+                                            className={`h-7 text-xs rounded-lg font-mono uppercase font-medium px-2.5 py-0 w-full transition-all ${
+                                              hasAttemptedSubmit && !batch.mfgBatchNo?.trim()
+                                                ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20'
+                                                : 'border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900'
+                                            }`}
                                           />
                                         </div>
 
                                         {/* MFG Date */}
                                         <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
                                           <Calendar className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">MFG Date:</span>
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                                            MFG Date: <span className="text-rose-500 font-bold">*</span>
+                                          </span>
                                           <div className="flex-1 min-w-0">
                                             <BatchDateInput
                                               value={batch.mfgDate || ''}
                                               onChange={(val) => updateBatchField(item.id, batch.id, 'mfgDate', val)}
                                               placeholder="dd-mm-yyyy"
                                               title="MFG Date"
-                                              className="h-7"
+                                              className={`h-7 ${
+                                                hasAttemptedSubmit && (!batch.mfgDate?.trim() || !validateAndParseDate(batch.mfgDate).valid)
+                                                  ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20 rounded-md'
+                                                  : ''
+                                              }`}
                                             />
                                           </div>
                                         </div>
@@ -2048,14 +2212,20 @@ export default function EditPOPage({ id: propId, onBack }) {
                                         {/* Exp Date */}
                                         <div className="flex items-center gap-1.5 min-w-[185px] sm:min-w-[200px] flex-1 max-w-[250px]">
                                           <Clock className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">Exp Date:</span>
+                                          <span className="font-semibold text-slate-600 dark:text-slate-400 text-xs shrink-0">
+                                            Exp Date: <span className="text-rose-500 font-bold">*</span>
+                                          </span>
                                           <div className="flex-1 min-w-0">
                                             <BatchDateInput
                                               value={batch.expDate || ''}
                                               onChange={(val) => updateBatchField(item.id, batch.id, 'expDate', val)}
                                               placeholder="dd-mm-yyyy"
                                               title="Exp Date"
-                                              className="h-7"
+                                              className={`h-7 ${
+                                                hasAttemptedSubmit && (!batch.expDate?.trim() || !validateAndParseDate(batch.expDate).valid)
+                                                  ? 'border-rose-500 ring-1 ring-rose-500/30 bg-rose-50/20 rounded-md'
+                                                  : ''
+                                              }`}
                                             />
                                           </div>
                                         </div>

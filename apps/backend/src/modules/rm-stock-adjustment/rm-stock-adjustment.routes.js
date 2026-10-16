@@ -33,6 +33,63 @@ const adjustmentSchema = z.object({
   batches: z.array(batchItemSchema).optional().nullable()
 });
 
+// Robust Date parser supporting DD-MM-YYYY, DD/MM/YYYY, YYYY-MM-DD, ISO
+function parseDateSafe(val) {
+  if (!val) return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  const str = String(val).trim();
+  if (!str) return null;
+
+  // DD-MM-YYYY or DD/MM/YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const month = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    const d = new Date(Date.UTC(year, month, day, 0, 0, 0));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // YYYY-MM-DD
+  const ymdMatch = str.split('T')[0].match(/^(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})$/);
+  if (ymdMatch) {
+    const year = parseInt(ymdMatch[1], 10);
+    const month = parseInt(ymdMatch[2], 10) - 1;
+    const day = parseInt(ymdMatch[3], 10);
+    const d = new Date(Date.UTC(year, month, day, 0, 0, 0));
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  const parsed = new Date(str);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+// Helper to resolve a valid UOM UUID for InventoryBatch from raw material unit text
+async function resolveUomIdForRM(unitText, tx = prisma) {
+  const uoms = await tx.uOM.findMany({ where: { isActive: true } });
+  if (!uoms || uoms.length === 0) return null;
+
+  const targetText = String(unitText || '').trim().toLowerCase();
+  if (targetText) {
+    const match = uoms.find(u => {
+      const abbr = (u.abbreviation || '').toLowerCase();
+      const name = (u.name || '').toLowerCase();
+      return abbr === targetText || name === targetText ||
+        (targetText === 'kg' && (abbr === 'kg' || name.includes('kilo'))) ||
+        (targetText === 'liter' && (abbr === 'liter' || abbr === 'ltr' || name.includes('litre') || name.includes('liter'))) ||
+        (targetText === 'ltr' && (abbr === 'liter' || abbr === 'ltr' || name.includes('litre') || name.includes('liter'))) ||
+        (targetText === 'pcs' && (abbr === 'pcs' || abbr === 'nos' || abbr === 'unit' || name.includes('piece'))) ||
+        (targetText === 'nos' && (abbr === 'nos' || abbr === 'pcs' || abbr === 'unit')) ||
+        (targetText === 'box' && (abbr === 'box' || name.includes('box')));
+    });
+    if (match) return match.id;
+
+    const uuidMatch = uoms.find(u => u.id === unitText);
+    if (uuidMatch) return uuidMatch.id;
+  }
+  return uoms[0].id;
+}
+
 // POST /api/rm-stock-adjustment
 router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER']), async (req, res, next) => {
   try {
@@ -82,17 +139,58 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       const batchesList = Array.isArray(data.batches) ? data.batches : [];
 
       if (data.type === 'ADDITION') {
+        if (!batchesList || batchesList.length === 0) {
+          throw new Error('At least one batch must be configured for stock addition');
+        }
+
+        // Validate mandatory batch details
+        for (let i = 0; i < batchesList.length; i++) {
+          const b = batchesList[i];
+          if (!b.batchNumber?.trim()) {
+            throw new Error(`Batch #${i + 1}: Batch Number is mandatory`);
+          }
+          if (!b.quantity || Number(b.quantity) <= 0) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Batch Qty is mandatory and must be greater than 0`);
+          }
+          if (!b.weight || !String(b.weight).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Weight is mandatory`);
+          }
+          if (!b.mfgBatchNo || !String(b.mfgBatchNo).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Manufacturer Batch (MFG Batch) is mandatory`);
+          }
+          if (!b.mfgDate || !String(b.mfgDate).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Manufacturing Date (MFG Date) is mandatory`);
+          }
+          const expInput = b.expDate || b.expiryDate;
+          if (!expInput || !String(expInput).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Expiry Date (Exp Date) is mandatory`);
+          }
+
+          const mfgD = parseDateSafe(b.mfgDate);
+          const expD = parseDateSafe(expInput);
+          if (!mfgD) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Invalid MFG Date format`);
+          }
+          if (!expD) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Invalid Exp Date format`);
+          }
+          if (expD < mfgD) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Exp Date (${expInput}) cannot be before MFG Date (${b.mfgDate})`);
+          }
+        }
+
+        const batchUomId = await resolveUomIdForRM(rm.unitId || rm.consumptionUnit, tx);
         // Create or update InventoryBatch for each added batch
         for (const b of batchesList) {
-          const expDateVal = (b.expiryDate || b.expDate) ? new Date(b.expiryDate || b.expDate) : null;
-          const mfgDateVal = b.mfgDate ? new Date(b.mfgDate) : null;
+          const expDateVal = parseDateSafe(b.expiryDate || b.expDate);
+          const mfgDateVal = parseDateSafe(b.mfgDate);
 
           const existingBatch = await tx.inventoryBatch.findUnique({
             where: { batchNumber: b.batchNumber }
           }).catch(() => null);
 
           if (existingBatch) {
-            // Increment existing batch quantity
+            // Increment existing batch quantity & update details
             await tx.$executeRawUnsafe(
               `UPDATE "InventoryBatch" 
                SET "netQty" = "netQty" + $1, 
@@ -101,12 +199,16 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
                    "storageLocation" = COALESCE($2, "storageLocation"),
                    "weight" = COALESCE($3, "weight"),
                    "mfgBatchNo" = COALESCE($4, "mfgBatchNo"),
+                   "expiryDate" = COALESCE($5, "expiryDate"),
+                   "mfgDate" = COALESCE($6, "mfgDate"),
                    "updatedAt" = NOW() 
-               WHERE "id" = $5`,
+               WHERE "id" = $7`,
               b.quantity,
               b.storageLocation || null,
               b.weight || null,
               b.mfgBatchNo || null,
+              expDateVal,
+              mfgDateVal,
               existingBatch.id
             );
           } else {
@@ -128,7 +230,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
               rm.name,
               rm.category?.name || null,
               b.quantity,
-              rm.unitId,
+              batchUomId,
               b.storageLocation || 'Main RM Store',
               expDateVal,
               mfgDateVal,
@@ -361,9 +463,50 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       // 4. Apply new batches
       const newBatchesList = Array.isArray(data.batches) ? data.batches : [];
       if (data.type === 'ADDITION') {
+        if (!newBatchesList || newBatchesList.length === 0) {
+          throw new Error('At least one batch must be configured for stock addition');
+        }
+
+        // Validate mandatory batch details
+        for (let i = 0; i < newBatchesList.length; i++) {
+          const b = newBatchesList[i];
+          if (!b.batchNumber?.trim()) {
+            throw new Error(`Batch #${i + 1}: Batch Number is mandatory`);
+          }
+          if (!b.quantity || Number(b.quantity) <= 0) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Batch Qty is mandatory and must be greater than 0`);
+          }
+          if (!b.weight || !String(b.weight).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Weight is mandatory`);
+          }
+          if (!b.mfgBatchNo || !String(b.mfgBatchNo).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Manufacturer Batch (MFG Batch) is mandatory`);
+          }
+          if (!b.mfgDate || !String(b.mfgDate).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Manufacturing Date (MFG Date) is mandatory`);
+          }
+          const expInput = b.expDate || b.expiryDate;
+          if (!expInput || !String(expInput).trim()) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Expiry Date (Exp Date) is mandatory`);
+          }
+
+          const mfgD = parseDateSafe(b.mfgDate);
+          const expD = parseDateSafe(expInput);
+          if (!mfgD) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Invalid MFG Date format`);
+          }
+          if (!expD) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Invalid Exp Date format`);
+          }
+          if (expD < mfgD) {
+            throw new Error(`Batch #${i + 1} (${b.batchNumber}): Expiry Date (${expInput}) cannot be before MFG Date (${b.mfgDate})`);
+          }
+        }
+
+        const batchUomId = await resolveUomIdForRM(targetRm.unitId || targetRm.consumptionUnit, tx);
         for (const b of newBatchesList) {
-          const expDateVal = (b.expiryDate || b.expDate) ? new Date(b.expiryDate || b.expDate) : null;
-          const mfgDateVal = b.mfgDate ? new Date(b.mfgDate) : null;
+          const expDateVal = parseDateSafe(b.expiryDate || b.expDate);
+          const mfgDateVal = parseDateSafe(b.mfgDate);
 
           const existingBatch = await tx.inventoryBatch.findUnique({
             where: { batchNumber: b.batchNumber }
@@ -375,9 +518,19 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
                SET "netQty" = "netQty" + $1, 
                    "receivedQty" = "receivedQty" + $1, 
                    "status" = 'AVAILABLE',
+                   "storageLocation" = COALESCE($2, "storageLocation"),
+                   "weight" = COALESCE($3, "weight"),
+                   "mfgBatchNo" = COALESCE($4, "mfgBatchNo"),
+                   "expiryDate" = COALESCE($5, "expiryDate"),
+                   "mfgDate" = COALESCE($6, "mfgDate"),
                    "updatedAt" = NOW() 
-               WHERE "id" = $2`,
+               WHERE "id" = $7`,
               b.quantity,
+              b.storageLocation || null,
+              b.weight || null,
+              b.mfgBatchNo || null,
+              expDateVal,
+              mfgDateVal,
               existingBatch.id
             );
           } else {
@@ -398,7 +551,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
               targetRm.name,
               targetRm.category?.name || null,
               b.quantity,
-              targetRm.unitId,
+              batchUomId,
               b.storageLocation || 'Main RM Store',
               expDateVal,
               mfgDateVal,

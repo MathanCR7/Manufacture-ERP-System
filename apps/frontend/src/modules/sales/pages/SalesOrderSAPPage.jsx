@@ -5399,9 +5399,11 @@ export default function SalesOrderPage() {
           </div>
 
           {/* Freight & Logistics Charges */}
-          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Freight & Logistics Charges</label>
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-1 text-right text-[11.5px] truncate">
+              Freight & Logistics Charges
+            </label>
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5410,6 +5412,21 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+              {/* % Input */}
+              <div className="flex items-center gap-0.5">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={freightPercent}
+                  onChange={(e) => handleFreightPercentChange(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Freight Percentage (%) of total amount"
+                />
+                <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
+              </div>
+              {/* ₹ Amount Input */}
               <div className="relative flex items-center">
                 <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
                 <input
@@ -5417,35 +5434,35 @@ export default function SalesOrderPage() {
                   step="0.01"
                   min="0"
                   value={freight}
-                  onChange={(e) => setFreight(Math.max(0, parseFloat(e.target.value) || 0))}
+                  onChange={(e) => handleFreightAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                  title="Enter Freight & Logistics Amount in INR (₹)"
+                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Enter Freight Amount in INR (₹)"
                 />
               </div>
               <input
                 type="text"
                 readOnly
                 value={`₹${(Number(freight) || 0).toFixed(2)} INR`}
-                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
           {/* Package Charges (Auto-Calculated from Packing lines or Manual) */}
-          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
-            <div className="flex items-center gap-1 pr-2">
-              <label className="text-[var(--sap-text-muted)] font-semibold text-right">Package Charges</label>
+          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
+            <div className="flex items-center gap-1 pr-1 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px]">Package Charges</label>
               {packingItemsSum > 0 && (
                 <span
-                  className="text-[9.5px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-bold"
+                  className="text-[9.5px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-bold shrink-0"
                   title={`Auto-calculated ₹${packingItemsSum.toFixed(2)} from document lines marked as Packing?`}
                 >
                   📦 Auto
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5454,6 +5471,21 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+              {/* % Input */}
+              <div className="flex items-center gap-0.5">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={packingPercent}
+                  onChange={(e) => handlePackingPercentChange(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Packing Percentage (%) of total amount"
+                />
+                <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
+              </div>
+              {/* ₹ Amount Input */}
               <div className="relative flex items-center">
                 <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
                 <input
@@ -5461,9 +5493,9 @@ export default function SalesOrderPage() {
                   step="0.01"
                   min="0"
                   value={packingCharges}
-                  onChange={(e) => setPackingCharges(Math.max(0, parseFloat(e.target.value) || 0))}
+                  onChange={(e) => handlePackingAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Packing Charges Amount in INR (₹)"
                 />
               </div>
@@ -5471,15 +5503,17 @@ export default function SalesOrderPage() {
                 type="text"
                 readOnly
                 value={`₹${(Number(packingCharges) || 0).toFixed(2)} INR`}
-                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
           {/* Loading Charges */}
-          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Loading Charges</label>
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-1 text-right text-[11.5px] truncate">
+              Loading Charges
+            </label>
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5488,6 +5522,21 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+              {/* % Input */}
+              <div className="flex items-center gap-0.5">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={loadingPercent}
+                  onChange={(e) => handleLoadingPercentChange(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Loading Percentage (%) of total amount"
+                />
+                <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
+              </div>
+              {/* ₹ Amount Input */}
               <div className="relative flex items-center">
                 <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
                 <input
@@ -5495,9 +5544,9 @@ export default function SalesOrderPage() {
                   step="0.01"
                   min="0"
                   value={loadingCharges}
-                  onChange={(e) => setLoadingCharges(Math.max(0, parseFloat(e.target.value) || 0))}
+                  onChange={(e) => handleLoadingAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Loading Charges Amount in INR (₹)"
                 />
               </div>
@@ -5505,15 +5554,17 @@ export default function SalesOrderPage() {
                 type="text"
                 readOnly
                 value={`₹${(Number(loadingCharges) || 0).toFixed(2)} INR`}
-                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
           {/* Other Charges */}
-          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-2 text-right">Other Charges</label>
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
+            <label className="text-[var(--sap-text-muted)] font-semibold pr-1 text-right text-[11.5px] truncate">
+              Other Charges
+            </label>
+            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5522,6 +5573,21 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+              {/* % Input */}
+              <div className="flex items-center gap-0.5">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={otherPercent}
+                  onChange={(e) => handleOtherPercentChange(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  className="w-12 h-[24px] px-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  title="Other Charges Percentage (%) of total amount"
+                />
+                <span className="text-[var(--sap-text-muted)] text-[10.5px] font-bold">%</span>
+              </div>
+              {/* ₹ Amount Input */}
               <div className="relative flex items-center">
                 <span className="absolute left-1 text-[11px] font-bold text-slate-400">₹</span>
                 <input
@@ -5529,9 +5595,9 @@ export default function SalesOrderPage() {
                   step="0.01"
                   min="0"
                   value={otherCharges}
-                  onChange={(e) => setOtherCharges(Math.max(0, parseFloat(e.target.value) || 0))}
+                  onChange={(e) => handleOtherAmountChange(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-20 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
+                  className="w-16 h-[24px] pl-3.5 pr-1 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
                   title="Other Charges Amount in INR (₹)"
                 />
               </div>
@@ -5539,7 +5605,7 @@ export default function SalesOrderPage() {
                 type="text"
                 readOnly
                 value={`₹${(Number(otherCharges) || 0).toFixed(2)} INR`}
-                className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
