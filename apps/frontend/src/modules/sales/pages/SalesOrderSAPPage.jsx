@@ -12,7 +12,8 @@ import {
   SlidersHorizontal, CheckSquare, Square, MapPin, Globe, Moon, Sun,
   ExternalLink, ChevronRight, Minimize2, Maximize2, LayoutGrid, Table,
   Camera, Image as ImageIcon, Paperclip, UploadCloud,
-  Mail, Send, Share2, MessageSquare, TrendingUp
+  Mail, Send, Share2, MessageSquare, TrendingUp,
+  Landmark, Wallet, FileSpreadsheet, Copy, Calculator
 } from 'lucide-react';
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
@@ -272,21 +273,33 @@ const getIndianStateName = (code) => {
   return match ? match.name : `State (${cleanCode})`;
 };
 
+// Helper to convert ancillary charge tax codes when supply type changes
+const mapTaxCodeForSupplyType = (code, toInterState) => {
+  if (!code || code === 'EXEMPT') return 'EXEMPT';
+  if (toInterState) {
+    return code.replace(/^SCG/, 'IGST');
+  } else {
+    return code.replace(/^IGST/, 'SCG');
+  }
+};
+
 // Helper to synchronize line item tax codes when supply type changes (Intra-State vs Inter-State)
 const updateLinesTaxCodesForSupplyType = (currentLines, toInterState) => {
   return currentLines.map(l => {
     let newCode = l.taxCode;
     const rate = Number(l.gstRate) || 5;
     if (toInterState) {
-      if (rate === 18) newCode = 'IGST18';
+      if (rate === 28) newCode = 'IGST28';
+      else if (rate === 18) newCode = 'IGST18';
       else if (rate === 12) newCode = 'IGST12';
-      else if (rate === 28) newCode = 'IGST28';
+      else if (rate === 9) newCode = 'IGST9';
       else if (rate === 0) newCode = 'EXEMPT';
       else newCode = 'IGST5';
     } else {
-      if (rate === 18) newCode = 'SCG18';
+      if (rate === 28) newCode = 'SCG28';
+      else if (rate === 18) newCode = 'SCG18';
       else if (rate === 12) newCode = 'SCG12';
-      else if (rate === 28) newCode = 'SCG28';
+      else if (rate === 9) newCode = 'SCG9';
       else if (rate === 0) newCode = 'EXEMPT';
       else newCode = 'SCG5';
     }
@@ -456,6 +469,21 @@ export default function SalesOrderPage() {
     cashReceived: 0,
     cashierNote: ''
   });
+  const [chequeDetails, setChequeDetails] = useState({
+    chequeNo: '',
+    bankName: '',
+    chequeDate: '',
+    clearanceStatus: 'Pending'
+  });
+
+  const copyToClipboard = (text, label) => {
+    if (!text) return;
+    navigator.clipboard?.writeText(String(text));
+    setStatusMessage({
+      type: 'ready',
+      text: `✔ Copied ${label || 'text'} to clipboard: ${text}`
+    });
+  };
 
   // Statutory Terms & Conditions Text Area (Editable per Order, printed on PDF)
   const [orderTerms, setOrderTerms] = useState(
@@ -463,10 +491,14 @@ export default function SalesOrderPage() {
   );
 
   const getTaxRateFromCode = (code) => {
+    if (!code || code === 'EXEMPT') return 0;
     if (code === 'SCG28' || code === 'IGST28') return 28;
     if (code === 'SCG18' || code === 'IGST18') return 18;
     if (code === 'SCG12' || code === 'IGST12') return 12;
+    if (code === 'SCG9'  || code === 'IGST9')  return 9;
     if (code === 'SCG5'  || code === 'IGST5')  return 5;
+    const match = String(code).match(/\d+/);
+    if (match) return Number(match[0]);
     return 0; // EXEMPT
   };
 
@@ -952,6 +984,10 @@ export default function SalesOrderPage() {
       setPlaceOfSupply(sellerStateCode);
     }
     setLines(prev => updateLinesTaxCodesForSupplyType(prev, toInter));
+    setFreightTaxCode(prev => mapTaxCodeForSupplyType(prev, toInter));
+    setPackingTaxCode(prev => mapTaxCodeForSupplyType(prev, toInter));
+    setLoadingTaxCode(prev => mapTaxCodeForSupplyType(prev, toInter));
+    setOtherTaxCode(prev => mapTaxCodeForSupplyType(prev, toInter));
   };
 
   // Handle GSTIN Input change with automatic state code extraction & tax rule update
@@ -964,6 +1000,10 @@ export default function SalesOrderPage() {
       const autoInter = String(sellerStateCode) !== String(custState);
       setManualSupplyType(null); // Strictly locked to GST rule
       setLines(prev => updateLinesTaxCodesForSupplyType(prev, autoInter));
+      setFreightTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+      setPackingTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+      setLoadingTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+      setOtherTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
       setStatusMessage({
         type: 'info',
         text: `✔ GSTIN entered: ${upper} (${getIndianStateName(custState)}) ➔ 🔒 ${autoInter ? 'Inter-State IGST' : 'Intra-State CGST+SGST'} Auto-Applied & Locked`
@@ -972,6 +1012,10 @@ export default function SalesOrderPage() {
       setManualSupplyType('INTRA_STATE');
       setPlaceOfSupply(sellerStateCode);
       setLines(prev => updateLinesTaxCodesForSupplyType(prev, false));
+      setFreightTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
+      setPackingTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
+      setLoadingTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
+      setOtherTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
     }
   };
 
@@ -982,6 +1026,10 @@ export default function SalesOrderPage() {
     const autoInter = String(sellerStateCode) !== String(newPlace);
     setManualSupplyType(autoInter ? 'INTER_STATE' : 'INTRA_STATE');
     setLines(prev => updateLinesTaxCodesForSupplyType(prev, autoInter));
+    setFreightTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+    setPackingTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+    setLoadingTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+    setOtherTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
   };
 
   // Handle Customer Selection
@@ -1004,6 +1052,10 @@ export default function SalesOrderPage() {
         const autoInter = String(sellerStateCode) !== String(custState);
         setManualSupplyType(null); // Locked to GSTIN rule
         setLines(prev => updateLinesTaxCodesForSupplyType(prev, autoInter));
+        setFreightTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+        setPackingTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+        setLoadingTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
+        setOtherTaxCode(prev => mapTaxCodeForSupplyType(prev, autoInter));
         setStatusMessage({
           type: 'info',
           text: `✔ Customer selected: ${cust.name} (GSTIN: ${cGstin} • ${getIndianStateName(custState)} (${custState}) ➔ 🔒 ${autoInter ? 'Inter-State IGST' : 'Intra-State CGST+SGST'} Auto-Applied & Locked)`
@@ -1012,6 +1064,10 @@ export default function SalesOrderPage() {
         setManualSupplyType('INTRA_STATE');
         setPlaceOfSupply(sellerStateCode);
         setLines(prev => updateLinesTaxCodesForSupplyType(prev, false));
+        setFreightTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
+        setPackingTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
+        setLoadingTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
+        setOtherTaxCode(prev => mapTaxCodeForSupplyType(prev, false));
         setStatusMessage({
           type: 'info',
           text: `✔ Customer selected: ${cust.name} (Unregistered / No GSTIN • Can manually toggle CGST+SGST / IGST)`
@@ -1189,8 +1245,8 @@ export default function SalesOrderPage() {
         unitPrice: Number(l.unitPrice) || 0,
         discount: Number(l.lineDiscount) || 0,
         discountPercent: Number(l.discountPercent) || 0,
-        gstRate: Number(l.gstRate !== undefined ? l.gstRate : 5),
-        hsnCode: l.rawProduct?.hsnCode || l.rawMaterial?.hsnCode || l.rawProduct?.specifications?.hsnCode || '21050000',
+        gstRate: l.isPackingCharge ? pRate : Number(l.gstRate !== undefined ? l.gstRate : 5),
+        hsnCode: l.rawProduct?.hsnCode || l.rawMaterial?.hsnCode || l.rawProduct?.specifications?.hsnCode || (l.isPackingCharge ? '9985' : '21050000'),
         uomName: l.unitOfSale
       })),
       charges: {
@@ -1259,96 +1315,260 @@ export default function SalesOrderPage() {
     advancePaid
   ]);
 
-  // Base total for calculating charges percentage (Net Subtotal before additional charges)
-  const baseTotalAmount = useMemo(() => {
-    const net = Math.max(0, (financials?.totalBeforeDiscount || 0) - (financials?.lineDiscountTotal || 0));
-    return net > 0 ? net : (financials?.totalBeforeDiscount || 0);
-  }, [financials?.totalBeforeDiscount, financials?.lineDiscountTotal]);
+  // Base total for calculating charges percentage (Excludes packing charges to prevent circular compounding)
+  const goodsBaseTotal = useMemo(() => {
+    const regularGoodsLines = activeLines.filter(l => !l.isPackingCharge);
+    const goodsSum = regularGoodsLines.reduce((sum, l) => sum + (l.lineTotal || (Number(l.quantity || 1) * Number(l.unitPrice || 0)) || 0), 0);
+    if (goodsSum > 0) return round2(goodsSum);
+    const totalWithoutPacking = (financials?.totalBeforeDiscount || 0) - packingItemsSum;
+    return round2(Math.max(0, totalWithoutPacking > 0 ? totalWithoutPacking : (financials?.totalBeforeDiscount || 0)));
+  }, [activeLines, financials?.totalBeforeDiscount, packingItemsSum]);
 
-  // Dual percentage & amount change handlers for all charges:
+  // Backward compatible baseTotalAmount
+  const baseTotalAmount = goodsBaseTotal;
+
+  // Dedicated Tax Code Handlers (Synchronizes line items when applicable)
+  const handleFreightTaxCodeChange = (code) => {
+    setFreightTaxCode(code);
+  };
+
+  const handleLoadingTaxCodeChange = (code) => {
+    setLoadingTaxCode(code);
+  };
+
+  const handlePackingTaxCodeChange = (code) => {
+    setPackingTaxCode(code);
+    const rate = getTaxRateFromCode(code);
+    setLines(prev => prev.map(l => {
+      if (!l.isPackingCharge) return l;
+      return {
+        ...l,
+        taxCode: code,
+        gstRate: rate
+      };
+    }));
+  };
+
+  const handleOtherTaxCodeChange = (code) => {
+    setOtherTaxCode(code);
+  };
+
+  // Dual percentage & amount change handlers for all charges (Bidirectional sync with Document Rows):
   const handleFreightAmountChange = (amt) => {
     const safeAmt = Math.max(0, amt);
     setFreight(safeAmt);
-    setFreightPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+    setFreightPercent(goodsBaseTotal > 0 ? round2((safeAmt / goodsBaseTotal) * 100) : 0);
   };
 
   const handleFreightPercentChange = (pct) => {
     const safePct = Math.max(0, pct);
     setFreightPercent(safePct);
-    setFreight(round2(baseTotalAmount * (safePct / 100)));
+    setFreight(round2(goodsBaseTotal * (safePct / 100)));
   };
 
   const handlePackingAmountChange = (amt) => {
     const safeAmt = Math.max(0, amt);
     setPackingCharges(safeAmt);
-    setPackingPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+    const calculatedPercent = goodsBaseTotal > 0 ? round2((safeAmt / goodsBaseTotal) * 100) : 0;
+    setPackingPercent(calculatedPercent);
+
+    // Synchronize packing line in Document Rows with calculated Sale Price
+    setLines(prev => {
+      let packingLineIndex = prev.findIndex(l => l.isPackingCharge);
+      // If no line is marked as packing yet, find the first empty line
+      if (packingLineIndex === -1) {
+        packingLineIndex = prev.findIndex(l => !l.productId && !l.rawMaterialId && !l.itemDescription);
+        if (packingLineIndex !== -1) {
+          const target = prev[packingLineIndex];
+          const qty = Math.max(1, Number(target.quantity) || 1);
+          const newUnitPrice = round2(safeAmt / qty);
+          return prev.map((l, idx) => {
+            if (idx !== packingLineIndex) return l;
+            return {
+              ...l,
+              isPackingCharge: true,
+              itemDescription: 'Packaging & Handling Charges',
+              quantity: qty,
+              unitPrice: newUnitPrice,
+              lineDiscount: 0,
+              discountPercent: 0,
+              taxCode: packingTaxCode,
+              gstRate: getTaxRateFromCode(packingTaxCode),
+              lineTotal: safeAmt
+            };
+          });
+        }
+      } else {
+        return prev.map((l, idx) => {
+          if (idx !== packingLineIndex) return l;
+          const qty = Math.max(1, Number(l.quantity) || 1);
+          const newUnitPrice = round2(safeAmt / qty);
+          return {
+            ...l,
+            unitPrice: newUnitPrice,
+            lineDiscount: 0,
+            discountPercent: 0,
+            taxCode: packingTaxCode,
+            gstRate: getTaxRateFromCode(packingTaxCode),
+            lineTotal: safeAmt
+          };
+        });
+      }
+      return prev;
+    });
   };
 
   const handlePackingPercentChange = (pct) => {
     const safePct = Math.max(0, pct);
     setPackingPercent(safePct);
-    setPackingCharges(round2(baseTotalAmount * (safePct / 100)));
+    const calculatedAmount = round2(goodsBaseTotal * (safePct / 100));
+    setPackingCharges(calculatedAmount);
+
+    // Synchronize packing line in Document Rows with calculated Sale Price
+    setLines(prev => {
+      let packingLineIndex = prev.findIndex(l => l.isPackingCharge);
+      if (packingLineIndex === -1) {
+        packingLineIndex = prev.findIndex(l => !l.productId && !l.rawMaterialId && !l.itemDescription);
+        if (packingLineIndex !== -1) {
+          const target = prev[packingLineIndex];
+          const qty = Math.max(1, Number(target.quantity) || 1);
+          const newUnitPrice = round2(calculatedAmount / qty);
+          return prev.map((l, idx) => {
+            if (idx !== packingLineIndex) return l;
+            return {
+              ...l,
+              isPackingCharge: true,
+              itemDescription: 'Packaging & Handling Charges',
+              quantity: qty,
+              unitPrice: newUnitPrice,
+              lineDiscount: 0,
+              discountPercent: 0,
+              taxCode: packingTaxCode,
+              gstRate: getTaxRateFromCode(packingTaxCode),
+              lineTotal: calculatedAmount
+            };
+          });
+        }
+      } else {
+        return prev.map((l, idx) => {
+          if (idx !== packingLineIndex) return l;
+          const qty = Math.max(1, Number(l.quantity) || 1);
+          const newUnitPrice = round2(calculatedAmount / qty);
+          return {
+            ...l,
+            unitPrice: newUnitPrice,
+            lineDiscount: 0,
+            discountPercent: 0,
+            taxCode: packingTaxCode,
+            gstRate: getTaxRateFromCode(packingTaxCode),
+            lineTotal: calculatedAmount
+          };
+        });
+      }
+      return prev;
+    });
   };
 
   const handleLoadingAmountChange = (amt) => {
     const safeAmt = Math.max(0, amt);
     setLoadingCharges(safeAmt);
-    setLoadingPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+    setLoadingPercent(goodsBaseTotal > 0 ? round2((safeAmt / goodsBaseTotal) * 100) : 0);
   };
 
   const handleLoadingPercentChange = (pct) => {
     const safePct = Math.max(0, pct);
     setLoadingPercent(safePct);
-    setLoadingCharges(round2(baseTotalAmount * (safePct / 100)));
+    setLoadingCharges(round2(goodsBaseTotal * (safePct / 100)));
   };
 
   const handleOtherAmountChange = (amt) => {
     const safeAmt = Math.max(0, amt);
     setOtherCharges(safeAmt);
-    setOtherPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+    setOtherPercent(goodsBaseTotal > 0 ? round2((safeAmt / goodsBaseTotal) * 100) : 0);
   };
 
   const handleOtherPercentChange = (pct) => {
     const safePct = Math.max(0, pct);
     setOtherPercent(safePct);
-    setOtherCharges(round2(baseTotalAmount * (safePct / 100)));
+    setOtherCharges(round2(goodsBaseTotal * (safePct / 100)));
   };
 
-  // Update specific line field
+  // Update specific line field with bidirectional sync for packing charges
   const handleLineChange = (lineId, field, value) => {
     if (isDocumentLocked) return;
     setLines(prev => {
+      let isPackingToggleToTrue = false;
+      const targetLine = prev.find(l => l.id === lineId);
+
       const updated = prev.map(l => {
         if (l.id !== lineId) return l;
-        return { ...l, [field]: value };
+        const lineUpdate = { ...l, [field]: value };
+        if (field === 'isPackingCharge') {
+          if (value) {
+            isPackingToggleToTrue = true;
+            lineUpdate.taxCode = packingTaxCode;
+            lineUpdate.gstRate = getTaxRateFromCode(packingTaxCode);
+            // If the line currently has no price but package charges are set, populate price
+            if ((Number(l.unitPrice) || 0) === 0 && packingCharges > 0) {
+              const qty = Math.max(1, Number(l.quantity) || 1);
+              lineUpdate.unitPrice = round2(packingCharges / qty);
+            }
+          } else {
+            // Toggled off: clear packing charges if this was the packing line
+            setPackingCharges(0);
+            setPackingPercent(0);
+          }
+        }
+        return lineUpdate;
       });
 
-      // Automatically recalculate packing charges sum if packing status or price/quantity changes
-      if (field === 'isPackingCharge' || field === 'quantity' || field === 'unitPrice' || field === 'discountPercent') {
-        const packingSum = updated
-          .filter(l => (l.productId || l.rawMaterialId) && (field === 'isPackingCharge' && l.id === lineId ? value : l.isPackingCharge))
-          .reduce((sum, l) => {
-            const qty = Number(l.quantity) || 1;
-            const price = Number(l.unitPrice) || 0;
-            const discPct = Number(l.discountPercent) || 0;
-            const discAmt = price * (discPct / 100);
-            return sum + ((price - discAmt) * qty);
-          }, 0);
-        
-        const roundedPacking = round2(packingSum);
-        setPackingCharges(roundedPacking);
+      const currentLine = updated.find(l => l.id === lineId);
+      const isPacking = Boolean(currentLine?.isPackingCharge);
 
-        const base = updated
-          .filter(l => l.productId || l.rawMaterialId)
-          .reduce((sum, l) => {
-            const qty = Number(l.quantity) || 1;
-            const price = Number(l.unitPrice) || 0;
-            const discPct = Number(l.discountPercent) || 0;
-            const discAmt = price * (discPct / 100);
-            return sum + ((price - discAmt) * qty);
-          }, 0);
-        if (base > 0) {
-          setPackingPercent(round2((roundedPacking / base) * 100));
+      // Compute subtotal of non-packing goods
+      const nonPackingLines = updated.filter(l => (l.productId || l.rawMaterialId) && !l.isPackingCharge);
+      const newGoodsTotal = round2(nonPackingLines.reduce((sum, l) => {
+        const qty = Number(l.quantity) || 1;
+        const price = Number(l.unitPrice) || 0;
+        const discPct = Number(l.discountPercent) || 0;
+        const discAmt = price * (discPct / 100);
+        return sum + ((price - discAmt) * qty);
+      }, 0));
+
+      if (isPacking && (field === 'unitPrice' || field === 'quantity' || field === 'discountPercent' || field === 'isPackingCharge')) {
+        const qty = Number(currentLine?.quantity) || 1;
+        const price = Number(currentLine?.unitPrice) || 0;
+        const discPct = Number(currentLine?.discountPercent) || 0;
+        const lineNet = round2((price - (price * (discPct / 100))) * qty);
+
+        // If toggled to packing and line already had an amount, sync charges to line
+        // Or if user edited unitPrice/quantity, sync charges to line
+        if (!isPackingToggleToTrue || lineNet > 0) {
+          setPackingCharges(lineNet);
+          const effectiveBase = newGoodsTotal > 0 ? newGoodsTotal : goodsBaseTotal;
+          if (effectiveBase > 0) {
+            setPackingPercent(round2((lineNet / effectiveBase) * 100));
+          }
+        }
+      } else if (!isPacking && (field === 'unitPrice' || field === 'quantity' || field === 'discountPercent')) {
+        if (packingPercent > 0 && newGoodsTotal > 0) {
+          const newPackingAmt = round2(newGoodsTotal * (packingPercent / 100));
+          setPackingCharges(newPackingAmt);
+          const pLine = updated.find(l => l.isPackingCharge);
+          if (pLine) {
+            const pQty = Math.max(1, Number(pLine.quantity) || 1);
+            pLine.unitPrice = round2(newPackingAmt / pQty);
+            pLine.lineTotal = newPackingAmt;
+          }
+        }
+        if (freightPercent > 0 && newGoodsTotal > 0) {
+          setFreight(round2(newGoodsTotal * (freightPercent / 100)));
+        }
+        if (loadingPercent > 0 && newGoodsTotal > 0) {
+          setLoadingCharges(round2(newGoodsTotal * (loadingPercent / 100)));
+        }
+        if (otherPercent > 0 && newGoodsTotal > 0) {
+          setOtherCharges(round2(newGoodsTotal * (otherPercent / 100)));
         }
       }
 
@@ -3774,38 +3994,130 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
         </div>
       </div>
 
-      {/* FULL SCREEN TAB STRIP */}
-      <div className="w-full flex items-end px-4 pt-2 bg-[var(--sap-bg-window)] border-b border-[var(--sap-border-inner)] gap-1 select-none overflow-x-auto">
-        {[
-          { id: 'contents', label: 'Contents' },
-          { id: 'logistics', label: 'Logistics' },
-          { id: 'accounting', label: 'Accounting' },
-          { id: 'tax', label: 'Tax' },
-          { id: 'attachments', label: 'Attachments' }
-        ].map(tab => (
+      {/* ENTERPRISE HIGH-CONTRAST TAB STRIP */}
+      <div className="w-full bg-slate-100 dark:bg-slate-800/90 border-y border-slate-300 dark:border-slate-700 px-4 py-2 flex items-center justify-between gap-3 select-none overflow-x-auto shadow-xs shrink-0">
+        <div className="flex items-center gap-2">
+          {[
+            {
+              id: 'contents',
+              label: 'Contents',
+              icon: Layers,
+              countBadge: `${lines.filter(l => l.productId || l.rawMaterialId).length} Items`,
+              sub: 'Items & Grid',
+              badgeColor: 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700'
+            },
+            {
+              id: 'logistics',
+              label: 'Logistics',
+              icon: Truck,
+              countBadge: shippingMethod ? shippingMethod.split(' ')[0] : 'Road',
+              sub: 'Dispatch & Fleet',
+              badgeColor: 'bg-indigo-100 text-indigo-900 border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-700'
+            },
+            {
+              id: 'accounting',
+              label: 'Accounting & Payment',
+              icon: CreditCard,
+              countBadge: advancePaid >= financials.grandTotal && financials.grandTotal > 0
+                ? 'PAID'
+                : (advancePaid > 0 ? `₹${advancePaid.toFixed(0)} Paid` : (paymentTerms === 'PAID' ? 'PAID' : 'DUE')),
+              sub: paymentTerms || 'Terms',
+              badgeColor: advancePaid >= financials.grandTotal && financials.grandTotal > 0
+                ? 'bg-emerald-100 text-emerald-900 border-emerald-400 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-700'
+                : (advancePaid > 0
+                  ? 'bg-amber-100 text-amber-900 border-amber-400 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-700'
+                  : 'bg-rose-100 text-rose-900 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-700')
+            },
+            {
+              id: 'tax',
+              label: 'Tax & GST Studio',
+              icon: Percent,
+              countBadge: `₹${financials.totalTax.toFixed(2)}`,
+              sub: isInterState ? 'IGST 100%' : 'CGST + SGST',
+              badgeColor: 'bg-blue-100 text-blue-900 border-blue-300 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-700'
+            },
+            {
+              id: 'attachments',
+              label: 'Attachments',
+              icon: Paperclip,
+              countBadge: `${attachments.length} files`,
+              sub: `${attachments.length} files`,
+              badgeColor: 'bg-violet-100 text-violet-900 border-violet-300 dark:bg-violet-950/60 dark:text-violet-300 dark:border-violet-700'
+            }
+          ].map(tab => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`relative min-h-[44px] px-4 py-2 rounded-lg font-bold text-xs flex items-center gap-2.5 transition-all cursor-pointer whitespace-nowrap border shadow-xs ${
+                  isActive
+                    ? 'bg-white dark:bg-slate-900 text-slate-950 dark:text-white border-amber-500 dark:border-amber-400 shadow-md ring-2 ring-amber-500/30'
+                    : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white hover:border-slate-400'
+                }`}
+              >
+                <div className={`p-1.5 rounded-md ${isActive ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-slate-200/80 dark:bg-slate-700 text-slate-500 dark:text-slate-400'}`}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <div className="flex flex-col text-left">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold tracking-tight">{tab.label}</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${tab.badgeColor}`}>
+                      {tab.countBadge}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                    {tab.sub}
+                  </span>
+                </div>
+                {isActive && (
+                  <span className="absolute bottom-0 left-3 right-3 h-[3px] bg-amber-500 dark:bg-amber-400 rounded-t-full shadow-xs" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Live Statutory Status Strip */}
+        <div className="hidden xl:flex items-center gap-2 shrink-0">
+          <div className="px-3 py-1.5 rounded-md bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold flex items-center gap-2 shadow-2xs">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-slate-500 dark:text-slate-400">Total:</span>
+            <span className="font-mono font-extrabold text-slate-900 dark:text-white">
+              ₹{financials.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+            </span>
+          </div>
           <button
-            key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-5 py-2 text-[12px] font-bold border-t border-x border-[var(--sap-border-inner)] transition-colors cursor-pointer rounded-t-xs -mb-[1px] ${
-              activeTab === tab.id
-                ? 'bg-[var(--sap-tab-active-bg)] text-[var(--sap-text)] border-b-transparent shadow-xs'
-                : 'bg-[var(--sap-tab-inactive-bg)] text-[var(--sap-text-muted)] hover:bg-[var(--sap-bg-window)] border-b-[var(--sap-border-inner)]'
+            onClick={() => setActiveTab('tax')}
+            className={`px-3 py-1.5 rounded-md border text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+              activeTab === 'tax'
+                ? 'bg-blue-600 text-white border-blue-700 shadow-sm'
+                : 'bg-blue-50 dark:bg-blue-950/50 border-blue-200 dark:border-blue-800 text-blue-800 dark:text-blue-300 hover:bg-blue-100'
             }`}
+            title="Open GST & Statutory Tax Tab"
           >
-            {tab.label}
-            {tab.id === 'contents' && activeLines.length > 0 && (
-              <span className="ml-2 px-1.5 py-0.2 bg-amber-500 text-slate-950 font-black rounded-full text-[10px]">
-                {activeLines.length}
-              </span>
-            )}
-            {tab.id === 'attachments' && attachments.length > 0 && (
-              <span className="ml-2 px-1.5 py-0.2 bg-blue-600 text-white font-black rounded-full text-[10px]">
-                {attachments.length}
-              </span>
-            )}
+            <Percent className="w-3.5 h-3.5" />
+            <span>Tax: ₹{financials.totalTax.toFixed(2)}</span>
           </button>
-        ))}
+          <button
+            type="button"
+            onClick={() => setActiveTab('accounting')}
+            className={`px-3 py-1.5 rounded-md border text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+              activeTab === 'accounting'
+                ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm'
+                : (advancePaid >= financials.grandTotal && financials.grandTotal > 0
+                  ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100'
+                  : 'bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-100')
+            }`}
+            title="Open Accounting & Payments Tab"
+          >
+            <CreditCard className="w-3.5 h-3.5" />
+            <span>Due: ₹{financials.balanceDue.toFixed(2)}</span>
+          </button>
+        </div>
       </div>
 
       {/* FULL SCREEN TAB BODY */}
@@ -4265,31 +4577,32 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                           disabled={isDocumentLocked}
                           onChange={(e) => {
                             const val = e.target.value;
-                            let rate = 5;
-                            if (val.includes('18')) rate = 18;
-                            else if (val.includes('12')) rate = 12;
-                            else if (val.includes('28')) rate = 28;
-                            else if (val === 'EXEMPT') rate = 0;
+                            const rate = getTaxRateFromCode(val);
                             handleLineChange(line.id, 'taxCode', val);
                             handleLineChange(line.id, 'gstRate', rate);
+                            if (line.isPackingCharge) {
+                              setPackingTaxCode(val);
+                            }
                           }}
                           className={`w-full h-full px-1.5 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                         >
                           {!isInterState ? (
                             <>
+                              <option value="EXEMPT">EXEMPT (0%)</option>
                               <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                              <option value="SCG9">SCG9 (9% - CGST 4.5% + SGST 4.5%)</option>
                               <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
                               <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
                               <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
-                              <option value="EXEMPT">EXEMPT (0%)</option>
                             </>
                           ) : (
                             <>
+                              <option value="EXEMPT">EXEMPT (0%)</option>
                               <option value="IGST5">IGST5 (5% - Integrated GST)</option>
+                              <option value="IGST9">IGST9 (9% - Integrated GST)</option>
                               <option value="IGST12">IGST12 (12% - Integrated GST)</option>
                               <option value="IGST18">IGST18 (18% - Integrated GST)</option>
                               <option value="IGST28">IGST28 (28% - Integrated GST)</option>
-                              <option value="EXEMPT">EXEMPT (0%)</option>
                             </>
                           )}
                         </select>
@@ -4837,619 +5150,1251 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
           </div>
         )}
 
-        {/* TAB 3: ACCOUNTING */}
+        {/* TAB 3: ACCOUNTING & FINANCIAL MANAGEMENT */}
         {activeTab === 'accounting' && (
-          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6 text-[11.5px]">
-            <div className="space-y-2.5">
-              <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 text-xs">
-                Payment Terms & Settlement
-              </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Payment Terms</label>
-                <select
-                  value={paymentTerms}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setPaymentTerms(val);
-                    if (val === 'PAID') {
-                      setAdvancePaid(financials.grandTotal);
-                    }
-                  }}
-                  className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none font-semibold"
-                >
-                  <option value="PAID">PAID</option>
-                  <option value="Not Paid">Not Paid</option>
-                  <option value="Immediate Cash">Immediate Cash</option>
-                  <option value="Net 15">Net 15 Days</option>
-                  <option value="Net 30">Net 30 Days</option>
-                  <option value="Advance Received">Advance Received</option>
-                </select>
-              </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Payment Mode</label>
-                <select
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="flex-1 h-[24px] px-2 text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                >
-                  <option value="Bank Transfer / NEFT">Bank Transfer / NEFT</option>
-                  <option value="Cash">Cash</option>
-                  <option value="UPI / QR">UPI / QR Code</option>
-                  <option value="Credit / Debit Card">Credit / Debit Card</option>
-                  <option value="Cheque">Cheque</option>
-                </select>
+          <div className="w-full space-y-4">
+            
+            {/* Top Financial KPI Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              {/* Grand Total Card */}
+              <div className="p-3.5 rounded-lg bg-gradient-to-br from-blue-500/10 via-slate-50 to-white dark:from-blue-950/30 dark:via-slate-850 dark:to-slate-900 border border-blue-200 dark:border-blue-900/60 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <DollarSign className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>Grand Document Total</span>
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
+                    INR (₹)
+                  </span>
+                </div>
+                <div className="text-xl font-mono font-black text-slate-900 dark:text-white">
+                  ₹{financials.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                  Taxable: ₹{financials.taxableSubtotal.toFixed(2)} + Tax: ₹{financials.totalTax.toFixed(2)}
+                </div>
               </div>
 
-              {/* Dynamic Payment Mode Details (Saved to Database & Exported to PDF) */}
-              {paymentMethod.includes('Bank') && (
-                <div className="p-2.5 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-xs space-y-2 mt-2">
-                  <div className="text-[11px] font-bold text-blue-900 dark:text-blue-300 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5" />
-                      <span>Bank Transfer Account & Remittance Details</span>
-                    </span>
-                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-normal">Editable & Saved</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Bank Name</label>
-                      <input
-                        type="text"
-                        value={bankTransferDetails.bankName}
-                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, bankName: e.target.value }))}
-                        placeholder="e.g. State Bank of India"
-                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Account Number</label>
-                      <input
-                        type="text"
-                        value={bankTransferDetails.accountNo}
-                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, accountNo: e.target.value }))}
-                        placeholder="e.g. 123456789012"
-                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">IFSC Code</label>
-                      <input
-                        type="text"
-                        value={bankTransferDetails.ifsc}
-                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, ifsc: e.target.value.toUpperCase() }))}
-                        placeholder="e.g. SBIN0001234"
-                        className="w-full h-[24px] px-2 text-[11px] font-mono uppercase border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Branch</label>
-                      <input
-                        type="text"
-                        value={bankTransferDetails.branch}
-                        onChange={(e) => setBankTransferDetails(prev => ({ ...prev, branch: e.target.value }))}
-                        placeholder="e.g. Salem Main Branch"
-                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">UTR / Transaction Ref No.</label>
-                    <input
-                      type="text"
-                      value={bankTransferDetails.transactionRef}
-                      onChange={(e) => setBankTransferDetails(prev => ({ ...prev, transactionRef: e.target.value }))}
-                      placeholder="e.g. UTR-20261014-998811"
-                      className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    />
-                  </div>
+              {/* Advance Paid Card */}
+              <div className="p-3.5 rounded-lg bg-gradient-to-br from-emerald-500/10 via-slate-50 to-white dark:from-emerald-950/30 dark:via-slate-850 dark:to-slate-900 border border-emerald-200 dark:border-emerald-900/60 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Advance / Settled</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400">
+                    {financials.grandTotal > 0 ? `${Math.min(100, Math.round(((Number(advancePaid) || 0) / financials.grandTotal) * 100))}%` : '0%'}
+                  </span>
                 </div>
-              )}
-
-              {paymentMethod.includes('UPI') && (
-                <div className="p-2.5 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900 rounded-xs space-y-2 mt-2">
-                  <div className="text-[11px] font-bold text-purple-900 dark:text-purple-300 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <span>📱</span>
-                      <span>UPI & Mobile Settlement Details</span>
-                    </span>
-                    <span className="text-[10px] text-purple-600 dark:text-purple-400 font-normal">Editable & Saved</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">UPI ID</label>
-                      <input
-                        type="text"
-                        value={upiDetails.upiId}
-                        onChange={(e) => setUpiDetails(prev => ({ ...prev, upiId: e.target.value }))}
-                        placeholder="e.g. merchant@upi or 9940454154@upi"
-                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Registered Mobile Number</label>
-                      <input
-                        type="text"
-                        value={upiDetails.mobileNo}
-                        onChange={(e) => setUpiDetails(prev => ({ ...prev, mobileNo: e.target.value }))}
-                        placeholder="e.g. +91 99404 54154"
-                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">UTR / Ref No.</label>
-                    <input
-                      type="text"
-                      value={upiDetails.utrRef}
-                      onChange={(e) => setUpiDetails(prev => ({ ...prev, utrRef: e.target.value }))}
-                      placeholder="e.g. UPI-9988221100"
-                      className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    />
-                  </div>
+                <div className="text-xl font-mono font-black text-emerald-700 dark:text-emerald-400">
+                  ₹{(Number(advancePaid) || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
-              )}
-
-              {paymentMethod.includes('Card') && (
-                <div className="p-2.5 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-xs space-y-2 mt-2">
-                  <div className="text-[11px] font-bold text-amber-900 dark:text-amber-300 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <CreditCard className="w-3.5 h-3.5" />
-                      <span>Card Account & Terminal Details</span>
-                    </span>
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-normal">Editable & Saved</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Card Account / Last 4 Digits</label>
-                      <input
-                        type="text"
-                        maxLength={19}
-                        value={cardDetails.cardLast4}
-                        onChange={(e) => setCardDetails(prev => ({ ...prev, cardLast4: e.target.value }))}
-                        placeholder="e.g. 4589"
-                        className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Card Network</label>
-                      <select
-                        value={cardDetails.cardNetwork}
-                        onChange={(e) => setCardDetails(prev => ({ ...prev, cardNetwork: e.target.value }))}
-                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      >
-                        <option value="Visa">Visa</option>
-                        <option value="MasterCard">MasterCard</option>
-                        <option value="RuPay">RuPay</option>
-                        <option value="American Express">American Express</option>
-                        <option value="Maestro">Maestro</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">POS Terminal / Auth Code</label>
-                    <input
-                      type="text"
-                      value={cardDetails.terminalCode}
-                      onChange={(e) => setCardDetails(prev => ({ ...prev, terminalCode: e.target.value }))}
-                      placeholder="e.g. AUTH-992211"
-                      className="w-full h-[24px] px-2 text-[11px] font-mono border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                    />
-                  </div>
+                <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden mt-1.5">
+                  <div
+                    className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                    style={{ width: `${financials.grandTotal > 0 ? Math.min(100, Math.round(((Number(advancePaid) || 0) / financials.grandTotal) * 100)) : 0}%` }}
+                  />
                 </div>
-              )}
-
-              {paymentMethod === 'Cash' && (
-                <div className="p-2.5 bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 rounded-xs space-y-2 mt-2">
-                  <div className="text-[11px] font-bold text-emerald-900 dark:text-emerald-300 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <Banknote className="w-3.5 h-3.5" />
-                      <span>Cash Counter Settlement</span>
-                    </span>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-normal">Editable & Saved</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Cash Received (₹)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={cashDetails.cashReceived || advancePaid}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setCashDetails(prev => ({ ...prev, cashReceived: val }));
-                          setAdvancePaid(val);
-                        }}
-                        className="w-full h-[24px] px-2 text-right font-mono font-bold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10.5px] text-[var(--sap-text-muted)] font-medium mb-0.5">Cashier Notes</label>
-                      <input
-                        type="text"
-                        value={cashDetails.cashierNote}
-                        onChange={(e) => setCashDetails(prev => ({ ...prev, cashierNote: e.target.value }))}
-                        placeholder="Counter 1 / Handed over to accounts"
-                        className="w-full h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Advance Received (₹)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={advancePaid}
-                  onChange={(e) => setAdvancePaid(parseFloat(e.target.value) || 0)}
-                  className="w-44 h-[24px] px-2 text-[11.5px] font-mono font-bold text-right border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none"
-                />
               </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-bold">Balance Due</label>
-                <div className="font-mono font-extrabold text-emerald-700 dark:text-emerald-400 text-sm">
-                  ₹{financials.balanceDue.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+
+              {/* Balance Due Card */}
+              <div className={`p-3.5 rounded-lg bg-gradient-to-br shadow-xs flex flex-col justify-between border ${
+                financials.balanceDue > 0
+                  ? 'from-rose-500/10 via-slate-50 to-white dark:from-rose-950/30 dark:via-slate-850 dark:to-slate-900 border-rose-200 dark:border-rose-900/60'
+                  : 'from-emerald-500/10 via-slate-50 to-white dark:from-emerald-950/30 dark:via-slate-850 dark:to-slate-900 border-emerald-200 dark:border-emerald-900/60'
+              }`}>
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className={`w-4 h-4 ${financials.balanceDue > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'}`} />
+                    <span>Balance Due</span>
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                    financials.balanceDue > 0
+                      ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                  }`}>
+                    {financials.balanceDue > 0 ? 'OUTSTANDING' : 'CLEAR'}
+                  </span>
+                </div>
+                <div className={`text-xl font-mono font-black ${
+                  financials.balanceDue > 0 ? 'text-rose-700 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'
+                }`}>
+                  ₹{financials.balanceDue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                  {financials.balanceDue > 0 ? 'To be collected per payment terms' : 'Full payment accounted'}
+                </div>
+              </div>
+
+              {/* Settlement Status Card */}
+              <div className="p-3.5 rounded-lg bg-gradient-to-br from-amber-500/10 via-slate-50 to-white dark:from-amber-950/30 dark:via-slate-850 dark:to-slate-900 border border-amber-200 dark:border-amber-900/60 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <CreditCard className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    <span>Settlement Mode</span>
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                    {paymentTerms}
+                  </span>
+                </div>
+                <div className="text-sm font-bold text-slate-800 dark:text-slate-100 truncate">
+                  {paymentMethod}
+                </div>
+                <div className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                  Account: Trade Debtors Control
                 </div>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 text-xs">
-                Financial Records
-              </div>
-              <div className="flex items-center">
-                <label className="w-36 text-[var(--sap-text-muted)] font-medium">Journal Remark</label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`Sales Order - ${selectedCustomer?.name || 'Customer'}`}
-                  className="flex-1 h-[24px] px-2 text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
-                />
+            {/* Main Accounting Two-Column Studio */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 text-xs">
+              
+              {/* Left Column (Cols 7): Payment Terms & Dynamic Mode Studio */}
+              <div className="lg:col-span-7 space-y-4">
+                
+                {/* Payment Terms & Advance Configuration */}
+                <div className="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3.5">
+                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2.5">
+                    <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm">
+                      <Wallet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span>Payment Terms & Settlement Structure</span>
+                    </div>
+                    <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800">
+                      Standard Credit Protocol
+                    </span>
+                  </div>
+
+                  {/* Payment Terms Selector */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1 text-[11px]">
+                        Payment Terms
+                      </label>
+                      <select
+                        value={paymentTerms}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPaymentTerms(val);
+                          if (val === 'PAID') {
+                            setAdvancePaid(financials.grandTotal);
+                          }
+                        }}
+                        className="w-full h-9 px-3 text-xs font-bold border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="PAID">PAID (Full Settlement)</option>
+                        <option value="Immediate Cash">Immediate Cash (Cash Sale)</option>
+                        <option value="Net 15">Net 15 Days (Credit)</option>
+                        <option value="Net 30">Net 30 Days (Credit)</option>
+                        <option value="Net 45">Net 45 Days (Credit)</option>
+                        <option value="Net 60">Net 60 Days (Credit)</option>
+                        <option value="Advance Received">Advance Received (Partial)</option>
+                        <option value="Not Paid">Not Paid (Due upon receipt)</option>
+                      </select>
+                    </div>
+
+                    {/* Advance Paid Input with Quick Buttons */}
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-600 dark:text-slate-300 font-semibold text-[11px]">
+                          Advance Received (₹)
+                        </label>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdvancePaid(financials.grandTotal);
+                              setPaymentTerms('PAID');
+                            }}
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 cursor-pointer transition-colors"
+                          >
+                            100% Full
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdvancePaid(round2(financials.grandTotal / 2));
+                              setPaymentTerms('Advance Received');
+                            }}
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-950 dark:text-blue-300 cursor-pointer transition-colors"
+                          >
+                            50%
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAdvancePaid(0);
+                              setPaymentTerms('Not Paid');
+                            }}
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300 cursor-pointer transition-colors"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-3 top-2 font-mono font-bold text-slate-400">₹</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={advancePaid}
+                          onChange={(e) => setAdvancePaid(parseFloat(e.target.value) || 0)}
+                          className="w-full h-9 pl-7 pr-3 text-right font-mono font-black text-sm border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500/20"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Payment Mode Tiles */}
+                  <div>
+                    <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-2 text-[11px]">
+                      Select Payment Mode / Settlement Channel
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      {[
+                        { id: 'Bank Transfer / NEFT', label: 'Bank / NEFT', icon: Landmark },
+                        { id: 'Cash', label: 'Cash Counter', icon: Banknote },
+                        { id: 'UPI / QR', label: 'UPI / QR', icon: Sparkles },
+                        { id: 'Credit / Debit Card', label: 'Card / POS', icon: CreditCard },
+                        { id: 'Cheque', label: 'Cheque', icon: FileText }
+                      ].map(mode => {
+                        const ModeIcon = mode.icon;
+                        const isSelected = paymentMethod === mode.id;
+                        return (
+                          <button
+                            key={mode.id}
+                            type="button"
+                            onClick={() => setPaymentMethod(mode.id)}
+                            className={`p-2.5 rounded-lg border font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                              isSelected
+                                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-500 text-amber-900 dark:text-amber-200 ring-2 ring-amber-500/20 shadow-xs'
+                                : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-750'
+                            }`}
+                          >
+                            <ModeIcon className={`w-4 h-4 ${isSelected ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}`} />
+                            <span className="text-[11px] text-center leading-tight">{mode.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dynamic Mode-Specific Settlement Panel */}
+                <div className="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                  {/* Mode: Bank Transfer */}
+                  {paymentMethod.includes('Bank') && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-blue-200 dark:border-blue-900/60 pb-2">
+                        <span className="font-bold text-blue-900 dark:text-blue-300 flex items-center gap-1.5 text-xs">
+                          <Landmark className="w-4 h-4 text-blue-600" />
+                          <span>Bank Remittance & NEFT / RTGS Transfer Details</span>
+                        </span>
+                        <span className="text-[10px] text-blue-600 dark:text-blue-400 font-semibold bg-blue-100 dark:bg-blue-950/80 px-2 py-0.5 rounded">
+                          Saved in Order Record
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Bank Name</label>
+                          <input
+                            type="text"
+                            value={bankTransferDetails.bankName}
+                            onChange={(e) => setBankTransferDetails(prev => ({ ...prev, bankName: e.target.value }))}
+                            placeholder="e.g. State Bank of India"
+                            className="w-full h-8 px-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Account Number</label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={bankTransferDetails.accountNo}
+                              onChange={(e) => setBankTransferDetails(prev => ({ ...prev, accountNo: e.target.value }))}
+                              placeholder="e.g. 123456789012"
+                              className="w-full h-8 pl-2.5 pr-8 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                            />
+                            {bankTransferDetails.accountNo && (
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(bankTransferDetails.accountNo, 'Account Number')}
+                                className="absolute right-2 top-2 text-slate-400 hover:text-blue-600 cursor-pointer"
+                                title="Copy Account Number"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">IFSC Code</label>
+                          <input
+                            type="text"
+                            value={bankTransferDetails.ifsc}
+                            onChange={(e) => setBankTransferDetails(prev => ({ ...prev, ifsc: e.target.value.toUpperCase() }))}
+                            placeholder="e.g. SBIN0001234"
+                            className="w-full h-8 px-2.5 text-xs font-mono uppercase font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Branch Name</label>
+                          <input
+                            type="text"
+                            value={bankTransferDetails.branch}
+                            onChange={(e) => setBankTransferDetails(prev => ({ ...prev, branch: e.target.value }))}
+                            placeholder="e.g. Salem Main Branch"
+                            className="w-full h-8 px-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1 text-[11px]">UTR / Transaction Reference No.</label>
+                        <input
+                          type="text"
+                          value={bankTransferDetails.transactionRef}
+                          onChange={(e) => setBankTransferDetails(prev => ({ ...prev, transactionRef: e.target.value }))}
+                          placeholder="e.g. UTR-20261014-998811"
+                          className="w-full h-8 px-2.5 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-blue-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Mode: Cash Counter */}
+                  {paymentMethod === 'Cash' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-emerald-200 dark:border-emerald-900/60 pb-2">
+                        <span className="font-bold text-emerald-900 dark:text-emerald-300 flex items-center gap-1.5 text-xs">
+                          <Banknote className="w-4 h-4 text-emerald-600" />
+                          <span>Cash Counter Settlement</span>
+                        </span>
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-100 dark:bg-emerald-950/80 px-2 py-0.5 rounded">
+                          Physical Drawer Settlement
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Cash Tendered / Received (₹)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={cashDetails.cashReceived || advancePaid}
+                            onChange={(e) => {
+                              const val = parseFloat(e.target.value) || 0;
+                              setCashDetails(prev => ({ ...prev, cashReceived: val }));
+                              setAdvancePaid(val);
+                            }}
+                            className="w-full h-8 px-2.5 text-right font-mono font-bold text-sm border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Change to Return (₹)</label>
+                          <div className="w-full h-8 px-2.5 flex items-center justify-end font-mono font-bold text-sm bg-slate-100 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200">
+                            ₹{Math.max(0, (Number(cashDetails.cashReceived || advancePaid) || 0) - financials.grandTotal).toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1 text-[11px]">Cashier / Handover Notes</label>
+                        <input
+                          type="text"
+                          value={cashDetails.cashierNote}
+                          onChange={(e) => setCashDetails(prev => ({ ...prev, cashierNote: e.target.value }))}
+                          placeholder="e.g. Received at Counter 1 / Handed over to main accounts safe"
+                          className="w-full h-8 px-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Mode: UPI / QR */}
+                  {paymentMethod.includes('UPI') && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-purple-200 dark:border-purple-900/60 pb-2">
+                        <span className="font-bold text-purple-900 dark:text-purple-300 flex items-center gap-1.5 text-xs">
+                          <Sparkles className="w-4 h-4 text-purple-600" />
+                          <span>UPI & Mobile QR Settlement Details</span>
+                        </span>
+                        <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold bg-purple-100 dark:bg-purple-950/80 px-2 py-0.5 rounded">
+                          Instant App Settlement
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Merchant / Customer UPI ID</label>
+                          <input
+                            type="text"
+                            value={upiDetails.upiId}
+                            onChange={(e) => setUpiDetails(prev => ({ ...prev, upiId: e.target.value }))}
+                            placeholder="e.g. business@upi or 9940454154@ybl"
+                            className="w-full h-8 px-2.5 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-purple-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Registered Mobile Number</label>
+                          <input
+                            type="text"
+                            value={upiDetails.mobileNo}
+                            onChange={(e) => setUpiDetails(prev => ({ ...prev, mobileNo: e.target.value }))}
+                            placeholder="e.g. +91 99404 54154"
+                            className="w-full h-8 px-2.5 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-purple-500"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1 text-[11px]">UPI Ref / UTR No.</label>
+                        <input
+                          type="text"
+                          value={upiDetails.utrRef}
+                          onChange={(e) => setUpiDetails(prev => ({ ...prev, utrRef: e.target.value }))}
+                          placeholder="e.g. UPI-9988221100"
+                          className="w-full h-8 px-2.5 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-purple-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Mode: Credit / Debit Card */}
+                  {paymentMethod.includes('Card') && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-amber-200 dark:border-amber-900/60 pb-2">
+                        <span className="font-bold text-amber-900 dark:text-amber-300 flex items-center gap-1.5 text-xs">
+                          <CreditCard className="w-4 h-4 text-amber-600" />
+                          <span>Card POS Machine & Terminal Settlement</span>
+                        </span>
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-100 dark:bg-amber-950/80 px-2 py-0.5 rounded">
+                          POS Auth Code
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Card Last 4 Digits</label>
+                          <input
+                            type="text"
+                            maxLength={4}
+                            value={cardDetails.cardLast4}
+                            onChange={(e) => setCardDetails(prev => ({ ...prev, cardLast4: e.target.value }))}
+                            placeholder="e.g. 4589"
+                            className="w-full h-8 px-2.5 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Card Network</label>
+                          <select
+                            value={cardDetails.cardNetwork}
+                            onChange={(e) => setCardDetails(prev => ({ ...prev, cardNetwork: e.target.value }))}
+                            className="w-full h-8 px-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-amber-500"
+                          >
+                            <option value="Visa">Visa</option>
+                            <option value="MasterCard">MasterCard</option>
+                            <option value="RuPay">RuPay</option>
+                            <option value="American Express">American Express</option>
+                            <option value="Maestro">Maestro</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 font-medium mb-1 text-[11px]">POS Terminal / Auth Approval Code</label>
+                        <input
+                          type="text"
+                          value={cardDetails.terminalCode}
+                          onChange={(e) => setCardDetails(prev => ({ ...prev, terminalCode: e.target.value }))}
+                          placeholder="e.g. AUTH-992211"
+                          className="w-full h-8 px-2.5 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Mode: Cheque */}
+                  {paymentMethod === 'Cheque' && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between border-b border-indigo-200 dark:border-indigo-900/60 pb-2">
+                        <span className="font-bold text-indigo-900 dark:text-indigo-300 flex items-center gap-1.5 text-xs">
+                          <FileText className="w-4 h-4 text-indigo-600" />
+                          <span>Cheque / Demand Draft Record</span>
+                        </span>
+                        <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold bg-indigo-100 dark:bg-indigo-950/80 px-2 py-0.5 rounded">
+                          Clearing Tracked
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Cheque / DD Number</label>
+                          <input
+                            type="text"
+                            value={chequeDetails.chequeNo}
+                            onChange={(e) => setChequeDetails(prev => ({ ...prev, chequeNo: e.target.value }))}
+                            placeholder="e.g. 000452"
+                            className="w-full h-8 px-2.5 text-xs font-mono font-bold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Drawn Bank</label>
+                          <input
+                            type="text"
+                            value={chequeDetails.bankName}
+                            onChange={(e) => setChequeDetails(prev => ({ ...prev, bankName: e.target.value }))}
+                            placeholder="e.g. HDFC Bank"
+                            className="w-full h-8 px-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Cheque Date</label>
+                          <input
+                            type="date"
+                            value={chequeDetails.chequeDate}
+                            onChange={(e) => setChequeDetails(prev => ({ ...prev, chequeDate: e.target.value }))}
+                            className="w-full h-8 px-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-slate-500 font-medium mb-1 text-[11px]">Clearance Status</label>
+                          <select
+                            value={chequeDetails.clearanceStatus}
+                            onChange={(e) => setChequeDetails(prev => ({ ...prev, clearanceStatus: e.target.value }))}
+                            className="w-full h-8 px-2.5 text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                          >
+                            <option value="Pending">Pending Clearance</option>
+                            <option value="Cleared">Cleared</option>
+                            <option value="Bounced">Bounced / Returned</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Editable Terms & Conditions (Saved per Order and Printed on PDF) */}
-              <div className="space-y-1.5 pt-2 border-t border-[var(--sap-border-inner)]">
-                <div className="font-bold text-slate-800 dark:text-slate-200 text-xs flex items-center justify-between">
-                  <span>Terms & Conditions</span>
-                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-normal">Saved per order & printed exclusively on PDF</span>
+              {/* Right Column (Cols 5): General Ledger Double-Entry & PDF Terms */}
+              <div className="lg:col-span-5 space-y-4">
+                
+                {/* SAP B1 General Ledger Double-Entry Preview Card */}
+                <div className="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                    <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 text-xs">
+                      <FileSpreadsheet className="w-4 h-4 text-amber-500" />
+                      <span>SAP B1 General Ledger Double-Entry Preview</span>
+                    </span>
+                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                      Balanced
+                    </span>
+                  </div>
+
+                  {/* GL Account Table */}
+                  <div className="border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden">
+                    <table className="w-full text-[11px]">
+                      <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700">
+                        <tr>
+                          <th className="py-1.5 px-2 text-left">Account Description</th>
+                          <th className="py-1.5 px-2 text-right">Debit (₹)</th>
+                          <th className="py-1.5 px-2 text-right">Credit (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+                        <tr>
+                          <td className="py-1.5 px-2 font-sans font-semibold text-slate-800 dark:text-slate-200">
+                            Trade Debtors: {selectedCustomer?.name || 'Customer Control'}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-bold text-blue-700 dark:text-blue-300">
+                            {financials.grandTotal.toFixed(2)}
+                          </td>
+                          <td className="py-1.5 px-2 text-right text-slate-400">-</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 px-2 font-sans text-slate-600 dark:text-slate-400 pl-4">
+                            ↳ Sales Revenue (Goods Subtotal)
+                          </td>
+                          <td className="py-1.5 px-2 text-right text-slate-400">-</td>
+                          <td className="py-1.5 px-2 text-right text-slate-700 dark:text-slate-300">
+                            {financials.taxableSubtotal.toFixed(2)}
+                          </td>
+                        </tr>
+                        {!isInterState ? (
+                          <>
+                            <tr>
+                              <td className="py-1.5 px-2 font-sans text-slate-600 dark:text-slate-400 pl-4">
+                                ↳ Output CGST Payable (Central)
+                              </td>
+                              <td className="py-1.5 px-2 text-right text-slate-400">-</td>
+                              <td className="py-1.5 px-2 text-right text-slate-700 dark:text-slate-300">
+                                {financials.cgst.toFixed(2)}
+                              </td>
+                            </tr>
+                            <tr>
+                              <td className="py-1.5 px-2 font-sans text-slate-600 dark:text-slate-400 pl-4">
+                                ↳ Output SGST Payable (State)
+                              </td>
+                              <td className="py-1.5 px-2 text-right text-slate-400">-</td>
+                              <td className="py-1.5 px-2 text-right text-slate-700 dark:text-slate-300">
+                                {financials.sgst.toFixed(2)}
+                              </td>
+                            </tr>
+                          </>
+                        ) : (
+                          <tr>
+                            <td className="py-1.5 px-2 font-sans text-slate-600 dark:text-slate-400 pl-4">
+                              ↳ Output IGST Payable (Integrated)
+                            </td>
+                            <td className="py-1.5 px-2 text-right text-slate-400">-</td>
+                            <td className="py-1.5 px-2 text-right text-slate-700 dark:text-slate-300">
+                              {financials.igst.toFixed(2)}
+                            </td>
+                          </tr>
+                        )}
+                        {(financials.totalChargesAmount || 0) > 0 && (
+                          <tr>
+                            <td className="py-1.5 px-2 font-sans text-slate-600 dark:text-slate-400 pl-4">
+                              ↳ Ancillary Recoveries (Logistics)
+                            </td>
+                            <td className="py-1.5 px-2 text-right text-slate-400">-</td>
+                            <td className="py-1.5 px-2 text-right text-slate-700 dark:text-slate-300">
+                              {(financials.totalChargesAmount || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                      <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-bold border-t border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white">
+                        <tr>
+                          <td className="py-1.5 px-2 font-sans">Total Balanced Entry</td>
+                          <td className="py-1.5 px-2 text-right font-mono text-emerald-700 dark:text-emerald-400">
+                            ₹{financials.grandTotal.toFixed(2)}
+                          </td>
+                          <td className="py-1.5 px-2 text-right font-mono text-emerald-700 dark:text-emerald-400">
+                            ₹{financials.grandTotal.toFixed(2)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Journal Remark */}
+                  <div>
+                    <label className="block text-slate-500 font-medium mb-1 text-[11px]">General Ledger Remark</label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`Sales Order #${docNo || editOrderId || 'NEW'} - ${selectedCustomer?.name || 'Customer'}`}
+                      className="w-full h-8 px-2.5 text-xs font-mono border border-slate-200 dark:border-slate-700 rounded bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 outline-none"
+                    />
+                  </div>
                 </div>
-                <textarea
-                  rows={5}
-                  value={orderTerms}
-                  onChange={(e) => setOrderTerms(e.target.value)}
-                  placeholder="Enter custom terms and conditions to print on this order's PDF..."
-                  className="w-full p-2 text-[11px] font-sans border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] outline-none rounded-xs leading-relaxed"
-                />
-                <div className="text-[10px] text-slate-400 dark:text-slate-500 italic">
-                  * Any edits here are saved into the database for this order and will print directly in the Terms & Conditions section of the PDF.
+
+                {/* Statutory Terms & Conditions Card (Printed on PDF) */}
+                <div className="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-2.5">
+                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                    <span className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5 text-xs">
+                      <FileText className="w-4 h-4 text-amber-500" />
+                      <span>Order Terms & Conditions (PDF Print)</span>
+                    </span>
+                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950 px-2 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                      Editable per Order
+                    </span>
+                  </div>
+
+                  {/* Quick Preset Buttons */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setOrderTerms('1. Payment terms: Net 30 days from date of invoice.\n2. Goods once dispatched cannot be returned without prior authorization.\n3. Subject to Salem jurisdiction only.')}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+                    >
+                      + Net 30 Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrderTerms('1. 100% advance payment required prior to dispatch.\n2. Delivery timeline: 3-5 working days from payment realization.\n3. Subject to Salem jurisdiction.')}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+                    >
+                      + 100% Advance
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setOrderTerms('1. 50% advance on order confirmation, balance 50% against delivery.\n2. QC inspection on arrival.\n3. Subject to Salem jurisdiction.')}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 cursor-pointer"
+                    >
+                      + 50/50 Split
+                    </button>
+                  </div>
+
+                  <textarea
+                    rows={4}
+                    value={orderTerms}
+                    onChange={(e) => setOrderTerms(e.target.value)}
+                    placeholder="Enter custom terms and conditions to print on this order's PDF invoice..."
+                    className="w-full p-2.5 text-xs font-sans border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-amber-500/20 leading-relaxed"
+                  />
+                  <div className="text-[10.5px] text-slate-400 dark:text-slate-500 italic">
+                    * Saved directly in database for this order and prints on all generated PDF invoices.
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 4: TAX & CHARGES LEDGER */}
+        {/* TAB 4: TAX ACCOUNTING & GST STUDIO */}
         {activeTab === 'tax' && (
-          <div className="w-full space-y-4 text-[11.5px]">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              {/* GST Intelligence */}
-              <div className="space-y-2.5 p-3 border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] rounded-xs">
-                <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 flex items-center justify-between">
-                  <span>GST Treatment & Supply State</span>
-                  <span className="text-[10px] px-2 py-0.5 rounded-xs bg-blue-100 text-blue-800 font-bold">
-                    Intelligent Detection
+          <div className="w-full space-y-4">
+            
+            {/* Top Statutory GST KPI Stat Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+              {/* Taxable Goods Card */}
+              <div className="p-3.5 rounded-lg bg-gradient-to-br from-blue-500/10 via-slate-50 to-white dark:from-blue-950/30 dark:via-slate-850 dark:to-slate-900 border border-blue-200 dark:border-blue-900/60 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span>Taxable Base (Goods)</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400">
+                    Net Value
                   </span>
                 </div>
-                <div className="flex items-center">
-                  <label className="w-36 text-[var(--sap-text-muted)] font-medium">Customer GSTIN</label>
+                <div className="text-xl font-mono font-black text-slate-900 dark:text-white">
+                  ₹{financials.taxableSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                  After item discounts (₹{(financials.lineDiscountTotal || 0).toFixed(2)})
+                </div>
+              </div>
+
+              {/* Ancillary Charges Card */}
+              <div className="p-3.5 rounded-lg bg-gradient-to-br from-indigo-500/10 via-slate-50 to-white dark:from-indigo-950/30 dark:via-slate-850 dark:to-slate-900 border border-indigo-200 dark:border-indigo-900/60 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Truck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <span>Logistics & Ancillary</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400">
+                    Recoveries
+                  </span>
+                </div>
+                <div className="text-xl font-mono font-black text-slate-900 dark:text-white">
+                  ₹{(financials.totalChargesAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                  Freight + Loading + Packing + Other
+                </div>
+              </div>
+
+              {/* Tax Split Card */}
+              <div className="p-3.5 rounded-lg bg-gradient-to-br from-amber-500/10 via-slate-50 to-white dark:from-amber-950/30 dark:via-slate-850 dark:to-slate-900 border border-amber-200 dark:border-amber-900/60 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <Percent className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                    <span>Statutory Tax Split</span>
+                  </span>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300">
+                    {isInterState ? 'IGST' : 'CGST + SGST'}
+                  </span>
+                </div>
+                {!isInterState ? (
+                  <div className="text-sm font-mono font-black text-slate-900 dark:text-white flex items-center justify-between">
+                    <span>CGST: ₹{financials.cgst.toFixed(2)}</span>
+                    <span className="text-slate-400">|</span>
+                    <span>SGST: ₹{financials.sgst.toFixed(2)}</span>
+                  </div>
+                ) : (
+                  <div className="text-xl font-mono font-black text-blue-700 dark:text-blue-400">
+                    IGST: ₹{financials.igst.toFixed(2)}
+                  </div>
+                )}
+                <div className="text-[10.5px] text-slate-500 dark:text-slate-400 mt-1 truncate">
+                  {isInterState ? 'Inter-State Supply to other state' : 'Intra-State Supply (50% Central / 50% State)'}
+                </div>
+              </div>
+
+              {/* Total Tax Liability Card */}
+              <div className="p-3.5 rounded-lg bg-gradient-to-br from-emerald-500/10 via-slate-50 to-white dark:from-emerald-950/30 dark:via-slate-850 dark:to-slate-900 border border-emerald-200 dark:border-emerald-900/60 shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-semibold mb-1">
+                  <span className="flex items-center gap-1.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Total GST Tax Liability</span>
+                  </span>
+                  <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400">
+                    GSTR-1 Outward
+                  </span>
+                </div>
+                <div className="text-xl font-mono font-black text-emerald-700 dark:text-emerald-400">
+                  ₹{financials.totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <div className="text-[10.5px] text-emerald-700 dark:text-emerald-400 mt-1 flex items-center gap-1 font-semibold">
+                  <Check className="w-3 h-3" />
+                  <span>100% Statutory Compliant</span>
+                </div>
+              </div>
+            </div>
+
+            {/* GST Intelligence & Place of Supply Configuration */}
+            <div className="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2.5">
+                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm">
+                  <MapPin className="w-4 h-4 text-blue-600" />
+                  <span>GST Treatment, Place of Supply & Tax Jurisdiction</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10.5px] px-2.5 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 font-bold border border-blue-200 dark:border-blue-800">
+                    Section 10 & 12 IGST Act Rules
+                  </span>
+                  {hasCustomerGstin && (
+                    <span className="text-[10.5px] px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 font-bold border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+                      <Lock className="w-3 h-3" />
+                      <span>Locked by GSTIN</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Customer GSTIN */}
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1 text-[11px]">
+                    Customer GSTIN / Tax Identification
+                  </label>
                   <input
                     type="text"
                     value={taxRegNo}
                     onChange={(e) => handleGstinInputChange(e.target.value)}
                     placeholder="33AAAAA0000A1Z5"
-                    className="flex-1 h-[24px] px-2 font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] text-[var(--sap-text)] uppercase outline-none"
+                    className="w-full h-9 px-3 font-mono font-bold text-xs uppercase border border-slate-300 dark:border-slate-700 rounded-md bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
+                  <div className="text-[10px] text-slate-400 mt-1">
+                    First 2 digits automatically configure place of supply state code.
+                  </div>
                 </div>
-                <div className="flex items-center">
-                  <label className="w-36 text-[var(--sap-text-muted)] font-medium">Place of Supply</label>
+
+                {/* Place of Supply Dropdown */}
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1 text-[11px]">
+                    Place of Supply (Delivery Destination)
+                  </label>
                   <select
                     value={placeOfSupply}
                     disabled={hasCustomerGstin}
                     onChange={(e) => handlePlaceOfSupplyChange(e.target.value)}
-                    className={`flex-1 h-[24px] px-2 text-[11.5px] font-semibold border border-[var(--sap-border-inner)] ${
-                      hasCustomerGstin ? 'bg-[var(--sap-input-readonly)] opacity-85 cursor-not-allowed' : 'bg-[var(--sap-input-bg)]'
-                    } text-[var(--sap-text)] outline-none`}
+                    className={`w-full h-9 px-3 text-xs font-semibold border border-slate-300 dark:border-slate-700 rounded-md outline-none focus:ring-2 focus:ring-blue-500/20 ${
+                      hasCustomerGstin
+                        ? 'bg-slate-100 dark:bg-slate-850 text-slate-500 cursor-not-allowed'
+                        : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white'
+                    }`}
                   >
                     {getIndianStates().map(st => (
                       <option key={st.code} value={st.code}>
-                        {st.code} - {st.name}
+                        {st.code} - {st.name} {String(st.code) === String(supplierStateCode) ? '(Home State)' : ''}
                       </option>
                     ))}
                   </select>
+                  <div className="text-[10px] text-slate-400 mt-1">
+                    {hasCustomerGstin ? '🔒 Auto-set from customer GSTIN' : 'Select buyer state of delivery'}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <label className="w-36 text-[var(--sap-text-muted)] font-medium">Tax Supply Type</label>
+
+                {/* Tax Supply Type Switcher */}
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1 text-[11px]">
+                    Tax Classification Rule
+                  </label>
                   {hasCustomerGstin ? (
-                    <div className="flex items-center gap-1.5 px-2.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded border border-slate-300 dark:border-slate-700 text-[11px] font-bold">
-                      <span className="text-amber-500">🔒</span>
-                      <span className={isInterState ? 'text-blue-700 dark:text-blue-300' : 'text-emerald-700 dark:text-emerald-300'}>
-                        {isInterState ? 'Inter-State (IGST)' : 'Intra-State (CGST + SGST)'}
+                    <div className="h-9 px-3 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 flex items-center justify-between text-xs font-bold">
+                      <span className={isInterState ? 'text-blue-700 dark:text-blue-400' : 'text-emerald-700 dark:text-emerald-400'}>
+                        {isInterState ? '🌐 INTER-STATE (IGST 100%)' : '🏛️ INTRA-STATE (CGST + SGST 50/50)'}
                       </span>
-                      <span className="text-[10px] text-slate-500 font-normal pl-1">
-                        (Locked by GSTIN)
-                      </span>
+                      <Lock className="w-3.5 h-3.5 text-amber-500" />
                     </div>
                   ) : (
-                    <div className="flex items-center bg-slate-200 dark:bg-slate-800 p-0.5 rounded border border-slate-300 dark:border-slate-700">
+                    <div className="flex items-center gap-1.5 h-9 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-md border border-slate-300 dark:border-slate-700">
                       <button
                         type="button"
                         onClick={() => handleTaxSupplyTypeChange('INTRA_STATE')}
-                        className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all cursor-pointer ${
-                          !isInterState ? 'bg-emerald-600 text-white' : 'text-slate-600 dark:text-slate-400'
+                        className={`flex-1 h-full rounded text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                          !isInterState
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                         }`}
                       >
-                        🏛️ Intra-State (CGST + SGST)
+                        <span>🏛️ Intra-State</span>
+                        <span className="text-[9.5px] opacity-80">(CGST+SGST)</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => handleTaxSupplyTypeChange('INTER_STATE')}
-                        className={`px-2 py-0.5 text-[11px] font-bold rounded transition-all cursor-pointer ${
-                          isInterState ? 'bg-blue-600 text-white' : 'text-slate-600 dark:text-slate-400'
+                        className={`flex-1 h-full rounded text-[11px] font-bold flex items-center justify-center gap-1 transition-all cursor-pointer ${
+                          isInterState
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
                         }`}
                       >
-                        🌐 Inter-State (IGST)
+                        <span>🌐 Inter-State</span>
+                        <span className="text-[9.5px] opacity-80">(IGST)</span>
                       </button>
                     </div>
                   )}
-                </div>
-                <div className="p-2.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xs text-[11px] text-blue-900 dark:text-blue-300">
-                  <div className="font-bold flex items-center gap-1.5">
-                    <span>{isInterState ? '🌐 Inter-State Supply (IGST Applied)' : '🏛️ Intra-State Supply (CGST + SGST Applied)'}</span>
-                    {hasCustomerGstin && <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold">• 🔒 Auto-Applied</span>}
-                  </div>
-                  <div className="text-[10.5px] opacity-85 mt-0.5">
-                    Seller: {getIndianStateName(supplierStateCode)} ({supplierStateCode}) ➔ Buyer Place of Supply: {getIndianStateName(placeOfSupply)} ({placeOfSupply})
+                  <div className="text-[10px] text-slate-400 mt-1">
+                    {isInterState ? 'Supplier State ≠ Buyer State' : 'Supplier State = Buyer State'}
                   </div>
                 </div>
               </div>
 
-              {/* Charges & Tax Ledger */}
-              <div className="space-y-2.5 p-3 border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] rounded-xs">
-                <div className="font-bold text-slate-800 dark:text-slate-200 border-b pb-1 flex items-center justify-between">
-                  <span>Charges & Tax Ledger</span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 font-normal">Select GST Tax Code per charge</span>
+              {/* Supply Flow Route Diagram */}
+              <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                    <span>Origin: <strong>{getIndianStateName(supplierStateCode)} ({supplierStateCode})</strong></span>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-slate-400" />
+                  <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                    <span>Destination (POS): <strong>{getIndianStateName(placeOfSupply)} ({placeOfSupply})</strong></span>
+                  </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Freight */}
-                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Freight (₹)</label>
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={freight}
-                        onChange={(e) => setFreight(parseFloat(e.target.value) || 0)}
-                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
-                      />
-                      <select
-                        value={freightTaxCode}
-                        onChange={(e) => setFreightTaxCode(e.target.value)}
-                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
-                      >
-                        {!isInterState ? (
-                          <>
-                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
-                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
-                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
-                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
-                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
-                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
-                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Loading Charges */}
-                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Loading (₹)</label>
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={loadingCharges}
-                        onChange={(e) => setLoadingCharges(parseFloat(e.target.value) || 0)}
-                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
-                      />
-                      <select
-                        value={loadingTaxCode}
-                        onChange={(e) => setLoadingTaxCode(e.target.value)}
-                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
-                      >
-                        {!isInterState ? (
-                          <>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
-                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
-                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
-                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
-                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
-                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
-                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Packing Charges */}
-                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Packing (₹)</label>
-                      {packingItemsSum > 0 ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPackingCharges(Number(packingItemsSum.toFixed(2)));
-                            setStatusMessage({
-                              type: 'ready',
-                              text: `✔ Synced ₹${packingItemsSum.toFixed(2)} from document lines marked as packing charges.`
-                            });
-                          }}
-                          className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 font-bold px-1.5 py-0.5 rounded cursor-pointer transition-colors"
-                          title="Auto-fill total from document lines where Packing? is checked"
-                        >
-                          Sync Lines (₹{packingItemsSum.toFixed(2)})
-                        </button>
-                      ) : (
-                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={packingCharges}
-                        onChange={(e) => setPackingCharges(parseFloat(e.target.value) || 0)}
-                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
-                      />
-                      <select
-                        value={packingTaxCode}
-                        onChange={(e) => setPackingTaxCode(e.target.value)}
-                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
-                      >
-                        {!isInterState ? (
-                          <>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
-                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
-                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
-                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
-                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
-                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
-                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Other Charges */}
-                  <div className="p-2 bg-[var(--sap-input-bg)] border border-[var(--sap-border-inner)] rounded-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-[var(--sap-text-muted)] font-semibold text-[11px]">Other Charges (₹)</label>
-                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold">GST Tax Code</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={otherCharges}
-                        onChange={(e) => setOtherCharges(parseFloat(e.target.value) || 0)}
-                        className="w-24 h-[24px] px-2 text-right font-mono font-bold text-[11.5px] border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none"
-                      />
-                      <select
-                        value={otherTaxCode}
-                        onChange={(e) => setOtherTaxCode(e.target.value)}
-                        className="flex-1 h-[24px] px-1 text-[10.5px] font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] text-[var(--sap-text)] outline-none cursor-pointer"
-                      >
-                        {!isInterState ? (
-                          <>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                            <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
-                            <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
-                            <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
-                            <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
-                          </>
-                        ) : (
-                          <>
-                            <option value="EXEMPT">EXEMPT (0%)</option>
-                            <option value="IGST18">IGST18 (18% - IGST 18%)</option>
-                            <option value="IGST12">IGST12 (12% - IGST 12%)</option>
-                            <option value="IGST5">IGST5 (5% - IGST 5%)</option>
-                            <option value="IGST28">IGST28 (28% - IGST 28%)</option>
-                          </>
-                        )}
-                      </select>
-                    </div>
-                  </div>
+                <div className={`px-2.5 py-1 rounded font-bold text-xs flex items-center gap-1.5 ${
+                  isInterState
+                    ? 'bg-blue-100 text-blue-900 dark:bg-blue-950 dark:text-blue-300'
+                    : 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-300'
+                }`}>
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>{isInterState ? 'IGST Applicable • Form GSTR-1 Table 5' : 'CGST + SGST Applicable • Form GSTR-1 Table 4'}</span>
                 </div>
               </div>
             </div>
 
-            {/* Tax Ledger Summary Display */}
-            <div className="p-3 bg-[var(--sap-header-bg)] border border-[var(--sap-border-inner)] rounded-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
-                <div>
-                  <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">Taxable Goods</div>
-                  <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
-                    ₹{financials.taxableSubtotal.toFixed(2)}
+            {/* Comprehensive Statutory HSN / SAC Summary Table */}
+            <div className="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm">
+                  <FileSpreadsheet className="w-4 h-4 text-blue-600" />
+                  <span>Statutory HSN / SAC Tax Summary (Form GSTR-1 Table 12 Compliant)</span>
+                </div>
+                <span className="text-[10.5px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono font-bold">
+                  {financials.gstCalcResult?.hsnSummary?.length || 1} HSN Slabs
+                </span>
+              </div>
+
+              {/* HSN Summary Table */}
+              <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold border-b border-slate-200 dark:border-slate-700">
+                    <tr>
+                      <th className="py-2 px-3 text-left">HSN / SAC</th>
+                      <th className="py-2 px-3 text-left">Description / Type</th>
+                      <th className="py-2 px-3 text-center">Tax Slab</th>
+                      <th className="py-2 px-3 text-right">Taxable Value (₹)</th>
+                      {!isInterState ? (
+                        <>
+                          <th className="py-2 px-3 text-right">CGST (₹)</th>
+                          <th className="py-2 px-3 text-right">SGST (₹)</th>
+                        </>
+                      ) : (
+                        <th className="py-2 px-3 text-right">IGST (₹)</th>
+                      )}
+                      <th className="py-2 px-3 text-right">Total GST (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-xs">
+                    {financials.gstCalcResult?.hsnSummary && financials.gstCalcResult.hsnSummary.length > 0 ? (
+                      financials.gstCalcResult.hsnSummary.map((hsnRow, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">
+                            {hsnRow.hsnCode}
+                          </td>
+                          <td className="py-2 px-3 font-sans text-slate-600 dark:text-slate-300">
+                            {hsnRow.hsnCode === '9965' ? 'Freight & Transport Services' : 'Manufactured Goods / Foam Products'}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
+                              {hsnRow.gstRate}%
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-right font-bold text-slate-900 dark:text-white">
+                            ₹{(hsnRow.taxableAmount || 0).toFixed(2)}
+                          </td>
+                          {!isInterState ? (
+                            <>
+                              <td className="py-2 px-3 text-right text-slate-700 dark:text-slate-300">
+                                ₹{(hsnRow.cgstAmount || 0).toFixed(2)}
+                                <span className="block text-[9.5px] text-slate-400 font-sans">@{hsnRow.cgstRate}%</span>
+                              </td>
+                              <td className="py-2 px-3 text-right text-slate-700 dark:text-slate-300">
+                                ₹{(hsnRow.sgstAmount || 0).toFixed(2)}
+                                <span className="block text-[9.5px] text-slate-400 font-sans">@{hsnRow.sgstRate}%</span>
+                              </td>
+                            </>
+                          ) : (
+                            <td className="py-2 px-3 text-right text-blue-700 dark:text-blue-300 font-bold">
+                              ₹{(hsnRow.igstAmount || 0).toFixed(2)}
+                              <span className="block text-[9.5px] text-slate-400 font-sans">@{hsnRow.igstRate}%</span>
+                            </td>
+                          )}
+                          <td className="py-2 px-3 text-right font-black text-emerald-700 dark:text-emerald-400">
+                            ₹{(hsnRow.totalTax || 0).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">21050000</td>
+                        <td className="py-2 px-3 font-sans text-slate-600 dark:text-slate-300">Standard Goods</td>
+                        <td className="py-2 px-3 text-center font-bold">18%</td>
+                        <td className="py-2 px-3 text-right font-bold">₹{financials.taxableSubtotal.toFixed(2)}</td>
+                        {!isInterState ? (
+                          <>
+                            <td className="py-2 px-3 text-right">₹{financials.cgst.toFixed(2)}</td>
+                            <td className="py-2 px-3 text-right">₹{financials.sgst.toFixed(2)}</td>
+                          </>
+                        ) : (
+                          <td className="py-2 px-3 text-right font-bold text-blue-600">₹{financials.igst.toFixed(2)}</td>
+                        )}
+                        <td className="py-2 px-3 text-right font-bold text-emerald-700">₹{financials.totalTax.toFixed(2)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                  <tfoot className="bg-slate-50 dark:bg-slate-800/90 font-bold border-t border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs">
+                    <tr>
+                      <td colSpan={3} className="py-2.5 px-3 font-sans">
+                        Total Statutory Outward Tax Base
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                        ₹{(financials.taxableSubtotal + (financials.totalChargesAmount || 0)).toFixed(2)}
+                      </td>
+                      {!isInterState ? (
+                        <>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                            ₹{financials.cgst.toFixed(2)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-800 dark:text-slate-200">
+                            ₹{financials.sgst.toFixed(2)}
+                          </td>
+                        </>
+                      ) : (
+                        <td className="py-2.5 px-3 text-right font-mono font-black text-blue-700 dark:text-blue-300">
+                          ₹{financials.igst.toFixed(2)}
+                        </td>
+                      )}
+                      <td className="py-2.5 px-3 text-right font-mono font-black text-emerald-700 dark:text-emerald-400">
+                        ₹{financials.totalTax.toFixed(2)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* Ancillary Logistics Charges & Tax Matrix (2x2 Grid) */}
+            <div className="p-4 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-2">
+                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-2 text-sm">
+                  <Calculator className="w-4 h-4 text-amber-500" />
+                  <span>Ancillary Charges & GST Tax Code Ledger</span>
+                </div>
+                <span className="text-[10.5px] text-slate-500 dark:text-slate-400">
+                  Select applicable GST tax code for each service charge
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* 1. Freight */}
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700/80 bg-slate-50/60 dark:bg-slate-800/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                      <Truck className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>Freight & Logistics (₹)</span>
+                    </label>
+                    <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-400">
+                      SAC 9965
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={freight}
+                      onChange={(e) => setFreight(parseFloat(e.target.value) || 0)}
+                      className="w-32 h-8 px-2.5 text-right font-mono font-bold text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-indigo-500"
+                    />
+                    <select
+                      value={freightTaxCode}
+                      onChange={(e) => handleFreightTaxCodeChange(e.target.value)}
+                      className="flex-1 h-8 px-2 text-xs font-semibold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none cursor-pointer focus:border-indigo-500"
+                    >
+                      {!isInterState ? (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                          <option value="SCG9">SCG9 (9% - CGST 4.5% + SGST 4.5%)</option>
+                          <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                          <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                          <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                          <option value="IGST9">IGST9 (9% - IGST 9%)</option>
+                          <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                          <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                          <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                        </>
+                      )}
+                    </select>
                   </div>
                 </div>
-                <div>
-                  <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">Logistics Charges</div>
-                  <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
-                    ₹{(financials.totalChargesAmount || 0).toFixed(2)}
+
+                {/* 2. Packing */}
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700/80 bg-slate-50/60 dark:bg-slate-800/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                      <Package className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Packing Charges (₹)</span>
+                    </label>
+                    {packingItemsSum > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPackingCharges(Number(packingItemsSum.toFixed(2)));
+                          setStatusMessage({
+                            type: 'ready',
+                            text: `✔ Synced ₹${packingItemsSum.toFixed(2)} from document lines marked as packing charges.`
+                          });
+                        }}
+                        className="text-[10px] bg-blue-100 hover:bg-blue-200 text-blue-800 dark:bg-blue-950 dark:text-blue-300 font-bold px-2 py-0.5 rounded cursor-pointer transition-colors"
+                        title="Auto-fill total from document lines where Packing? is checked"
+                      >
+                        Sync Lines (₹{packingItemsSum.toFixed(2)})
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-slate-400 font-bold">SAC 9985</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={packingCharges}
+                      onChange={(e) => handlePackingAmountChange(parseFloat(e.target.value) || 0)}
+                      className="w-32 h-8 px-2.5 text-right font-mono font-bold text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-amber-500"
+                    />
+                    <select
+                      value={packingTaxCode}
+                      onChange={(e) => handlePackingTaxCodeChange(e.target.value)}
+                      className="flex-1 h-8 px-2 text-xs font-semibold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none cursor-pointer focus:border-amber-500"
+                    >
+                      {!isInterState ? (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                          <option value="SCG9">SCG9 (9% - CGST 4.5% + SGST 4.5%)</option>
+                          <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                          <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                          <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                          <option value="IGST9">IGST9 (9% - IGST 9%)</option>
+                          <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                          <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                          <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                        </>
+                      )}
+                    </select>
                   </div>
                 </div>
-                {!isInterState ? (
-                  <>
-                    <div>
-                      <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">CGST Tax</div>
-                      <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
-                        ₹{financials.cgst.toFixed(2)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">SGST Tax</div>
-                      <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
-                        ₹{financials.sgst.toFixed(2)}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div>
-                    <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">IGST Tax</div>
-                    <div className="font-mono font-bold text-sm text-[var(--sap-text)]">
-                      ₹{financials.igst.toFixed(2)}
-                    </div>
+
+                {/* 3. Loading */}
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700/80 bg-slate-50/60 dark:bg-slate-800/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                      <Boxes className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Loading & Handling Charges (₹)</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-bold">SAC 9967</span>
                   </div>
-                )}
-                <div>
-                  <div className="text-[11px] text-[var(--sap-text-muted)] font-bold">Total GST Tax</div>
-                  <div className="font-mono font-bold text-sm text-emerald-700">
-                    ₹{financials.totalTax.toFixed(2)}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={loadingCharges}
+                      onChange={(e) => handleLoadingAmountChange(parseFloat(e.target.value) || 0)}
+                      className="w-32 h-8 px-2.5 text-right font-mono font-bold text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-emerald-500"
+                    />
+                    <select
+                      value={loadingTaxCode}
+                      onChange={(e) => handleLoadingTaxCodeChange(e.target.value)}
+                      className="flex-1 h-8 px-2 text-xs font-semibold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none cursor-pointer focus:border-emerald-500"
+                    >
+                      {!isInterState ? (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                          <option value="SCG9">SCG9 (9% - CGST 4.5% + SGST 4.5%)</option>
+                          <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                          <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                          <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                          <option value="IGST9">IGST9 (9% - IGST 9%)</option>
+                          <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                          <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                          <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                </div>
+
+                {/* 4. Other Charges */}
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-700/80 bg-slate-50/60 dark:bg-slate-800/40 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5 text-xs">
+                      <Percent className="w-3.5 h-3.5 text-purple-500" />
+                      <span>Other Ancillary Charges (₹)</span>
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-bold">SAC 9997</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={otherCharges}
+                      onChange={(e) => handleOtherAmountChange(parseFloat(e.target.value) || 0)}
+                      className="w-32 h-8 px-2.5 text-right font-mono font-bold text-xs border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none focus:border-purple-500"
+                    />
+                    <select
+                      value={otherTaxCode}
+                      onChange={(e) => handleOtherTaxCodeChange(e.target.value)}
+                      className="flex-1 h-8 px-2 text-xs font-semibold border border-slate-300 dark:border-slate-700 rounded bg-white dark:bg-slate-800 text-slate-900 dark:text-white outline-none cursor-pointer focus:border-purple-500"
+                    >
+                      {!isInterState ? (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="SCG5">SCG5 (5% - CGST 2.5% + SGST 2.5%)</option>
+                          <option value="SCG9">SCG9 (9% - CGST 4.5% + SGST 4.5%)</option>
+                          <option value="SCG12">SCG12 (12% - CGST 6% + SGST 6%)</option>
+                          <option value="SCG18">SCG18 (18% - CGST 9% + SGST 9%)</option>
+                          <option value="SCG28">SCG28 (28% - CGST 14% + SGST 14%)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="EXEMPT">EXEMPT (0%)</option>
+                          <option value="IGST5">IGST5 (5% - IGST 5%)</option>
+                          <option value="IGST9">IGST9 (9% - IGST 9%)</option>
+                          <option value="IGST12">IGST12 (12% - IGST 12%)</option>
+                          <option value="IGST18">IGST18 (18% - IGST 18%)</option>
+                          <option value="IGST28">IGST28 (28% - IGST 28%)</option>
+                        </>
+                      )}
+                    </select>
                   </div>
                 </div>
               </div>
@@ -5820,6 +6765,16 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
                 Freight & Logistics Charges
               </label>
+              <span
+                className={`text-[9.5px] px-1 py-0.2 rounded font-mono font-bold shrink-0 ${
+                  getTaxRateFromCode(freightTaxCode) > 0
+                    ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+                title={`Freight Tax Code: ${freightTaxCode} (${getTaxRateFromCode(freightTaxCode)}%)`}
+              >
+                {getTaxRateFromCode(freightTaxCode) > 0 ? `${getTaxRateFromCode(freightTaxCode)}% GST` : 'Exempt (0%)'}
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5879,6 +6834,16 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                   📦 Auto
                 </span>
               )}
+              <span
+                className={`text-[9.5px] px-1 py-0.2 rounded font-mono font-bold shrink-0 ${
+                  getTaxRateFromCode(packingTaxCode) > 0
+                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+                title={`Packing Tax Code: ${packingTaxCode} (${getTaxRateFromCode(packingTaxCode)}%)`}
+              >
+                {getTaxRateFromCode(packingTaxCode) > 0 ? `${getTaxRateFromCode(packingTaxCode)}% GST` : 'Exempt (0%)'}
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5932,6 +6897,16 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
                 Loading Charges
               </label>
+              <span
+                className={`text-[9.5px] px-1 py-0.2 rounded font-mono font-bold shrink-0 ${
+                  getTaxRateFromCode(loadingTaxCode) > 0
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+                title={`Loading Tax Code: ${loadingTaxCode} (${getTaxRateFromCode(loadingTaxCode)}%)`}
+              >
+                {getTaxRateFromCode(loadingTaxCode) > 0 ? `${getTaxRateFromCode(loadingTaxCode)}% GST` : 'Exempt (0%)'}
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5985,6 +6960,16 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
                 Other Charges
               </label>
+              <span
+                className={`text-[9.5px] px-1 py-0.2 rounded font-mono font-bold shrink-0 ${
+                  getTaxRateFromCode(otherTaxCode) > 0
+                    ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
+                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+                title={`Other Charges Tax Code: ${otherTaxCode} (${getTaxRateFromCode(otherTaxCode)}%)`}
+              >
+                {getTaxRateFromCode(otherTaxCode) > 0 ? `${getTaxRateFromCode(otherTaxCode)}% GST` : 'Exempt (0%)'}
+              </span>
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}

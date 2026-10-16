@@ -157,11 +157,11 @@ export function calculateOrderGst({
 
   // 4. Calculate Additional Charges
   const chargeConfig = [
-    { key: 'freight', gstFlag: 'freightGst', label: 'Freight Charges' },
-    { key: 'loadingCharges', gstFlag: 'loadingGst', label: 'Loading & Unloading' },
-    { key: 'packingCharges', gstFlag: 'packingGst', label: 'Packing Charges' },
-    { key: 'insurance', gstFlag: 'insuranceGst', label: 'Insurance Charges' },
-    { key: 'otherCharges', gstFlag: 'otherGst', label: 'Other Charges' },
+    { key: 'freight', gstFlag: 'freightGst', sac: '9965', label: 'Freight Charges' },
+    { key: 'loadingCharges', gstFlag: 'loadingGst', sac: '9967', label: 'Loading & Handling' },
+    { key: 'packingCharges', gstFlag: 'packingGst', sac: '9985', label: 'Packing Charges' },
+    { key: 'insurance', gstFlag: 'insuranceGst', sac: '9971', label: 'Insurance Charges' },
+    { key: 'otherCharges', gstFlag: 'otherGst', sac: '9997', label: 'Other Ancillary Charges' },
   ];
 
   let totalChargesAmount = 0;
@@ -244,29 +244,49 @@ export function calculateOrderGst({
     hsnMap[key].totalTax = round2(hsnMap[key].totalTax + it.totalTax);
   });
 
-  // If there are taxable charges, add them to HSN summary under General Services (9965 / 9967)
-  if (totalTaxableCharges > 0) {
-    const chargeKey = `9965_${chargesDefaultGstRate}`;
-    if (!hsnMap[chargeKey]) {
-      hsnMap[chargeKey] = {
-        hsnCode: '9965',
-        gstRate: chargesDefaultGstRate,
-        taxableAmount: 0,
-        cgstRate: isInterState ? 0 : chargesDefaultGstRate / 2,
-        cgstAmount: 0,
-        sgstRate: isInterState ? 0 : chargesDefaultGstRate / 2,
-        sgstAmount: 0,
-        igstRate: isInterState ? chargesDefaultGstRate : 0,
-        igstAmount: 0,
-        totalTax: 0,
-      };
+  // 6b. Add individual taxable charges to HSN summary with specific SAC codes & exact rates
+  chargeConfig.forEach(ch => {
+    const val = Math.max(0, Number(charges[ch.key]) || 0);
+    const isTaxable = Boolean(charges[ch.gstFlag]);
+    const customRate = charges[`${ch.key}Rate`] !== undefined 
+      ? Number(charges[`${ch.key}Rate`]) 
+      : (charges[`${ch.gstFlag}Rate`] !== undefined ? Number(charges[`${ch.gstFlag}Rate`]) : chargesDefaultGstRate);
+
+    if (val > 0 && isTaxable && customRate > 0) {
+      const chargeKey = `${ch.sac}_${customRate}`;
+      let cCgst = 0;
+      let cSgst = 0;
+      let cIgst = 0;
+      if (isInterState) {
+        cIgst = round2(val * (customRate / 100));
+      } else {
+        cCgst = round2(val * (customRate / 200));
+        cSgst = round2(val * (customRate / 200));
+      }
+      const cTax = round2(cCgst + cSgst + cIgst);
+
+      if (!hsnMap[chargeKey]) {
+        hsnMap[chargeKey] = {
+          hsnCode: ch.sac,
+          gstRate: customRate,
+          taxableAmount: 0,
+          cgstRate: isInterState ? 0 : customRate / 2,
+          cgstAmount: 0,
+          sgstRate: isInterState ? 0 : customRate / 2,
+          sgstAmount: 0,
+          igstRate: isInterState ? customRate : 0,
+          igstAmount: 0,
+          totalTax: 0,
+          description: ch.label
+        };
+      }
+      hsnMap[chargeKey].taxableAmount = round2(hsnMap[chargeKey].taxableAmount + val);
+      hsnMap[chargeKey].cgstAmount = round2(hsnMap[chargeKey].cgstAmount + cCgst);
+      hsnMap[chargeKey].sgstAmount = round2(hsnMap[chargeKey].sgstAmount + cSgst);
+      hsnMap[chargeKey].igstAmount = round2(hsnMap[chargeKey].igstAmount + cIgst);
+      hsnMap[chargeKey].totalTax = round2(hsnMap[chargeKey].totalTax + cTax);
     }
-    hsnMap[chargeKey].taxableAmount = round2(hsnMap[chargeKey].taxableAmount + totalTaxableCharges);
-    hsnMap[chargeKey].cgstAmount = round2(hsnMap[chargeKey].cgstAmount + chargesCgst);
-    hsnMap[chargeKey].sgstAmount = round2(hsnMap[chargeKey].sgstAmount + chargesSgst);
-    hsnMap[chargeKey].igstAmount = round2(hsnMap[chargeKey].igstAmount + chargesIgst);
-    hsnMap[chargeKey].totalTax = round2(hsnMap[chargeKey].totalTax + (chargesCgst + chargesSgst + chargesIgst));
-  }
+  });
 
   const hsnSummary = Object.values(hsnMap);
 
