@@ -1022,8 +1022,17 @@ const AppShell = () => {
   // Collapsible and Search States for Sidebar
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    if (window.location.pathname.startsWith('/sales/order') || window.location.pathname.startsWith('/sales/sap-order')) {
+      return true;
+    }
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/sales/order') || location.pathname.startsWith('/sales/sap-order')) {
+      setIsSidebarCollapsed(true);
+    }
+  }, [location.pathname]);
 
   const languages = [
     { code: 'en', name: 'English' },
@@ -2161,8 +2170,8 @@ const AppShell = () => {
 
         {/* --- Main Content Area --- */}
         <main className={`flex-1 min-w-0 ${
-          location.pathname.startsWith('/calendar') 
-            ? 'p-0 m-0 overflow-hidden flex flex-col bg-[#f4f5f8] dark:bg-[#0f1318]' 
+          location.pathname.startsWith('/calendar') || location.pathname.startsWith('/sales/order') || location.pathname.startsWith('/sales/sap-order')
+            ? 'p-0 m-0 overflow-y-auto flex flex-col bg-[var(--sap-bg-window,#ece9d8)]' 
             : (location.pathname.startsWith('/production/') && (location.pathname.endsWith('/add') || location.pathname.includes('/edit')))
             ? 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-2 sm:p-3 lg:p-3.5'
             : 'overflow-auto bg-slate-50 dark:bg-slate-900/50 p-4 sm:p-6 lg:p-8'

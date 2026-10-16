@@ -297,7 +297,9 @@ const updateLinesTaxCodesForSupplyType = (currentLines, toInterState) => {
 const createEmptyLine = (index = 1, isInter = false) => ({
   id: `line_${Date.now()}_${Math.random()}`,
   rowNo: index,
+  itemType: 'PRODUCT', // 'PRODUCT' | 'RAW_MATERIAL'
   productId: '',
+  rawMaterialId: null,
   systemCode: '',
   itemDescription: '',
   category: '',
@@ -311,7 +313,10 @@ const createEmptyLine = (index = 1, isInter = false) => ({
   gstRate: 5,
   distrRule: 'Main FG Warehouse',
   stock: 0,
-  rawProduct: null
+  rawProduct: null,
+  rawMaterial: null,
+  isPackingCharge: false,
+  batchAllocations: []
 });
 
 export default function SalesOrderPage() {
@@ -538,6 +543,33 @@ export default function SalesOrderPage() {
   const [isSyncingStock, setIsSyncingStock] = useState(false);
   const [lastStockSyncTime, setLastStockSyncTime] = useState(null);
 
+  // Fullscreen Studio Mode State
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullScreen = () => {
+    if (!isFullscreen) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      setIsFullscreen(true);
+    } else {
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      setIsFullscreen(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   // 1. Fetch Customers
   const { data: customers = [], isLoading: isLoadingCustomers } = useQuery({
     queryKey: ['customers-list'],
@@ -730,6 +762,14 @@ export default function SalesOrderPage() {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         setActiveGridSearchLineId(null);
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+        setIsFullscreen(false);
+      }
+      if (e.key === 'F11') {
+        e.preventDefault();
+        toggleFullScreen();
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -738,11 +778,19 @@ export default function SalesOrderPage() {
       document.removeEventListener('mousedown', handleClickOutside);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [isFullscreen]);
 
   const handleOpenGridSearch = (lineId, el, initialQuery = '') => {
     setActiveGridSearchLineId(lineId);
     setGridSearchQuery(initialQuery);
+    const targetLine = lines.find(l => l.id === lineId);
+    if (targetLine) {
+      if (targetLine.rawMaterialId || targetLine.itemType === 'RAW_MATERIAL') {
+        setGridSearchScope('RAW_MATERIALS');
+      } else {
+        setGridSearchScope('PRODUCTS');
+      }
+    }
     setGridSelectedBaseCategory('All');
     setGridSelectedSubcategory('All');
     setGridCategorySearchQuery('');
@@ -1005,6 +1053,9 @@ export default function SalesOrderPage() {
       const lineReserved = Number(line.sourceReservedQty || 0);
       const availableForInvoice = freeStock + lineReserved;
 
+      // When quantity is entered: display remaining stock
+      const remainingStock = Math.max(0, (isRM ? onHand : freeStock) - qty);
+
       let reservedQty = 0;
       let shortfallQty = 0;
       let isSufficient = true;
@@ -1037,7 +1088,9 @@ export default function SalesOrderPage() {
         ...line,
         stock: onHand,
         onHand,
+        inStock: onHand,
         freeStock,
+        remainingStock,
         reservedQty,
         shortfallQty,
         isSufficient,
@@ -1302,6 +1355,36 @@ export default function SalesOrderPage() {
     });
   };
 
+  // Change Item Type between 'PRODUCT' and 'RAW_MATERIAL'
+  const handleLineTypeChange = (lineId, newType) => {
+    if (isDocumentLocked) return;
+    setLines(prev => prev.map(l => {
+      if (l.id !== lineId) return l;
+      const currentType = l.rawMaterialId || l.itemType === 'RAW_MATERIAL' ? 'RAW_MATERIAL' : 'PRODUCT';
+      if (currentType === newType) return l;
+      return {
+        ...l,
+        itemType: newType,
+        productId: null,
+        rawMaterialId: null,
+        systemCode: '',
+        itemDescription: '',
+        category: '',
+        baseCategory: '',
+        subcategory: '',
+        unitOfSale: newType === 'RAW_MATERIAL' ? 'kg' : 'pcs',
+        unitPrice: 0,
+        discountPercent: 0,
+        stock: 0,
+        rawProduct: null,
+        rawMaterial: null,
+        isPackingCharge: false,
+        batchAllocations: []
+      };
+    }));
+    setGridSearchScope(newType === 'RAW_MATERIAL' ? 'RAW_MATERIALS' : 'PRODUCTS');
+  };
+
   // Select product for a line
   const handleSelectProductForLine = (lineId, product) => {
     if (isDocumentLocked || !product) return;
@@ -1320,6 +1403,8 @@ export default function SalesOrderPage() {
       return {
         ...l,
         productId: product.id,
+        rawMaterialId: null,
+        itemType: 'PRODUCT',
         systemCode: getProductSystemCode(product),
         itemDescription: getProductName(product),
         category: getProductCategory(product),
@@ -1331,7 +1416,9 @@ export default function SalesOrderPage() {
         taxCode: taxCd,
         gstRate: gstPct,
         stock: liveStock,
-        rawProduct: product
+        rawProduct: product,
+        rawMaterial: null,
+        batchAllocations: []
       };
     }));
 
@@ -2802,7 +2889,11 @@ export default function SalesOrderPage() {
   }, [rawMaterials, searchCatalogQuery]);
 
   return (
-    <div className="sap-doc-container min-h-screen w-full bg-[var(--sap-bg-window)] text-[var(--sap-text)] font-sans text-xs antialiased selection:bg-amber-300 selection:text-slate-900 flex flex-col">
+    <div className={`sap-doc-container w-full bg-[var(--sap-bg-window)] text-[var(--sap-text)] font-sans text-xs antialiased selection:bg-amber-300 selection:text-slate-900 flex flex-col ${
+      isFullscreen 
+        ? 'fixed inset-0 z-[9999] w-screen h-screen overflow-y-auto' 
+        : 'min-h-screen'
+    }`}>
       <style>{sapStyles}</style>
 
       {/* FULL SCREEN DOCUMENT WINDOW HEADER */}
@@ -2840,6 +2931,25 @@ export default function SalesOrderPage() {
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isSyncingStock ? 'animate-spin text-slate-950' : 'text-amber-300'}`} />
             <span>{isSyncingStock ? 'Syncing...' : 'Sync Stock'}</span>
+          </button>
+
+          {/* Full Screen Mode Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleFullScreen}
+            className={`px-2.5 py-1 text-xs rounded-xs flex items-center gap-1.5 font-bold transition-all cursor-pointer shadow-xs ${
+              isFullscreen
+                ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                : 'bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600'
+            }`}
+            title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Enter Fullscreen (F11 / Immersive Full View)'}
+          >
+            {isFullscreen ? (
+              <Minimize2 className="w-3.5 h-3.5 text-slate-950 font-bold" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5 text-amber-400" />
+            )}
+            <span>{isFullscreen ? 'Exit Fullscreen' : 'Full Screen'}</span>
           </button>
 
           <button
@@ -3656,12 +3766,13 @@ export default function SalesOrderPage() {
 
             {/* FULL SCREEN DOCUMENT LINE TABLE GRID WITH LIVE STOCK */}
             <div className="w-full flex-1 border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] overflow-x-auto max-h-[500px] shadow-sm relative">
-              <table className="w-full min-w-[1360px] border-collapse text-[11.5px] select-text">
+              <table className="w-full min-w-[1460px] border-collapse text-[11.5px] select-text">
                 <thead>
                   <tr className="bg-[var(--sap-header-bg)] text-[var(--sap-text)] border-b border-[var(--sap-border-inner)] sticky top-0 z-10 font-bold select-none text-[11px]">
                     <th className="w-10 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">#</th>
+                    <th className="w-28 py-1.5 px-1.5 border-r border-[var(--sap-border-inner)] text-center">Item Type</th>
                     <th className="w-36 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">System Code *</th>
-                    <th className="w-64 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Product Name *</th>
+                    <th className="w-64 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Product / Item Name *</th>
                     <th className="w-36 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Category *</th>
                     <th className="w-44 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Base / Subcategory</th>
                     <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">Unit of Sale *</th>
@@ -3671,11 +3782,11 @@ export default function SalesOrderPage() {
                     <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Discount %</th>
                     <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Tax Code</th>
                     <th className="w-32 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Total (LC)</th>
-                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">On-Hand</th>
-                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Free Stock</th>
+                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">In Stock</th>
+                    <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right" title="Remaining stock after deducting entered quantity">Remaining Stock</th>
                     <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Reserved</th>
-                    <th className="w-28 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">
-                      {orderMode === 'INVOICE' ? 'Stock Check' : 'Shortfall'}
+                    <th className="w-32 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">
+                      {orderMode === 'INVOICE' ? 'Stock Check' : 'Stock Check / Shortfall'}
                     </th>
                     <th className="w-10 py-1.5 px-1 text-center">✕</th>
                   </tr>
@@ -3697,13 +3808,33 @@ export default function SalesOrderPage() {
                         {line.rowNo}
                       </td>
 
+                      {/* Item Type (Product or Raw Material) */}
+                      <td className="border-r border-[var(--sap-border-inner)] p-0 text-center">
+                        <div className="flex items-center justify-center h-full px-1">
+                          <select
+                            value={line.rawMaterialId || line.itemType === 'RAW_MATERIAL' ? 'RAW_MATERIAL' : 'PRODUCT'}
+                            disabled={isDocumentLocked}
+                            onChange={(e) => handleLineTypeChange(line.id, e.target.value)}
+                            className={`w-full py-0.5 px-1 text-[10.5px] font-bold rounded-xs border transition-colors outline-none cursor-pointer ${
+                              line.rawMaterialId || line.itemType === 'RAW_MATERIAL'
+                                ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700 hover:border-blue-500'
+                                : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:border-amber-500'
+                            } ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
+                            title="Select item type: Finished Product or Raw Material"
+                          >
+                            <option value="PRODUCT">Product</option>
+                            <option value="RAW_MATERIAL">Raw Material</option>
+                          </select>
+                        </div>
+                      </td>
+
                       {/* System Code with Orange Drill-down */}
                       <td className="border-r border-[var(--sap-border-inner)] p-0">
                         <div className="flex items-center h-full px-1">
                           <input
                             type="text"
                             value={line.systemCode}
-                            placeholder="BFD101..."
+                            placeholder={line.rawMaterialId || line.itemType === 'RAW_MATERIAL' ? "RM-00..." : "BFD101..."}
                             readOnly={isDocumentLocked}
                             onChange={(e) => {
                               if (!isDocumentLocked) {
@@ -3764,7 +3895,7 @@ export default function SalesOrderPage() {
                           <input
                             type="text"
                             value={line.itemDescription}
-                            placeholder="Product Name..."
+                            placeholder={line.rawMaterialId || line.itemType === 'RAW_MATERIAL' ? "Raw Material Name..." : "Product Name..."}
                             readOnly={isDocumentLocked}
                             onChange={(e) => {
                               if (!isDocumentLocked) {
@@ -3804,7 +3935,7 @@ export default function SalesOrderPage() {
 
                       {/* Unit of Sale * */}
                       <td className="border-r border-[var(--sap-border-inner)] text-center text-[11px] font-semibold text-[var(--sap-text)]">
-                        {line.unitOfSale || 'pcs'}
+                        {line.unitOfSale || (line.rawMaterialId ? 'kg' : 'pcs')}
                       </td>
 
                       {/* Packing? Checkbox */}
@@ -3901,14 +4032,18 @@ export default function SalesOrderPage() {
                         {line.lineTotal ? `${line.lineTotal.toFixed(2)} INR` : '0.00 INR'}
                       </td>
 
-                      {/* On-Hand */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
-                        {(line.productId || line.rawMaterialId) ? line.onHand : '-'}
+                      {/* In Stock (formerly On-Hand) */}
+                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] font-bold text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
+                        {(line.productId || line.rawMaterialId) ? line.inStock : '-'}
                       </td>
 
-                      {/* Free Stock */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
-                        {(line.productId || line.rawMaterialId) ? line.freeStock : '-'}
+                      {/* Remaining Stock (In Stock minus entered Quantity) */}
+                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] bg-[var(--sap-input-readonly)]">
+                        {(line.productId || line.rawMaterialId) ? (
+                          <span className={`font-bold ${line.remainingStock === 0 && line.quantity > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-slate-200'}`}>
+                            {line.remainingStock}
+                          </span>
+                        ) : '-'}
                       </td>
 
                       {/* Reserved */}
@@ -3918,25 +4053,38 @@ export default function SalesOrderPage() {
 
                       {/* Shortfall or Stock Check */}
                       <td className="border-r border-[var(--sap-border-inner)] text-center px-1 text-[10.5px]">
-                        {line.rawMaterialId ? (
+                        {line.rawMaterialId || line.itemType === 'RAW_MATERIAL' ? (
                           <div className="flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenRMLotModal(line)}
-                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer ${
-                                (line.batchAllocations && line.batchAllocations.length > 0)
-                                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 hover:bg-amber-200'
-                              }`}
-                              title="Select Batches / Lots (FEFO)"
-                            >
-                              <Boxes className="w-3 h-3" />
-                              <span>
-                                {line.batchAllocations && line.batchAllocations.length > 0
-                                  ? `${line.batchAllocations.reduce((s, b) => s + Number(b.allocatedQty || b.quantity || 0), 0)} Allocated`
-                                  : 'Select Lots'}
-                              </span>
-                            </button>
+                            {(() => {
+                              const totalAllocated = (line.batchAllocations || []).reduce((s, b) => s + Number(b.allocatedQty || b.quantity || 0), 0);
+                              const reqQty = Number(line.quantity) || 0;
+                              const isFullyAllocated = totalAllocated >= reqQty && reqQty > 0;
+                              const isPartial = totalAllocated > 0 && totalAllocated < reqQty;
+
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenRMLotModal(line)}
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 transition-all cursor-pointer shadow-xs ${
+                                    isFullyAllocated
+                                      ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                      : isPartial
+                                      ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 font-black'
+                                      : 'bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300'
+                                  }`}
+                                  title="Batch / Lot FEFO allocation for Raw Material"
+                                >
+                                  <Boxes className="w-3.5 h-3.5" />
+                                  <span>
+                                    {isFullyAllocated
+                                      ? `${totalAllocated} Allocated`
+                                      : isPartial
+                                      ? `${totalAllocated}/${reqQty} Allocated`
+                                      : `Allocate (${reqQty})`}
+                                  </span>
+                                </button>
+                              );
+                            })()}
                           </div>
                         ) : line.productId ? (
                           orderMode === 'INVOICE' ? (
@@ -5307,19 +5455,19 @@ export default function SalesOrderPage() {
         <div className="lg:col-span-6 flex flex-col items-end space-y-1.5 text-[11.5px]">
           
           {/* Total Before Discount */}
-          <div className="flex items-center justify-end w-full max-w-[420px]">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Total Before Discount</label>
+          <div className="flex items-center justify-end w-full max-w-[480px]">
+            <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Total Before Discount</label>
             <input
               type="text"
               readOnly
               value={`₹${financials.totalBeforeDiscount.toFixed(2)} INR`}
-              className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* Discount Amount with % and ₹ Option */}
-          <div className="flex items-center justify-end w-full max-w-[420px] gap-1">
-            <div className="flex items-center gap-1.5 pr-1">
+          <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
+            <div className="flex-1 flex items-center justify-end gap-1.5 pr-2">
               <label className="text-[var(--sap-text-muted)] font-semibold text-right">Discount</label>
               {/* % or ₹ Mode Toggle */}
               <div className="inline-flex rounded-xs border border-[var(--sap-border-inner)] bg-[var(--sap-bg-window)] p-0.5 text-[10px] font-bold">
@@ -5394,16 +5542,16 @@ export default function SalesOrderPage() {
               type="text"
               readOnly
               value={`-₹${financials.docDiscAmt.toFixed(2)} INR`}
-              className="w-28 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-rose-600 dark:text-rose-400 outline-none"
+              className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-rose-600 dark:text-rose-400 outline-none"
             />
           </div>
 
           {/* Freight & Logistics Charges */}
           <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-1 text-right text-[11.5px] truncate">
-              Freight & Logistics Charges
-            </label>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
+                Freight & Logistics Charges
+              </label>
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5412,6 +5560,8 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -5444,15 +5594,15 @@ export default function SalesOrderPage() {
                 type="text"
                 readOnly
                 value={`₹${(Number(freight) || 0).toFixed(2)} INR`}
-                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-40 h-[24px] px-2 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
           {/* Package Charges (Auto-Calculated from Packing lines or Manual) */}
           <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <div className="flex items-center gap-1 pr-1 truncate">
-              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px]">Package Charges</label>
+            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">Package Charges</label>
               {packingItemsSum > 0 && (
                 <span
                   className="text-[9.5px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 px-1 py-0.2 rounded font-bold shrink-0"
@@ -5461,8 +5611,6 @@ export default function SalesOrderPage() {
                   📦 Auto
                 </span>
               )}
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5471,6 +5619,8 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -5503,17 +5653,17 @@ export default function SalesOrderPage() {
                 type="text"
                 readOnly
                 value={`₹${(Number(packingCharges) || 0).toFixed(2)} INR`}
-                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-40 h-[24px] px-2 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
           {/* Loading Charges */}
           <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-1 text-right text-[11.5px] truncate">
-              Loading Charges
-            </label>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
+                Loading Charges
+              </label>
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5522,6 +5672,8 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -5554,17 +5706,17 @@ export default function SalesOrderPage() {
                 type="text"
                 readOnly
                 value={`₹${(Number(loadingCharges) || 0).toFixed(2)} INR`}
-                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-40 h-[24px] px-2 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
           {/* Other Charges */}
           <div className="flex items-center justify-end w-full max-w-[480px] gap-1">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-1 text-right text-[11.5px] truncate">
-              Other Charges
-            </label>
-            <div className="flex items-center gap-1 shrink-0">
+            <div className="flex-1 flex items-center justify-end gap-1 pr-2 truncate">
+              <label className="text-[var(--sap-text-muted)] font-semibold text-right text-[11.5px] truncate">
+                Other Charges
+              </label>
               <button
                 type="button"
                 onClick={() => setActiveTab('tax')}
@@ -5573,6 +5725,8 @@ export default function SalesOrderPage() {
               >
                 ➔
               </button>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
               {/* % Input */}
               <div className="flex items-center gap-0.5">
                 <input
@@ -5605,24 +5759,24 @@ export default function SalesOrderPage() {
                 type="text"
                 readOnly
                 value={`₹${(Number(otherCharges) || 0).toFixed(2)} INR`}
-                className="w-24 h-[24px] px-1 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                className="w-40 h-[24px] px-2 text-right font-mono font-semibold text-[11px] border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
               />
             </div>
           </div>
 
           {/* Taxable Subtotal */}
-          <div className="flex items-center justify-end w-full max-w-[420px]">
-            <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Taxable Subtotal</label>
+          <div className="flex items-center justify-end w-full max-w-[480px]">
+            <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Taxable Subtotal</label>
             <input
               type="text"
               readOnly
               value={`₹${(financials.taxableSubtotal || 0).toFixed(2)} INR`}
-              className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* GST Tax Treatment & Supply Type Badge */}
-          <div className="flex items-center justify-between w-full max-w-[420px] px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-300 dark:border-slate-700 text-[11px]">
+          <div className="flex items-center justify-between w-full max-w-[480px] px-2.5 py-1 bg-slate-100 dark:bg-slate-800/80 rounded border border-slate-300 dark:border-slate-700 text-[11px]">
             <span className="text-[var(--sap-text-muted)] font-bold">GST Supply Type:</span>
             <span className={`font-black flex items-center gap-1 ${
               isInterState ? 'text-blue-700 dark:text-blue-400' : 'text-emerald-700 dark:text-emerald-400'
@@ -5638,60 +5792,60 @@ export default function SalesOrderPage() {
           {!isInterState ? (
             <>
               {/* CGST */}
-              <div className="flex items-center justify-end w-full max-w-[420px]">
-                <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+              <div className="flex items-center justify-end w-full max-w-[480px]">
+                <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
                   Central GST (CGST)
                 </label>
                 <input
                   type="text"
                   readOnly
                   value={`₹${(financials.cgst || 0).toFixed(2)} INR`}
-                  className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                  className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                 />
               </div>
 
               {/* SGST */}
-              <div className="flex items-center justify-end w-full max-w-[420px]">
-                <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+              <div className="flex items-center justify-end w-full max-w-[480px]">
+                <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
                   State GST (SGST)
                 </label>
                 <input
                   type="text"
                   readOnly
                   value={`₹${(financials.sgst || 0).toFixed(2)} INR`}
-                  className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                  className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
                 />
               </div>
             </>
           ) : (
             /* IGST */
-            <div className="flex items-center justify-end w-full max-w-[420px]">
-              <label className="text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+            <div className="flex items-center justify-end w-full max-w-[480px]">
+              <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
                 Integrated GST (IGST)
               </label>
               <input
                 type="text"
                 readOnly
                 value={`₹${(financials.igst || 0).toFixed(2)} INR`}
-                className="w-48 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
+                className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
               />
             </div>
           )}
 
           {/* Total GST Taxes */}
-          <div className="flex items-center justify-end w-full max-w-[420px]">
-            <label className="text-[var(--sap-text-muted)] font-bold pr-3 text-right">Total GST Tax</label>
+          <div className="flex items-center justify-end w-full max-w-[480px]">
+            <label className="flex-1 text-[var(--sap-text-muted)] font-bold pr-3 text-right">Total GST Tax</label>
             <input
               type="text"
               readOnly
               value={`₹${(financials.totalTax || 0).toFixed(2)} INR`}
-              className="w-48 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-amber-600 dark:text-amber-400 outline-none"
+              className="w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-amber-600 dark:text-amber-400 outline-none"
             />
           </div>
 
           {/* Round-Off Adjustment (PO Order Round-off Style) */}
-          <div className="flex items-center justify-end w-full max-w-[420px] gap-2">
-            <label className="flex items-center gap-1.5 text-[var(--sap-text-muted)] font-bold cursor-pointer select-none">
+          <div className="flex items-center justify-end w-full max-w-[480px] gap-2">
+            <label className="flex-1 flex items-center justify-end gap-1.5 text-[var(--sap-text-muted)] font-bold cursor-pointer select-none pr-3">
               <input
                 type="checkbox"
                 checked={isRoundingEnabled}
@@ -5704,31 +5858,31 @@ export default function SalesOrderPage() {
               type="text"
               readOnly
               value={`₹${financials.roundOff.toFixed(2)} INR`}
-              className="w-48 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              className="w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 
           {/* Net Grand Total */}
-          <div className="flex items-center justify-end w-full max-w-[420px] pt-1">
-            <label className="text-[var(--sap-text)] font-extrabold pr-3 text-right text-xs">
+          <div className="flex items-center justify-end w-full max-w-[480px] pt-1">
+            <label className="flex-1 text-[var(--sap-text)] font-extrabold pr-3 text-right text-xs">
               Net Grand Total
             </label>
             <input
               type="text"
               readOnly
               value={`₹${financials.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR`}
-              className="w-48 h-[26px] px-2 text-right font-mono font-black text-sm border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-emerald-700 dark:text-emerald-400 outline-none"
+              className="w-40 h-[26px] px-2 text-right font-mono font-black text-sm border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-emerald-700 dark:text-emerald-400 outline-none"
             />
           </div>
 
           {/* Advance Paid & Balance Due */}
-          <div className="flex items-center justify-between w-full max-w-[420px] text-xs pt-1 px-1 text-slate-600 dark:text-slate-400">
+          <div className="flex items-center justify-between w-full max-w-[480px] text-xs pt-1 px-1 text-slate-600 dark:text-slate-400">
             <span>Advance Paid: <strong className="font-mono text-slate-800 dark:text-white">₹{(Number(advancePaid) || 0).toFixed(2)}</strong></span>
             <span>Balance Due: <strong className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">₹{(financials.balanceDue || 0).toFixed(2)}</strong></span>
           </div>
 
           {/* Amount in Words */}
-          <div className="text-[10.5px] text-slate-500 font-semibold italic max-w-[420px] text-right truncate">
+          <div className="text-[10.5px] text-slate-500 font-semibold italic w-full max-w-[480px] text-right truncate">
             {financials.amountInWords}
           </div>
         </div>
