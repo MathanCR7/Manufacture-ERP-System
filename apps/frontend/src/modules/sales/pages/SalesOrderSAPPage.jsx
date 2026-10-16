@@ -416,12 +416,16 @@ export default function SalesOrderPage() {
 
   // Additional Charges & Tax Ledger
   const [freight, setFreight] = useState(0);
+  const [freightPercent, setFreightPercent] = useState(0);
   const [freightTaxCode, setFreightTaxCode] = useState('SCG18');
   const [loadingCharges, setLoadingCharges] = useState(0);
+  const [loadingPercent, setLoadingPercent] = useState(0);
   const [loadingTaxCode, setLoadingTaxCode] = useState('EXEMPT');
   const [packingCharges, setPackingCharges] = useState(0);
+  const [packingPercent, setPackingPercent] = useState(0);
   const [packingTaxCode, setPackingTaxCode] = useState('EXEMPT');
   const [otherCharges, setOtherCharges] = useState(0);
+  const [otherPercent, setOtherPercent] = useState(0);
   const [otherTaxCode, setOtherTaxCode] = useState('EXEMPT');
 
   // Dynamic Payment Method Details (Persisted per Order)
@@ -1005,7 +1009,12 @@ export default function SalesOrderPage() {
       let shortfallQty = 0;
       let isSufficient = true;
 
-      if (orderMode === 'QUOTATION') {
+      if (isRM) {
+        // Raw Materials are purchased/resale items; they NEVER go to production
+        reservedQty = Math.min(qty, freeStock);
+        shortfallQty = 0;
+        isSufficient = true;
+      } else if (orderMode === 'QUOTATION') {
         reservedQty = 0;
         shortfallQty = 0;
         isSufficient = true;
@@ -1015,7 +1024,7 @@ export default function SalesOrderPage() {
         shortfallQty = Math.max(0, qty - availableForInvoice);
         isSufficient = availableForInvoice >= qty;
       } else {
-        // Standard Order
+        // Standard Order for finished products
         reservedQty = Math.min(qty, freeStock);
         shortfallQty = Math.max(0, qty - reservedQty);
         isSufficient = freeStock >= qty;
@@ -1058,11 +1067,12 @@ export default function SalesOrderPage() {
     return activeLines.reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
   }, [activeLines]);
 
-  // Aggregate Stock Shortage & Deficit Breakdown
+  // Aggregate Stock Shortage & Deficit Breakdown (Only Manufactured Products go to production)
   const stockDeficitSummary = useMemo(() => {
-    const shortageLines = activeLines.filter(l => !l.isSufficient);
-    const totalDeficitQty = shortageLines.reduce((sum, l) => sum + l.deficit, 0);
-    const totalStockAllocated = activeLines.reduce((sum, l) => sum + l.allocatedFromStock, 0);
+    const productLines = activeLines.filter(l => !l.rawMaterialId && l.itemType !== 'RAW_MATERIAL');
+    const shortageLines = productLines.filter(l => !l.isSufficient && (l.shortfallQty > 0 || l.deficit > 0));
+    const totalDeficitQty = shortageLines.reduce((sum, l) => sum + (l.deficit || l.shortfallQty || 0), 0);
+    const totalStockAllocated = productLines.reduce((sum, l) => sum + (l.allocatedFromStock || l.reservedQty || 0), 0);
     const allInStock = shortageLines.length === 0;
 
     return {
@@ -1195,6 +1205,61 @@ export default function SalesOrderPage() {
     advancePaid
   ]);
 
+  // Base total for calculating charges percentage (Net Subtotal before additional charges)
+  const baseTotalAmount = useMemo(() => {
+    const net = Math.max(0, (financials?.totalBeforeDiscount || 0) - (financials?.lineDiscountTotal || 0));
+    return net > 0 ? net : (financials?.totalBeforeDiscount || 0);
+  }, [financials?.totalBeforeDiscount, financials?.lineDiscountTotal]);
+
+  // Dual percentage & amount change handlers for all charges:
+  const handleFreightAmountChange = (amt) => {
+    const safeAmt = Math.max(0, amt);
+    setFreight(safeAmt);
+    setFreightPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+  };
+
+  const handleFreightPercentChange = (pct) => {
+    const safePct = Math.max(0, pct);
+    setFreightPercent(safePct);
+    setFreight(round2(baseTotalAmount * (safePct / 100)));
+  };
+
+  const handlePackingAmountChange = (amt) => {
+    const safeAmt = Math.max(0, amt);
+    setPackingCharges(safeAmt);
+    setPackingPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+  };
+
+  const handlePackingPercentChange = (pct) => {
+    const safePct = Math.max(0, pct);
+    setPackingPercent(safePct);
+    setPackingCharges(round2(baseTotalAmount * (safePct / 100)));
+  };
+
+  const handleLoadingAmountChange = (amt) => {
+    const safeAmt = Math.max(0, amt);
+    setLoadingCharges(safeAmt);
+    setLoadingPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+  };
+
+  const handleLoadingPercentChange = (pct) => {
+    const safePct = Math.max(0, pct);
+    setLoadingPercent(safePct);
+    setLoadingCharges(round2(baseTotalAmount * (safePct / 100)));
+  };
+
+  const handleOtherAmountChange = (amt) => {
+    const safeAmt = Math.max(0, amt);
+    setOtherCharges(safeAmt);
+    setOtherPercent(baseTotalAmount > 0 ? round2((safeAmt / baseTotalAmount) * 100) : 0);
+  };
+
+  const handleOtherPercentChange = (pct) => {
+    const safePct = Math.max(0, pct);
+    setOtherPercent(safePct);
+    setOtherCharges(round2(baseTotalAmount * (safePct / 100)));
+  };
+
   // Update specific line field
   const handleLineChange = (lineId, field, value) => {
     if (isDocumentLocked) return;
@@ -1216,7 +1281,21 @@ export default function SalesOrderPage() {
             return sum + ((price - discAmt) * qty);
           }, 0);
         
-        setPackingCharges(round2(packingSum));
+        const roundedPacking = round2(packingSum);
+        setPackingCharges(roundedPacking);
+
+        const base = updated
+          .filter(l => l.productId || l.rawMaterialId)
+          .reduce((sum, l) => {
+            const qty = Number(l.quantity) || 1;
+            const price = Number(l.unitPrice) || 0;
+            const discPct = Number(l.discountPercent) || 0;
+            const discAmt = price * (discPct / 100);
+            return sum + ((price - discAmt) * qty);
+          }, 0);
+        if (base > 0) {
+          setPackingPercent(round2((roundedPacking / base) * 100));
+        }
       }
 
       return updated;
@@ -2048,15 +2127,13 @@ export default function SalesOrderPage() {
         icon: 'success',
         showCancelButton: true,
         showDenyButton: !isInvoice && !isQuotation && hasShortages,
-        confirmButtonText: '🖨️ Print Document PDF',
+        confirmButtonText: 'Create Another Order',
         denyButtonText: '📋 View Production Requirements',
-        cancelButtonText: 'Create Another Order',
-        confirmButtonColor: isInvoice ? '#2563eb' : '#f0b429',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#2563eb',
         denyButtonColor: '#4f46e5'
       }).then((result) => {
-        if (result.isConfirmed) {
-          handlePrintPDF(data);
-        } else if (result.isDenied) {
+        if (result.isDenied) {
           navigate('/production/requirements');
         }
         handleResetForm();

@@ -1251,7 +1251,7 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
           }
         } else if (docType === 'Sales Order') {
           reservedQty = Math.min(qty, rmStock);
-          shortfallQty = Math.max(0, qty - reservedQty);
+          shortfallQty = 0; // Raw materials are purchased items; they do not go to production
         }
       } else {
         // ─── STRICT ATOMIC STOCK CHECK FOR INVOICES ───
