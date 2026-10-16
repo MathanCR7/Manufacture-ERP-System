@@ -13,33 +13,33 @@ async function main() {
   const company = await prisma.companyDetails.upsert({
     where: { id: '00000000-0000-0000-0000-000000000001' },
     update: {
-      companyName: 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
-      companyAddress: 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
-      companyGstin: '33AABCA1234F1Z8',
-      companyPan: 'AABCA1234F',
-      companyMobile: '+91 94433 12345',
-      email: 'accounts@antigravitydairy.com',
+      companyName: 'Leonex',
+      companyAddress: 'Factory / Registered Office Address',
+      companyGstin: '33AAWCS2781F1ZZ',
+      companyPan: 'AAWCS2781F',
+      companyMobile: '+91 99404 54154',
+      email: null,
       stateCode: '33',
-      bankName: 'HDFC Bank Ltd',
-      bankAccountNo: '50200012345678',
-      bankIfsc: 'HDFC0001234',
-      bankBranch: 'Salem Junction Branch',
-      termsAndConditions: '1. Goods once sold will not be accepted without inspection.\n2. Interest @ 18% p.a. charged after due date.\n3. Subject to Salem Jurisdiction.'
+      bankName: null,
+      bankAccountNo: null,
+      bankIfsc: null,
+      bankBranch: null,
+      termsAndConditions: '1. Goods once sold will not be accepted without inspection.\n2. Interest @ 18% p.a. charged after due date.\n3. Subject to jurisdiction.'
     },
     create: {
       id: '00000000-0000-0000-0000-000000000001',
-      companyName: 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
-      companyAddress: 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
-      companyGstin: '33AABCA1234F1Z8',
-      companyPan: 'AABCA1234F',
-      companyMobile: '+91 94433 12345',
-      email: 'accounts@antigravitydairy.com',
+      companyName: 'Leonex',
+      companyAddress: 'Factory / Registered Office Address',
+      companyGstin: '33AAWCS2781F1ZZ',
+      companyPan: 'AAWCS2781F',
+      companyMobile: '+91 99404 54154',
+      email: null,
       stateCode: '33',
-      bankName: 'HDFC Bank Ltd',
-      bankAccountNo: '50200012345678',
-      bankIfsc: 'HDFC0001234',
-      bankBranch: 'Salem Junction Branch',
-      termsAndConditions: '1. Goods once sold will not be accepted without inspection.\n2. Interest @ 18% p.a. charged after due date.\n3. Subject to Salem Jurisdiction.'
+      bankName: null,
+      bankAccountNo: null,
+      bankIfsc: null,
+      bankBranch: null,
+      termsAndConditions: '1. Goods once sold will not be accepted without inspection.\n2. Interest @ 18% p.a. charged after due date.\n3. Subject to jurisdiction.'
     }
   });
   console.log(`✅ Company set: ${company.companyName} (GSTIN: ${company.companyGstin}, State: ${company.stateCode})`);

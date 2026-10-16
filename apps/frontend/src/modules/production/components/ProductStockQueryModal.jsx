@@ -110,7 +110,7 @@ export default function ProductStockQueryModal({
     staleTime: 5 * 60 * 1000,
   });
 
-  const liveCompanyName = taxSettings?.companyName?.trim() || 'ANTIGRAVITY MANUFACTURING ERP';
+  const liveCompanyName = taxSettings?.companyName?.trim() || 'MANUFACTURING ERP';
 
   // Dynamic Financial Year (e.g. 2026-2027)
   const financialYear = useMemo(() => {

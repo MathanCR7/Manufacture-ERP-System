@@ -1010,7 +1010,7 @@ export default function SalesBillingPage() {
     const custPhone = completedOrder?.customerPhone || selectedCustomer?.phone || selectedCustomer?.mobile || '';
     const cleanDigits = custPhone.replace(/\D/g, '');
     const docNo = completedOrder?.docNo || completedOrder?.referenceNo || liveReceiptNumber;
-    const compName = companyDetails?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED';
+    const compName = companyDetails?.companyName || 'LEONEX';
     const dateStr = new Date().toLocaleDateString('en-GB');
     const grandTotStr = `₹${Number(completedOrder?.grandTotal || grandTotal).toLocaleString('en-IN')}`;
 
@@ -1114,10 +1114,10 @@ export default function SalesBillingPage() {
       {/* 1. COMPACT MISSION-CRITICAL POS SCREEN HEADER */}
       <PosHeader
         business={{
-          name: companyDetails?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
+          name: companyDetails?.companyName || 'LEONEX',
           branch: sellerStateObj?.name || 'Tamil Nadu',
           logoUrl: companyDetails?.logoUrl || '',
-          companyName: companyDetails?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
+          companyName: companyDetails?.companyName || 'LEONEX',
           companyAddress: companyDetails?.companyAddress || 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
           companyGstin: companyDetails?.companyGstin || '33AABCA1234F1Z8',
           companyPan: companyDetails?.companyPan || 'AABCA1234F',

@@ -215,7 +215,7 @@ export const PosHeader = React.memo(function PosHeader({
   // Safe fallback resolution for Live PostgreSQL Business Profile from /setup/tax
   const companyProfile = useMemo(() => {
     const raw = { ...(liveCompanyData || {}), ...(business || {}) };
-    const compName = raw.companyName || raw.name || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED';
+    const compName = raw.companyName || raw.name || 'LEONEX';
     const stateName = raw.branch || (raw.stateCode === '33' ? 'Tamil Nadu' : (raw.companyAddress?.includes('Tamil Nadu') ? 'Tamil Nadu' : 'Tamil Nadu'));
     return {
       name: compName,

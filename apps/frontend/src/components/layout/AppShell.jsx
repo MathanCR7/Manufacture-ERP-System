@@ -1022,17 +1022,8 @@ const AppShell = () => {
   // Collapsible and Search States for Sidebar
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
-    if (window.location.pathname.startsWith('/sales/order') || window.location.pathname.startsWith('/sales/sap-order')) {
-      return true;
-    }
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
-
-  useEffect(() => {
-    if (location.pathname.startsWith('/sales/order') || location.pathname.startsWith('/sales/sap-order')) {
-      setIsSidebarCollapsed(true);
-    }
-  }, [location.pathname]);
 
   const languages = [
     { code: 'en', name: 'English' },

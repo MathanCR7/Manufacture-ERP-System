@@ -5,6 +5,7 @@ const prisma = require('../database/prisma');
  * Generates sequences with Month & Financial Year, e.g.:
  * INV/26-27/10/0001, POS/26-27/10/0001, SO/26-27/10/0001, QT/26-27/10/0001
  * Allowing up to 9,999 documents per month per series.
+ * Guarantees zero duplicate referenceNo / docNo even across soft-deleted records or manual inputs.
  */
 class DocumentSeriesService {
   /**
@@ -66,6 +67,36 @@ class DocumentSeriesService {
   }
 
   /**
+   * Get all used sequence numbers for a given prefix and period from customerOrder
+   */
+  async getUsedNumbers(prefix, fy, month, tx = prisma) {
+    const periodPrefix = `${prefix}/${fy}/${month}/`;
+    const orders = await tx.customerOrder.findMany({
+      where: {
+        OR: [
+          { docNo: { startsWith: periodPrefix } },
+          { referenceNo: { startsWith: periodPrefix } }
+        ]
+      },
+      select: { docNo: true, referenceNo: true }
+    });
+
+    const used = new Set();
+    for (const ord of orders) {
+      for (const val of [ord.docNo, ord.referenceNo]) {
+        if (val && typeof val === 'string' && val.startsWith(periodPrefix)) {
+          const parts = val.split('/');
+          const num = parseInt(parts[parts.length - 1], 10);
+          if (!isNaN(num) && num > 0) {
+            used.add(num);
+          }
+        }
+      }
+    }
+    return used;
+  }
+
+  /**
    * Generates next document number atomically within a transaction
    * Structure: {PREFIX}/{FY}/{MONTH}/{XXXX} (e.g. INV/26-27/10/0001)
    */
@@ -73,6 +104,8 @@ class DocumentSeriesService {
     const prefix = this.getPrefix(type);
     const { fy, month, fyMonth } = this.getFinancialYear();
     const seriesType = prefix;
+
+    const usedNumbers = await this.getUsedNumbers(prefix, fy, month, tx);
 
     const existingSeries = await tx.documentSeries.findUnique({
       where: {
@@ -83,60 +116,31 @@ class DocumentSeriesService {
       }
     });
 
+    let candidateNo = existingSeries ? (existingSeries.currentNo || 0) + 1 : 1;
+
+    // Advance candidateNo until it finds an unused number in customerOrder
+    while (usedNumbers.has(candidateNo)) {
+      candidateNo++;
+    }
+
     let series;
     if (existingSeries) {
       series = await tx.documentSeries.update({
         where: { id: existingSeries.id },
-        data: { currentNo: { increment: 1 } },
+        data: { currentNo: candidateNo },
       });
     } else {
-      // Find highest existing order number for this prefix in customer orders or old yearly series
-      let highestNo = 0;
-
-      const oldYearlySeries = await tx.documentSeries.findUnique({
-        where: {
-          type_financialYear: {
-            type: seriesType,
-            financialYear: fy,
-          }
-        }
-      });
-      if (oldYearlySeries) {
-        highestNo = Math.max(highestNo, Number(oldYearlySeries.currentNo || 0));
-      }
-
-      const orders = await tx.customerOrder.findMany({
-        where: {
-          deletedAt: null,
-          OR: [
-            { docNo: { startsWith: `${prefix}/` } },
-            { referenceNo: { startsWith: `${prefix}/` } }
-          ]
-        },
-        select: { docNo: true, referenceNo: true }
-      });
-
-      for (const ord of orders) {
-        const parts = (ord.docNo || ord.referenceNo || '').split('/');
-        const lastPart = parts[parts.length - 1];
-        const num = parseInt(lastPart, 10);
-        if (!isNaN(num) && num > highestNo) {
-          highestNo = num;
-        }
-      }
-
-      const startingNo = highestNo + 1;
       series = await tx.documentSeries.create({
         data: {
           type: seriesType,
           prefix,
           financialYear: fyMonth,
-          currentNo: startingNo,
+          currentNo: candidateNo,
         }
       });
     }
 
-    const formattedNo = String(series.currentNo).padStart(4, '0');
+    const formattedNo = String(candidateNo).padStart(4, '0');
     const docNo = `${prefix}/${fy}/${month}/${formattedNo}`;
 
     return {
@@ -144,7 +148,7 @@ class DocumentSeriesService {
       prefix,
       financialYear: fyMonth,
       month,
-      sequenceNo: series.currentNo,
+      sequenceNo: candidateNo,
     };
   }
 
@@ -156,6 +160,8 @@ class DocumentSeriesService {
     const { fy, month, fyMonth } = this.getFinancialYear();
     const seriesType = prefix;
 
+    const usedNumbers = await this.getUsedNumbers(prefix, fy, month, tx);
+
     const series = await tx.documentSeries.findUnique({
       where: {
         type_financialYear: {
@@ -165,43 +171,9 @@ class DocumentSeriesService {
       }
     });
 
-    let nextSeq = 1;
-    if (series) {
-      nextSeq = (series.currentNo || 0) + 1;
-    } else {
-      let highestNo = 0;
-      const oldYearlySeries = await tx.documentSeries.findUnique({
-        where: {
-          type_financialYear: {
-            type: seriesType,
-            financialYear: fy,
-          }
-        }
-      });
-      if (oldYearlySeries) {
-        highestNo = Math.max(highestNo, Number(oldYearlySeries.currentNo || 0));
-      }
-
-      const orders = await tx.customerOrder.findMany({
-        where: {
-          deletedAt: null,
-          OR: [
-            { docNo: { startsWith: `${prefix}/` } },
-            { referenceNo: { startsWith: `${prefix}/` } }
-          ]
-        },
-        select: { docNo: true, referenceNo: true }
-      });
-
-      for (const ord of orders) {
-        const parts = (ord.docNo || ord.referenceNo || '').split('/');
-        const lastPart = parts[parts.length - 1];
-        const num = parseInt(lastPart, 10);
-        if (!isNaN(num) && num > highestNo) {
-          highestNo = num;
-        }
-      }
-      nextSeq = highestNo + 1;
+    let nextSeq = series ? (series.currentNo || 0) + 1 : 1;
+    while (usedNumbers.has(nextSeq)) {
+      nextSeq++;
     }
 
     const formattedNo = String(nextSeq).padStart(4, '0');
@@ -214,6 +186,46 @@ class DocumentSeriesService {
       month,
       sequenceNo: nextSeq,
     };
+  }
+
+  /**
+   * Synchronize documentSeries currentNo when a candidate document number is committed
+   */
+  async syncDocumentNumber(docNo, tx = prisma) {
+    if (!docNo || typeof docNo !== 'string') return;
+    const parts = docNo.split('/');
+    if (parts.length === 4) {
+      const [prefix, fy, month, numStr] = parts;
+      const num = parseInt(numStr, 10);
+      if (!isNaN(num) && num > 0) {
+        const fyMonth = `${fy}/${month}`;
+        const existing = await tx.documentSeries.findUnique({
+          where: {
+            type_financialYear: {
+              type: prefix,
+              financialYear: fyMonth,
+            }
+          }
+        });
+        if (existing) {
+          if (num > (existing.currentNo || 0)) {
+            await tx.documentSeries.update({
+              where: { id: existing.id },
+              data: { currentNo: num }
+            });
+          }
+        } else {
+          await tx.documentSeries.create({
+            data: {
+              type: prefix,
+              prefix,
+              financialYear: fyMonth,
+              currentNo: num
+            }
+          });
+        }
+      }
+    }
   }
 }
 

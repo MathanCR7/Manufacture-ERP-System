@@ -578,7 +578,7 @@ export default function SalesListPage() {
     const dateStr = new Date(order.createdAt).toLocaleDateString('en-GB');
     const custName = order.customerName || order.customer?.name || 'Valued Client';
     const activeSettings = companySettings || storeCompany;
-    const company = activeSettings?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED';
+    const company = activeSettings?.companyName || 'LEONEX';
 
     // 1. Fetch full order if items are missing or empty
     let fullOrder = order;
@@ -667,12 +667,6 @@ ${Number(fullOrder.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(fu
 💳 *PAYMENT SETTLEMENT:*
 • Mode : ${fullOrder.paymentMode || fullOrder.paymentMethod || fullOrder.paymentTerms || 'Bank Transfer'}
 • Status : ${fullOrder.paymentStatus || 'PENDING'}
-
-🏦 *BANK REMITTANCE (NEFT/RTGS):*
-• Bank : ${activeSettings?.bankName || 'State Bank of India'}
-• A/C No : ${activeSettings?.bankAccountNo || activeSettings?.bankAccountNumber || '123456789012'}
-• IFSC : ${activeSettings?.bankIfsc || activeSettings?.bankIfscCode || 'SBIN0001234'}
-• Branch : ${activeSettings?.bankBranch || 'Main Branch'}
 
 📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*
 ${publicPdfUrl}

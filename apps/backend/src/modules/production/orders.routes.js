@@ -800,12 +800,12 @@ const getOrderPdfHandler = async (req, res, next) => {
       companyGstin: company?.companyGstin || taxSettings?.companyGstin || '33AAWCS2781F1ZZ',
       companyPan: company?.companyPan || taxSettings?.companyPan || 'AAWCS2781F',
       companyMobile: company?.companyMobile || taxSettings?.companyMobile || '+91 99404 54154',
-      companyEmail: company?.email || company?.companyEmail || taxSettings?.companyEmail || 'billing@leonex.com',
+      companyEmail: company?.email || company?.companyEmail || taxSettings?.companyEmail || '',
       stateCode: company?.stateCode || taxSettings?.stateCode || '33',
-      bankName: company?.bankName || taxSettings?.bankName || 'State Bank of India',
-      bankAccountNo: company?.bankAccountNo || company?.bankAccountNumber || taxSettings?.bankAccountNo || taxSettings?.bankAccountNumber || '123456789012',
-      bankIfsc: company?.bankIfsc || company?.bankIfscCode || taxSettings?.bankIfsc || taxSettings?.bankIfscCode || 'SBIN0001234',
-      bankBranch: company?.bankBranch || taxSettings?.bankBranch || 'Main Branch',
+      bankName: company?.bankName || taxSettings?.bankName || '',
+      bankAccountNo: company?.bankAccountNo || company?.bankAccountNumber || taxSettings?.bankAccountNo || taxSettings?.bankAccountNumber || '',
+      bankIfsc: company?.bankIfsc || company?.bankIfscCode || taxSettings?.bankIfsc || taxSettings?.bankIfscCode || '',
+      bankBranch: company?.bankBranch || taxSettings?.bankBranch || '',
       termsAndConditions: company?.termsAndConditions || company?.invoiceTerms || taxSettings?.termsAndConditions || taxSettings?.invoiceTerms
     };
 
@@ -1145,14 +1145,37 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     let documentSeries = seriesPrefix;
 
     if (docType !== 'Invoice') {
-      const isDocNoValid = data.docNo && data.docNo !== 'NaN' && !String(data.docNo).includes('NaN');
+      const isDocNoValid = data.docNo && 
+                           data.docNo !== 'NaN' && 
+                           !String(data.docNo).includes('NaN') && 
+                           data.docNo !== 'Assigned on posting';
+      let candidateAvailable = false;
       if (isDocNoValid) {
-        docNo = data.docNo;
-        referenceNo = data.docNo;
-      } else {
+        const candidateStr = String(data.docNo).trim();
+        // Check if candidate referenceNo or docNo is already taken in customerOrder
+        const existingOrder = await tx.customerOrder.findFirst({
+          where: {
+            OR: [
+              { referenceNo: candidateStr },
+              { docNo: candidateStr }
+            ]
+          },
+          select: { id: true }
+        });
+        if (!existingOrder) {
+          candidateAvailable = true;
+          docNo = candidateStr;
+          referenceNo = candidateStr;
+          // Synchronize document series so sequence stays ahead
+          await documentSeriesService.syncDocumentNumber(candidateStr, tx);
+        }
+      }
+
+      if (!candidateAvailable) {
         const seriesResult = await documentSeriesService.getNextNumber(seriesPrefix, tx);
         docNo = seriesResult.docNo;
         referenceNo = seriesResult.docNo;
+        documentSeries = seriesResult.prefix;
       }
     }
 
@@ -1436,11 +1459,28 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       finalInternalNote += `\n[Attachment]: ${data.attachmentUrl}`;
     }
 
-    // 8. Create CustomerOrder record
+    // 8. Create CustomerOrder record (with guaranteed collision prevention on referenceNo)
+    let finalReferenceNo = referenceNo;
+    let finalDocNo = docNo;
+
+    // Safety check: ensure referenceNo is not already taken
+    const collisionCheck = await tx.customerOrder.findFirst({
+      where: { referenceNo: finalReferenceNo },
+      select: { id: true }
+    });
+    if (collisionCheck) {
+      const freshSeries = await documentSeriesService.getNextNumber(seriesPrefix || 'SO', tx);
+      finalReferenceNo = freshSeries.docNo;
+      finalDocNo = freshSeries.docNo;
+      referenceNo = finalReferenceNo;
+      docNo = finalDocNo;
+      documentSeries = freshSeries.prefix;
+    }
+
     const createdOrder = await tx.customerOrder.create({
       data: {
-        referenceNo,
-        docNo,
+        referenceNo: finalReferenceNo,
+        docNo: finalDocNo,
         documentSeries,
         sourceOrderId: data.sourceOrderId || null,
         customerId: customer.id,

@@ -449,7 +449,7 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     const companyGstin = settings?.companyGstin || settings?.taxRegNo || '33AAWCS2781F1ZZ';
     const companyPan = settings?.companyPan || 'AAWCS2781F';
     const companyMobile = settings?.companyMobile || settings?.mobile || '+91 99404 54154';
-    const companyEmail = settings?.companyEmail || settings?.email || 'billing@leonex.com';
+    const companyEmail = settings?.companyEmail || settings?.email || '';
     const sellerState = settings?.stateCode || (companyGstin ? companyGstin.substring(0, 2) : '33');
 
     const docNo = invoice.docNo || invoice.referenceNo || 'SO-000001';
@@ -547,8 +547,8 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     doc.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text(companyName, 30, 24);
     doc.fontSize(8).font('Helvetica').fillColor('#475569');
     doc.text(companyAddress, 30, 44, { width: 310, lineGap: 1 });
-    doc.text(`GSTIN: ${companyGstin} | PAN: ${companyPan} | Mobile: ${companyMobile}`, 30, 66);
-    doc.text(`State Code: ${sellerState} | Email: ${companyEmail}`, 30, 78);
+    doc.text(`GSTIN: ${companyGstin} | PAN: ${companyPan} | Contact: ${companyMobile}`, 30, 66);
+    doc.text(`State Code: ${sellerState}`, 30, 78);
 
     // Document Meta Box (Top Right)
     doc.fillColor('#f8fafc').rect(365, 22, 200, 66).fill();
@@ -689,12 +689,10 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
 
     doc.fontSize(7.5).font('Helvetica').fillColor('#334155');
     doc.text(`Payment Mode: ${paymentMode} | Status: ${paymentStatus}`, 38, totalsY + 38);
-    doc.text(`Bank: ${bankName} | A/C: ${bankAccountNo}`, 38, totalsY + 50);
-    doc.text(`IFSC: ${bankIfsc} | Branch: ${bankBranch}`, 38, totalsY + 62);
-    if (amountPaid > 0) doc.font('Helvetica-Bold').text(`Amount Paid: Rs. ${amountPaid.toFixed(2)} | Net Due: Rs. ${netDue.toFixed(2)}`, 38, totalsY + 74);
+    if (amountPaid > 0) doc.font('Helvetica-Bold').text(`Amount Paid: Rs. ${amountPaid.toFixed(2)} | Net Due: Rs. ${netDue.toFixed(2)}`, 38, totalsY + 50);
     
     doc.fontSize(6.5).font('Helvetica-Oblique').fillColor('#64748b');
-    doc.text('Declaration: We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.', 38, totalsY + 86, { width: 245, lineGap: 1 });
+    doc.text('Declaration: We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.', 38, totalsY + (amountPaid > 0 ? 66 : 54), { width: 245, lineGap: 1 });
 
     // Financial Calculation Box (Right)
     doc.fillColor('#ffffff').roundedRect(305, totalsY, 260, 108, 4).fill();
@@ -2511,24 +2509,12 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
                     </div>
 
                     <div style="font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 6px; text-transform: uppercase;">
-                      Bank Remittance / NEFT Details
+                      Payment Settlement
                     </div>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; line-height: 1.7; color: #334155;">
                       <tr>
-                        <td style="color: #64748b;">Bank Name:</td>
-                        <td style="font-weight: 600; text-align: right;">${bankName}</td>
-                      </tr>
-                      <tr>
-                        <td style="color: #64748b;">A/C Number:</td>
-                        <td style="font-weight: 700; font-family: monospace; text-align: right;">${bankAccountNo}</td>
-                      </tr>
-                      <tr>
-                        <td style="color: #64748b;">IFSC Code:</td>
-                        <td style="font-weight: 700; font-family: monospace; color: #4338ca; text-align: right;">${bankIfsc}</td>
-                      </tr>
-                      <tr>
-                        <td style="color: #64748b;">Branch:</td>
-                        <td style="font-weight: 500; text-align: right;">${bankBranch}</td>
+                        <td style="color: #64748b;">Payment Mode:</td>
+                        <td style="font-weight: 600; text-align: right;">${paymentMode}</td>
                       </tr>
                       <tr style="border-top: 1px dashed #cbd5e1;">
                         <td style="padding-top: 4px; color: #64748b;">Payment Status:</td>
@@ -2659,7 +2645,7 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
               </div>
               <div>${companyAddress} &bull; GSTIN: ${companyGstin} &bull; PAN: ${companyPan}</div>
               <div style="margin-top: 8px; color: #64748b;">
-                This is an automated statutory invoice transmission from Manufacturing ERP System. For queries, contact ${companyMobile} or ${companyEmail}.
+                This is an automated statutory invoice transmission from Manufacturing ERP System. For queries, contact ${companyMobile}.
               </div>
             </td>
           </tr>
@@ -2689,12 +2675,12 @@ const sendSalesInvoiceDual = async (invoice, targetEmail = null, bypassDuplicate
     companyGstin: dbCompany?.companyGstin || taxSettings?.companyGstin || '33AAWCS2781F1ZZ',
     companyPan: dbCompany?.companyPan || taxSettings?.companyPan || 'AAWCS2781F',
     companyMobile: dbCompany?.companyMobile || taxSettings?.companyMobile || '+91 99404 54154',
-    companyEmail: dbCompany?.email || taxSettings?.companyEmail || 'billing@leonex.com',
+    companyEmail: dbCompany?.email || taxSettings?.companyEmail || '',
     stateCode: dbCompany?.stateCode || taxSettings?.stateCode || '33',
-    bankName: dbCompany?.bankName || taxSettings?.bankName || 'State Bank of India',
-    bankAccountNo: dbCompany?.bankAccountNo || taxSettings?.bankAccountNo || taxSettings?.bankAccountNumber || '123456789012',
-    bankIfsc: dbCompany?.bankIfsc || taxSettings?.bankIfsc || taxSettings?.bankIfscCode || 'SBIN0001234',
-    bankBranch: dbCompany?.bankBranch || taxSettings?.bankBranch || 'Main Branch',
+    bankName: dbCompany?.bankName || taxSettings?.bankName || '',
+    bankAccountNo: dbCompany?.bankAccountNo || taxSettings?.bankAccountNo || taxSettings?.bankAccountNumber || '',
+    bankIfsc: dbCompany?.bankIfsc || taxSettings?.bankIfsc || taxSettings?.bankIfscCode || '',
+    bankBranch: dbCompany?.bankBranch || taxSettings?.bankBranch || '',
     termsAndConditions: dbCompany?.termsAndConditions || taxSettings?.termsAndConditions
   };
 
@@ -2752,9 +2738,6 @@ Round-Off Adjust : Rs. ${Number(orderData.roundOff || 0).toFixed(2)}
 Final Net Amount : Rs. ${grandTotalVal}
 Amount in Words  : ${numberToIndianWords(Number(orderData.grandTotal || 0))}
 Payment Status   : ${orderData.paymentStatus || 'PENDING'}
-
-Bank Details for Remittance:
-Bank Name: ${settings.bankName} | A/C: ${settings.bankAccountNo} | IFSC: ${settings.bankIfsc} | Branch: ${settings.bankBranch}
 
 Statutory Terms & Conditions of Supply apply.
 
@@ -2856,17 +2839,11 @@ ${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(or
 • Mode : ${orderData.paymentMode || orderData.paymentMethod || orderData.paymentTerms || 'Bank Transfer'}
 • Status : ${orderData.paymentStatus || 'PENDING'}
 
-🏦 *BANK REMITTANCE (NEFT/RTGS):*
-• Bank : ${settings.bankName}
-• A/C No : ${settings.bankAccountNo}
-• IFSC : ${settings.bankIfsc}
-• Branch : ${settings.bankBranch}
-
 📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*
 ${publicPdfUrl}
 
 Thank you for choosing *${settings.companyName}*!
-For queries, contact ${settings.companyMobile} &bull; ${settings.companyEmail}`;
+For queries, contact ${settings.companyMobile}`;
 
     if (isWhatsAppAvailable) {
       try {

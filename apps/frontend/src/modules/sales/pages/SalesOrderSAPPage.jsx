@@ -2951,12 +2951,6 @@ ${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(or
 • Mode : ${orderData.paymentMode || orderData.paymentMethod || orderData.paymentTerms || 'Bank Transfer'}
 • Status : ${orderData.paymentStatus || 'PENDING'}
 
-🏦 *BANK REMITTANCE (NEFT/RTGS):*
-• Bank : ${liveCompany?.bankName || 'State Bank of India'}
-• A/C No : ${liveCompany?.bankAccountNo || liveCompany?.bankAccountNumber || '123456789012'}
-• IFSC : ${liveCompany?.bankIfsc || liveCompany?.bankIfscCode || 'SBIN0001234'}
-• Branch : ${liveCompany?.bankBranch || 'Main Branch'}
-
 📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*
 ${publicPdfUrl}
 

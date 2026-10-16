@@ -613,19 +613,9 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   doc.text(`Payment Mode: ${pMethod} • Terms: ${isPaid ? 'PAID' : (order.paymentTerms || 'Net 30')}`, margin + 3.5, payTop + 4.5);
 
   if (pMethod.includes('Bank')) {
-    const bankBits = [];
-    if (pDetails.bankName) bankBits.push(`Bank: ${pDetails.bankName}`);
-    if (pDetails.accountNo || pDetails.bankAccountNo) bankBits.push(`A/C: ${pDetails.accountNo || pDetails.bankAccountNo}`);
-    const ifscBits = [];
-    if (pDetails.ifsc || pDetails.bankIfsc) ifscBits.push(`IFSC: ${pDetails.ifsc || pDetails.bankIfsc}`);
-    if (pDetails.branch || pDetails.bankBranch) ifscBits.push(`Branch: ${pDetails.branch || pDetails.bankBranch}`);
-    if (pDetails.transactionRef || order.referenceNo) ifscBits.push(`Ref/UTR: ${pDetails.transactionRef || order.referenceNo}`);
-
-    if (bankBits.length > 0) {
-      doc.text(bankBits.join(' | '), margin + 3.5, payTop + 8.5);
-    }
-    if (ifscBits.length > 0) {
-      doc.text(ifscBits.join(' | '), margin + 3.5, payTop + 12.5);
+    doc.text(`Payment Settlement: ${isPaid ? 'Fully Settled (PAID)' : 'Direct Bank Remittance / Transfer'}`, margin + 3.5, payTop + 8.5);
+    if (pDetails.transactionRef || order.referenceNo) {
+      doc.text(`Transaction Ref: ${pDetails.transactionRef || order.referenceNo}`, margin + 3.5, payTop + 12.5);
     }
   } else if (pMethod.includes('UPI')) {
     const upiBits = [];
