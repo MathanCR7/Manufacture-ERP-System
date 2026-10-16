@@ -649,6 +649,27 @@ export default function SalesOrderPage() {
     return map;
   }, [rawMaterials]);
 
+  // Synchronize existing line items with fresh rawMaterials and products when data loads
+  useEffect(() => {
+    if (rawMaterials.length === 0 && products.length === 0) return;
+    setLines(prev => prev.map(line => {
+      if (line.rawMaterialId) {
+        const rm = rmMap.get(line.rawMaterialId);
+        if (rm) {
+          const freshStock = Number(rm.currentStock !== undefined ? rm.currentStock : (rm.availableQuantity !== undefined ? rm.availableQuantity : (rm.stock || 0)));
+          return { ...line, stock: freshStock, onHand: freshStock, rawMaterial: rm };
+        }
+      } else if (line.productId) {
+        const prod = productMap.get(line.productId);
+        if (prod) {
+          const freshStock = getProductLiveStock(prod);
+          return { ...line, stock: freshStock, onHand: freshStock, rawProduct: prod };
+        }
+      }
+      return line;
+    }));
+  }, [rawMaterials, products, rmMap, productMap]);
+
   // Synchronize Live Warehouse Inventory with Real-Time Feedback
   const handleSyncStock = async () => {
     try {
@@ -685,7 +706,7 @@ export default function SalesOrderPage() {
           if (freshRM) {
             return {
               ...line,
-              stock: Number(freshRM.currentStock || 0),
+              stock: Number(freshRM.currentStock !== undefined ? freshRM.currentStock : (freshRM.availableQuantity !== undefined ? freshRM.availableQuantity : 0)),
               rawMaterial: freshRM
             };
           }
@@ -1099,7 +1120,9 @@ export default function SalesOrderPage() {
       const matchedProd = line.productId ? productMap.get(line.productId) : null;
       const matchedRM = line.rawMaterialId ? rmMap.get(line.rawMaterialId) : null;
       const onHand = isRM
-        ? (matchedRM ? Number(matchedRM.currentStock || 0) : Number(line.stock || 0))
+        ? (matchedRM
+            ? Number(matchedRM.currentStock !== undefined ? matchedRM.currentStock : (matchedRM.availableQuantity !== undefined ? matchedRM.availableQuantity : (matchedRM.stock || 0)))
+            : Number(line.stock !== undefined ? line.stock : (line.rawMaterial?.currentStock || 0)))
         : (matchedProd 
             ? getProductLiveStock(matchedProd) 
             : Number(line.stock !== undefined ? line.stock : (line.rawProduct ? getProductLiveStock(line.rawProduct) : 0)));
@@ -2003,22 +2026,27 @@ export default function SalesOrderPage() {
       setSalesEmployee(ord.salesEmployee || '-No Sales Employee-');
       setOwner(ord.creator?.name || 'Administrator');
 
+      // Resolve supply type for accurate ancillary charge tax codes (Intra vs Inter state)
+      const orderPlaceOfSupply = ord.placeOfSupply || ord.buyerStateCode || '33';
+      const isInter = String(orderPlaceOfSupply) !== String(sellerStateCode) || ord.taxType === 'Inter-State' || ord.taxType === 'INTER_STATE';
+      const defaultTaxCode = isInter ? 'IGST18' : 'SCG18';
+
       // Populate Freight & Additional Logistics Charges and their GST tax codes
       setFreight(Number(ord.freight || 0));
-      if (ord.freightTaxCode) setFreightTaxCode(ord.freightTaxCode);
-      else if (ord.freightGst !== undefined) setFreightTaxCode(ord.freightGst ? 'SCG18' : 'EXEMPT');
+      if (ord.freightTaxCode) setFreightTaxCode(mapTaxCodeForSupplyType(ord.freightTaxCode, isInter));
+      else if (ord.freightGst !== undefined) setFreightTaxCode(ord.freightGst ? defaultTaxCode : 'EXEMPT');
 
       setLoadingCharges(Number(ord.loadingCharges || 0));
-      if (ord.loadingTaxCode) setLoadingTaxCode(ord.loadingTaxCode);
-      else if (ord.loadingGst !== undefined) setLoadingTaxCode(ord.loadingGst ? 'SCG18' : 'EXEMPT');
+      if (ord.loadingTaxCode) setLoadingTaxCode(mapTaxCodeForSupplyType(ord.loadingTaxCode, isInter));
+      else if (ord.loadingGst !== undefined) setLoadingTaxCode(ord.loadingGst ? defaultTaxCode : 'EXEMPT');
 
       setPackingCharges(Number(ord.packingCharges || 0));
-      if (ord.packingTaxCode) setPackingTaxCode(ord.packingTaxCode);
-      else if (ord.packingGst !== undefined) setPackingTaxCode(ord.packingGst ? 'SCG18' : 'EXEMPT');
+      if (ord.packingTaxCode) setPackingTaxCode(mapTaxCodeForSupplyType(ord.packingTaxCode, isInter));
+      else if (ord.packingGst !== undefined) setPackingTaxCode(ord.packingGst ? defaultTaxCode : 'EXEMPT');
 
       setOtherCharges(Number(ord.otherCharges || 0));
-      if (ord.otherTaxCode) setOtherTaxCode(ord.otherTaxCode);
-      else if (ord.otherGst !== undefined) setOtherTaxCode(ord.otherGst ? 'SCG18' : 'EXEMPT');
+      if (ord.otherTaxCode) setOtherTaxCode(mapTaxCodeForSupplyType(ord.otherTaxCode, isInter));
+      else if (ord.otherGst !== undefined) setOtherTaxCode(ord.otherGst ? defaultTaxCode : 'EXEMPT');
 
       setIsRoundingEnabled(true);
 
@@ -2113,6 +2141,7 @@ export default function SalesOrderPage() {
         .replace(/\[\[ATTACHMENT:.*?\]\]/gs, '')
         .replace(/\[\[PAYMENT_DETAILS:.*?\]\]/gs, '')
         .replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '')
+        .replace(/\[\[ANCILLARY_TAX_CODES:.*?\]\]/gs, '')
         .replace(/\[Fulfillment Mode:.*?\]/g, '')
         .trim();
       setRemarks(cleanNote);
@@ -2146,11 +2175,28 @@ export default function SalesOrderPage() {
           const isRM = it.itemType === 'RAW_MATERIAL' || (!it.productId && Boolean(it.rawMaterialId));
           const rmObj = isRM ? (it.rawMaterial || rmMap.get(it.rawMaterialId)) : null;
           const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (it.product?.gstRate || 5)));
-          const taxCd = itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : 'SCG5'));
-          const liveStock = isRM ? Number(rmObj?.currentStock || 0) : (it.product ? getProductLiveStock(it.product) : 0);
+          const taxCd = isInter
+            ? (itemGst === 18 ? 'IGST18' : (itemGst === 12 ? 'IGST12' : (itemGst === 28 ? 'IGST28' : (itemGst === 0 ? 'EXEMPT' : 'IGST5'))))
+            : (itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : (itemGst === 0 ? 'EXEMPT' : 'SCG5'))));
+          const liveStock = isRM
+            ? Number(rmObj?.currentStock !== undefined ? rmObj.currentStock : (rmObj?.availableQuantity !== undefined ? rmObj.availableQuantity : (it.rawMaterial?.currentStock !== undefined ? it.rawMaterial.currentStock : 0)))
+            : (it.product ? getProductLiveStock(it.product) : 0);
           const uPrice = Number(it.unitPrice || 0);
           const lineDisc = Number(it.discount || 0);
           const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
+
+          const restoredAllocations = (Array.isArray(it.batchAllocationsData) && it.batchAllocationsData.length > 0)
+            ? it.batchAllocationsData
+            : (it.batchId || it.batchNo ? [{
+                batchId: it.batchId,
+                id: it.batchId,
+                batchNo: it.batchNo,
+                allocatedQty: Number(it.quantity || 1),
+                quantity: Number(it.quantity || 1),
+                expiryDate: it.expiryDate,
+                mfgDate: it.mfgDate
+              }] : (Array.isArray(it.batchAllocations) ? it.batchAllocations : []));
+
           return {
             id: `line_${it.id || idx}`,
             rowNo: idx + 1,
@@ -2158,7 +2204,7 @@ export default function SalesOrderPage() {
             rawMaterialId: isRM ? (it.rawMaterialId || it.productId) : null,
             itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
             isPackingCharge: Boolean(it.isPackingCharge),
-            batchAllocations: it.batchAllocationsData || it.batchAllocations || [],
+            batchAllocations: restoredAllocations,
             systemCode: isRM ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || `RM-${idx + 1}`) : (it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`),
             itemDescription: isRM ? (it.productName || rmObj?.name || it.rawMaterial?.name || '') : (it.productName || it.product?.productName || it.product?.name || ''),
             category: isRM ? (rmObj?.category?.name || rmObj?.category || 'Raw Material') : (it.product?.category?.name || it.product?.category || 'Ice Cream'),

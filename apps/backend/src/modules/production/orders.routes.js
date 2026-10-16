@@ -635,10 +635,30 @@ router.get('/:id', authenticateToken, async (req, res, next) => {
       } catch (e) {}
     }
 
+    let ancillaryTaxCodes = null;
+    if (order.internalNote && order.internalNote.includes('[[ANCILLARY_TAX_CODES:')) {
+      try {
+        const m = order.internalNote.match(/\[\[ANCILLARY_TAX_CODES:(.*?)\]\]/s);
+        if (m && m[1]) ancillaryTaxCodes = JSON.parse(m[1]);
+      } catch (e) {}
+    }
+
+    const isInterState = String(order.sellerStateCode || '33') !== String(order.placeOfSupply || order.buyerStateCode || '33') || order.taxType === 'Inter-State' || order.taxType === 'INTER_STATE';
+    const defaultTaxCode = isInterState ? 'IGST18' : 'SCG18';
+
+    const freightTaxCode = ancillaryTaxCodes?.freightTaxCode || (order.freightGst ? defaultTaxCode : 'EXEMPT');
+    const loadingTaxCode = ancillaryTaxCodes?.loadingTaxCode || (order.loadingGst ? defaultTaxCode : 'EXEMPT');
+    const packingTaxCode = ancillaryTaxCodes?.packingTaxCode || (order.packingGst ? defaultTaxCode : 'EXEMPT');
+    const otherTaxCode = ancillaryTaxCodes?.otherTaxCode || (order.otherGst ? defaultTaxCode : 'EXEMPT');
+
     res.json({
       ...order,
       paymentDetails,
       termsAndConditions,
+      freightTaxCode,
+      loadingTaxCode,
+      packingTaxCode,
+      otherTaxCode,
       rootOrderId: matched?.rootOrderId || order.id,
       documentChain: matched?.documentChain || [],
       chainSummary: matched?.chainSummary || (order.docNo || order.referenceNo),
@@ -1316,20 +1336,19 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         }
       }
 
-      // Handle batch assignments (manual or FEFO) for Invoices and POS
-      let allocations = [];
-      let batchId = item.batchId || null;
-      let batchNo = item.batchNo || null;
-      let mfgDate = item.mfgDate ? new Date(item.mfgDate) : null;
-      let expiryDate = item.expiryDate ? new Date(item.expiryDate) : null;
+      // Handle batch allocations from client or auto-FEFO
+      const clientAllocations = Array.isArray(item.batchAllocationsData) && item.batchAllocationsData.length > 0
+        ? item.batchAllocationsData
+        : (Array.isArray(item.allocations) && item.allocations.length > 0 ? item.allocations : []);
 
-      if ((docType === 'Invoice' || docType === 'POS') && isStockItem) {
-        if (item.allocations && item.allocations.length > 0) {
-          allocations = item.allocations;
-          batchId = allocations[0].batchId || allocations[0].id;
-          batchNo = allocations[0].batchNo || allocations[0].batchNumber;
-          expiryDate = allocations[0].expiryDate ? new Date(allocations[0].expiryDate) : null;
-        } else if (item.batchId) {
+      let allocations = clientAllocations;
+      let batchId = item.batchId || (clientAllocations[0]?.batchId || clientAllocations[0]?.id) || null;
+      let batchNo = item.batchNo || (clientAllocations[0]?.batchNo || clientAllocations[0]?.batchNumber) || null;
+      let mfgDate = item.mfgDate ? new Date(item.mfgDate) : (clientAllocations[0]?.mfgDate ? new Date(clientAllocations[0].mfgDate) : null);
+      let expiryDate = item.expiryDate ? new Date(item.expiryDate) : (clientAllocations[0]?.expiryDate ? new Date(clientAllocations[0].expiryDate) : null);
+
+      if (allocations.length === 0 && (docType === 'Invoice' || docType === 'POS' || isRawMaterial) && isStockItem) {
+        if (item.batchId) {
           allocations = [{
             batchId: item.batchId,
             batchNo: item.batchNo || 'BATCH',
@@ -1339,18 +1358,18 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         } else if (isRawMaterial) {
           // FEFO auto-allocation for raw material
           const rmFefo = await batchAllocationService.allocateRMFEFO(rawMatId, qty, tx);
-          allocations = rmFefo.allocations;
-          if (allocations.length > 0) {
+          if (rmFefo && rmFefo.allocations && rmFefo.allocations.length > 0) {
+            allocations = rmFefo.allocations;
             batchId = allocations[0].batchId;
             batchNo = allocations[0].batchNo;
             mfgDate = allocations[0].mfgDate ? new Date(allocations[0].mfgDate) : null;
             expiryDate = allocations[0].expiryDate ? new Date(allocations[0].expiryDate) : null;
           }
-        } else {
+        } else if (docType === 'Invoice' || docType === 'POS') {
           // FEFO auto-allocation for finished goods
           const fefoResult = await batchAllocationService.allocateFEFO(item.productId, qty, tx);
-          allocations = fefoResult.allocations;
-          if (allocations.length > 0) {
+          if (fefoResult && fefoResult.allocations && fefoResult.allocations.length > 0) {
+            allocations = fefoResult.allocations;
             batchId = allocations[0].batchId;
             batchNo = allocations[0].batchNo;
             mfgDate = allocations[0].mfgDate ? new Date(allocations[0].mfgDate) : null;
@@ -1455,6 +1474,15 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       finalInternalNote = finalInternalNote.replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '').trim();
       finalInternalNote += `\n[[TERMS_AND_CONDITIONS:${data.termsAndConditions}]]`;
     }
+
+    const ancCodes = {
+      freightTaxCode: data.freightTaxCode || (data.freightGst ? 'SCG18' : 'EXEMPT'),
+      loadingTaxCode: data.loadingTaxCode || (data.loadingGst ? 'SCG18' : 'EXEMPT'),
+      packingTaxCode: data.packingTaxCode || (data.packingGst ? 'SCG18' : 'EXEMPT'),
+      otherTaxCode: data.otherTaxCode || (data.otherGst ? 'SCG18' : 'EXEMPT')
+    };
+    finalInternalNote = finalInternalNote.replace(/\[\[ANCILLARY_TAX_CODES:.*?\]\]/gs, '').trim();
+    finalInternalNote += `\n[[ANCILLARY_TAX_CODES:${JSON.stringify(ancCodes)}]]`;
     if (data.attachmentUrl && !finalInternalNote.includes(data.attachmentUrl)) {
       finalInternalNote += `\n[Attachment]: ${data.attachmentUrl}`;
     }
@@ -2404,14 +2432,18 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       discountValue: z.coerce.number().optional().default(0),
       tdsDeduction: z.coerce.number().optional().default(0),
       freight: z.coerce.number().optional().default(0),
+      freightTaxCode: z.string().optional(),
       freightGst: z.boolean().optional().default(false),
       loadingCharges: z.coerce.number().optional().default(0),
+      loadingTaxCode: z.string().optional(),
       loadingGst: z.boolean().optional().default(false),
       packingCharges: z.coerce.number().optional().default(0),
+      packingTaxCode: z.string().optional(),
       packingGst: z.boolean().optional().default(false),
       insurance: z.coerce.number().optional().default(0),
       insuranceGst: z.boolean().optional().default(false),
       otherCharges: z.coerce.number().optional().default(0),
+      otherTaxCode: z.string().optional(),
       otherGst: z.boolean().optional().default(false),
       cgst: z.coerce.number().optional().default(0),
       sgst: z.coerce.number().optional().default(0),
@@ -2449,8 +2481,11 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         itemType: z.string().optional().default('PRODUCT'),
         isPackingCharge: z.boolean().optional().default(false),
         batchAllocationsData: z.any().optional(),
+        batchAllocations: z.any().optional(),
         batchId: z.string().optional().nullable(),
         batchNo: z.string().optional().nullable(),
+        mfgDate: z.any().optional(),
+        expiryDate: z.any().optional(),
         productName: z.string().optional(),
         quantity: z.coerce.number().positive(),
         unitPrice: z.coerce.number().positive(),
@@ -2524,14 +2559,25 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         totalCost += itemCost;
         totalProfit += itemProfit;
 
+        const batchAlloc = Array.isArray(item.batchAllocationsData) && item.batchAllocationsData.length > 0
+          ? item.batchAllocationsData
+          : (Array.isArray(item.batchAllocations) && item.batchAllocations.length > 0 ? item.batchAllocations : null);
+
+        const primaryBatchId = item.batchId || (batchAlloc ? (batchAlloc[0]?.batchId || batchAlloc[0]?.id) : null);
+        const primaryBatchNo = item.batchNo || (batchAlloc ? (batchAlloc[0]?.batchNo || batchAlloc[0]?.batchNumber) : null);
+        const primaryMfgDate = item.mfgDate ? new Date(item.mfgDate) : (batchAlloc && batchAlloc[0]?.mfgDate ? new Date(batchAlloc[0].mfgDate) : null);
+        const primaryExpDate = item.expiryDate ? new Date(item.expiryDate) : (batchAlloc && batchAlloc[0]?.expiryDate ? new Date(batchAlloc[0].expiryDate) : null);
+
         orderItemsData.push({
           productId: isRawMaterial ? null : item.productId,
           rawMaterialId: isRawMaterial ? rawMatId : null,
           itemType: isRawMaterial ? 'RAW_MATERIAL' : 'PRODUCT',
           isPackingCharge: Boolean(item.isPackingCharge),
-          batchAllocationsData: item.batchAllocationsData || null,
-          batchId: item.batchId || null,
-          batchNo: item.batchNo || null,
+          batchAllocationsData: batchAlloc,
+          batchId: primaryBatchId,
+          batchNo: primaryBatchNo,
+          mfgDate: primaryMfgDate,
+          expiryDate: primaryExpDate,
           productName: name,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
@@ -2586,6 +2632,14 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
               note = note.replace(/\[\[TERMS_AND_CONDITIONS:.*?\]\]/gs, '').trim();
               note += `\n[[TERMS_AND_CONDITIONS:${data.termsAndConditions}]]`;
             }
+            const ancCodes = {
+              freightTaxCode: data.freightTaxCode || (data.freightGst ? 'SCG18' : 'EXEMPT'),
+              loadingTaxCode: data.loadingTaxCode || (data.loadingGst ? 'SCG18' : 'EXEMPT'),
+              packingTaxCode: data.packingTaxCode || (data.packingGst ? 'SCG18' : 'EXEMPT'),
+              otherTaxCode: data.otherTaxCode || (data.otherGst ? 'SCG18' : 'EXEMPT')
+            };
+            note = note.replace(/\[\[ANCILLARY_TAX_CODES:.*?\]\]/gs, '').trim();
+            note += `\n[[ANCILLARY_TAX_CODES:${JSON.stringify(ancCodes)}]]`;
             return note.trim() || null;
           })(),
           status: data.status,
@@ -2639,6 +2693,8 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
           batchAllocationsData: it.batchAllocationsData,
           batchId: it.batchId,
           batchNo: it.batchNo,
+          mfgDate: it.mfgDate,
+          expiryDate: it.expiryDate,
           productName: it.productName,
           quantity: it.quantity,
           unitPrice: it.unitPrice,

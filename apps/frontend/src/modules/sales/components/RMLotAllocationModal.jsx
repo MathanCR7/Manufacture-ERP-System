@@ -62,6 +62,22 @@ export default function RMLotAllocationModal({
       .then(res => {
         const list = Array.isArray(res.data) ? res.data : [];
         setAvailableBatches(list);
+        // Auto-allocate FEFO if no existing allocations provided
+        if (Object.keys(allocMap).length === 0 && list.length > 0) {
+          let remaining = requiredQty;
+          const autoAlloc = {};
+          for (const b of list) {
+            if (remaining <= 0) break;
+            const avail = Number(b.remainingQty || b.netQty || 0);
+            if (avail <= 0 || b.isExpired) continue;
+            const take = Math.min(remaining, avail);
+            autoAlloc[b.id] = take;
+            remaining = Math.max(0, remaining - take);
+          }
+          if (Object.keys(autoAlloc).length > 0) {
+            setAllocations(autoAlloc);
+          }
+        }
       })
       .catch(err => {
         console.error('Failed to fetch available RM batches:', err);
@@ -69,7 +85,7 @@ export default function RMLotAllocationModal({
         api.get(`/production/rm-batches/${rawMaterialId}`)
           .then(res2 => {
             const list2 = Array.isArray(res2.data) ? res2.data : [];
-            setAvailableBatches(list2.map(b => ({
+            const mapped = list2.map(b => ({
               id: b.id,
               batchId: b.id,
               batchNo: b.internalBatchNo || b.batchNo || b.batchNumber,
@@ -79,7 +95,23 @@ export default function RMLotAllocationModal({
               mfgDate: b.mfgDate,
               expiryDate: b.expiryDate,
               uom: uom
-            })));
+            }));
+            setAvailableBatches(mapped);
+            if (Object.keys(allocMap).length === 0 && mapped.length > 0) {
+              let remaining = requiredQty;
+              const autoAlloc = {};
+              for (const b of mapped) {
+                if (remaining <= 0) break;
+                const avail = Number(b.remainingQty || 0);
+                if (avail <= 0) continue;
+                const take = Math.min(remaining, avail);
+                autoAlloc[b.id] = take;
+                remaining = Math.max(0, remaining - take);
+              }
+              if (Object.keys(autoAlloc).length > 0) {
+                setAllocations(autoAlloc);
+              }
+            }
           })
           .catch(() => setAvailableBatches([]));
       })

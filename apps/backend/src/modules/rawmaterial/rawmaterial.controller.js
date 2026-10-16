@@ -2402,6 +2402,8 @@ exports.getStock = async (req, res, next) => {
         category: rm.category?.name || 'Uncategorised',
         categoryId: rm.categoryId,
         createdAt: rm.createdAt,
+        currentStock: qty,
+        stock: qty,
         availableQuantity: qty,
         floatingStock: 0,
         unit: rm.unitId,
@@ -2998,7 +3000,7 @@ exports.getMaterialHistory = async (req, res, next) => {
           }
         }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { order: { createdAt: 'desc' } }
     });
 
     const formattedResales = resaleItems.map(item => {
@@ -3015,7 +3017,7 @@ exports.getMaterialHistory = async (req, res, next) => {
         docType,
         docNo,
         referenceNo,
-        orderDate: order?.createdAt || item.createdAt,
+        orderDate: order?.createdAt || item.deliveryDate,
         deliveryDate: item.deliveryDate || order?.deliveryDate,
         customerName,
         customerId: order?.customerId,

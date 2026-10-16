@@ -121,7 +121,7 @@ class BatchAllocationService {
         receivedQty: Number(b.receivedQty),
         uom: b.uom ? (b.uom.abbreviation || b.uom.name) : 'kg',
         supplierName: b.po?.supplier?.name || 'Standard Supplier',
-        grnNumber: b.grn?.grnNumber || b.grn?.referenceNo || 'N/A',
+        grnNumber: b.grn?.referenceNo || b.grn?.grnNumber || (b.adjustmentId ? `ADJ-${b.adjustmentId.slice(0, 8).toUpperCase()}` : 'N/A'),
         poReferenceNo: b.po?.referenceNo || 'N/A',
         storageLocation: b.storageLocation || 'Main Warehouse',
         daysRemaining,
