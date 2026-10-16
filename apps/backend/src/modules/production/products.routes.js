@@ -2451,6 +2451,57 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
         updateCode = customCode;
       }
 
+      // Maintain Price Revision History if salePrice was changed
+      let specsToSave = data.specifications !== undefined
+        ? (typeof data.specifications === 'string' ? JSON.parse(data.specifications || '{}') : (data.specifications || {}))
+        : (existing.specifications || {});
+      if (typeof specsToSave !== 'object' || specsToSave === null || Array.isArray(specsToSave)) {
+        specsToSave = {};
+      }
+
+      const oldSalePrice = Number(existing.salePrice || 0);
+      const newSalePrice = Number(salePrice);
+      if (data.salePrice !== undefined && newSalePrice !== oldSalePrice && !isNaN(newSalePrice)) {
+        let existingPriceHistory = Array.isArray(specsToSave.priceHistory) ? [...specsToSave.priceHistory] : [];
+        const nowIso = new Date().toISOString();
+        if (existingPriceHistory.length > 0 && !existingPriceHistory[0].effectiveTo) {
+          existingPriceHistory[0].effectiveTo = nowIso;
+        } else if (existingPriceHistory.length === 0 && oldSalePrice > 0) {
+          existingPriceHistory.push({
+            revisionId: `REV-${existing.id.substring(0, 8)}-BASE`,
+            effectiveFrom: existing.createdAt ? new Date(existing.createdAt).toISOString() : nowIso,
+            effectiveTo: nowIso,
+            oldPrice: oldSalePrice,
+            newPrice: oldSalePrice,
+            delta: 0,
+            percentChange: '0.00%',
+            changedByUserId: existing.createdBy || 'system',
+            changedByUserName: 'Baseline Initial Price',
+            reason: 'Initial catalog registration price'
+          });
+        }
+
+        const editorUser = await tx.user.findUnique({ where: { id: req.user.id } }).catch(() => null);
+        const editorName = editorUser ? editorUser.name : (req.user?.role || 'Admin');
+        const delta = Number((newSalePrice - oldSalePrice).toFixed(2));
+        const pct = oldSalePrice > 0 ? `${(((newSalePrice - oldSalePrice) / oldSalePrice) * 100).toFixed(2)}%` : '+100.00%';
+
+        existingPriceHistory.unshift({
+          revisionId: `REV-${Date.now()}`,
+          effectiveFrom: nowIso,
+          effectiveTo: null,
+          oldPrice: oldSalePrice,
+          newPrice: newSalePrice,
+          delta,
+          percentChange: delta >= 0 ? `+${pct.replace(/^\+/, '')}` : pct,
+          changedByUserId: req.user.id,
+          changedByUserName: editorName,
+          reason: req.body.priceChangeReason || req.body.reason || 'Catalog product price updated'
+        });
+
+        specsToSave.priceHistory = existingPriceHistory;
+      }
+
       // 1. Update product
       const updatedProduct = await tx.finishedProduct.update({
         where: { id },
@@ -2479,7 +2530,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async (re
           subcategoryId: data.subcategoryId !== undefined ? data.subcategoryId : existing.subcategoryId,
           sku: data.sku !== undefined ? (data.sku ? String(data.sku).trim().toUpperCase() : null) : existing.sku,
           barcode: data.barcode !== undefined ? (data.barcode ? String(data.barcode).trim().toUpperCase() : null) : existing.barcode,
-          specifications: data.specifications !== undefined ? data.specifications : existing.specifications,
+          specifications: specsToSave,
           customAttributes: data.customAttributes !== undefined ? data.customAttributes : existing.customAttributes,
           // Universal Core Attributes
           brand: data.brand !== undefined ? (data.brand ? String(data.brand).trim().toUpperCase() : null) : existing.brand,
@@ -2722,6 +2773,428 @@ router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async 
   }
 });
 
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PRICE MANAGEMENT & SALES ORDER AUDIT INTELLIGENCE ENDPOINTS
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
 
+/**
+ * GET /api/products/:id/price-history
+ * Returns full chronological price revision history and all Quotations, 
+ * Sales Orders, and Invoices created during each respective price period.
+ */
+router.get('/:id/price-history', authenticateToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const product = await prisma.finishedProduct.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        category: true,
+        unit: true,
+        bom: {
+          include: {
+            rawMaterial: true
+          }
+        }
+      }
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const specs = (product.specifications && typeof product.specifications === 'object') ? product.specifications : {};
+    let priceHistory = Array.isArray(specs.priceHistory) ? [...specs.priceHistory] : [];
+
+    const currentPrice = Number(product.salePrice || 0);
+
+    // If no history exists, generate baseline
+    if (priceHistory.length === 0) {
+      priceHistory = [{
+        revisionId: `REV-${product.id.substring(0, 8)}-CURRENT`,
+        effectiveFrom: product.createdAt ? new Date(product.createdAt).toISOString() : new Date().toISOString(),
+        effectiveTo: null,
+        oldPrice: currentPrice,
+        newPrice: currentPrice,
+        delta: 0,
+        percentChange: '0.00%',
+        changedByUserId: product.createdBy || 'system',
+        changedByUserName: 'Baseline System Price',
+        reason: 'Current master catalog selling price'
+      }];
+    }
+
+    // Fetch all sales documents line items for this product
+    const orderItems = await prisma.customerOrderItem.findMany({
+      where: { productId: id },
+      include: {
+        order: {
+          include: {
+            customer: true,
+            creator: true
+          }
+        },
+        batchAllocations: true
+      },
+      orderBy: {
+        order: { createdAt: 'desc' }
+      }
+    });
+
+    // Map documents to revision periods
+    const historyWithDocs = priceHistory.map(rev => {
+      const revStart = new Date(rev.effectiveFrom).getTime();
+      const revEnd = rev.effectiveTo ? new Date(rev.effectiveTo).getTime() : Infinity;
+
+      const matchingItems = orderItems.filter(item => {
+        if (!item.order?.createdAt) return false;
+        const orderTime = new Date(item.order.createdAt).getTime();
+        return orderTime >= revStart && orderTime <= revEnd;
+      });
+
+      let totalQty = 0;
+      let totalRevenue = 0;
+      let totalProfit = 0;
+      let quotationsCount = 0;
+      let ordersCount = 0;
+      let invoicesCount = 0;
+
+      const associatedDocuments = matchingItems.map(item => {
+        const order = item.order;
+        const qty = Number(item.quantity || 0);
+        const unitPrice = Number(item.unitPrice || 0);
+        const subtotal = Number(item.subtotal || (qty * unitPrice));
+        const profit = Number(item.profit || 0);
+
+        totalQty += qty;
+        totalRevenue += subtotal;
+        totalProfit += profit;
+
+        const docNo = order.docNo || order.referenceNo || 'SO-000000';
+        const typeRaw = String(order.type || order.orderMode || '').toUpperCase();
+        const isQuotation = typeRaw === 'QUOTATION' || docNo.startsWith('QT');
+        const isInvoice = typeRaw === 'INVOICE' || typeRaw === 'POS' || docNo.startsWith('INV');
+        const docType = isQuotation ? 'QUOTATION' : (isInvoice ? 'INVOICE' : 'SALES_ORDER');
+
+        if (docType === 'QUOTATION') quotationsCount++;
+        else if (docType === 'INVOICE') invoicesCount++;
+        else ordersCount++;
+
+        return {
+          id: order.id,
+          docNo,
+          docType,
+          orderStatus: order.status,
+          paymentStatus: order.paymentStatus || 'PENDING',
+          customerName: order.customerName || order.customer?.name || 'Valued Customer',
+          customerPhone: order.customerPhone || order.customer?.phone || '-',
+          createdAt: order.createdAt,
+          quantity: qty,
+          unitPrice,
+          subtotal,
+          profit,
+          batchAllocations: item.batchAllocationsData || item.batchAllocations || []
+        };
+      });
+
+      const avgRealizedPrice = totalQty > 0 ? Number((totalRevenue / totalQty).toFixed(2)) : Number(rev.newPrice);
+      const avgMarginPercent = totalRevenue > 0 ? Number(((totalProfit / totalRevenue) * 100).toFixed(2)) : Number(product.profitMargin || 0);
+
+      return {
+        ...rev,
+        summary: {
+          totalQty,
+          totalRevenue: Number(totalRevenue.toFixed(2)),
+          totalProfit: Number(totalProfit.toFixed(2)),
+          avgRealizedPrice,
+          avgMarginPercent,
+          counts: {
+            quotations: quotationsCount,
+            orders: ordersCount,
+            invoices: invoicesCount,
+            total: matchingItems.length
+          }
+        },
+        associatedDocuments
+      };
+    });
+
+    // Global summary across all historical revisions
+    const allTotalQty = orderItems.reduce((s, i) => s + Number(i.quantity || 0), 0);
+    const allTotalRev = orderItems.reduce((s, i) => s + Number(i.subtotal || 0), 0);
+    const allTotalProfit = orderItems.reduce((s, i) => s + Number(i.profit || 0), 0);
+
+    res.json({
+      success: true,
+      product: {
+        id: product.id,
+        code: product.code,
+        name: product.name,
+        categoryName: product.category?.name || 'Finished Product',
+        uom: product.unit?.name || product.unit?.abbreviation || 'pcs',
+        currentSalePrice: currentPrice,
+        totalCost: Number(product.totalCost || 0),
+        profitMargin: Number(product.profitMargin || 0),
+        currentStock: Number(product.currentStock || 0)
+      },
+      kpi: {
+        lifetimeUnitsSold: allTotalQty,
+        lifetimeRevenue: Number(allTotalRev.toFixed(2)),
+        lifetimeProfit: Number(allTotalProfit.toFixed(2)),
+        avgRealizedMarginPercent: allTotalRev > 0 ? Number(((allTotalProfit / allTotalRev) * 100).toFixed(2)) : Number(product.profitMargin || 0),
+        totalRevisions: historyWithDocs.length
+      },
+      revisions: historyWithDocs
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/products/:id/bom-cost-analysis
+ * Fetches actual Purchase Order amounts and landed rates for all constituent 
+ * Raw Materials in the product BOM, computing the live gross profit & margin %.
+ */
+router.get('/:id/bom-cost-analysis', authenticateToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const product = await prisma.finishedProduct.findFirst({
+      where: { id, deletedAt: null },
+      include: {
+        bom: {
+          include: {
+            rawMaterial: {
+              include: {
+                category: true,
+                uoms: true
+              }
+            }
+          }
+        },
+        nonInventoryCosts: true
+      }
+    });
+
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const currentSalePrice = Number(product.salePrice || 0);
+
+    // Analyze each BOM line with latest PO purchase rates
+    let liveBomCost = 0;
+    const bomAnalysis = await Promise.all((product.bom || []).map(async (bomLine) => {
+      const rm = bomLine.rawMaterial;
+      if (!rm) {
+        return {
+          rawMaterialId: bomLine.rmId,
+          rawMaterialCode: 'RM-UNKNOWN',
+          rawMaterialName: 'Unlinked Material',
+          consumptionPerUnit: Number(bomLine.consumptionPerUnit || 1),
+          uom: 'unit',
+          catalogRate: Number(bomLine.unitPrice || 0),
+          poUnitRate: Number(bomLine.unitPrice || 0),
+          costContribution: Number((Number(bomLine.consumptionPerUnit || 1) * Number(bomLine.unitPrice || 0)).toFixed(2)),
+          latestPoRefNo: 'CATALOG',
+          supplierName: 'Catalog Default',
+          isPoMatched: false
+        };
+      }
+
+      const consumption = Number(bomLine.consumptionPerUnit || 1);
+      const catalogRate = Number(bomLine.unitPrice || rm.ratePerUnit || 0);
+
+      // Query latest PO containing this raw material
+      let poUnitRate = catalogRate;
+      let poSupplier = 'Master Catalog Rate';
+      let poRefNo = 'CATALOG';
+      let poDate = null;
+      let isPoMatched = false;
+
+      try {
+        const directPo = await prisma.rawMaterialPO.findFirst({
+          where: {
+            OR: [
+              { rmId: rm.id },
+              { rmId: rm.code }
+            ],
+            deletedAt: null
+          },
+          orderBy: { createdAt: 'desc' },
+          include: { supplier: true, uom: true }
+        });
+
+        if (directPo) {
+          const poQty = Number(directPo.quantity || 1);
+          const poAmt = Number(directPo.amount || 0);
+          poUnitRate = poQty > 0 && poAmt > 0 ? Number((poAmt / poQty).toFixed(2)) : catalogRate;
+          poSupplier = directPo.supplier?.name || 'Direct PO Supplier';
+          poRefNo = directPo.referenceNo || directPo.id.substring(0, 8);
+          poDate = directPo.createdAt;
+          isPoMatched = true;
+        } else {
+          // Check multi-item POs
+          const allRecentPos = await prisma.rawMaterialPO.findMany({
+            where: {
+              items: { not: null },
+              deletedAt: null
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 25,
+            include: { supplier: true }
+          });
+
+          for (const po of allRecentPos) {
+            if (Array.isArray(po.items)) {
+              const matched = po.items.find(it => 
+                it.id === rm.id || 
+                it.rmId === rm.id || 
+                it.rmId === rm.code ||
+                (it.name && rm.name && it.name.trim().toLowerCase() === rm.name.trim().toLowerCase())
+              );
+              if (matched) {
+                const itemRate = Number(matched.unitPrice || matched.rate || 0);
+                if (itemRate > 0) {
+                  poUnitRate = itemRate;
+                  poSupplier = po.supplier?.name || 'PO Multi-Item Supplier';
+                  poRefNo = po.referenceNo || po.id.substring(0, 8);
+                  poDate = po.createdAt;
+                  isPoMatched = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      } catch (poErr) {
+        console.warn(`[PO Lookup Error for ${rm.name}]`, poErr.message);
+      }
+
+      const costContribution = Number((consumption * poUnitRate).toFixed(2));
+      liveBomCost += costContribution;
+
+      return {
+        rawMaterialId: rm.id,
+        rawMaterialCode: rm.code,
+        rawMaterialName: rm.printName || rm.name,
+        category: rm.category?.name || 'Raw Material',
+        consumptionPerUnit: consumption,
+        uom: rm.uoms?.[0]?.name || rm.uoms?.[0]?.abbreviation || 'kg',
+        catalogRate,
+        poUnitRate,
+        costContribution,
+        latestPoRefNo: poRefNo,
+        latestPoDate: poDate,
+        supplierName: poSupplier,
+        isPoMatched
+      };
+    }));
+
+    // Non-inventory overheads
+    const nonInvTotal = (product.nonInventoryCosts || []).reduce((sum, n) => sum + Number(n.cost || 0), 0);
+    const totalLiveCost = Number((liveBomCost + nonInvTotal).toFixed(2));
+    const liveGrossProfit = Number((currentSalePrice - totalLiveCost).toFixed(2));
+    const liveMarginPercent = currentSalePrice > 0 ? Number(((liveGrossProfit / currentSalePrice) * 100).toFixed(2)) : 0;
+
+    res.json({
+      success: true,
+      productId: product.id,
+      productCode: product.code,
+      productName: product.name,
+      currentSalePrice,
+      catalogTotalCost: Number(product.totalCost || 0),
+      liveBomCost: Number(liveBomCost.toFixed(2)),
+      nonInventoryCost: nonInvTotal,
+      totalLiveCost,
+      liveGrossProfit,
+      liveMarginPercent,
+      bomItems: bomAnalysis
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/products/:id/price
+ * Dedicated endpoint to update product price, log audit revision with reason and user.
+ */
+router.put('/:id/price', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR']), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { newPrice, reason } = req.body;
+
+    const numPrice = Number(newPrice);
+    if (isNaN(numPrice) || numPrice < 0) {
+      return res.status(400).json({ error: 'Valid positive newPrice is required' });
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const existing = await tx.finishedProduct.findFirst({
+        where: { id, deletedAt: null }
+      });
+      if (!existing) throw new Error('Product not found');
+
+      const oldSalePrice = Number(existing.salePrice || 0);
+      let specs = (existing.specifications && typeof existing.specifications === 'object') ? { ...existing.specifications } : {};
+      let priceHistory = Array.isArray(specs.priceHistory) ? [...specs.priceHistory] : [];
+
+      const nowIso = new Date().toISOString();
+      if (priceHistory.length > 0 && !priceHistory[0].effectiveTo) {
+        priceHistory[0].effectiveTo = nowIso;
+      } else if (priceHistory.length === 0 && oldSalePrice > 0) {
+        priceHistory.push({
+          revisionId: `REV-${existing.id.substring(0, 8)}-BASE`,
+          effectiveFrom: existing.createdAt ? new Date(existing.createdAt).toISOString() : nowIso,
+          effectiveTo: nowIso,
+          oldPrice: oldSalePrice,
+          newPrice: oldSalePrice,
+          delta: 0,
+          percentChange: '0.00%',
+          changedByUserId: existing.createdBy || 'system',
+          changedByUserName: 'Baseline Initial Price',
+          reason: 'Initial catalog registration price'
+        });
+      }
+
+      const editorUser = await tx.user.findUnique({ where: { id: req.user.id } }).catch(() => null);
+      const editorName = editorUser ? editorUser.name : (req.user?.role || 'Admin');
+      const delta = Number((numPrice - oldSalePrice).toFixed(2));
+      const pct = oldSalePrice > 0 ? `${(((numPrice - oldSalePrice) / oldSalePrice) * 100).toFixed(2)}%` : '+100.00%';
+
+      const newRev = {
+        revisionId: `REV-${Date.now()}`,
+        effectiveFrom: nowIso,
+        effectiveTo: null,
+        oldPrice: oldSalePrice,
+        newPrice: numPrice,
+        delta,
+        percentChange: delta >= 0 ? `+${pct.replace(/^\+/, '')}` : pct,
+        changedByUserId: req.user.id,
+        changedByUserName: editorName,
+        reason: reason || 'Product selling price updated'
+      };
+
+      priceHistory.unshift(newRev);
+      specs.priceHistory = priceHistory;
+
+      return await tx.finishedProduct.update({
+        where: { id },
+        data: {
+          salePrice: numPrice,
+          specifications: specs
+        }
+      });
+    });
+
+    res.json({
+      success: true,
+      message: `Price updated successfully from ₹${Number(updated.salePrice).toFixed(2)}`,
+      product: updated
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router;

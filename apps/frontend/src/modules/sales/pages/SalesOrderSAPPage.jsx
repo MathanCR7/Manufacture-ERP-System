@@ -12,7 +12,7 @@ import {
   SlidersHorizontal, CheckSquare, Square, MapPin, Globe, Moon, Sun,
   ExternalLink, ChevronRight, Minimize2, Maximize2, LayoutGrid, Table,
   Camera, Image as ImageIcon, Paperclip, UploadCloud,
-  Mail, Send, Share2, MessageSquare
+  Mail, Send, Share2, MessageSquare, TrendingUp
 } from 'lucide-react';
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';

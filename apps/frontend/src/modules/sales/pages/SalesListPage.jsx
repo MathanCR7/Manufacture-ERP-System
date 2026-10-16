@@ -7,7 +7,7 @@ import {
   MessageSquare, Mail, Play, Building2, Send, Share2,
   ArrowUp, ArrowDown, ArrowUpDown, Filter, Save, Camera, ImageIcon, Paperclip,
   Package, Truck, Check, ExternalLink, Maximize2, Trash2, Calendar, Phone,
-  FileCheck, ShieldCheck, MapPin, Edit3, GitFork, CheckCheck, Network, Lock
+  FileCheck, ShieldCheck, MapPin, Edit3, GitFork, CheckCheck, Network, Lock, TrendingUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ import useCompanyStore from '@/app/store/companyStore';
 import { generateA4TaxInvoice, generateThermalReceipt, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
 import { numberToWordsINR, getIndianStates } from '@/utils/gstEngine';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
+import ProductPriceHistoryModal from '@/modules/item-setup/components/ProductPriceHistoryModal';
 
 // Official WhatsApp SVG Logo Icon
 const WhatsAppIcon = ({ className = "w-3.5 h-3.5" }) => (
@@ -55,7 +56,10 @@ export default function SalesListPage() {
   const [companySettings, setCompanySettings] = useState(null);
   const [layoutMode, setLayoutMode] = useState('A4'); // A4 or POS
   const [activePdfUrl, setActivePdfUrl] = useState(null);
-  const [activeStudioTab, setActiveStudioTab] = useState('contents'); // 'contents' | 'logistics' | 'accounting' | 'tax' | 'attachments' | 'pdf'
+  const [activeStudioTab, setActiveStudioTab] = useState('contents'); // 'contents' | 'batch-cost' | 'logistics' | 'accounting' | 'tax' | 'attachments' | 'pdf'
+  const [batchCostAudit, setBatchCostAudit] = useState(null);
+  const [loadingCostAudit, setLoadingCostAudit] = useState(false);
+  const [priceHistoryModalProduct, setPriceHistoryModalProduct] = useState(null);
 
   // Photo modal & Attachment upload state
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null);
@@ -206,6 +210,27 @@ export default function SalesListPage() {
       }
     };
     fetchOrderDetail();
+  }, [orderIdParam]);
+
+  // Fetch batch cost audit when order is selected
+  useEffect(() => {
+    if (!orderIdParam) {
+      setBatchCostAudit(null);
+      return;
+    }
+    const fetchCostAudit = async () => {
+      setLoadingCostAudit(true);
+      try {
+        const res = await api.get(`/orders/${orderIdParam}/batch-cost-audit`);
+        setBatchCostAudit(res.data);
+      } catch (err) {
+        console.warn('Could not load batch cost audit', err);
+        setBatchCostAudit(null);
+      } finally {
+        setLoadingCostAudit(false);
+      }
+    };
+    fetchCostAudit();
   }, [orderIdParam]);
 
   // Sync edit form and attachments whenever selectedOrder changes
@@ -1595,6 +1620,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
         <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-800 flex-wrap select-none pt-1">
           {[
             { id: 'contents', label: '📋 Contents (Line Items)', count: itemsList.length },
+            { id: 'batch-cost', label: '📊 Batch Cost & Margin Audit', count: batchCostAudit?.summary?.overallMarginPercent !== undefined ? `${batchCostAudit.summary.overallMarginPercent}%` : undefined },
             { id: 'logistics', label: '🚚 Logistics' },
             { id: 'accounting', label: '💳 Accounting' },
             { id: 'tax', label: '🏛️ Tax & GST Ledger' },
@@ -1661,6 +1687,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                     <th className="px-3 py-3 text-right">Disc %</th>
                     <th className="px-3 py-3 text-right">Tax Code</th>
                     <th className="px-3 py-3 text-right">Line Total (₹)</th>
+                    <th className="px-3 py-3 text-right">Proc. Cost / Margin</th>
                     <th className="px-3 py-3">Batch / Stock Status</th>
                   </tr>
                 </thead>
@@ -1681,8 +1708,18 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                           {item.product?.code || item.product?.systemCode || `BFD10${idx + 1}`}
                         </td>
                         <td className="px-3 py-3">
-                          <div className="font-bold text-slate-900 dark:text-white">
-                            {item.productName || item.product?.name || 'Finished Ice Cream Product'}
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {item.productName || item.product?.name || 'Finished Ice Cream Product'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setPriceHistoryModalProduct({ id: item.productId || item.product?.id, name: item.productName || item.product?.name, code: item.product?.code })}
+                              className="text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
+                              title="View Product Price History & BOM Cost Analysis"
+                            >
+                              <TrendingUp className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                           {item.hsnCode && (
                             <span className="text-[10px] text-slate-400 font-mono">HSN: {item.hsnCode}</span>
@@ -1712,6 +1749,36 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                         <td className="px-3 py-3 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
                           ₹{lineTotal.toFixed(2)}
                         </td>
+                        <td className="px-3 py-3 text-right font-mono">
+                          {(() => {
+                            const costAuditItem = batchCostAudit?.items?.find(ci => 
+                              (ci.orderItemId && ci.orderItemId === item.id) ||
+                              (ci.productId && ci.productId === (item.productId || item.product?.id))
+                            );
+                            if (costAuditItem && costAuditItem.hasCostData) {
+                              const mPct = Number(costAuditItem.marginPercent || 0);
+                              return (
+                                <div>
+                                  <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                                    ₹{Number(costAuditItem.totalCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                  </div>
+                                  <span className={`inline-block px-1.5 py-0.2 rounded text-[9px] font-black ${
+                                    mPct >= 30 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' :
+                                    mPct >= 15 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' :
+                                    'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                                  }`}>
+                                    {mPct}% margin
+                                  </span>
+                                </div>
+                              );
+                            }
+                            return (
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                Standard BOM
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="px-3 py-3">
                           {item.batchNo ? (
                             <div className="space-y-0.5">
@@ -1740,6 +1807,192 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* ── TAB: BATCH PROCUREMENT COST & GROSS MARGIN AUDIT ── */}
+        {activeStudioTab === 'batch-cost' && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs space-y-4 p-5">
+            {/* Header banner */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm text-slate-900 dark:text-white uppercase tracking-tight">
+                    Batch Procurement Cost & Gross Margin Audit
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Line costs are calculated from allocated inventory batches and the landed purchase rate paid on original Raw Material Purchase Orders (PO).
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setLoadingCostAudit(true);
+                    const res = await api.get(`/orders/${orderIdParam}/batch-cost-audit`);
+                    setBatchCostAudit(res.data);
+                  } finally {
+                    setLoadingCostAudit(false);
+                  }
+                }}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingCostAudit ? 'animate-spin' : ''}`} />
+                <span>Refresh Audit</span>
+              </button>
+            </div>
+
+            {/* KPI Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Billed Revenue</span>
+                <div className="text-xl font-black text-slate-900 dark:text-white mt-1 font-mono">
+                  ₹{Number(batchCostAudit?.summary?.totalRevenue || selectedOrder.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <span className="text-[10px] text-slate-500 mt-0.5 block">{itemsList.length} Order line items</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">Batch Procurement Cost (PO)</span>
+                <div className="text-xl font-black text-amber-800 dark:text-amber-300 mt-1 font-mono">
+                  ₹{Number(batchCostAudit?.summary?.totalLandedCost || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <span className="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5 block">Allocated batches & PO rates</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">Realized Gross Profit</span>
+                <div className="text-xl font-black text-emerald-800 dark:text-emerald-300 mt-1 font-mono">
+                  ₹{Number(batchCostAudit?.summary?.grossProfit || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <span className="text-[10px] text-emerald-600 dark:text-emerald-500 mt-0.5 block">Revenue - Landed PO Batch Cost</span>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/50">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 dark:text-indigo-400">Overall Gross Margin %</span>
+                <div className="text-xl font-black text-indigo-800 dark:text-indigo-300 mt-1 font-mono">
+                  {batchCostAudit?.summary?.overallMarginPercent !== undefined ? `${batchCostAudit.summary.overallMarginPercent}%` : '—'}
+                </div>
+                <span className="text-[10px] text-indigo-600 dark:text-indigo-500 mt-0.5 block">Target margin &ge; 25%</span>
+              </div>
+            </div>
+
+            {/* Detailed Table */}
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="px-3 py-2.5 w-10 text-center">#</th>
+                    <th className="px-3 py-2.5">Item & System Code</th>
+                    <th className="px-3 py-2.5 text-right">Sold Qty</th>
+                    <th className="px-3 py-2.5 text-right">Selling Rate</th>
+                    <th className="px-3 py-2.5 text-right">Line Revenue</th>
+                    <th className="px-3 py-2.5">Allocated Batch / Source PO</th>
+                    <th className="px-3 py-2.5 text-right">PO Unit Cost</th>
+                    <th className="px-3 py-2.5 text-right">Total Landed Cost</th>
+                    <th className="px-3 py-2.5 text-right">Gross Profit</th>
+                    <th className="px-3 py-2.5 text-center">Margin %</th>
+                    <th className="px-3 py-2.5 text-center">Price History</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
+                  {(batchCostAudit?.items || []).map((auditItem, aIdx) => {
+                    const mPct = Number(auditItem.marginPercent || 0);
+                    const batches = auditItem.allocatedBatches || [];
+                    return (
+                      <tr key={auditItem.orderItemId || aIdx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                        <td className="px-3 py-3 text-center text-slate-400 font-mono">{aIdx + 1}</td>
+                        <td className="px-3 py-3">
+                          <div className="font-bold text-slate-900 dark:text-white">{auditItem.productName}</div>
+                          <span className="font-mono text-[10px] text-indigo-600 dark:text-indigo-400">{auditItem.productCode}</span>
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                          {auditItem.quantity}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                          ₹{Number(auditItem.sellingRate || 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-bold text-slate-900 dark:text-white">
+                          ₹{Number(auditItem.lineRevenue || 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3">
+                          {batches.length > 0 ? (
+                            <div className="space-y-1">
+                              {batches.map((b, bIdx) => (
+                                <div key={bIdx} className="text-[10px] bg-slate-50 dark:bg-slate-800/60 p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 space-y-0.5">
+                                  <div className="flex items-center justify-between font-mono font-bold text-amber-700 dark:text-amber-400">
+                                    <span>Batch: {b.batchNo}</span>
+                                    <span>Qty: {b.quantity}</span>
+                                  </div>
+                                  <div className="text-slate-500 flex items-center justify-between text-[9.5px]">
+                                    <span>PO: <strong className="text-slate-700 dark:text-slate-300">{b.poNo || 'Direct Stock'}</strong></span>
+                                    <span>{b.supplierName || 'Primary Supplier'}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded font-medium">
+                              BOM Standard Avg (Pending Allocation)
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-slate-700 dark:text-slate-300">
+                          ₹{Number(auditItem.unitCost || 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-bold text-amber-700 dark:text-amber-400">
+                          ₹{Number(auditItem.totalCost || 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                          ₹{Number(auditItem.grossProfit || 0).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
+                            mPct >= 30 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' :
+                            mPct >= 15 ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300' :
+                            'bg-rose-100 text-rose-800 dark:bg-rose-950/60 dark:text-rose-300'
+                          }`}>
+                            {mPct}%
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setPriceHistoryModalProduct({ id: auditItem.productId, name: auditItem.productName, code: auditItem.productCode })}
+                            className="px-2 py-1 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 rounded-lg text-[10px] font-bold transition flex items-center gap-1 mx-auto cursor-pointer"
+                          >
+                            <TrendingUp className="w-3 h-3" />
+                            <span>History</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {(!batchCostAudit?.items || batchCostAudit.items.length === 0) && (
+                    <tr>
+                      <td colSpan={11} className="py-8 text-center text-slate-400">
+                        No batch cost items available for this order.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Note info box */}
+            <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/30 border border-indigo-200 dark:border-indigo-800 rounded-xl text-xs text-indigo-900 dark:text-indigo-300 flex items-start gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Real-time Batch Cost Accounting:</span>
+                <span className="ml-1 text-[11px] text-slate-600 dark:text-slate-300">
+                  When inventory batches are allocated during production dispatch, the system looks up the purchase rates registered in the source Purchase Order (PO). Gross profit margin reflects actual procurement spend.
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -2733,6 +2986,12 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
           }}
         />
 
+        {/* Product Price Management & History Intelligence Modal */}
+        <ProductPriceHistoryModal
+          isOpen={!!priceHistoryModalProduct}
+          product={priceHistoryModalProduct}
+          onClose={() => setPriceHistoryModalProduct(null)}
+        />
       </div>
     );
   }
@@ -3764,6 +4023,13 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
         onNavigateOrder={(targetId) => {
           setSearchParams({ id: targetId });
         }}
+      />
+
+      {/* Product Price Management & History Intelligence Modal */}
+      <ProductPriceHistoryModal
+        isOpen={!!priceHistoryModalProduct}
+        product={priceHistoryModalProduct}
+        onClose={() => setPriceHistoryModalProduct(null)}
       />
     </div>
   );

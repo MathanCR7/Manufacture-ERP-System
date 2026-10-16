@@ -2726,6 +2726,124 @@ router.delete('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER']), async 
   }
 });
 
+/**
+ * GET /api/orders/:id/batch-cost-audit
+ * Calculates line-level landed procurement cost for each allocated batch, 
+ * fetching exact purchase amounts from source POs to provide true gross profit and margin.
+ */
+router.get('/:id/batch-cost-audit', authenticateToken, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const order = await prisma.customerOrder.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            product: true,
+            rawMaterial: true,
+            batchAllocations: true
+          }
+        }
+      }
+    });
+
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    let totalOrderCost = 0;
+    let totalOrderRevenue = 0;
+
+    const itemsAudit = await Promise.all((order.items || []).map(async (item) => {
+      const isRM = Boolean(item.rawMaterialId || item.itemType === 'RAW_MATERIAL');
+      const qty = Number(item.quantity || 1);
+      const rate = Number(item.unitPrice || 0);
+      const subtotal = Number(item.subtotal || (qty * rate));
+      totalOrderRevenue += subtotal;
+
+      let lineLandedCost = 0;
+      let batchDetails = [];
+
+      const batches = Array.isArray(item.batchAllocationsData) ? item.batchAllocationsData : [];
+
+      if (batches.length > 0) {
+        for (const b of batches) {
+          const bQty = Number(b.quantity || b.quantityAllocated || 0);
+          let bUnitRate = Number(b.unitCost || b.batchPurchaseRate || b.unitPrice || 0);
+          let poRef = b.sourcePoReference || b.poReference || '-';
+          let supplier = b.supplierName || '-';
+
+          // If rate missing, query InventoryBatch
+          if (bUnitRate === 0 && b.batchId) {
+            const invBatch = await prisma.inventoryBatch.findFirst({
+              where: {
+                OR: [{ id: b.batchId }, { batchNumber: b.batchNo || b.batchId }]
+              },
+              include: { po: { include: { supplier: true } } }
+            }).catch(() => null);
+
+            if (invBatch) {
+              if (invBatch.po) {
+                const poQty = Number(invBatch.po.quantity || 1);
+                const poAmt = Number(invBatch.po.amount || 0);
+                bUnitRate = poQty > 0 ? Number((poAmt / poQty).toFixed(2)) : 0;
+                poRef = invBatch.po.referenceNo || 'PO';
+                supplier = invBatch.po.supplier?.name || '-';
+              }
+            }
+          }
+
+          const batchCost = Number((bQty * bUnitRate).toFixed(2));
+          lineLandedCost += batchCost;
+          batchDetails.push({
+            batchNo: b.batchNo || b.batchNumber || 'Batch',
+            quantity: bQty,
+            unitRate: bUnitRate,
+            totalCost: batchCost,
+            poReference: poRef,
+            supplier
+          });
+        }
+      } else {
+        lineLandedCost = Number(item.cost || (isRM ? (item.rawMaterial?.ratePerUnit || 0) * qty : (item.product?.totalCost || 0) * qty));
+      }
+
+      totalOrderCost += lineLandedCost;
+      const grossProfit = Number((subtotal - lineLandedCost).toFixed(2));
+      const marginPct = subtotal > 0 ? Number(((grossProfit / subtotal) * 100).toFixed(2)) : 0;
+
+      return {
+        itemId: item.id,
+        itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
+        itemName: item.productName || (isRM ? item.rawMaterial?.name : item.product?.name) || 'Item',
+        itemCode: isRM ? item.rawMaterial?.code : item.product?.code,
+        quantity: qty,
+        unitPrice: rate,
+        subtotal,
+        landedCost: Number(lineLandedCost.toFixed(2)),
+        grossProfit,
+        marginPercent: marginPct,
+        batches: batchDetails
+      };
+    }));
+
+    const orderProfit = Number((totalOrderRevenue - totalOrderCost).toFixed(2));
+    const orderMarginPct = totalOrderRevenue > 0 ? Number(((orderProfit / totalOrderRevenue) * 100).toFixed(2)) : 0;
+
+    res.json({
+      success: true,
+      orderId: order.id,
+      docNo: order.docNo || order.referenceNo,
+      totalRevenue: Number(totalOrderRevenue.toFixed(2)),
+      totalLandedCost: Number(totalOrderCost.toFixed(2)),
+      grossProfit: orderProfit,
+      marginPercent: orderMarginPct,
+      items: itemsAudit
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.getOrderPdfHandler = getOrderPdfHandler;
 
 module.exports = router;

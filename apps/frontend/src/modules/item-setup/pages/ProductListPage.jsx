@@ -24,8 +24,8 @@ import SearchSelect from '@/components/ui/SearchSelect';
 import UniversalUomSelect from '@/components/ui/UniversalUomSelect';
 import HsnSelect from '@/components/forms/HsnSelect';
 import { Pagination } from '@/components/ui/Pagination';
-import DynamicProductSpecPanel from '../components/DynamicProductSpecPanel';
 import MaterialMasterImportModal from '../components/MaterialMasterImportModal';
+import ProductPriceHistoryModal from '../components/ProductPriceHistoryModal';
 
 // Standard Factory Workflow Stages for manufacturing
 const STANDARD_FACTORY_STAGES = [
@@ -565,8 +565,8 @@ function ProductForm({ editId, onBack }) {
   const [stockMethod, setStockMethod] = useState('FIFO');
   const [openingStock, setOpeningStock] = useState(0);
   const [alertLevel, setAlertLevel] = useState(0);
-  const [hsnCode, setHsnCode] = useState('');
   const [salePrice, setSalePrice] = useState(0);
+  const [priceHistoryModalOpen, setPriceHistoryModalOpen] = useState(false);
 
   // Dynamic template watcher
   useEffect(() => {
@@ -1817,7 +1817,19 @@ function ProductForm({ editId, onBack }) {
                     <Input type="number" min="0" value={alertLevel} onChange={(e) => setAlertLevel(Number(e.target.value) || 0)} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block text-indigo-600 dark:text-indigo-400">Sale Price (INR) *</label>
+                    <div className="flex items-center justify-between">
+                      <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block text-indigo-600 dark:text-indigo-400">Sale Price (INR) *</label>
+                      {isEditMode && (
+                        <button
+                          type="button"
+                          onClick={() => setPriceHistoryModalOpen(true)}
+                          className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <TrendingUp className="w-2.5 h-2.5" />
+                          Price History & BOM
+                        </button>
+                      )}
+                    </div>
                     <Input type="number" min="0" step="0.01" value={salePrice} onChange={(e) => setSalePrice(Number(e.target.value) || 0)} className="bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-800 text-slate-850 dark:text-slate-100 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 font-bold" />
                   </div>
                 </div>
@@ -2240,6 +2252,20 @@ function ProductForm({ editId, onBack }) {
           </div>
         </div>
       </div>
+
+      {/* Product Price Management & History Intelligence Modal */}
+      {isEditMode && (
+        <ProductPriceHistoryModal
+          isOpen={priceHistoryModalOpen}
+          productId={editId}
+          productName={name}
+          productCode={code}
+          onClose={() => setPriceHistoryModalOpen(false)}
+          onPriceUpdated={(data) => {
+            if (data?.currentSalePrice) setSalePrice(data.currentSalePrice);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2256,6 +2282,7 @@ export default function ProductListPage() {
   const [editId, setEditId] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [priceHistoryProduct, setPriceHistoryProduct] = useState(null);
   // Default sort is code ascending (PRD-00001 first) as requested
   const [sortBy, setSortBy] = useState('code_asc');
   const itemsPerPage = 12;
@@ -2962,7 +2989,17 @@ export default function ProductListPage() {
                           </TableCell>
                           {/* 8. Selling Price */}
                           <TableCell className="py-2 px-3 text-right font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                            ₹{parseFloat(item.salePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span>₹{parseFloat(item.salePrice || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <button
+                                type="button"
+                                onClick={() => setPriceHistoryProduct(item)}
+                                className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
+                                title="View Price History & BOM Cost Analysis"
+                              >
+                                <TrendingUp className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </TableCell>
                           {/* 9. Stock */}
                           <TableCell className="py-2 px-3 text-right font-mono text-slate-600 dark:text-slate-400 font-medium">
@@ -2971,7 +3008,15 @@ export default function ProductListPage() {
                           {/* 10. Actions */}
                           {canEdit && (
                             <TableCell className="py-2 px-3 text-right whitespace-nowrap">
-                              <div className="flex items-center justify-end space-x-0.5">
+                              <div className="flex items-center justify-end space-x-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setPriceHistoryProduct(item)}
+                                  className="p-1 rounded-md text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 transition-colors cursor-pointer"
+                                  title="Price Revisions & Quotation/Invoice History"
+                                >
+                                  <TrendingUp className="w-3.5 h-3.5" />
+                                </button>
                                 <button 
                                   onClick={() => { setEditId(item.id); setView('edit'); }}
                                   className="p-1 rounded-md text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer"
@@ -3172,34 +3217,56 @@ export default function ProductListPage() {
                               <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-tight">
                                 Selling Price:
                               </span>
-                              <span className="font-mono font-extrabold text-slate-900 dark:text-white text-xs">
-                                ₹{salePrice.toFixed(2)}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-mono font-extrabold text-slate-900 dark:text-white text-xs">
+                                  ₹{salePrice.toFixed(2)}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setPriceHistoryProduct(item)}
+                                  className="p-1 rounded text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 transition-colors cursor-pointer"
+                                  title="View Price History & Margins"
+                                >
+                                  <TrendingUp className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </div>
                           </div>
 
                           {/* Card Actions */}
-                          {canEdit && (
-                            <div className="flex items-center gap-1.5 pt-1">
-                              <Button
-                                size="sm"
-                                onClick={() => { setEditId(item.id); setView('edit'); }}
-                                className="flex-1 h-7 text-[11px] bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/80 font-semibold rounded-lg transition-all shadow-3xs cursor-pointer inline-flex items-center justify-center gap-1"
-                              >
-                                <Edit className="w-3 h-3" />
-                                <span>Edit Specs</span>
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleDelete(item)}
-                                className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer shrink-0"
-                                title="Delete Product"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
-                            </div>
-                          )}
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <Button
+                              size="sm"
+                              type="button"
+                              onClick={() => setPriceHistoryProduct(item)}
+                              className="h-7 px-2 text-[11px] bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-600 text-emerald-700 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/80 font-semibold rounded-lg transition-all shadow-3xs cursor-pointer inline-flex items-center gap-1"
+                              title="Price History & Planning"
+                            >
+                              <TrendingUp className="w-3 h-3" />
+                              <span>History</span>
+                            </Button>
+                            {canEdit && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  onClick={() => { setEditId(item.id); setView('edit'); }}
+                                  className="flex-1 h-7 text-[11px] bg-indigo-50 dark:bg-indigo-950/40 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-800/80 font-semibold rounded-lg transition-all shadow-3xs cursor-pointer inline-flex items-center justify-center gap-1"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                  <span>Edit</span>
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDelete(item)}
+                                  className="h-7 w-7 p-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer shrink-0"
+                                  title="Delete Product"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -3232,6 +3299,16 @@ export default function ProductListPage() {
           queryClient.invalidateQueries({ queryKey: ['products'] });
         }}
         subcategories={subcategories}
+      />
+
+      {/* Product Price Management & History Intelligence Modal */}
+      <ProductPriceHistoryModal
+        isOpen={!!priceHistoryProduct}
+        product={priceHistoryProduct}
+        onClose={() => setPriceHistoryProduct(null)}
+        onPriceUpdated={() => {
+          queryClient.invalidateQueries({ queryKey: ['products'] });
+        }}
       />
     </div>
   );
