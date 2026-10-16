@@ -294,8 +294,11 @@ export default function ProductSelectionModal({
                   {sysCode}
                 </div>
 
-                {/* Product Name */}
-                <div className="col-span-3 font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors truncate">
+                {/* Product Name (Never truncated: wraps & tooltip) */}
+                <div 
+                  className="col-span-3 font-bold text-slate-900 dark:text-white group-hover:text-amber-600 transition-colors break-words whitespace-normal leading-tight"
+                  title={pName}
+                >
                   {pName}
                 </div>
 

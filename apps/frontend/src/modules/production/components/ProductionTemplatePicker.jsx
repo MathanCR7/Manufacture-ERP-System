@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { FileText, CheckCircle2, Search, X, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
+import { FileText, CheckCircle2, Search, X, Check, Sparkles } from 'lucide-react';
 
 export default function ProductionTemplatePicker({
   templates = [],
@@ -9,6 +9,15 @@ export default function ProductionTemplatePicker({
   disabled = false
 }) {
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Normalize active selected identifier (handles string ID, string code, or template object)
+  const activeSelectedId = useMemo(() => {
+    if (!selectedTemplateId) return '';
+    if (typeof selectedTemplateId === 'object' && selectedTemplateId !== null) {
+      return selectedTemplateId.id || selectedTemplateId._id || selectedTemplateId.code || '';
+    }
+    return String(selectedTemplateId);
+  }, [selectedTemplateId]);
 
   const filteredTemplates = useMemo(() => {
     if (!searchTerm.trim()) return templates;
@@ -20,104 +29,177 @@ export default function ProductionTemplatePicker({
     );
   }, [templates, searchTerm]);
 
+  // If no templates exist under this base, provide an immediate one-click fallback template creator
   if (templates.length === 0) {
     return (
-      <div className="p-4 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 text-center space-y-1">
-        <FileText className="w-6 h-6 text-slate-300 dark:text-slate-600 mx-auto" />
-        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-          No templates found under base: {selectedBaseName || 'Selected Base'}
-        </p>
-        <p className="text-[11px] text-slate-400">
-          Please create a template under this base in the Production Template menu first.
-        </p>
+      <div className="p-6 rounded-[12px] border border-dashed border-[#E3E6EC] dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/50 text-center space-y-3">
+        <FileText className="w-8 h-8 text-slate-400 dark:text-slate-600 mx-auto" />
+        <div className="space-y-1">
+          <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
+            No templates registered under base: {selectedBaseName || 'Selected Base'}
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            You can apply the standard base formulation template to proceed immediately.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (onSelectTemplate) {
+              onSelectTemplate({
+                id: `default-tpl-${Date.now()}`,
+                code: 'TPL-STD',
+                name: `${selectedBaseName || 'Standard Base'} Formulation`,
+                outputQty: 2000,
+                outputUom: 'Nos',
+                grandTotal: 18500,
+                wastagePct: 6.0,
+                overheadPct: 10.0,
+                lines: []
+              });
+            }
+          }}
+          className="px-4 py-2 bg-[#4F46E5] hover:bg-indigo-700 text-white rounded-[10px] text-xs font-bold transition-all shadow-xs cursor-pointer inline-flex items-center gap-2"
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>Apply Standard Formulation Template</span>
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-slate-100 dark:border-slate-800">
-        <label className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-          <FileText className="w-3.5 h-3.5 text-indigo-500" />
-          <span>Step B: Select Production Template</span>
-          <span className="text-rose-500">*</span>
-        </label>
-        
+    <div className="space-y-3 pt-2">
+      {/* Heading, count, search input */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[#E3E6EC] dark:border-slate-800">
         <div className="flex items-center gap-2">
-          {/* Integrated Search Bar for Templates */}
-          <div className="relative w-full sm:w-52">
-            <Search className="w-3 h-3 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search template..."
-              className="w-full h-7 pl-7 pr-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold shrink-0">
-            {filteredTemplates.length}/{templates.length}
+          <label className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+            <FileText className="w-3.5 h-3.5 text-[#4F46E5]" />
+            <span>Production Template</span>
+            <span className="text-rose-500">*</span>
+          </label>
+          <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-[#4F46E5] dark:text-indigo-300 border border-indigo-200/60">
+            {filteredTemplates.length} of {templates.length}
           </span>
+        </div>
+
+        {/* Integrated Search Input (44px) */}
+        <div className="relative w-full sm:w-64">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search template name, code..."
+            className="w-full h-[44px] pl-9 pr-8 bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[10px] text-xs font-medium text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#4F46E5] transition-all"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1">
+      {/* Template rows: full width, selectable cards */}
+      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
         {filteredTemplates.map((tpl) => {
-          const isSelected = selectedTemplateId === tpl.id;
+          const tplId = String(tpl.id || '');
+          const tplCode = String(tpl.code || '');
+          const isSelected = Boolean(
+            activeSelectedId && (
+              activeSelectedId === tplId || 
+              activeSelectedId === tplCode ||
+              (tpl._id && activeSelectedId === String(tpl._id))
+            )
+          );
+          const costVal = Number(tpl.grandTotal || 0);
 
           return (
             <button
-              key={tpl.id}
+              key={tpl.id || tpl.code || Math.random()}
               type="button"
               disabled={disabled}
-              onClick={() => onSelectTemplate(tpl)}
-              className={`p-2.5 rounded-xl border text-left transition-all duration-150 cursor-pointer relative overflow-hidden group ${
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (onSelectTemplate) {
+                  onSelectTemplate(tpl);
+                }
+              }}
+              className={`w-full p-3.5 rounded-[12px] border text-left transition-all duration-150 cursor-pointer relative overflow-hidden group ${
                 isSelected
-                  ? 'border-indigo-600 bg-indigo-50/80 dark:bg-indigo-950/60 ring-2 ring-indigo-500/80 shadow-2xs'
-                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-slate-700 hover:shadow-2xs'
+                  ? 'border-[#4F46E5] bg-indigo-50/90 dark:bg-indigo-950/70 ring-2 ring-[#4F46E5]/40 shadow-xs'
+                  : 'border-[#E3E6EC] dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-indigo-300 dark:hover:border-slate-700 hover:shadow-xs'
               }`}
             >
-              <div className="flex items-start justify-between gap-1.5">
-                <div className="space-y-0.5 flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-mono text-[9px] font-black px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                      {tpl.code}
-                    </span>
-                    <h4 className="font-black text-xs text-slate-900 dark:text-white truncate">
-                      {tpl.name}
-                    </h4>
-                  </div>
-
-                  <div className="flex items-center gap-1.5 pt-0.5 text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                    <span>Batch: <strong>{tpl.outputQty} {tpl.outputUom}</strong></span>
-                    <span>•</span>
-                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">
-                      ₹{Number(tpl.grandTotal || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
-                    </span>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                {/* 1. Tag (e.g. TPL-0001) */}
+                <div className="md:col-span-2 flex items-center gap-2">
+                  <span className={`font-mono text-xs font-black px-2 py-1 rounded border transition-colors ${
+                    isSelected
+                      ? 'bg-indigo-100 dark:bg-indigo-900/80 text-[#4F46E5] dark:text-indigo-200 border-indigo-200 dark:border-indigo-700'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                  }`}>
+                    {tpl.code || 'TPL'}
+                  </span>
                 </div>
 
-                {isSelected ? (
-                  <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
+                {/* 2. Template name (wraps, bold, no truncation) */}
+                <div className="md:col-span-5 min-w-0">
+                  <h4 
+                    className={`font-bold text-sm break-words whitespace-normal leading-snug transition-colors ${
+                      isSelected
+                        ? 'text-[#4F46E5] dark:text-indigo-300 font-extrabold'
+                        : 'text-slate-900 dark:text-white group-hover:text-[#4F46E5]'
+                    }`}
+                    title={tpl.name}
+                  >
+                    {tpl.name}
+                  </h4>
+                  {tpl.description && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 break-words line-clamp-1 pt-0.5">
+                      {tpl.description}
+                    </p>
+                  )}
+                </div>
+
+                {/* 3. Batch size */}
+                <div className="md:col-span-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  <span className="text-[10px] uppercase text-slate-400 font-bold block">Batch Size</span>
+                  <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    {Number(tpl.outputQty || 2000).toLocaleString()} {tpl.outputUom || 'Nos'}
+                  </span>
+                </div>
+
+                {/* 4. Cost + Check Indicator */}
+                <div className="md:col-span-3 flex items-center justify-between md:justify-end gap-3 text-right">
+                  <div>
+                    <span className="text-[10px] uppercase text-slate-400 font-bold block">Est. Cost</span>
+                    <span className="font-mono font-black text-sm text-[#4F46E5] dark:text-indigo-400">
+                      ₹{costVal.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                    </span>
                   </div>
-                ) : (
-                  <div className="w-5 h-5 rounded-full border border-slate-300 dark:border-slate-700 shrink-0 group-hover:border-indigo-400 transition-colors" />
-                )}
+
+                  {isSelected ? (
+                    <div className="w-6 h-6 rounded-full bg-[#4F46E5] text-white flex items-center justify-center shrink-0 shadow-xs animate-in zoom-in-75 duration-150">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                  ) : (
+                    <div className="w-6 h-6 rounded-full border-2 border-slate-300 dark:border-slate-700 shrink-0 group-hover:border-[#4F46E5] transition-colors" />
+                  )}
+                </div>
               </div>
 
               {isSelected && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-600" />
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#4F46E5]" />
               )}
             </button>
           );
