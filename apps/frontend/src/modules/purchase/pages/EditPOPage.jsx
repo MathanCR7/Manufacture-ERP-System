@@ -947,8 +947,12 @@ export default function EditPOPage({ id: propId, onBack }) {
   const sgstLabel = sgstRateText ? `SGST @ ${sgstRateText}` : 'SGST (Intrastate)';
   const igstLabel = igstRateText ? `IGST @ ${igstRateText}` : 'IGST (Interstate)';
 
+  // Standard ERP round off: >= .50 rounds up (+1), < .50 rounds down.
+  // Note: If unroundedTotal is greater than 0, rounding must not eliminate the order value to 0.00 (GST invoice rule).
   const unroundedTotal = Math.max(0, subtotal + totalGstAmount + shipping + otherCharges - discount);
-  const grandTotal = Math.round(unroundedTotal);
+  const grandTotal = unroundedTotal > 0 && unroundedTotal < 0.5
+    ? Number(unroundedTotal.toFixed(2))
+    : Math.round(unroundedTotal);
   const roundOff = Number((grandTotal - unroundedTotal).toFixed(2));
 
   // Unified data structure for Print and Excel export
@@ -1049,7 +1053,19 @@ export default function EditPOPage({ id: propId, onBack }) {
       setTimeout(() => handleBack(), 1800);
     },
     onError: (err) => {
-      setErrorMsg(err.response?.data?.error || 'Failed to update Purchase Order.');
+      const backendErr = err.response?.data?.error;
+      const formatted = typeof backendErr === 'string'
+        ? backendErr
+        : (Array.isArray(backendErr)
+            ? backendErr.map(e => e.message || JSON.stringify(e)).join(', ')
+            : (backendErr?.message || err.message || 'Failed to update Purchase Order.'));
+      setErrorMsg(formatted);
+      Swal.fire({
+        icon: 'error',
+        title: 'Validation Error',
+        text: formatted,
+        confirmButtonColor: '#4f46e5'
+      });
       setSuccessMsg('');
     },
   });
@@ -1214,10 +1230,10 @@ export default function EditPOPage({ id: propId, onBack }) {
     const totalQuantity = form.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
     updateMutation.mutate({
-      rmId: firstItem.rmId || form.rmId,
+      rmId: (firstItem.rmId || form.rmId || firstItem.code || firstItem.id || 'ITEM').slice(0, 20),
       name: firstItem.name,
       quantity: totalQuantity,
-      amount: Number(grandTotal),
+      amount: Number(grandTotal) > 0 ? Number(grandTotal) : Number(unroundedTotal.toFixed(2)),
       uomId: firstItem.uomId || undefined,
       expectedDelivery: form.expectedDelivery.toISOString(),
       supplierId: form.selectedSupplier?.id || null,

@@ -44,6 +44,14 @@ const resolveUomId = async (value) => {
   return newUom.id;
 };
 
+const formatZodError = (err) => {
+  const issues = err?.issues || err?.errors || [];
+  if (Array.isArray(issues) && issues.length > 0) {
+    return issues.map(i => `${i.path?.join('.') || 'field'}: ${i.message}`).join(', ');
+  }
+  return err?.message || 'Validation error';
+};
+
 const parseDateSafe = (val) => {
   if (!val) return null;
   if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
@@ -480,7 +488,7 @@ exports.updatePOPayment = async (req, res, next) => {
     res.json(formattedUpdated);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      return res.status(400).json({ error: formatZodError(error), details: error.issues || error.errors });
     }
     next(error);
   }
@@ -583,10 +591,10 @@ const createPOSchema = z.object({
   rmId: z.string().trim().min(1).max(20, "RM ID cannot exceed 20 characters"), 
   name: z.string().min(2),
   quantity: z.coerce.number().positive(),
-  amount: z.coerce.number().positive(),
+  amount: z.coerce.number().nonnegative(),
   uomId: z.string().min(1),
   expectedDelivery: z.string().min(1),
-  supplierId: z.string().uuid().optional(),
+  supplierId: z.string().uuid().nullable().optional().or(z.literal('')),
   
   status: z.enum(['PENDING', 'ORDERED', 'RECEIVED', 'DRAFT']).optional().default('PENDING'),
   
@@ -869,7 +877,8 @@ exports.createPO = async (req, res, next) => {
     res.status(201).json(createdPO);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      console.error('[createPO Validation Error]:', formatZodError(error));
+      return res.status(400).json({ error: formatZodError(error), details: error.issues || error.errors });
     }
     if (error.code === 'P2000') {
         return res.status(400).json({ error: "Value too long for database. Check RM ID length." });
@@ -886,10 +895,10 @@ const updatePOSchema = z.object({
   rmId: z.string().trim().optional(),
   name: z.string().min(2).optional(),
   quantity: z.coerce.number().positive().optional(),
-  amount: z.coerce.number().positive().optional(),
+  amount: z.coerce.number().nonnegative().optional(),
   uomId: z.string().min(1).optional(),
   expectedDelivery: z.string().min(1).optional(),
-  supplierId: z.string().uuid().nullable().optional(),
+  supplierId: z.string().uuid().nullable().optional().or(z.literal('')),
   
   // Financial details
   subtotal: z.coerce.number().optional(),
@@ -1286,7 +1295,7 @@ exports.updatePO = async (req, res, next) => {
     res.json(finalPO || updatedPO);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      return res.status(400).json({ error: formatZodError(error), details: error.issues || error.errors });
     }
     next(error);
   }
@@ -1428,7 +1437,7 @@ exports.createUOM = async (req, res, next) => {
     res.status(201).json(newUOM);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      return res.status(400).json({ error: formatZodError(error), details: error.issues || error.errors });
     }
     next(error);
   }
@@ -1617,7 +1626,7 @@ exports.createWaste = async (req, res, next) => {
     res.status(201).json(waste);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      return res.status(400).json({ error: formatZodError(error), details: error.issues || error.errors });
     }
     next(error);
   }
@@ -1792,7 +1801,7 @@ exports.updateWaste = async (req, res, next) => {
     res.json(updatedWaste);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: error.errors });
+      return res.status(400).json({ error: formatZodError(error), details: error.issues || error.errors });
     }
     next(error);
   }

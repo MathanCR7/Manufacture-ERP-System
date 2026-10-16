@@ -840,9 +840,12 @@ export default function CreatePOPage({ onBack }) {
   const sgstLabel = sgstRateText ? `SGST @ ${sgstRateText}` : 'SGST (Intrastate)';
   const igstLabel = igstRateText ? `IGST @ ${igstRateText}` : 'IGST (Interstate)';
 
-  // Standard ERP round off: >= .50 rounds up (+1), < .50 rounds down
+  // Standard ERP round off: >= .50 rounds up (+1), < .50 rounds down.
+  // Note: If unroundedTotal is greater than 0, rounding must not eliminate the order value to 0.00 (GST invoice rule).
   const unroundedTotal = Math.max(0, subtotal + totalGstAmount + shipping + otherCharges - discount);
-  const grandTotal = Math.round(unroundedTotal);
+  const grandTotal = unroundedTotal > 0 && unroundedTotal < 0.5
+    ? Number(unroundedTotal.toFixed(2))
+    : Math.round(unroundedTotal);
   const roundOff = Number((grandTotal - unroundedTotal).toFixed(2));
 
   // Unified data structure for Print and Excel export
@@ -960,7 +963,19 @@ export default function CreatePOPage({ onBack }) {
       });
     },
     onError: (err) => {
-      setErrorMsg(err.response?.data?.error || 'Failed to create Purchase Order');
+      const backendErr = err.response?.data?.error;
+      const formatted = typeof backendErr === 'string'
+        ? backendErr
+        : (Array.isArray(backendErr)
+            ? backendErr.map(e => e.message || JSON.stringify(e)).join(', ')
+            : (backendErr?.message || err.message || 'Failed to create Purchase Order'));
+      setErrorMsg(formatted);
+      Swal.fire({
+        icon: 'error',
+        title: 'Validation Error',
+        text: formatted,
+        confirmButtonColor: '#4f46e5'
+      });
     },
   });
 
@@ -1002,6 +1017,7 @@ export default function CreatePOPage({ onBack }) {
 
     const firstItem = items[0];
     const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const safeRmId = (firstItem.rmId || firstItem.code || firstItem.id || 'ITEM').slice(0, 20);
 
     // Validate that batch quantities do not exceed ordered item quantity
     for (const it of items) {
@@ -1149,12 +1165,12 @@ export default function CreatePOPage({ onBack }) {
 
     createMutation.mutate({
       status: normalizedStatus,
-      rmId: firstItem.rmId,
+      rmId: safeRmId,
       name: firstItem.name,
       quantity: totalQuantity,
-      amount: Number(grandTotal),
-      uomId: firstItem.uomId || firstItem.uomLabel,
-      supplierId: formData.selectedSupplier.id,
+      amount: Number(grandTotal) > 0 ? Number(grandTotal) : Number(unroundedTotal.toFixed(2)),
+      uomId: firstItem.uomId || firstItem.uomLabel || 'units',
+      supplierId: formData.selectedSupplier?.id || undefined,
       expectedDelivery: formData.expectedDelivery.toISOString(),
       
       subtotal: subtotal,
