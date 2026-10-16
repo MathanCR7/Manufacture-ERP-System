@@ -795,16 +795,18 @@ const getOrderPdfHandler = async (req, res, next) => {
     const taxSettings = await getTaxSettingsData();
 
     const mergedSettings = {
-      companyName: company?.companyName || taxSettings?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED',
-      companyAddress: company?.companyAddress || taxSettings?.companyAddress || 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004',
-      companyGstin: company?.companyGstin || taxSettings?.companyGstin || '33AABCA1234F1Z8',
-      companyMobile: company?.companyMobile || taxSettings?.companyMobile || '+91 94433 12345',
-      companyEmail: company?.companyEmail || taxSettings?.companyEmail || 'billing@antigravitydairy.com',
+      companyName: company?.companyName || taxSettings?.companyName || 'LEONEX',
+      companyAddress: company?.companyAddress || taxSettings?.companyAddress || 'Factory / Registered Office Address',
+      companyGstin: company?.companyGstin || taxSettings?.companyGstin || '33AAWCS2781F1ZZ',
+      companyPan: company?.companyPan || taxSettings?.companyPan || 'AAWCS2781F',
+      companyMobile: company?.companyMobile || taxSettings?.companyMobile || '+91 99404 54154',
+      companyEmail: company?.email || company?.companyEmail || taxSettings?.companyEmail || 'billing@leonex.com',
+      stateCode: company?.stateCode || taxSettings?.stateCode || '33',
       bankName: company?.bankName || taxSettings?.bankName || 'State Bank of India',
-      bankAccountNumber: company?.bankAccountNumber || taxSettings?.bankAccountNumber || '123456789012',
-      bankIfscCode: company?.bankIfscCode || taxSettings?.bankIfscCode || 'SBIN0001234',
-      bankBranch: company?.bankBranch || taxSettings?.bankBranch || 'Salem Main Branch',
-      invoiceTerms: company?.invoiceTerms || taxSettings?.invoiceTerms
+      bankAccountNo: company?.bankAccountNo || company?.bankAccountNumber || taxSettings?.bankAccountNo || taxSettings?.bankAccountNumber || '123456789012',
+      bankIfsc: company?.bankIfsc || company?.bankIfscCode || taxSettings?.bankIfsc || taxSettings?.bankIfscCode || 'SBIN0001234',
+      bankBranch: company?.bankBranch || taxSettings?.bankBranch || 'Main Branch',
+      termsAndConditions: company?.termsAndConditions || company?.invoiceTerms || taxSettings?.termsAndConditions || taxSettings?.invoiceTerms
     };
 
     const pdfBuffer = await generateInvoicePDFBuffer(order, mergedSettings);
@@ -1102,7 +1104,7 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
     if (order && order.type === 'Invoice') {
       prisma.customerOrder.findUnique({
         where: { id: order.id },
-        include: { customer: true, items: { include: { product: true } } }
+        include: { customer: true, items: { include: { product: true, rawMaterial: true, batchAllocations: true } } }
       }).then(orderWithDetails => {
         if (orderWithDetails) {
           sendSalesInvoiceDual(orderWithDetails);
@@ -1655,7 +1657,7 @@ router.post('/invoice', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPER
     // Background dual invoice communication
     prisma.customerOrder.findUnique({
       where: { id: order.id },
-      include: { customer: true, items: { include: { product: true } } }
+      include: { customer: true, items: { include: { product: true, rawMaterial: true, batchAllocations: true } } }
     }).then(orderWithDetails => {
       if (orderWithDetails) sendSalesInvoiceDual(orderWithDetails);
     }).catch(err => console.error('Failed to trigger sales invoice dual send:', err));
@@ -2669,7 +2671,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
     if (updated && data.type === 'Invoice') {
       prisma.customerOrder.findUnique({
         where: { id: id },
-        include: { customer: true, items: { include: { product: true } } }
+        include: { customer: true, items: { include: { product: true, rawMaterial: true, batchAllocations: true } } }
       }).then(orderWithDetails => {
         if (orderWithDetails) {
           sendSalesInvoiceDual(orderWithDetails);

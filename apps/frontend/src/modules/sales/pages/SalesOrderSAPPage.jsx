@@ -11,7 +11,8 @@ import {
   Package, Boxes, CreditCard, Banknote, HelpCircle, ShieldCheck, Info,
   SlidersHorizontal, CheckSquare, Square, MapPin, Globe, Moon, Sun,
   ExternalLink, ChevronRight, Minimize2, Maximize2, LayoutGrid, Table,
-  Camera, Image as ImageIcon, Paperclip, UploadCloud
+  Camera, Image as ImageIcon, Paperclip, UploadCloud,
+  Mail, Send, Share2, MessageSquare
 } from 'lucide-react';
 import SearchSelect from '@/components/ui/SearchSelect';
 import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
@@ -2775,6 +2776,275 @@ export default function SalesOrderPage() {
     }
   };
 
+  // WhatsApp Share with Live Bill PDF Generation, Download & Link
+  const handleShareWhatsApp = async (orderPayload) => {
+    const isPaid = String(paymentTerms).toUpperCase() === 'PAID' || 
+                   (Number(advancePaid) >= Number(financials.grandTotal) && Number(financials.grandTotal) > 0);
+    const activePaymentDetails = paymentMethod.includes('Bank')
+      ? bankTransferDetails
+      : (paymentMethod.includes('UPI') ? upiDetails : (paymentMethod.includes('Card') ? cardDetails : cashDetails));
+
+    const orderData = orderPayload || {
+      id: editOrderId,
+      docNo: docNo,
+      referenceNo: (docNo && (docNo.startsWith('SO-') || docNo.startsWith('INV-') || docNo.startsWith('QT-'))) ? docNo : `SO-${docNo}`,
+      type: orderMode === 'INVOICE' ? 'Invoice' : (orderMode === 'QUOTATION' ? 'Quotation' : 'Sales Order'),
+      createdAt: postingDate,
+      deliveryDate: deliveryDate,
+      customer: selectedCustomer || {
+        name: 'Valued Customer',
+        address: shipToAddress || billToAddress,
+        gstin: taxRegNo,
+        phone: contactPerson
+      },
+      customerName: selectedCustomer?.name,
+      customerPhone: contactPerson || selectedCustomer?.phone,
+      shipToAddress: shipToAddress || selectedCustomer?.address || billToAddress,
+      billToAddress: billToAddress || selectedCustomer?.billingAddress || selectedCustomer?.address,
+      deliveryAddress: shipToAddress || billToAddress || selectedCustomer?.address,
+      buyerStateCode: isInterState ? (placeOfSupply || '29') : sellerStateCode,
+      sellerStateCode: sellerStateCode,
+      placeOfSupply: placeOfSupply,
+      taxType: isInterState ? 'INTER_STATE' : 'INTRA_STATE',
+      shippingMethod: shippingMethod,
+      transporterName: transporterName,
+      vehicleNo: vehicleNo,
+      lrNo: lrNo,
+      ewayBillNo: ewayBillNo,
+      salesEmployee: salesEmployee,
+      owner: owner,
+      customerRefNo: customerRefNo,
+      paymentTerms: isPaid ? 'PAID' : paymentTerms,
+      paymentStatus: isPaid ? 'PAID' : (Number(advancePaid) > 0 ? 'PARTIAL' : 'PENDING'),
+      paymentMethod: paymentMethod,
+      paymentMode: paymentMethod,
+      paymentDetails: activePaymentDetails,
+      termsAndConditions: orderTerms,
+      invoiceTerms: orderTerms,
+      amountPaid: advancePaid,
+      items: activeLines.map(l => ({
+        productId: l.productId,
+        rawMaterialId: l.rawMaterialId,
+        itemType: l.itemType || (l.rawMaterialId ? 'RAW_MATERIAL' : 'PRODUCT'),
+        isPackingCharge: Boolean(l.isPackingCharge),
+        is_packing_charge: Boolean(l.isPackingCharge),
+        productCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        systemCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        itemCode: l.systemCode || (l.rawMaterialId ? (l.rawMaterial?.code || l.rawMaterial?.sku) : (l.rawProduct?.code || l.rawProduct?.sku)) || '',
+        category: l.category || (l.rawMaterialId ? (l.rawMaterial?.category?.name || l.rawMaterial?.category) : (l.rawProduct?.category?.name || l.rawProduct?.categoryName)) || '',
+        categoryName: l.category || (l.rawMaterialId ? (l.rawMaterial?.category?.name || l.rawMaterial?.category) : (l.rawProduct?.category?.name || l.rawProduct?.categoryName)) || '',
+        productName: l.itemDescription,
+        hsnCode: (l.rawMaterialId ? (l.rawMaterial?.hsnCode || '392310') : (l.rawProduct?.hsnCode || l.rawProduct?.specifications?.hsnCode)) || '21050000',
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        discountPercent: Number(l.discountPercent) || 0,
+        subtotal: Number(l.lineTotal),
+        gstRate: Number(l.gstRate) || (l.rawMaterialId ? 18 : 5),
+        uomName: l.unitOfSale
+      })),
+      totalSubtotal: financials.taxableSubtotal,
+      invoiceDiscount: financials.docDiscAmt,
+      freight: freight,
+      loadingCharges: loadingCharges,
+      packingCharges: packingCharges,
+      otherCharges: otherCharges,
+      cgst: financials.cgst,
+      sgst: financials.sgst,
+      igst: financials.igst,
+      roundOff: financials.roundOff,
+      grandTotal: financials.grandTotal,
+      internalNote: remarks
+    };
+
+    let rawPhone = orderData.customerPhone || orderData.customer?.phone || contactPerson;
+    if (!rawPhone) {
+      const { value: enteredPhone } = await Swal.fire({
+        title: 'Enter Recipient Mobile',
+        input: 'text',
+        inputLabel: 'Customer phone number for WhatsApp delivery',
+        placeholder: 'e.g. 9876543210',
+        showCancelButton: true,
+        confirmButtonColor: '#16a34a',
+        inputValidator: (val) => (!val ? 'Please enter a valid phone number' : null)
+      });
+      if (!enteredPhone) return;
+      rawPhone = enteredPhone;
+    }
+
+    let cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+    if (cleanPhone.length === 10) cleanPhone = '91' + cleanPhone;
+
+    let liveCompany = storeCompany;
+    try {
+      const taxRes = await api.get('/setup/tax');
+      if (taxRes.data) {
+        liveCompany = taxRes.data;
+        useCompanyStore.getState().setCompany(taxRes.data);
+      }
+    } catch (taxErr) {
+      console.warn('Could not refresh setup tax, using store company:', taxErr);
+    }
+
+    // 1. Generate and automatically download the official printable A4 PDF
+    const pdfFilename = getSalesDocumentPdfFilename(orderData, 'A4');
+    try {
+      const blob = generateA4TaxInvoice(orderData, liveCompany);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = pdfFilename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+      }
+    } catch (pdfErr) {
+      console.warn('PDF generation for WhatsApp failed:', pdfErr);
+    }
+
+    // 2. Prepare Direct Public PDF Link
+    const apiBase = import.meta.env.VITE_API_URL || (window.location.port === '5173' ? 'http://localhost:5000/api' : `${window.location.origin}/api`);
+    const baseUrl = apiBase.startsWith('http') ? apiBase : `${window.location.origin}${apiBase}`;
+    const publicPdfUrl = orderData.id ? `${baseUrl}/public/orders/${orderData.id}/pdf` : `${baseUrl}/public/orders/pdf`;
+
+    // 3. Construct attractive itemized WhatsApp message
+    const printableLines = (orderData.items || []).filter(i => !i.isPackingCharge && !i.is_packing_charge);
+    const itemLines = printableLines.slice(0, 8).map((it, idx) => {
+      const isRM = Boolean(it.rawMaterialId || it.itemType === 'RAW_MATERIAL');
+      const tag = isRM ? '🟣 [RM]' : '🟢 [FG]';
+      const name = it.productName || it.itemDescription || 'Item';
+      const qty = Number(it.quantity || 1);
+      const uom = it.uomName || (isRM ? 'kg' : 'pcs');
+      const rate = Number(it.unitPrice || 0);
+      const lineSub = Number(it.subtotal || (qty * rate));
+      return `${idx + 1}. ${tag} *${name}*\n   ${qty} ${uom} × ₹${rate.toFixed(2)} = ₹${lineSub.toFixed(2)}`;
+    }).join('\n');
+
+    const extraItemsCount = printableLines.length - 8;
+    const extraItemsText = extraItemsCount > 0 ? `\n...and ${extraItemsCount} more items in PDF` : '';
+
+    const grandTotalFormatted = Number(orderData.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    const amountInWords = numberToWordsINR(Number(orderData.grandTotal || 0));
+
+    const text = `🧾 *${orderData.type ? orderData.type.toUpperCase() : 'TAX INVOICE'}*
+🏢 *${liveCompany?.companyName || 'LEONEX'}*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 *Doc No:* ${orderData.docNo || orderData.referenceNo}
+📅 *Date:* ${new Date(orderData.createdAt || Date.now()).toLocaleDateString('en-GB')}
+👤 *Party:* ${orderData.customerName || orderData.customer?.name || 'Valued Client'}
+📞 *Phone:* ${rawPhone}
+🏛️ *GSTIN:* ${orderData.customer?.gstin || orderData.taxRegNo || 'URP'}
+📍 *Place of Supply:* ${orderData.placeOfSupply ? orderData.placeOfSupply : 'Intra-State'}
+
+📦 *ITEMIZED BILL SUMMARY:*
+${itemLines}${extraItemsText}
+
+💵 *FINANCIAL BREAKDOWN:*
+• Taxable Value : ₹${Number(orderData.totalSubtotal || 0).toFixed(2)}
+${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(orderData.freight).toFixed(2)}\n` : ''}${Number(orderData.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(orderData.packingCharges).toFixed(2)}\n` : ''}${Number(orderData.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(orderData.loadingCharges).toFixed(2)}\n` : ''}${Number(orderData.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(orderData.otherCharges).toFixed(2)}\n` : ''}${Number(orderData.cgst || 0) > 0 ? `• CGST Tax : ₹${Number(orderData.cgst).toFixed(2)}\n• SGST Tax : ₹${Number(orderData.sgst).toFixed(2)}\n` : ''}${Number(orderData.igst || 0) > 0 ? `• IGST Tax : ₹${Number(orderData.igst).toFixed(2)}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 *NET GRAND TOTAL: ₹${grandTotalFormatted}*
+🗣️ _${amountInWords}_
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💳 *PAYMENT SETTLEMENT:*
+• Mode : ${orderData.paymentMode || orderData.paymentMethod || orderData.paymentTerms || 'Bank Transfer'}
+• Status : ${orderData.paymentStatus || 'PENDING'}
+
+🏦 *BANK REMITTANCE (NEFT/RTGS):*
+• Bank : ${liveCompany?.bankName || 'State Bank of India'}
+• A/C No : ${liveCompany?.bankAccountNo || liveCompany?.bankAccountNumber || '123456789012'}
+• IFSC : ${liveCompany?.bankIfsc || liveCompany?.bankIfscCode || 'SBIN0001234'}
+• Branch : ${liveCompany?.bankBranch || 'Main Branch'}
+
+📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*
+${publicPdfUrl}
+
+Thank you for choosing *${liveCompany?.companyName || 'LEONEX'}*!
+For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
+
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+    window.open(waUrl, '_blank');
+
+    Swal.fire({
+      icon: 'success',
+      title: 'WhatsApp Dispatched & Bill PDF Downloaded',
+      html: `
+        <div class="text-left text-xs text-slate-600 dark:text-slate-300 space-y-2 pt-1">
+          <div class="p-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-lg text-emerald-800 dark:text-emerald-200">
+            ✅ <b>Bill PDF Downloaded:</b> <span class="font-mono font-semibold">${pdfFilename}</span>
+          </div>
+          <p>WhatsApp Web has been opened with your bill summary and direct PDF download link.</p>
+          <div class="p-2.5 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg text-indigo-800 dark:text-indigo-200">
+            📎 <b>Send File on WhatsApp:</b> You can drag & drop the downloaded <b>${pdfFilename}</b> file directly into your WhatsApp chat window to send the official PDF document as an attachment!
+          </div>
+        </div>
+      `,
+      confirmButtonColor: '#16a34a',
+      timer: 5000,
+      timerProgressBar: true
+    });
+  };
+
+  // Email Document Dispatch directly from Studio
+  const handleResendEmail = async () => {
+    if (!editOrderId) {
+      Swal.fire({
+        icon: 'info',
+        title: 'Save Document First',
+        text: 'Please save or post the document before dispatching statutory email.',
+        confirmButtonColor: '#4f46e5'
+      });
+      return;
+    }
+
+    const defaultEmail = selectedCustomer?.email || 'mathansethupathy@gmail.com';
+    const { value: targetEmail } = await Swal.fire({
+      title: 'Dispatch Statutory Email',
+      html: `
+        <div class="text-left text-xs text-slate-600 dark:text-slate-300 space-y-2">
+          <p>This will dispatch an executive HTML email with the statutory PDF invoice attached, featuring complete item lines, tax calculations, amount in words, bank details, and terms.</p>
+          <div class="p-2 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded text-indigo-800 dark:text-indigo-200">
+            📄 <b>Document:</b> ${docNo} &bull; <b>Total:</b> ₹${Number(financials.grandTotal || 0).toFixed(2)}
+          </div>
+        </div>
+      `,
+      input: 'email',
+      inputValue: defaultEmail,
+      inputLabel: 'Recipient Email Address',
+      showCancelButton: true,
+      confirmButtonText: '📧 Dispatch Email',
+      confirmButtonColor: '#4f46e5',
+      inputValidator: (val) => (!val ? 'Please enter a valid email address' : null)
+    });
+
+    if (!targetEmail) return;
+
+    try {
+      Swal.fire({
+        title: 'Sending Statutory Email...',
+        text: `Transmitting document ${docNo} to ${targetEmail} with PDF attachment...`,
+        allowOutsideClick: false,
+        didOpen: () => Swal.showLoading()
+      });
+
+      const res = await api.post(`/orders/${editOrderId}/resend`, { targetEmail });
+      Swal.fire({
+        icon: 'success',
+        title: 'Email Dispatched Successfully',
+        text: res.data?.message || `Statutory PDF invoice dispatched to ${targetEmail}`,
+        confirmButtonColor: '#4f46e5'
+      });
+    } catch (err) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Email Dispatch Failed',
+        text: err?.response?.data?.error || err.message,
+        confirmButtonColor: '#dc2626'
+      });
+    }
+  };
+
   // Pre-indexed products with useMemo for high-performance instant searching
   const productsWithSearchIndex = useMemo(() => {
     return products.map(p => ({
@@ -2964,7 +3234,11 @@ export default function SalesOrderPage() {
               <span className="w-2 h-2 rounded-full bg-emerald-700 animate-pulse" title="Live Stock Synced" />
             )}
           </button>
-          
+
+
+
+
+
           <button
             type="button"
             onClick={() => handleResetForm()}
@@ -6022,13 +6296,17 @@ export default function SalesOrderPage() {
             <button
               type="button"
               onClick={() => setShowDocFlowModal(true)}
-              className="px-3 h-[28px] bg-indigo-700 hover:bg-indigo-600 text-white font-bold text-xs border border-indigo-600 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-1 shadow-xs"
+              className="px-3 h-[28px] bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs border border-slate-600 rounded-xs transition-colors cursor-pointer flex items-center gap-1.5 ml-1 shadow-xs"
               title="View Complete SAP Document Flow & Lifecycle History"
             >
-              <GitFork className="w-3.5 h-3.5 text-indigo-200" />
+              <GitFork className="w-3.5 h-3.5 text-indigo-300" />
               <span>Document Flow</span>
             </button>
           )}
+
+
+
+
         </div>
 
         {/* Right Workflow Actions (Copy From / Copy To) */}

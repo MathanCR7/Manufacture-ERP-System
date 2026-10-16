@@ -599,21 +599,61 @@ export default function SalesListPage() {
     const baseUrl = apiBase.startsWith('http') ? apiBase : `${window.location.origin}${apiBase}`;
     const publicPdfUrl = `${baseUrl}/public/orders/${order.id}/pdf`;
 
-    // 4. Construct WhatsApp Message with official format and bill PDF link
-    const text = `🧾 *${order.type === 'Quotation' ? 'QUOTATION' : 'TAX INVOICE'}*
+    // 4. Construct rich itemized WhatsApp message matching printable PDF details
+    const printableLines = (fullOrder.items || []).filter(i => !i.isPackingCharge && !i.is_packing_charge);
+    const itemLines = printableLines.slice(0, 8).map((it, idx) => {
+      const isRM = Boolean(it.rawMaterialId || it.itemType === 'RAW_MATERIAL');
+      const tag = isRM ? '🟣 [RM]' : '🟢 [FG]';
+      const name = it.productName || it.product?.name || it.itemDescription || (isRM ? it.rawMaterial?.name : 'Item');
+      const qty = Number(it.quantity || 1);
+      const uom = it.uomName || (isRM ? 'kg' : (it.product?.unitOfSale || 'pcs'));
+      const rate = Number(it.unitPrice || 0);
+      const lineSub = Number(it.subtotal || (qty * rate));
+      return `${idx + 1}. ${tag} *${name}*\n   ${qty} ${uom} × ₹${rate.toFixed(2)} = ₹${lineSub.toFixed(2)}`;
+    }).join('\n');
+
+    const extraItemsCount = printableLines.length - 8;
+    const extraItemsText = extraItemsCount > 0 ? `\n...and ${extraItemsCount} more items in PDF` : '';
+    const rawGrandTotal = Number(fullOrder.grandTotal || fullOrder.totalSubtotal || 0);
+    const amountInWords = numberToWordsINR(rawGrandTotal);
+
+    const docTypeLabel = fullOrder.type ? fullOrder.type.toUpperCase() : 'TAX INVOICE';
+
+    const text = `🧾 *${docTypeLabel}*
 🏢 *${company}*
-━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📄 *Doc No:* ${docNo}
 📅 *Date:* ${dateStr}
-👤 *Client:* ${custName}
-💰 *Total Amount:* ₹${grandTotal}
-💳 *Payment:* ${order.paymentTerms || 'Cash'} [${order.paymentStatus || 'PAID'}]
-📦 *Status:* ${order.status || 'Confirmed'}
+👤 *Party:* ${custName}
+📞 *Phone:* ${rawPhone}
+🏛️ *GSTIN:* ${fullOrder.customer?.gstin || fullOrder.taxRegNo || 'URP'}
+📍 *Supply:* ${fullOrder.placeOfSupply ? fullOrder.placeOfSupply : 'Intra-State'}
 
-📥 *Download / View Bill PDF:*
+📦 *ITEMIZED BILL SUMMARY:*
+${itemLines || '1 Line Item'}${extraItemsText}
+
+💵 *FINANCIAL BREAKDOWN:*
+• Taxable Value : ₹${Number(fullOrder.totalSubtotal || 0).toFixed(2)}
+${Number(fullOrder.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(fullOrder.freight).toFixed(2)}\n` : ''}${Number(fullOrder.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(fullOrder.packingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(fullOrder.loadingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(fullOrder.otherCharges).toFixed(2)}\n` : ''}${Number(fullOrder.cgst || 0) > 0 ? `• CGST Tax : ₹${Number(fullOrder.cgst).toFixed(2)}\n• SGST Tax : ₹${Number(fullOrder.sgst).toFixed(2)}\n` : ''}${Number(fullOrder.igst || 0) > 0 ? `• IGST Tax : ₹${Number(fullOrder.igst).toFixed(2)}\n` : ''}• Round-Off : ${Number(fullOrder.roundOff || 0) < 0 ? `-₹${Math.abs(Number(fullOrder.roundOff)).toFixed(2)}` : `+₹${Number(fullOrder.roundOff || 0).toFixed(2)}`}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 *NET GRAND TOTAL: ₹${grandTotal}*
+🗣️ _${amountInWords}_
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💳 *PAYMENT SETTLEMENT:*
+• Mode : ${fullOrder.paymentMode || fullOrder.paymentMethod || fullOrder.paymentTerms || 'Bank Transfer'}
+• Status : ${fullOrder.paymentStatus || 'PENDING'}
+
+🏦 *BANK REMITTANCE (NEFT/RTGS):*
+• Bank : ${activeSettings?.bankName || 'State Bank of India'}
+• A/C No : ${activeSettings?.bankAccountNo || activeSettings?.bankAccountNumber || '123456789012'}
+• IFSC : ${activeSettings?.bankIfsc || activeSettings?.bankIfscCode || 'SBIN0001234'}
+• Branch : ${activeSettings?.bankBranch || 'Main Branch'}
+
+📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*
 ${publicPdfUrl}
 
-Thank you for choosing ${company}!`;
+Thank you for choosing *${company}*!
+For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
 
     const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
     window.open(waUrl, '_blank');

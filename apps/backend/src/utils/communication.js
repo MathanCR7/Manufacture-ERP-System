@@ -3,6 +3,7 @@ const PDFDocument = require('pdfkit');
 const axios = require('axios');
 const prisma = require('../database/prisma');
 const { getTaxSettingsData } = require('../modules/setup/tax.controller');
+const { numberToIndianWords } = require('./gstEngine');
 
 // Create standard Nodemailer transporter using credentials supplied by user in environment
 const transporter = nodemailer.createTransport({
@@ -443,271 +444,314 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     doc.on('end', () => resolve(Buffer.concat(chunks)));
     doc.on('error', err => reject(err));
 
-    const companyName = settings?.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED';
-    const companyAddress = settings?.companyAddress || 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004';
-    const companyGstin = settings?.companyGstin || '33AABCA1234F1Z8';
-    const companyMobile = settings?.companyMobile || '+91 94433 12345';
-    const docNo = invoice.docNo || invoice.referenceNo || 'POS/26-27/0008';
-    const customerName = invoice.customerName || invoice.customer?.name || 'Mathan C';
-    const customerPhone = invoice.customerPhone || invoice.customer?.phone || '9360163523';
-    const customerAddress = invoice.deliveryAddress || invoice.customer?.address || 'Chennai, Tamil Nadu';
-    const customerGstin = invoice.customer?.gstin || invoice.taxRegNo || 'URP (Unregistered)';
-    const counterId = invoice.counterId || 'COUNTER-01';
-    const cashierName = invoice.cashierName || 'Mathan';
-    const paymentMode = invoice.paymentTerms || 'Not Paid';
-    const paymentStatus = invoice.paymentStatus || 'PAID';
-    const placeOfSupply = invoice.placeOfSupply ? `Intra-State (${invoice.placeOfSupply})` : 'Intra-State (Tamil Nadu - 33)';
+    const companyName = settings?.companyName || 'LEONEX';
+    const companyAddress = settings?.companyAddress || 'Factory / Registered Office Address';
+    const companyGstin = settings?.companyGstin || settings?.taxRegNo || '33AAWCS2781F1ZZ';
+    const companyPan = settings?.companyPan || 'AAWCS2781F';
+    const companyMobile = settings?.companyMobile || settings?.mobile || '+91 99404 54154';
+    const companyEmail = settings?.companyEmail || settings?.email || 'billing@leonex.com';
+    const sellerState = settings?.stateCode || (companyGstin ? companyGstin.substring(0, 2) : '33');
 
-    const invoiceDate = invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString('en-IN') : '05/10/2026';
-    const invoiceTime = invoice.createdAt ? new Date(invoice.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '12:42 PM';
+    const docNo = invoice.docNo || invoice.referenceNo || 'SO-000001';
+    const rawTypeUpper = String(invoice.type || invoice.orderMode || '').toUpperCase();
+    const isQuotation = rawTypeUpper === 'QUOTATION' || String(docNo).toUpperCase().startsWith('QT');
+    const isInvoice = rawTypeUpper === 'INVOICE' || String(docNo).toUpperCase().startsWith('INV');
+    const docTitle = isQuotation ? 'QUOTATION' : (isInvoice ? 'TAX INVOICE' : 'SALES ORDER');
+
+    const customerName = invoice.customerName || invoice.customer?.name || 'Valued Customer';
+    const customerPhone = invoice.customerPhone || invoice.customer?.phone || '-';
+    const customerGstin = invoice.customer?.gstin || invoice.taxRegNo || 'URP (Unregistered)';
+    const billToAddress = invoice.billToAddress || invoice.deliveryAddress || invoice.customer?.billingAddress || invoice.customer?.address || 'Local Delivery';
+    const shipToAddress = invoice.shipToAddress || invoice.deliveryAddress || billToAddress;
+
+    const buyerState = invoice.buyerStateCode || (invoice.customer?.gstin ? invoice.customer.gstin.substring(0, 2) : sellerState);
+    const isInterState = String(sellerState) !== String(buyerState);
+    const placeOfSupply = invoice.placeOfSupply ? `${isInterState ? 'Inter-State' : 'Intra-State'} (${invoice.placeOfSupply})` : `${isInterState ? 'Inter-State' : 'Intra-State'} (State ${buyerState})`;
+
+    const invoiceDate = invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN');
+    const invoiceTime = invoice.createdAt ? new Date(invoice.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+
+    const counterId = invoice.counterId || 'MAIN-HQ';
+    const cashierName = invoice.cashierName || invoice.salesEmployee || invoice.creator?.name || 'Administrator';
+    const paymentMode = invoice.paymentMode || invoice.paymentMethod || invoice.paymentTerms || 'Bank Transfer / NEFT';
+    const paymentStatus = invoice.paymentStatus || 'PENDING';
 
     // Financials
     let taxableSubtotal = Number(invoice.totalSubtotal || 0);
+    const freightAmt = Number(invoice.freight || 0);
+    const loadingAmt = Number(invoice.loadingCharges || 0);
+    const packingLinesSum = (invoice.items || [])
+      .filter(i => i.isPackingCharge || i.is_packing_charge)
+      .reduce((s, i) => s + Number(i.subtotal || (Number(i.quantity || 1) * Number(i.unitPrice || 0))), 0);
+    const packingAmt = Math.max(Number(invoice.packingCharges || 0), packingLinesSum);
+    const otherAmt = Number(invoice.otherCharges || 0);
+    const invoiceDiscount = Number(invoice.discountValue || invoice.invoiceDiscount || 0);
+
     let cgst = Number(invoice.cgst || 0);
     let sgst = Number(invoice.sgst || 0);
     let igst = Number(invoice.igst || 0);
     let roundOff = Number(invoice.roundOff || 0);
     let grandTotal = Number(invoice.grandTotal || 0);
-    let amountPaid = Number(invoice.amountPaid || grandTotal);
-    let netDue = Math.max(0, grandTotal - amountPaid);
+    let amountPaid = Number(invoice.amountPaid || 0);
 
-    if (taxableSubtotal === 0 && invoice.items?.length > 0) {
-      taxableSubtotal = invoice.items.reduce((acc, i) => acc + Number(i.subtotal || (Number(i.quantity) * Number(i.unitPrice))), 0);
+    const printableItems = (invoice.items || []).filter(item => !item.isPackingCharge && !item.is_packing_charge);
+
+    if (taxableSubtotal === 0 && printableItems.length > 0) {
+      taxableSubtotal = printableItems.reduce((acc, i) => {
+        const lineRate = Number(i.unitPrice || 0);
+        const lineQty = Number(i.quantity || 1);
+        const lineDisc = Number(i.discount || (lineRate * (Number(i.discountPercent || 0) / 100)));
+        return acc + Math.max(0, (lineRate - lineDisc) * lineQty);
+      }, 0);
     }
-    if (cgst === 0 && sgst === 0 && igst === 0 && invoice.items?.length > 0) {
+
+    if (cgst === 0 && sgst === 0 && igst === 0 && printableItems.length > 0) {
       let totalTax = 0;
-      invoice.items.forEach(i => {
-        const lineSub = Number(i.subtotal || (Number(i.quantity) * Number(i.unitPrice)));
-        const rate = Number(i.gstRate || 5);
-        totalTax += (lineSub * rate) / 100;
+      printableItems.forEach(i => {
+        const lineRate = Number(i.unitPrice || 0);
+        const lineQty = Number(i.quantity || 1);
+        const lineDisc = Number(i.discount || (lineRate * (Number(i.discountPercent || 0) / 100)));
+        const lineTaxable = Math.max(0, (lineRate - lineDisc) * lineQty);
+        const rate = Number(i.gstRate !== undefined ? i.gstRate : 5);
+        totalTax += (lineTaxable * rate) / 100;
       });
-      cgst = Number((totalTax / 2).toFixed(2));
-      sgst = Number((totalTax / 2).toFixed(2));
+      if (isInterState) {
+        igst = Number(totalTax.toFixed(2));
+      } else {
+        cgst = Number((totalTax / 2).toFixed(2));
+        sgst = Number((totalTax / 2).toFixed(2));
+      }
     }
+
     if (grandTotal === 0) {
-      grandTotal = taxableSubtotal + cgst + sgst + igst + roundOff;
+      grandTotal = taxableSubtotal + freightAmt + packingAmt + loadingAmt + otherAmt - invoiceDiscount + cgst + sgst + igst + roundOff;
     }
-    if (roundOff === 0 && invoice.roundOff === undefined) {
-      const rawTotal = taxableSubtotal + cgst + sgst + igst;
-      roundOff = Number((grandTotal - rawTotal).toFixed(2));
-    }
-
+    const netDue = Math.max(0, grandTotal - amountPaid);
     const roundOffDisplay = roundOff < 0 ? `-Rs. ${Math.abs(roundOff).toFixed(2)}` : `+Rs. ${Number(roundOff).toFixed(2)}`;
+    const wordsINR = numberToIndianWords(grandTotal);
 
-    // Top Brand Accent
-    doc.fillColor('#1e1b4b').rect(0, 0, 595, 12).fill();
+    // Bank Details
+    const bankName = settings?.bankName || 'State Bank of India';
+    const bankAccountNo = settings?.bankAccountNo || settings?.bankAccountNumber || '123456789012';
+    const bankIfsc = settings?.bankIfsc || settings?.bankIfscCode || 'SBIN0001234';
+    const bankBranch = settings?.bankBranch || 'Main Branch';
 
-    // Company Header
-    doc.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text(companyName, 30, 26);
+    // Terms
+    const terms = invoice.termsAndConditions || invoice.invoiceTerms || invoice.quotationNote || settings?.termsAndConditions || settings?.invoiceTerms || '1. Goods once sold will not be accepted back without authorized QC approval.\n2. Delayed payments accrue interest @ 18% per annum.\n3. All disputes subject to local jurisdiction only.';
+
+    // Top Accent Banner
+    doc.fillColor('#1e1b4b').rect(0, 0, 595, 10).fill();
+    doc.fillColor('#4f46e5').rect(0, 10, 595, 3).fill();
+
+    // Company Header (Left)
+    doc.fillColor('#0f172a').fontSize(16).font('Helvetica-Bold').text(companyName, 30, 24);
     doc.fontSize(8).font('Helvetica').fillColor('#475569');
-    doc.text(companyAddress, 30, 46, { width: 310, lineGap: 1 });
-    doc.text(`GSTIN: ${companyGstin} | Mobile: ${companyMobile} | Station: ${counterId}`, 30, 68);
+    doc.text(companyAddress, 30, 44, { width: 310, lineGap: 1 });
+    doc.text(`GSTIN: ${companyGstin} | PAN: ${companyPan} | Mobile: ${companyMobile}`, 30, 66);
+    doc.text(`State Code: ${sellerState} | Email: ${companyEmail}`, 30, 78);
 
     // Document Meta Box (Top Right)
-    doc.fillColor('#f8fafc').rect(365, 24, 200, 56).fill();
-    doc.strokeColor('#cbd5e1').lineWidth(0.75).rect(365, 24, 200, 56).stroke();
+    doc.fillColor('#f8fafc').rect(365, 22, 200, 66).fill();
+    doc.strokeColor('#cbd5e1').lineWidth(0.75).rect(365, 22, 200, 66).stroke();
 
-    doc.fillColor('#1e1b4b').fontSize(11).font('Helvetica-Bold').text('TAX INVOICE', 375, 30);
+    doc.fillColor('#1e1b4b').fontSize(11).font('Helvetica-Bold').text(docTitle, 375, 28);
     doc.fontSize(8).font('Helvetica').fillColor('#334155');
-    doc.text(`Invoice No : `, 375, 44);
-    doc.font('Helvetica-Bold').text(docNo, 435, 44);
-    doc.font('Helvetica').text(`Date & Time : ${invoiceDate}, ${invoiceTime}`, 375, 56);
-    doc.text(`Supply Type: ${placeOfSupply}`, 375, 68);
+    doc.text(`Doc No : `, 375, 42);
+    doc.font('Helvetica-Bold').fillColor('#4338ca').text(docNo, 425, 42);
+    doc.font('Helvetica').fillColor('#334155').text(`Date : ${invoiceDate}${invoiceTime ? ` ${invoiceTime}` : ''}`, 375, 54);
+    doc.text(`Supply : ${placeOfSupply}`, 375, 66, { width: 185, lineBreak: false, ellipsis: true });
+    doc.text(`Terms : ${paymentMode} (${paymentStatus})`, 375, 76, { width: 185, lineBreak: false, ellipsis: true });
 
-    doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, 88).lineTo(565, 88).stroke();
+    doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, 94).lineTo(565, 94).stroke();
 
-    // 2-Column Info Grid: Customer Details & POS Terminal Audit
-    const infoBoxY = 96;
-    const boxHeight = 68;
+    // 2-Column Info Grid: Billed To & Shipped To Logistics
+    const infoBoxY = 100;
+    const boxHeight = 70;
 
-    // Customer Card
+    // Billed To Card
     doc.fillColor('#f8fafc').roundedRect(30, infoBoxY, 260, boxHeight, 4).fill();
     doc.strokeColor('#cbd5e1').lineWidth(0.5).roundedRect(30, infoBoxY, 260, boxHeight, 4).stroke();
-    doc.fillColor('#1e1b4b').fontSize(8.5).font('Helvetica-Bold').text('CUSTOMER / PARTY DETAILS', 38, infoBoxY + 6);
+    doc.fillColor('#4338ca').fontSize(8.5).font('Helvetica-Bold').text('BILLED TO (BUYER):', 38, infoBoxY + 6);
     doc.fontSize(8).font('Helvetica').fillColor('#334155');
-    doc.text(`Party Name: ${customerName}`, 38, infoBoxY + 20);
-    doc.text(`Phone / Mobile: ${customerPhone}`, 38, infoBoxY + 32);
-    doc.text(`GSTIN / Tax ID: ${customerGstin}`, 38, infoBoxY + 44);
-    doc.text(`Address: ${customerAddress}`, 38, infoBoxY + 56, { width: 245, lineBreak: false, ellipsis: true });
+    doc.font('Helvetica-Bold').text(customerName.substring(0, 36), 38, infoBoxY + 18);
+    doc.font('Helvetica').text(`Address: ${billToAddress}`, 38, infoBoxY + 30, { width: 245, lineBreak: false, ellipsis: true });
+    doc.font('Helvetica-Bold').fillColor('#1e1b4b').text(`GSTIN/UIN: ${customerGstin}`, 38, infoBoxY + 42);
+    doc.font('Helvetica').fillColor('#64748b').text(`Phone: ${customerPhone} | Buyer State: ${buyerState}`, 38, infoBoxY + 54);
 
-    // POS Terminal & Cashier Audit Card
+    // Shipped To Card
     doc.fillColor('#f8fafc').roundedRect(305, infoBoxY, 260, boxHeight, 4).fill();
     doc.strokeColor('#cbd5e1').lineWidth(0.5).roundedRect(305, infoBoxY, 260, boxHeight, 4).stroke();
-    doc.fillColor('#1e1b4b').fontSize(8.5).font('Helvetica-Bold').text('POS TERMINAL & CASHIER AUDIT', 313, infoBoxY + 6);
+    doc.fillColor('#4338ca').fontSize(8.5).font('Helvetica-Bold').text('SHIPPED TO & LOGISTICS:', 313, infoBoxY + 6);
     doc.fontSize(8).font('Helvetica').fillColor('#334155');
-    doc.text(`POS Terminal: ${counterId}`, 313, infoBoxY + 20);
-    doc.text(`Cashier In-Charge: ${cashierName}`, 313, infoBoxY + 32);
-    doc.text(`Payment Mode: ${paymentMode}`, 313, infoBoxY + 44);
-    doc.text(`Payment Status: ${paymentStatus} (Amount Paid: Rs. ${amountPaid.toFixed(2)})`, 313, infoBoxY + 56);
+    doc.text(`Dest: ${shipToAddress}`, 313, infoBoxY + 18, { width: 245, lineBreak: false, ellipsis: true });
+    doc.text(`Method: ${invoice.shippingMethod || 'Road Transport'} | Transporter: ${invoice.transporterName || '-'}`, 313, infoBoxY + 30, { width: 245, lineBreak: false, ellipsis: true });
+    doc.text(`Vehicle No: ${invoice.vehicleNo || '-'}`, 313, infoBoxY + 42);
+    doc.text(`LR / Docket: ${invoice.lrNo || '-'} | E-Way: ${invoice.ewayBillNo || '-'}`, 313, infoBoxY + 54);
 
     // Items Table Header
-    let tableY = 172;
+    let tableY = 178;
     doc.fillColor('#1e1b4b').rect(30, tableY, 535, 18).fill();
     doc.fillColor('#ffffff').fontSize(7.5).font('Helvetica-Bold');
     doc.text('#', 34, tableY + 5, { width: 16, align: 'center' });
-    doc.text('Description of Goods & Batch', 54, tableY + 5, { width: 310 });
-    doc.text('Qty', 370, tableY + 5, { width: 40, align: 'center' });
-    doc.text('Rate', 415, tableY + 5, { width: 45, align: 'right' });
-    doc.text('GST %', 465, tableY + 5, { width: 35, align: 'right' });
-    doc.text('Line Total', 505, tableY + 5, { width: 55, align: 'right' });
+    doc.text('Description of Goods / Raw Materials & Batch', 54, tableY + 5, { width: 235 });
+    doc.text('Qty', 295, tableY + 5, { width: 45, align: 'center' });
+    doc.text('Rate', 345, tableY + 5, { width: 45, align: 'right' });
+    doc.text('Disc', 395, tableY + 5, { width: 35, align: 'right' });
+    doc.text('Taxable', 435, tableY + 5, { width: 45, align: 'right' });
+    doc.text('GST %', 485, tableY + 5, { width: 30, align: 'center' });
+    doc.text('Total', 520, tableY + 5, { width: 40, align: 'right' });
 
     let currentY = tableY + 18;
 
-    const printableInvoiceItems = (invoice.items || []).filter(item => !item.isPackingCharge && !item.is_packing_charge);
-    const displayInvoiceItems = printableInvoiceItems;
-
-    if (displayInvoiceItems.length === 0) {
+    if (printableItems.length === 0) {
       doc.fillColor('#f8fafc').rect(30, currentY, 535, 20).fill();
       doc.fillColor('#64748b').fontSize(7.5).font('Helvetica-Oblique');
-      doc.text('No merchandise goods line items. Packing & delivery charges itemized below.', 40, currentY + 6);
+      doc.text('No merchandise goods line items. Packing, logistics and service charges itemized in summary below.', 40, currentY + 6);
       currentY += 20;
       doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, currentY).lineTo(565, currentY).stroke();
     } else {
-      displayInvoiceItems.forEach((item, index) => {
-      const prodCode = (item.product?.code || item.productCode || item.systemCode || item.itemCode || item.product?.sku || '').trim();
-      const subcatName = (item.subcategoryName || item.subcategory || item.product?.subcategory?.name || item.product?.specifications?.category || '').trim();
-      const baseCat = (item.categoryName || item.category || item.product?.category?.name || item.product?.specifications?.group || '').trim();
-      let prodName = (item.product?.name || item.productName || 'Item').trim();
+      printableItems.forEach((item, index) => {
+        if (currentY + 24 > 720) {
+          doc.addPage();
+          currentY = 40;
+        }
 
-      if (prodCode && prodName.toLowerCase().startsWith(prodCode.toLowerCase())) {
-        prodName = prodName.substring(prodCode.length).replace(/^[\s\-–—:|]+/, '').trim();
-      }
-      if (subcatName && prodName.toLowerCase().startsWith(subcatName.toLowerCase())) {
-        prodName = prodName.substring(subcatName.length).replace(/^[\s\-–—:|]+/, '').trim();
-      }
-      if (baseCat && prodName.toLowerCase().startsWith(baseCat.toLowerCase())) {
-        prodName = prodName.substring(baseCat.length).replace(/^[\s\-–—:|]+/, '').trim();
-      }
+        const isRM = Boolean(item.rawMaterialId || item.rawMaterial || item.itemType === 'RAW_MATERIAL' || (!item.productId && !item.product));
+        const badge = isRM ? '[RM]' : '[FG]';
+        const code = (item.systemCode || item.productCode || item.itemCode || (isRM ? (item.rawMaterial?.code || item.rawMaterial?.sku) : (item.product?.code || item.product?.sku)) || '').trim();
+        const subcat = (item.subcategoryName || item.subcategory || (isRM ? item.rawMaterial?.category : (item.product?.subcategory?.name || item.product?.specifications?.category)) || '').trim();
+        const baseCat = (item.categoryName || item.category || (isRM ? item.rawMaterial?.category : (item.product?.category?.name || item.product?.specifications?.group)) || '').trim();
+        let itemName = (item.productName || item.itemDescription || (isRM ? item.rawMaterial?.name : item.product?.name) || 'Item').trim();
 
-      const mainCategory = subcatName || baseCat;
-      const mainDesc = [prodCode, mainCategory, prodName].filter(Boolean).join(' - ');
-      const showBaseTag = Boolean(baseCat && (!subcatName || baseCat.toLowerCase() !== subcatName.toLowerCase()));
-      const baseTag = showBaseTag ? ` (${baseCat})` : '';
+        if (code && itemName.toLowerCase().startsWith(code.toLowerCase())) {
+          itemName = itemName.substring(code.length).replace(/^[\s\-–—:|]+/, '').trim();
+        }
 
-      const qty = `${Number(item.quantity || 1)} ${item.uomName || 'pcs'}`;
-      const rate = Number(item.unitPrice || 0);
-      const gstRate = Number(item.gstRate || 5);
-      const lineTotal = Number(item.subtotal || (Number(item.quantity || 1) * rate));
-      const batchInfo = item.batchNo 
-        ? `Batch: ${item.batchNo}${item.expiryDate ? ` | Exp: ${new Date(item.expiryDate).toLocaleDateString('en-IN')}` : ''}`
-        : '';
+        const categoryTag = subcat || baseCat;
+        const mainDesc = [badge, code, categoryTag, itemName].filter(Boolean).join(' - ');
 
-      if (index % 2 === 1) {
-        doc.fillColor('#f8fafc').rect(30, currentY, 535, 22).fill();
-      }
+        const qty = Number(item.quantity || 1);
+        const uom = item.uomName || (isRM ? (item.rawMaterial?.unit || 'kg') : (item.product?.unitOfSale || 'pcs'));
+        const rate = Number(item.unitPrice || 0);
+        const discPct = Number(item.discountPercent || 0);
+        const discAmt = Number(item.discount || (rate * (discPct / 100)));
+        const taxable = Math.max(0, (rate - discAmt) * qty);
+        const gstRate = Number(item.gstRate !== undefined ? item.gstRate : (isRM ? 18 : 5));
+        const gstAmt = (taxable * gstRate) / 100;
+        const lineTotal = taxable + gstAmt;
 
-      doc.fillColor('#0f172a').fontSize(7.5).font('Helvetica-Bold');
-      doc.text(String(index + 1), 34, currentY + 4, { width: 16, align: 'center' });
-      if (baseTag) {
-        doc.text(mainDesc, 54, currentY + 4, { continued: true });
-        doc.fontSize(6.2).font('Helvetica').fillColor('#64748b').text(baseTag);
-      } else {
-        doc.text(mainDesc, 54, currentY + 4, { width: 310 });
-      }
-      if (batchInfo) {
-        doc.fontSize(6.5).font('Helvetica').fillColor('#64748b');
-        doc.text(batchInfo, 54, currentY + 13, { width: 310 });
-      }
+        const batchStr = item.batchNo 
+          ? `Batch: ${item.batchNo}${item.expiryDate ? ` | Exp: ${new Date(item.expiryDate).toLocaleDateString('en-IN')}` : ''}`
+          : (item.batchAllocations && item.batchAllocations.length > 0 
+              ? `Batch: ${item.batchAllocations.map(b => b.batchNo).join(', ')}`
+              : '');
 
-      doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#334155');
-      doc.text(qty, 370, currentY + 6, { width: 40, align: 'center' });
-      doc.font('Helvetica').text(`Rs. ${rate.toFixed(2)}`, 415, currentY + 6, { width: 45, align: 'right' });
-      doc.text(`${gstRate}%`, 465, currentY + 6, { width: 35, align: 'right' });
-      doc.font('Helvetica-Bold').fillColor('#0f172a').text(`Rs. ${lineTotal.toFixed(2)}`, 505, currentY + 6, { width: 55, align: 'right' });
+        if (index % 2 === 1) {
+          doc.fillColor('#f8fafc').rect(30, currentY, 535, 22).fill();
+        }
 
-      currentY += 22;
-      doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, currentY).lineTo(565, currentY).stroke();
+        doc.fillColor('#0f172a').fontSize(7.5).font('Helvetica-Bold');
+        doc.text(String(index + 1), 34, currentY + 4, { width: 16, align: 'center' });
+        doc.text(mainDesc, 54, currentY + 4, { width: 235, lineBreak: false, ellipsis: true });
+
+        if (batchStr) {
+          doc.fontSize(6.5).font('Helvetica').fillColor('#64748b');
+          doc.text(batchStr, 54, currentY + 13, { width: 235, lineBreak: false, ellipsis: true });
+        }
+
+        doc.fontSize(7.5).font('Helvetica-Bold').fillColor('#334155');
+        doc.text(`${qty} ${uom}`, 295, currentY + 5, { width: 45, align: 'center' });
+        doc.font('Helvetica').text(`Rs. ${rate.toFixed(2)}`, 345, currentY + 5, { width: 45, align: 'right' });
+        doc.text(discPct > 0 ? `${discPct}%` : (discAmt > 0 ? discAmt.toFixed(1) : '-'), 395, currentY + 5, { width: 35, align: 'right' });
+        doc.text(taxable.toFixed(2), 435, currentY + 5, { width: 45, align: 'right' });
+        doc.text(`${gstRate}%`, 485, currentY + 5, { width: 30, align: 'center' });
+        doc.font('Helvetica-Bold').fillColor('#0f172a').text(lineTotal.toFixed(2), 520, currentY + 5, { width: 40, align: 'right' });
+
+        currentY += 22;
+        doc.strokeColor('#e2e8f0').lineWidth(0.5).moveTo(30, currentY).lineTo(565, currentY).stroke();
       });
     }
 
-    currentY += 10;
+    currentY += 8;
+    if (currentY + 120 > 750) {
+      doc.addPage();
+      currentY = 40;
+    }
 
     const totalsY = currentY;
 
     // Payment Audit Box (Left)
-    doc.fillColor('#f8fafc').roundedRect(30, totalsY, 260, 96, 4).fill();
-    doc.strokeColor('#cbd5e1').lineWidth(0.5).roundedRect(30, totalsY, 260, 96, 4).stroke();
-    doc.fillColor('#1e1b4b').fontSize(8).font('Helvetica-Bold').text('PAYMENT & AUDIT SETTLEMENT', 38, totalsY + 6);
-    doc.fontSize(7.5).font('Helvetica').fillColor('#334155');
-    doc.text(`Counter Station: ${counterId}`, 38, totalsY + 20);
-    doc.text(`Cashier In-Charge: ${cashierName}`, 38, totalsY + 32);
-    doc.text(`Payment Mode: ${paymentMode}`, 38, totalsY + 44);
-    doc.text(`Payment Status: ${paymentStatus}`, 38, totalsY + 56);
-    doc.font('Helvetica-Bold').text(`Amount Received: Rs. ${amountPaid.toFixed(2)}`, 38, totalsY + 68);
-    doc.fillColor(netDue > 0 ? '#dc2626' : '#15803d').text(`Net Due / Outstanding: Rs. ${netDue.toFixed(2)}`, 38, totalsY + 80);
+    doc.fillColor('#f8fafc').roundedRect(30, totalsY, 260, 108, 4).fill();
+    doc.strokeColor('#cbd5e1').lineWidth(0.5).roundedRect(30, totalsY, 260, 108, 4).stroke();
+    doc.fillColor('#4338ca').fontSize(8).font('Helvetica-Bold').text('AMOUNT IN WORDS & PAYMENT SETTLEMENT', 38, totalsY + 6);
+    doc.fontSize(7.5).font('Helvetica-BoldOblique').fillColor('#1e1b4b');
+    doc.text(wordsINR, 38, totalsY + 18, { width: 245, lineGap: 1 });
 
-    // Financial Calculation Box with ROUND-OFF (Right)
-    doc.fillColor('#ffffff').roundedRect(305, totalsY, 260, 96, 4).fill();
-    doc.strokeColor('#cbd5e1').lineWidth(0.75).roundedRect(305, totalsY, 260, 96, 4).stroke();
+    doc.fontSize(7.5).font('Helvetica').fillColor('#334155');
+    doc.text(`Payment Mode: ${paymentMode} | Status: ${paymentStatus}`, 38, totalsY + 38);
+    doc.text(`Bank: ${bankName} | A/C: ${bankAccountNo}`, 38, totalsY + 50);
+    doc.text(`IFSC: ${bankIfsc} | Branch: ${bankBranch}`, 38, totalsY + 62);
+    if (amountPaid > 0) doc.font('Helvetica-Bold').text(`Amount Paid: Rs. ${amountPaid.toFixed(2)} | Net Due: Rs. ${netDue.toFixed(2)}`, 38, totalsY + 74);
+    
+    doc.fontSize(6.5).font('Helvetica-Oblique').fillColor('#64748b');
+    doc.text('Declaration: We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.', 38, totalsY + 86, { width: 245, lineGap: 1 });
+
+    // Financial Calculation Box (Right)
+    doc.fillColor('#ffffff').roundedRect(305, totalsY, 260, 108, 4).fill();
+    doc.strokeColor('#cbd5e1').lineWidth(0.75).roundedRect(305, totalsY, 260, 108, 4).stroke();
 
     let calcLineY = totalsY + 6;
     const printCalcLine = (label, val, bold = false, color = '#334155', bg = null) => {
       if (bg) {
-        doc.fillColor(bg).rect(307, calcLineY - 2, 256, 12).fill();
+        doc.fillColor(bg).rect(307, calcLineY - 2, 256, 11).fill();
       }
       doc.fillColor(color).fontSize(7.5).font(bold ? 'Helvetica-Bold' : 'Helvetica');
       doc.text(label, 313, calcLineY);
       doc.text(val, 455, calcLineY, { width: 102, align: 'right' });
-      calcLineY += 12;
+      calcLineY += 10.5;
     };
 
-    const freightAmt = Number(invoice.freight || 0);
-    const packingLinesSum = (invoice.items || [])
-      .filter(i => i.isPackingCharge || i.is_packing_charge)
-      .reduce((s, i) => s + Number(i.subtotal || (Number(i.quantity || 1) * Number(i.unitPrice || 0))), 0);
-    const packingAmt = Math.max(Number(invoice.packingCharges || 0), packingLinesSum);
-    const loadingAmt = Number(invoice.loadingCharges || 0);
-    const otherAmt = Number(invoice.otherCharges || 0);
-
-    printCalcLine('Taxable Goods / Subtotal:', `Rs. ${taxableSubtotal.toFixed(2)}`);
+    printCalcLine('Taxable Goods Subtotal:', `Rs. ${taxableSubtotal.toFixed(2)}`);
     if (freightAmt > 0) printCalcLine('Freight & Logistics:', `Rs. ${freightAmt.toFixed(2)}`);
     if (packingAmt > 0) printCalcLine('Packing Charges:', `Rs. ${packingAmt.toFixed(2)}`);
     if (loadingAmt > 0) printCalcLine('Loading Charges:', `Rs. ${loadingAmt.toFixed(2)}`);
     if (otherAmt > 0) printCalcLine('Other Charges:', `Rs. ${otherAmt.toFixed(2)}`);
-    printCalcLine('CGST Tax:', `Rs. ${cgst.toFixed(2)}`);
-    printCalcLine('SGST Tax:', `Rs. ${sgst.toFixed(2)}`);
+    if (invoiceDiscount > 0) printCalcLine('Invoice Discount:', `-Rs. ${invoiceDiscount.toFixed(2)}`, false, '#dc2626');
+    if (cgst > 0) printCalcLine('CGST Tax:', `Rs. ${cgst.toFixed(2)}`);
+    if (sgst > 0) printCalcLine('SGST Tax:', `Rs. ${sgst.toFixed(2)}`);
     if (igst > 0) printCalcLine('IGST Tax:', `Rs. ${igst.toFixed(2)}`);
     printCalcLine('Round-Off Adjustment:', roundOffDisplay, true, '#92400e', '#fef3c7');
 
     doc.strokeColor('#0f172a').lineWidth(1).moveTo(305, calcLineY).lineTo(565, calcLineY).stroke();
-    calcLineY += 4;
-    doc.fillColor('#1e1b4b').fontSize(10).font('Helvetica-Bold');
+    calcLineY += 3;
+    doc.fillColor('#1e1b4b').fontSize(9.5).font('Helvetica-Bold');
     doc.text('FINAL NET AMOUNT:', 313, calcLineY);
     doc.text(`Rs. ${grandTotal.toFixed(2)}`, 440, calcLineY, { width: 118, align: 'right' });
 
-    currentY = totalsY + 104;
+    currentY = totalsY + 114;
 
     // Statutory Terms & Conditions Box
+    if (currentY + 60 > 750) {
+      doc.addPage();
+      currentY = 40;
+    }
     const termsY = currentY;
-    doc.fillColor('#f8fafc').roundedRect(30, termsY, 535, 110, 4).fill();
-    doc.strokeColor('#cbd5e1').lineWidth(0.5).roundedRect(30, termsY, 535, 110, 4).stroke();
-    doc.fillColor('#4338ca').rect(30, termsY, 4, 110).fill();
+    const termsBoxHeight = 52;
+    doc.fillColor('#f8fafc').roundedRect(30, termsY, 535, termsBoxHeight, 4).fill();
+    doc.strokeColor('#cbd5e1').lineWidth(0.5).roundedRect(30, termsY, 535, termsBoxHeight, 4).stroke();
+    doc.fillColor('#4338ca').rect(30, termsY, 4, termsBoxHeight).fill();
 
-    doc.fillColor('#1e1b4b').fontSize(8.5).font('Helvetica-Bold').text('STATUTORY TERMS & CONDITIONS OF SUPPLY', 40, termsY + 8);
+    doc.fillColor('#1e1b4b').fontSize(8).font('Helvetica-Bold').text('STATUTORY TERMS & CONDITIONS OF SUPPLY', 40, termsY + 6);
     doc.fontSize(7).font('Helvetica').fillColor('#475569');
+    doc.text(terms, 40, termsY + 18, { width: 515, lineGap: 1 });
 
-    const terms = [
-      '1. Acceptance of Order: Acceptance of delivered goods or issuance of this invoice constitutes a valid and binding contract.',
-      '2. Statutory Pricing & Taxes: All rates are statutory, firm, and itemized inclusive of Goods and Services Tax (GST) under HSN Chapter 21.',
-      '3. Cold-Chain & Perishable Compliance: Ice creams, popsicles, and dairy frozen desserts must be kept continuously at -18°C (0°F) or below.',
-      '4. Quality Claims: Discrepancies, shortages, or batch defects must be reported within 24 hours of delivery with batch code proof.',
-      '5. Overdue Interest: Payment is due per agreed credit terms. Overdue payments shall accrue interest @ 18% per annum.',
-      '6. Legal Jurisdiction: All disputes arising under this transaction are subject exclusively to Salem, Tamil Nadu, India jurisdiction.'
-    ];
+    currentY = termsY + termsBoxHeight + 8;
+    doc.fontSize(7).font('Helvetica').fillColor('#64748b');
+    doc.text('Subject to local jurisdiction. Cold-chain storage compliance required.', 30, currentY + 4);
+    doc.text('Digitally generated statutory tax invoice. No physical signature required.', 30, currentY + 14);
 
-    let tY = termsY + 22;
-    terms.forEach(t => {
-      doc.text(t, 40, tY, { width: 515, lineGap: 1 });
-      tY += 13;
-    });
-
-    currentY = termsY + 118;
-    doc.fontSize(7.5).font('Helvetica').fillColor('#64748b');
-    doc.text('Subject to Salem Jurisdiction & Cold-Chain Norms', 30, currentY + 12);
-    doc.text('Digitally generated statutory tax invoice. No signature required.', 30, currentY + 22);
-
-    doc.font('Helvetica-Bold').fillColor('#0f172a').text(`For ${companyName}`, 380, currentY + 10, { width: 185, align: 'right' });
-    doc.font('Helvetica').fontSize(7).fillColor('#64748b').text('Authorized Signatory / Cashier Stamp', 380, currentY + 24, { width: 185, align: 'right' });
+    doc.font('Helvetica-Bold').fillColor('#0f172a').text(`For ${companyName}`, 380, currentY + 4, { width: 185, align: 'right' });
+    doc.font('Helvetica').fontSize(7).fillColor('#64748b').text('Authorized Signatory / Cashier Stamp', 380, currentY + 16, { width: 185, align: 'right' });
 
     doc.end();
   });
@@ -2113,90 +2157,176 @@ Phone : ${settings.companyMobile}`;
 /**
  * Helper to generate modern, responsive executive HTML email for Sales Invoice
  */
+/**
+ * Helper to generate modern, responsive executive HTML email for Sales Invoice
+ * Displays ALL details fetched from the statutory printable PDF (Company, Bill-To, Ship-To, Items, Charges, Taxes, Words, Bank, Terms)
+ */
 const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
-  const companyName = settings.companyName || 'ANTIGRAVITY DAIRY & FOODS PRIVATE LIMITED';
-  const companyAddress = settings.companyAddress || 'Plot 42, SIDCO Industrial Estate, Salem, Tamil Nadu, 636004';
-  const companyGstin = settings.companyGstin || '33AABCA1234F1Z8';
-  const companyMobile = settings.companyMobile || '+91 94433 12345';
-  const docNo = invoice.docNo || invoice.referenceNo || 'POS/26-27/0008';
-  const customerName = invoice.customerName || invoice.customer?.name || 'Mathan C';
-  const customerPhone = invoice.customerPhone || invoice.customer?.phone || '9360163523';
-  const customerGstin = invoice.customer?.gstin || invoice.taxRegNo || 'URP (Unregistered)';
-  const counterId = invoice.counterId || 'COUNTER-01';
-  const cashierName = invoice.cashierName || 'Mathan';
-  const paymentMode = invoice.paymentTerms || 'Not Paid';
-  const paymentStatus = invoice.paymentStatus || 'PAID';
-  const placeOfSupply = invoice.placeOfSupply ? `Intra-State (${invoice.placeOfSupply})` : 'Intra-State (Tamil Nadu - 33)';
+  const companyName = settings?.companyName || 'LEONEX';
+  const companyAddress = settings?.companyAddress || 'Factory / Registered Office Address';
+  const companyGstin = settings?.companyGstin || settings?.taxRegNo || '33AAWCS2781F1ZZ';
+  const companyPan = settings?.companyPan || 'AAWCS2781F';
+  const companyMobile = settings?.companyMobile || settings?.mobile || '+91 99404 54154';
+  const companyEmail = settings?.companyEmail || settings?.email || 'billing@leonex.com';
+  const sellerState = settings?.stateCode || (companyGstin ? companyGstin.substring(0, 2) : '33');
 
-  const invoiceDate = invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '05/10/2026';
-  const invoiceTime = invoice.createdAt ? new Date(invoice.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '12:42 PM';
+  const docNo = invoice.docNo || invoice.referenceNo || 'SO-000001';
+  const rawTypeUpper = String(invoice.type || invoice.orderMode || '').toUpperCase();
+  const isQuotation = rawTypeUpper === 'QUOTATION' || String(docNo).toUpperCase().startsWith('QT');
+  const isInvoice = rawTypeUpper === 'INVOICE' || String(docNo).toUpperCase().startsWith('INV');
+  const docTitle = isQuotation ? 'QUOTATION' : (isInvoice ? 'TAX INVOICE' : 'SALES ORDER');
+
+  const customerName = invoice.customerName || invoice.customer?.name || 'Valued Customer';
+  const customerPhone = invoice.customerPhone || invoice.customer?.phone || '-';
+  const customerEmail = invoice.customer?.email || targetEmail || '-';
+  const customerGstin = invoice.customer?.gstin || invoice.taxRegNo || 'URP (Unregistered)';
+  const billToAddress = invoice.billToAddress || invoice.deliveryAddress || invoice.customer?.billingAddress || invoice.customer?.address || 'Local Delivery';
+  const shipToAddress = invoice.shipToAddress || invoice.deliveryAddress || billToAddress;
+
+  const buyerState = invoice.buyerStateCode || (invoice.customer?.gstin ? invoice.customer.gstin.substring(0, 2) : sellerState);
+  const isInterState = String(sellerState) !== String(buyerState);
+  const placeOfSupply = invoice.placeOfSupply ? `${isInterState ? 'Inter-State' : 'Intra-State'} (${invoice.placeOfSupply})` : `${isInterState ? 'Inter-State' : 'Intra-State'} (State ${buyerState})`;
+
+  const invoiceDate = invoice.createdAt ? new Date(invoice.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-IN');
+  const invoiceTime = invoice.createdAt ? new Date(invoice.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+
+  const counterId = invoice.counterId || 'MAIN-HQ';
+  const cashierName = invoice.cashierName || invoice.salesEmployee || invoice.creator?.name || 'Administrator';
+  const paymentMode = invoice.paymentMode || invoice.paymentMethod || invoice.paymentTerms || 'Bank Transfer / NEFT';
+  const paymentStatus = invoice.paymentStatus || 'PENDING';
 
   // Financials
   let taxableSubtotal = Number(invoice.totalSubtotal || 0);
+  const freightAmt = Number(invoice.freight || 0);
+  const loadingAmt = Number(invoice.loadingCharges || 0);
+  const packingLinesSum = (invoice.items || [])
+    .filter(i => i.isPackingCharge || i.is_packing_charge)
+    .reduce((s, i) => s + Number(i.subtotal || (Number(i.quantity || 1) * Number(i.unitPrice || 0))), 0);
+  const packingAmt = Math.max(Number(invoice.packingCharges || 0), packingLinesSum);
+  const otherAmt = Number(invoice.otherCharges || 0);
+  const invoiceDiscount = Number(invoice.discountValue || invoice.invoiceDiscount || 0);
+
   let cgst = Number(invoice.cgst || 0);
   let sgst = Number(invoice.sgst || 0);
   let igst = Number(invoice.igst || 0);
   let roundOff = Number(invoice.roundOff || 0);
   let grandTotal = Number(invoice.grandTotal || 0);
-  let amountPaid = Number(invoice.amountPaid || grandTotal);
-  let netDue = Math.max(0, grandTotal - amountPaid);
+  let amountPaid = Number(invoice.amountPaid || 0);
 
-  if (taxableSubtotal === 0 && invoice.items?.length > 0) {
-    taxableSubtotal = invoice.items.reduce((acc, i) => acc + Number(i.subtotal || (Number(i.quantity) * Number(i.unitPrice))), 0);
+  const printableItems = (invoice.items || []).filter(item => !item.isPackingCharge && !item.is_packing_charge);
+
+  if (taxableSubtotal === 0 && printableItems.length > 0) {
+    taxableSubtotal = printableItems.reduce((acc, i) => {
+      const lineRate = Number(i.unitPrice || 0);
+      const lineQty = Number(i.quantity || 1);
+      const lineDisc = Number(i.discount || (lineRate * (Number(i.discountPercent || 0) / 100)));
+      return acc + Math.max(0, (lineRate - lineDisc) * lineQty);
+    }, 0);
   }
-  if (cgst === 0 && sgst === 0 && igst === 0 && invoice.items?.length > 0) {
+
+  if (cgst === 0 && sgst === 0 && igst === 0 && printableItems.length > 0) {
     let totalTax = 0;
-    invoice.items.forEach(i => {
-      const lineSub = Number(i.subtotal || (Number(i.quantity) * Number(i.unitPrice)));
-      const rate = Number(i.gstRate || 5);
-      totalTax += (lineSub * rate) / 100;
+    printableItems.forEach(i => {
+      const lineRate = Number(i.unitPrice || 0);
+      const lineQty = Number(i.quantity || 1);
+      const lineDisc = Number(i.discount || (lineRate * (Number(i.discountPercent || 0) / 100)));
+      const lineTaxable = Math.max(0, (lineRate - lineDisc) * lineQty);
+      const rate = Number(i.gstRate !== undefined ? i.gstRate : 5);
+      totalTax += (lineTaxable * rate) / 100;
     });
-    cgst = Number((totalTax / 2).toFixed(2));
-    sgst = Number((totalTax / 2).toFixed(2));
+    if (isInterState) {
+      igst = Number(totalTax.toFixed(2));
+    } else {
+      cgst = Number((totalTax / 2).toFixed(2));
+      sgst = Number((totalTax / 2).toFixed(2));
+    }
   }
+
   if (grandTotal === 0) {
-    grandTotal = taxableSubtotal + cgst + sgst + igst + roundOff;
+    grandTotal = taxableSubtotal + freightAmt + packingAmt + loadingAmt + otherAmt - invoiceDiscount + cgst + sgst + igst + roundOff;
   }
-  if (roundOff === 0 && invoice.roundOff === undefined) {
-    const rawTotal = taxableSubtotal + cgst + sgst + igst;
-    roundOff = Number((grandTotal - rawTotal).toFixed(2));
-  }
-
+  const netDue = Math.max(0, grandTotal - amountPaid);
   const roundOffDisplay = roundOff < 0 ? `-₹${Math.abs(roundOff).toFixed(2)}` : `+₹${Number(roundOff).toFixed(2)}`;
+  const wordsINR = numberToIndianWords(grandTotal);
 
-  // Item rows
-  const itemRowsHtml = (invoice.items || []).map((item, index) => {
-    const prodName = item.product?.name || item.productName || 'Almond Pista';
-    const prodCode = item.product?.code || item.product?.sku || (index === 0 ? 'P141' : 'K123');
-    const hsn = item.hsnCode || item.product?.specifications?.hsnCode || '21050000';
-    const qty = `${Number(item.quantity || 1)} ${item.uomName || 'pcs'}`;
+  // Bank Details
+  const bankName = settings?.bankName || 'State Bank of India';
+  const bankAccountNo = settings?.bankAccountNo || settings?.bankAccountNumber || '123456789012';
+  const bankIfsc = settings?.bankIfsc || settings?.bankIfscCode || 'SBIN0001234';
+  const bankBranch = settings?.bankBranch || 'Main Branch';
+
+  // Terms
+  const terms = invoice.termsAndConditions || invoice.invoiceTerms || invoice.quotationNote || settings?.termsAndConditions || settings?.invoiceTerms || '1. Goods once sold will not be accepted back without authorized QC approval.\n2. Delayed payments accrue interest @ 18% per annum.\n3. All disputes subject to local jurisdiction only.';
+
+  const termsList = terms.split('\n').filter(Boolean);
+
+  // Direct Public PDF Link
+  const backendBaseUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+  const publicPdfUrl = `${backendBaseUrl}/api/public/orders/${invoice.id}/pdf`;
+
+  // Item rows HTML
+  const itemRowsHtml = printableItems.map((item, index) => {
+    const isRM = Boolean(item.rawMaterialId || item.rawMaterial || item.itemType === 'RAW_MATERIAL' || (!item.productId && !item.product));
+    const badgeBg = isRM ? '#f3e8ff' : '#ecfdf5';
+    const badgeColor = isRM ? '#6b21a8' : '#065f46';
+    const badgeBorder = isRM ? '#d8b4fe' : '#a7f3d0';
+    const badgeLabel = isRM ? 'RAW MATERIAL' : 'PRODUCT';
+
+    const prodCode = (item.systemCode || item.productCode || item.itemCode || (isRM ? (item.rawMaterial?.code || item.rawMaterial?.sku) : (item.product?.code || item.product?.sku)) || '').trim();
+    const subcatName = (item.subcategoryName || item.subcategory || (isRM ? item.rawMaterial?.category : (item.product?.subcategory?.name || item.product?.specifications?.category)) || '').trim();
+    const baseCat = (item.categoryName || item.category || (isRM ? item.rawMaterial?.category : (item.product?.category?.name || item.product?.specifications?.group)) || '').trim();
+    let prodName = (item.productName || item.itemDescription || (isRM ? item.rawMaterial?.name : item.product?.name) || 'Item').trim();
+
+    if (prodCode && prodName.toLowerCase().startsWith(prodCode.toLowerCase())) {
+      prodName = prodName.substring(prodCode.length).replace(/^[\s\-–—:|]+/, '').trim();
+    }
+
+    const catTag = subcatName || baseCat;
+    const hsn = (item.hsnCode || (isRM ? item.rawMaterial?.hsnCode : item.product?.specifications?.hsnCode) || (isRM ? '392310' : '21050000')).trim();
+    const qty = Number(item.quantity || 1);
+    const uom = item.uomName || (isRM ? (item.rawMaterial?.unit || 'kg') : (item.product?.unitOfSale || 'pcs'));
     const rate = Number(item.unitPrice || 0);
-    const gstRate = Number(item.gstRate || 5);
-    const gstAmount = (rate * gstRate) / 100;
-    const lineTotal = Number(item.subtotal || (Number(item.quantity || 1) * rate));
-    const batchInfo = item.batchNo || 'Direct Counter Stock';
+    const discPct = Number(item.discountPercent || 0);
+    const discAmt = Number(item.discount || (rate * (discPct / 100)));
+    const taxable = Math.max(0, (rate - discAmt) * qty);
+    const gstRate = Number(item.gstRate !== undefined ? item.gstRate : (isRM ? 18 : 5));
+    const gstAmt = (taxable * gstRate) / 100;
+    const lineTotal = taxable + gstAmt;
+
+    const batchInfo = item.batchNo 
+      ? `Batch: ${item.batchNo}${item.expiryDate ? ` | Exp: ${new Date(item.expiryDate).toLocaleDateString('en-IN')}` : ''}`
+      : (item.batchAllocations && item.batchAllocations.length > 0 
+          ? `Batch: ${item.batchAllocations.map(b => b.batchNo).join(', ')}`
+          : 'FEFO Auto Allocated');
 
     return `
-      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 13px;">
-        <td style="padding: 12px 10px; color: #475569; font-weight: 600; text-align: center;">${index + 1}</td>
-        <td style="padding: 12px 10px;">
-          <div style="font-weight: 700; color: #0f172a; font-size: 14px;">${prodName}</div>
-          <div style="font-size: 11px; color: #64748b; font-family: monospace; margin-top: 2px;">Code: <strong style="color: #4338ca;">${prodCode}</strong></div>
+      <tr style="border-bottom: 1px solid #e2e8f0; font-size: 12px; background-color: ${index % 2 === 1 ? '#f8fafc' : '#ffffff'};">
+        <td style="padding: 10px 8px; color: #475569; font-weight: 600; text-align: center;">${index + 1}</td>
+        <td style="padding: 10px 8px;">
+          <div style="margin-bottom: 3px;">
+            <span style="display: inline-block; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 4px; letter-spacing: 0.5px; text-transform: uppercase;">
+              ${badgeLabel}
+            </span>
+            ${prodCode ? `<span style="font-family: monospace; font-size: 11px; font-weight: 700; color: #4338ca; margin-left: 4px;">${prodCode}</span>` : ''}
+            ${catTag ? `<span style="font-size: 10px; color: #64748b; margin-left: 4px;">(${catTag})</span>` : ''}
+          </div>
+          <div style="font-weight: 700; color: #0f172a; font-size: 13px;">${prodName}</div>
+          <div style="font-size: 10px; color: #64748b; margin-top: 2px;">
+            <span style="display: inline-block; background: #f0fdf4; color: #166534; padding: 1px 6px; border-radius: 9999px; border: 1px solid #bbf7d0;">
+              🏷️ ${batchInfo}
+            </span>
+          </div>
         </td>
-        <td style="padding: 12px 10px;">
-          <span style="display: inline-block; background: #f0fdf4; color: #166534; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; border: 1px solid #bbf7d0;">
-            ${batchInfo}
-          </span>
-          <div style="font-size: 10px; color: #94a3b8; margin-top: 2px;">FEFO Auto Allocated</div>
-        </td>
-        <td style="padding: 12px 10px; font-family: monospace; font-size: 12px; color: #334155; text-align: center;">${hsn}</td>
-        <td style="padding: 12px 10px; font-weight: 600; color: #0f172a; text-align: center;">${qty}</td>
-        <td style="padding: 12px 10px; text-align: right; color: #334155; font-weight: 500;">₹${rate.toFixed(2)}</td>
-        <td style="padding: 12px 10px; text-align: right; color: #64748b;">
+        <td style="padding: 10px 8px; font-family: monospace; font-size: 11px; color: #334155; text-align: center;">${hsn}</td>
+        <td style="padding: 10px 8px; font-weight: 700; color: #0f172a; text-align: center;">${qty} ${uom}</td>
+        <td style="padding: 10px 8px; text-align: right; color: #334155; font-weight: 500;">₹${rate.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; color: #64748b;">${discPct > 0 ? `${discPct}%` : (discAmt > 0 ? `₹${discAmt.toFixed(1)}` : '-')}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 600; color: #0f172a;">₹${taxable.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; color: #64748b;">
           <div style="font-weight: 600; color: #0f172a;">${gstRate}%</div>
-          <div style="font-size: 10px; color: #64748b;">₹${gstAmount.toFixed(2)}</div>
+          <div style="font-size: 10px; color: #64748b;">₹${gstAmt.toFixed(2)}</div>
         </td>
-        <td style="padding: 12px 10px; text-align: right; font-weight: 700; color: #0f172a;">₹${lineTotal.toFixed(2)}</td>
+        <td style="padding: 10px 8px; text-align: right; font-weight: 800; color: #0f172a;">₹${lineTotal.toFixed(2)}</td>
       </tr>
     `;
   }).join('');
@@ -2207,7 +2337,7 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Statutory Tax Invoice - ${docNo}</title>
+  <title>${docTitle} - ${docNo}</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.5;">
 
@@ -2215,7 +2345,7 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
     <tr>
       <td align="center">
         
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 680px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 720px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05); border: 1px solid #e2e8f0;">
           
           <!-- Modern Executive Gradient Header -->
           <tr>
@@ -2224,21 +2354,23 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
                 <tr>
                   <td style="vertical-align: top;">
                     <div style="display: inline-block; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(165, 180, 252, 0.35); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #c7d2fe; margin-bottom: 8px;">
-                      Statutory GST Tax Invoice
+                      Statutory ${docTitle}
                     </div>
-                    <h1 style="margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; text-transform: uppercase;">
+                    <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; text-transform: uppercase;">
                       ${companyName}
                     </h1>
-                    <p style="margin: 6px 0 0 0; font-size: 12px; color: #cbd5e1; max-width: 380px; line-height: 1.4;">
+                    <p style="margin: 6px 0 0 0; font-size: 12px; color: #cbd5e1; max-width: 400px; line-height: 1.4;">
                       ${companyAddress}<br/>
-                      <strong style="color: #ffffff;">GSTIN:</strong> ${companyGstin} &bull; <strong style="color: #ffffff;">Helpline:</strong> ${companyMobile}
+                      <strong style="color: #ffffff;">GSTIN:</strong> ${companyGstin} &bull; <strong style="color: #ffffff;">PAN:</strong> ${companyPan}<br/>
+                      <strong style="color: #ffffff;">Helpline:</strong> ${companyMobile} &bull; <strong style="color: #ffffff;">Email:</strong> ${companyEmail}
                     </p>
                   </td>
                   <td align="right" style="vertical-align: top;">
-                    <div style="background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; padding: 12px 16px; text-align: right; backdrop-filter: blur(8px);">
-                      <div style="font-size: 11px; color: #cbd5e1; text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px;">Invoice Number</div>
-                      <div style="font-size: 18px; font-weight: 800; color: #38bdf8; font-family: monospace; margin: 2px 0;">${docNo}</div>
-                      <div style="font-size: 11px; color: #94a3b8;">${invoiceDate} &bull; ${invoiceTime}</div>
+                    <div style="background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 12px; padding: 12px 18px; text-align: right; backdrop-filter: blur(8px);">
+                      <div style="font-size: 11px; color: #cbd5e1; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Document Number</div>
+                      <div style="font-size: 18px; font-weight: 800; color: #38bdf8; font-family: monospace; margin: 3px 0;">${docNo}</div>
+                      <div style="font-size: 11px; color: #94a3b8;">${invoiceDate}${invoiceTime ? ` &bull; ${invoiceTime}` : ''}</div>
+                      <div style="font-size: 10px; color: #a5b4fc; margin-top: 4px; font-weight: 600;">Terms: ${paymentMode}</div>
                     </div>
                   </td>
                 </tr>
@@ -2252,7 +2384,7 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td>
-                    <span>📧 Statutory Invoice Dispatched to: <strong style="color: #1e293b;">${targetEmail || 'mathansethupathy@gmail.com'}</strong></span>
+                    <span>📧 Official Document Dispatched to: <strong style="color: #1e293b;">${targetEmail || customerEmail}</strong></span>
                   </td>
                   <td align="right">
                     <span style="background: #e0e7ff; color: #3730a3; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">
@@ -2264,27 +2396,31 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
             </td>
           </tr>
 
-          <!-- Customer Party & POS Counter Audit Grid -->
+          <!-- Customer Party & Dispatch Logistics Grid -->
           <tr>
             <td style="padding: 24px 30px 10px 30px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <!-- Customer Card -->
+                  <!-- Billed To Card -->
                   <td width="48%" style="vertical-align: top; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
-                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; margin-bottom: 8px;">
-                      Customer / Party Information
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #4338ca; letter-spacing: 0.5px; margin-bottom: 8px;">
+                      BILLED TO (BUYER)
                     </div>
                     <div style="font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 4px;">
                       ${customerName}
                     </div>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; color: #334155; line-height: 1.6;">
                       <tr>
-                        <td width="35%" style="color: #64748b;">Contact:</td>
+                        <td width="35%" style="color: #64748b;">Address:</td>
+                        <td style="font-weight: 500;">${billToAddress}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b;">Contact:</td>
                         <td style="font-weight: 600;">${customerPhone}</td>
                       </tr>
                       <tr>
-                        <td style="color: #64748b;">GSTIN / Tax ID:</td>
-                        <td style="font-weight: 600; color: #4338ca;">${customerGstin}</td>
+                        <td style="color: #64748b;">GSTIN / UIN:</td>
+                        <td style="font-weight: 700; color: #4338ca;">${customerGstin}</td>
                       </tr>
                       <tr>
                         <td style="color: #64748b;">Place of Supply:</td>
@@ -2295,31 +2431,31 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
 
                   <td width="4%"></td>
 
-                  <!-- POS Counter Audit Card -->
+                  <!-- Shipped To & Logistics Card -->
                   <td width="48%" style="vertical-align: top; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
-                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; letter-spacing: 0.5px; margin-bottom: 8px;">
-                      POS Terminal & Counter Audit
+                    <div style="font-size: 11px; font-weight: 700; text-transform: uppercase; color: #4338ca; letter-spacing: 0.5px; margin-bottom: 8px;">
+                      SHIPPED TO & LOGISTICS
                     </div>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; color: #334155; line-height: 1.6;">
                       <tr>
-                        <td width="45%" style="color: #64748b;">POS Terminal:</td>
-                        <td style="font-weight: 700; color: #0f172a;">${counterId}</td>
+                        <td width="40%" style="color: #64748b;">Destination:</td>
+                        <td style="font-weight: 500;">${shipToAddress}</td>
                       </tr>
                       <tr>
-                        <td style="color: #64748b;">Cashier In-Charge:</td>
-                        <td style="font-weight: 600;">${cashierName}</td>
+                        <td style="color: #64748b;">Shipping Method:</td>
+                        <td style="font-weight: 600;">${invoice.shippingMethod || 'Road Transport'}</td>
                       </tr>
                       <tr>
-                        <td style="color: #64748b;">Payment Mode:</td>
-                        <td style="font-weight: 600;">${paymentMode}</td>
+                        <td style="color: #64748b;">Transporter:</td>
+                        <td style="font-weight: 600;">${invoice.transporterName || '-'}</td>
                       </tr>
                       <tr>
-                        <td style="color: #64748b;">Payment Status:</td>
-                        <td>
-                          <span style="display: inline-block; background: #dcfce7; color: #15803d; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 6px; border: 1px solid #86efac;">
-                            ${paymentStatus}
-                          </span>
-                        </td>
+                        <td style="color: #64748b;">Vehicle No:</td>
+                        <td style="font-weight: 700; color: #0f172a;">${invoice.vehicleNo || '-'}</td>
+                      </tr>
+                      <tr>
+                        <td style="color: #64748b;">LR / Docket:</td>
+                        <td style="font-weight: 600;">${invoice.lrNo || '-'} ${invoice.ewayBillNo ? `&bull; E-Way: ${invoice.ewayBillNo}` : ''}</td>
                       </tr>
                     </table>
                   </td>
@@ -2334,21 +2470,22 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
               <div style="font-size: 13px; font-weight: 700; color: #0f172a; margin-bottom: 8px;">
                 Itemized Bill Lines & Allocated Batches
                 <div style="font-size: 11px; font-weight: normal; color: #64748b; margin-top: 2px;">
-                  Includes FEFO batch allocation tracking, expiry dates, HSN codes, and tax rates. 2 Line Items
+                  Includes Products and Raw Materials with FEFO batch allocations, HSN codes, and tax rates. ${printableItems.length} Line Items
                 </div>
               </div>
               <div style="border: 1px solid #cbd5e1; border-radius: 10px; overflow: hidden;">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse; width: 100%;">
                   <thead>
                     <tr style="background-color: #f1f5f9; border-bottom: 2px solid #cbd5e1; font-size: 11px; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">
-                      <th style="padding: 10px; text-align: center; width: 30px;">#</th>
-                      <th style="padding: 10px; text-align: left;">Product Name & Specifications</th>
-                      <th style="padding: 10px; text-align: left;">Batch & Expiry Info</th>
-                      <th style="padding: 10px; text-align: center; width: 70px;">HSN</th>
-                      <th style="padding: 10px; text-align: center; width: 50px;">Quantity</th>
-                      <th style="padding: 10px; text-align: right; width: 65px;">Rate</th>
-                      <th style="padding: 10px; text-align: right; width: 55px;">GST %</th>
-                      <th style="padding: 10px; text-align: right; width: 75px;">Line Total</th>
+                      <th style="padding: 10px 8px; text-align: center; width: 30px;">#</th>
+                      <th style="padding: 10px 8px; text-align: left;">Item Description & Batch</th>
+                      <th style="padding: 10px 8px; text-align: center; width: 65px;">HSN</th>
+                      <th style="padding: 10px 8px; text-align: center; width: 70px;">Quantity</th>
+                      <th style="padding: 10px 8px; text-align: right; width: 65px;">Rate</th>
+                      <th style="padding: 10px 8px; text-align: right; width: 45px;">Disc</th>
+                      <th style="padding: 10px 8px; text-align: right; width: 70px;">Taxable</th>
+                      <th style="padding: 10px 8px; text-align: right; width: 60px;">GST %</th>
+                      <th style="padding: 10px 8px; text-align: right; width: 75px;">Total</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2364,51 +2501,88 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
             <td style="padding: 16px 30px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <!-- Left: Payment & Settlement Summary -->
+                  <!-- Left: Payment Settlement & Bank Transfer Card -->
                   <td width="48%" style="vertical-align: top; background: #fafafa; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px;">
-                    <div style="font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 8px; text-transform: uppercase;">
-                      Payment & Counter Audit
+                    <div style="font-size: 11px; font-weight: 700; color: #4338ca; margin-bottom: 6px; text-transform: uppercase;">
+                      Amount in Words
                     </div>
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; line-height: 1.8;">
+                    <div style="font-size: 12px; font-weight: 700; font-style: italic; color: #1e1b4b; background: #eef2ff; padding: 8px 12px; border-radius: 8px; border: 1px solid #c7d2fe; margin-bottom: 12px; line-height: 1.4;">
+                      ${wordsINR}
+                    </div>
+
+                    <div style="font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 6px; text-transform: uppercase;">
+                      Bank Remittance / NEFT Details
+                    </div>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; line-height: 1.7; color: #334155;">
                       <tr>
-                        <td style="color: #64748b;">Counter / Station ID:</td>
-                        <td style="font-weight: 700; text-align: right;">${counterId}</td>
+                        <td style="color: #64748b;">Bank Name:</td>
+                        <td style="font-weight: 600; text-align: right;">${bankName}</td>
                       </tr>
                       <tr>
-                        <td style="color: #64748b;">Cashier In-Charge:</td>
-                        <td style="font-weight: 600; text-align: right;">${cashierName}</td>
+                        <td style="color: #64748b;">A/C Number:</td>
+                        <td style="font-weight: 700; font-family: monospace; text-align: right;">${bankAccountNo}</td>
                       </tr>
                       <tr>
-                        <td style="color: #64748b;">Payment Mode:</td>
-                        <td style="font-weight: 600; text-align: right;">${paymentMode}</td>
+                        <td style="color: #64748b;">IFSC Code:</td>
+                        <td style="font-weight: 700; font-family: monospace; color: #4338ca; text-align: right;">${bankIfsc}</td>
                       </tr>
                       <tr>
-                        <td style="color: #64748b;">Payment Status:</td>
-                        <td style="font-weight: 700; color: #16a34a; text-align: right;">${paymentStatus}</td>
+                        <td style="color: #64748b;">Branch:</td>
+                        <td style="font-weight: 500; text-align: right;">${bankBranch}</td>
                       </tr>
                       <tr style="border-top: 1px dashed #cbd5e1;">
-                        <td style="padding-top: 4px; color: #0f172a; font-weight: 600;">Amount Paid by Customer:</td>
-                        <td style="padding-top: 4px; font-weight: 800; text-align: right; color: #0f172a;">₹${amountPaid.toFixed(2)}</td>
-                      </tr>
-                      <tr>
-                        <td style="color: #64748b;">Net Due:</td>
-                        <td style="font-weight: 700; text-align: right; color: ${netDue > 0 ? '#dc2626' : '#16a34a'};">₹${netDue.toFixed(2)}</td>
+                        <td style="padding-top: 4px; color: #64748b;">Payment Status:</td>
+                        <td style="padding-top: 4px; text-align: right;">
+                          <span style="display: inline-block; background: ${paymentStatus === 'PAID' ? '#dcfce7' : '#fef3c7'}; color: ${paymentStatus === 'PAID' ? '#15803d' : '#b45309'}; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">
+                            ${paymentStatus}
+                          </span>
+                        </td>
                       </tr>
                     </table>
+
+                    <div style="font-size: 10px; color: #94a3b8; font-style: italic; margin-top: 10px; line-height: 1.4;">
+                      Declaration: We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.
+                    </div>
                   </td>
 
                   <td width="4%"></td>
 
                   <!-- Right: Financial Calculations & Round-Off -->
                   <td width="48%" style="vertical-align: top; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px;">
-                    <div style="font-size: 12px; font-weight: 700; color: #334155; margin-bottom: 8px; text-transform: uppercase;">
-                      GST & Financial Calculations
+                    <div style="font-size: 11px; font-weight: 700; color: #334155; margin-bottom: 8px; text-transform: uppercase;">
+                      Financial Breakdown & Taxes
                     </div>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; line-height: 1.8;">
                       <tr>
-                        <td style="color: #64748b;">Taxable Subtotal:</td>
+                        <td style="color: #64748b;">Taxable Goods Subtotal:</td>
                         <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${taxableSubtotal.toFixed(2)}</td>
                       </tr>
+                      ${freightAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">Freight & Logistics:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${freightAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${packingAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">Packing Charges:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${packingAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${loadingAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">Loading Charges:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${loadingAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${otherAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">Other Charges:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${otherAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${invoiceDiscount > 0 ? `
+                      <tr>
+                        <td style="color: #dc2626;">Invoice Discount:</td>
+                        <td style="font-weight: 600; text-align: right; color: #dc2626;">-₹${invoiceDiscount.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${cgst > 0 ? `
                       <tr>
                         <td style="color: #64748b;">CGST (Central Tax):</td>
                         <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${cgst.toFixed(2)}</td>
@@ -2416,9 +2590,14 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
                       <tr>
                         <td style="color: #64748b;">SGST (State Tax):</td>
                         <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${sgst.toFixed(2)}</td>
-                      </tr>
+                      </tr>` : ''}
+                      ${igst > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">IGST (Integrated Tax):</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${igst.toFixed(2)}</td>
+                      </tr>` : ''}
                       
-                      <!-- Round-Off Adjustment Row (STRICT REQUIREMENT) -->
+                      <!-- Round-Off Adjustment Row -->
                       <tr style="background-color: #fef3c7; border-radius: 6px;">
                         <td style="padding: 4px 6px; font-weight: 700; color: #92400e;">
                           Round-Off Adjustment:
@@ -2430,7 +2609,7 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
 
                       <tr style="border-top: 2px solid #0f172a;">
                         <td style="padding-top: 8px; font-size: 14px; font-weight: 800; color: #0f172a; text-transform: uppercase;">
-                          Final Net Amount:
+                          Net Grand Total:
                         </td>
                         <td style="padding-top: 8px; font-size: 18px; font-weight: 900; text-align: right; color: #1e1b4b;">
                           ₹${grandTotal.toFixed(2)}
@@ -2445,43 +2624,29 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
 
           <!-- Statutory Terms & Conditions Card -->
           <tr>
-            <td style="padding: 10px 30px 24px 30px;">
+            <td style="padding: 10px 30px 20px 30px;">
               <div style="background-color: #fdfdfd; border: 1px solid #e2e8f0; border-left: 4px solid #4338ca; border-radius: 8px; padding: 16px 20px;">
                 <div style="font-size: 12px; font-weight: 800; text-transform: uppercase; color: #1e1b4b; letter-spacing: 0.5px; margin-bottom: 8px;">
                   Statutory Terms & Conditions of Supply
                 </div>
                 <ol style="margin: 0; padding-left: 18px; font-size: 11px; color: #475569; line-height: 1.6;">
-                  <li style="margin-bottom: 4px;">
-                    <strong>Acceptance of Order:</strong> Acceptance of delivered goods or issuance of this invoice constitutes a valid and legally binding contract.
-                  </li>
-                  <li style="margin-bottom: 4px;">
-                    <strong>Statutory Pricing & Taxes:</strong> All rates are statutory, firm, and itemized inclusive of Goods and Services Tax (GST) under HSN Chapter 21.
-                  </li>
-                  <li style="margin-bottom: 4px;">
-                    <strong style="color: #0369a1;">Cold-Chain & Perishable Compliance:</strong> Ice creams, popsicles, and dairy frozen desserts must be maintained continuously at <strong>-18°C (0°F) or below</strong> immediately upon receipt. Any breakdown of temperature maintenance at customer custody voids quality warranty.
-                  </li>
-                  <li style="margin-bottom: 4px;">
-                    <strong>Quality Claims & Discrepancies:</strong> Discrepancies, shortage, or batch defects must be notified within <strong>24 hours</strong> of delivery with original batch codes & packaging.
-                  </li>
-                  <li style="margin-bottom: 4px;">
-                    <strong>Commercial Credit & Interest:</strong> Payment is due strictly according to approved credit terms. Delayed payments beyond the due date shall accrue commercial interest <strong>@ 18% per annum</strong>.
-                  </li>
-                  <li>
-                    <strong>Jurisdiction:</strong> All disputes arising out of or in connection with this invoice are subject exclusively to <strong>Salem, Tamil Nadu, India</strong> jurisdiction.
-                  </li>
+                  ${termsList.map(t => `<li style="margin-bottom: 4px;">${t.replace(/^\d+\.\s*/, '')}</li>`).join('')}
                 </ol>
               </div>
             </td>
           </tr>
 
-          <!-- PDF Attachment Notice -->
+          <!-- PDF Attachment & Direct Download Link -->
           <tr>
             <td style="padding: 0 30px 24px 30px;">
-              <div style="background: #eef2ff; border: 1px dashed #6366f1; border-radius: 10px; padding: 12px 16px; text-align: center;">
-                <span style="font-size: 13px; font-weight: 700; color: #3730a3;">📎 Statutory PDF Invoice Attached</span>
-                <p style="margin: 4px 0 0 0; font-size: 11px; color: #4f46e5;">
-                  A digitally generated statutory PDF invoice with itemized batch allocation and terms is attached to this email.
+              <div style="background: #eef2ff; border: 1px dashed #6366f1; border-radius: 12px; padding: 16px 20px; text-align: center;">
+                <span style="font-size: 14px; font-weight: 700; color: #3730a3;">📎 Statutory PDF Document Attached</span>
+                <p style="margin: 4px 0 12px 0; font-size: 12px; color: #4f46e5;">
+                  A digitally generated statutory printable PDF invoice matching this document is attached to this email. You can also view or download it directly online:
                 </p>
+                <a href="${publicPdfUrl}" target="_blank" style="display: inline-block; background: #4f46e5; color: #ffffff; text-decoration: none; font-size: 12px; font-weight: 700; padding: 8px 20px; border-radius: 6px; box-shadow: 0 2px 4px rgba(79, 70, 229, 0.3);">
+                  📥 Download / View Printable PDF Document
+                </a>
               </div>
             </td>
           </tr>
@@ -2489,12 +2654,12 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
           <!-- Footer -->
           <tr>
             <td style="background-color: #0f172a; padding: 24px 30px; text-align: center; color: #94a3b8; font-size: 11px; line-height: 1.5;">
-              <div style="font-weight: 700; color: #f8fafc; font-size: 12px; margin-bottom: 4px;">
+              <div style="font-weight: 700; color: #f8fafc; font-size: 13px; margin-bottom: 4px;">
                 ${companyName}
               </div>
-              <div>${companyAddress} &bull; GSTIN: ${companyGstin}</div>
+              <div>${companyAddress} &bull; GSTIN: ${companyGstin} &bull; PAN: ${companyPan}</div>
               <div style="margin-top: 8px; color: #64748b;">
-                This is an automated statutory invoice transmission from Manufacturing ERP System. For queries, contact ${companyMobile}.
+                This is an automated statutory invoice transmission from Manufacturing ERP System. For queries, contact ${companyMobile} or ${companyEmail}.
               </div>
             </td>
           </tr>
@@ -2514,14 +2679,59 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
  * Handle Sales Invoice Dual Send (Email with PDF Attachment + WhatsApp)
  */
 const sendSalesInvoiceDual = async (invoice, targetEmail = null, bypassDuplicateCheck = false) => {
-  const settings = await getTaxSettingsData();
-  const email = targetEmail || invoice.customer?.email || 'mathansethupathy@gmail.com';
-  const phone = invoice.customer?.phone || invoice.customerPhone;
-  const docNo = invoice.referenceNo || invoice.docNo || 'POS/26-27/0008';
+  // Fetch full live company details from PostgreSQL
+  const dbCompany = await prisma.companyDetails.findFirst({ orderBy: { updatedAt: 'desc' } }).catch(() => null);
+  const taxSettings = await getTaxSettingsData().catch(() => ({}));
+
+  const settings = {
+    companyName: dbCompany?.companyName || taxSettings?.companyName || 'LEONEX',
+    companyAddress: dbCompany?.companyAddress || taxSettings?.companyAddress || 'Factory / Registered Office Address',
+    companyGstin: dbCompany?.companyGstin || taxSettings?.companyGstin || '33AAWCS2781F1ZZ',
+    companyPan: dbCompany?.companyPan || taxSettings?.companyPan || 'AAWCS2781F',
+    companyMobile: dbCompany?.companyMobile || taxSettings?.companyMobile || '+91 99404 54154',
+    companyEmail: dbCompany?.email || taxSettings?.companyEmail || 'billing@leonex.com',
+    stateCode: dbCompany?.stateCode || taxSettings?.stateCode || '33',
+    bankName: dbCompany?.bankName || taxSettings?.bankName || 'State Bank of India',
+    bankAccountNo: dbCompany?.bankAccountNo || taxSettings?.bankAccountNo || taxSettings?.bankAccountNumber || '123456789012',
+    bankIfsc: dbCompany?.bankIfsc || taxSettings?.bankIfsc || taxSettings?.bankIfscCode || 'SBIN0001234',
+    bankBranch: dbCompany?.bankBranch || taxSettings?.bankBranch || 'Main Branch',
+    termsAndConditions: dbCompany?.termsAndConditions || taxSettings?.termsAndConditions
+  };
+
+  // Ensure full order items and relations are loaded
+  let orderData = invoice;
+  if (!orderData.items || orderData.items.length === 0 || (!orderData.items[0]?.product && !orderData.items[0]?.rawMaterial)) {
+    try {
+      const fullOrder = await prisma.customerOrder.findUnique({
+        where: { id: invoice.id },
+        include: {
+          customer: true,
+          items: {
+            include: {
+              product: true,
+              rawMaterial: true,
+              batchAllocations: true
+            }
+          }
+        }
+      });
+      if (fullOrder) orderData = fullOrder;
+    } catch (e) {
+      console.warn('[sendSalesInvoiceDual] Could not re-fetch full order details:', e.message);
+    }
+  }
+
+  const email = targetEmail || orderData.customer?.email || 'mathansethupathy@gmail.com';
+  const phone = orderData.customer?.phone || orderData.customerPhone;
+  const docNo = orderData.docNo || orderData.referenceNo || 'SO-000001';
+  const rawTypeUpper = String(orderData.type || orderData.orderMode || '').toUpperCase();
+  const isQuotation = rawTypeUpper === 'QUOTATION' || String(docNo).toUpperCase().startsWith('QT');
+  const isInvoice = rawTypeUpper === 'INVOICE' || String(docNo).toUpperCase().startsWith('INV');
+  const docTitle = isQuotation ? 'QUOTATION' : (isInvoice ? 'TAX INVOICE' : 'SALES ORDER');
 
   // Generate Statutory PDF Buffer
-  const pdfBuffer = await generateInvoicePDFBuffer(invoice, settings);
-  const pdfName = `Statutory_Invoice_${docNo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+  const pdfBuffer = await generateInvoicePDFBuffer(orderData, settings);
+  const pdfName = `Statutory_${docTitle.replace(/\s+/g, '_')}_${docNo.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
 
   let emailSent = false;
   let emailError = null;
@@ -2530,25 +2740,29 @@ const sendSalesInvoiceDual = async (invoice, targetEmail = null, bypassDuplicate
   const shouldSendEmail = Boolean(email) && (bypassDuplicateCheck || Boolean(targetEmail) || !(await isAlreadySent('SALES_INVOICE', docNo, 'EMAIL')));
   
   if (shouldSendEmail) {
-    const subject = `Statutory Tax Invoice [${docNo}] with Terms & Conditions - ${settings.companyName}`;
-    const html = generateSalesInvoiceHTML(invoice, settings, email);
-    const body = `Dear ${invoice.customer?.name || invoice.customerName || 'Customer'},
+    const subject = `Statutory ${docTitle} [${docNo}] with Terms & Conditions - ${settings.companyName}`;
+    const html = generateSalesInvoiceHTML(orderData, settings, email);
+    const grandTotalVal = Number(orderData.grandTotal || 0).toFixed(2);
+    const body = `Dear ${orderData.customer?.name || orderData.customerName || 'Valued Customer'},
 
-Please find your statutory tax invoice [${docNo}] attached to this email.
-Customer / Party : ${invoice.customerName || invoice.customer?.name || 'Mathan C'} (${invoice.customerPhone || invoice.customer?.phone || '9360163523'})
-POS Terminal     : ${invoice.counterId || 'COUNTER-01'} | Cashier: ${invoice.cashierName || 'Mathan'}
-Taxable Subtotal : Rs. ${Number(invoice.totalSubtotal || 65).toFixed(2)}
-Round-Off Adjust : Rs. ${Number(invoice.roundOff || -0.26).toFixed(2)}
-Final Net Amount : Rs. ${Number(invoice.grandTotal || 68).toFixed(2)}
-Payment Status   : ${invoice.paymentStatus || 'PAID'}
+Please find your statutory ${docTitle} [${docNo}] attached to this email.
+Customer / Party : ${orderData.customerName || orderData.customer?.name || 'Valued Customer'} (${orderData.customerPhone || orderData.customer?.phone || '-'})
+Taxable Subtotal : Rs. ${Number(orderData.totalSubtotal || 0).toFixed(2)}
+Round-Off Adjust : Rs. ${Number(orderData.roundOff || 0).toFixed(2)}
+Final Net Amount : Rs. ${grandTotalVal}
+Amount in Words  : ${numberToIndianWords(Number(orderData.grandTotal || 0))}
+Payment Status   : ${orderData.paymentStatus || 'PENDING'}
+
+Bank Details for Remittance:
+Bank Name: ${settings.bankName} | A/C: ${settings.bankAccountNo} | IFSC: ${settings.bankIfsc} | Branch: ${settings.bankBranch}
 
 Statutory Terms & Conditions of Supply apply.
 
 Regards,
 ${settings.companyName}
 ${settings.companyAddress}
-GSTIN: ${settings.companyGstin}
-Phone: ${settings.companyMobile}`;
+GSTIN: ${settings.companyGstin} | PAN: ${settings.companyPan}
+Helpline: ${settings.companyMobile}`;
 
     try {
       const sendRes = await transporter.sendMail({
@@ -2599,22 +2813,60 @@ Phone: ${settings.companyMobile}`;
     const formattedPhone = formatPhoneNumber(phone);
     const isWhatsAppAvailable = await checkWhatsAppEligibility(phone);
     
-    const caption = `🧾 *Statutory Tax Invoice from ${settings.companyName}*
-    
-Invoice No  : ${docNo}
-Date & Time : ${new Date(invoice.createdAt || Date.now()).toLocaleDateString('en-IN')}
-Party Name  : ${invoice.customerName || invoice.customer?.name || 'Mathan C'}
-Terminal    : ${invoice.counterId || 'COUNTER-01'} | Cashier: ${invoice.cashierName || 'Mathan'}
-Taxable Amt : Rs. ${Number(invoice.totalSubtotal || 65).toFixed(2)}
-Round-Off   : Rs. ${Number(invoice.roundOff || -0.26).toFixed(2)}
-Final Net   : Rs. ${Number(invoice.grandTotal || 68).toFixed(2)}
-Status      : ${invoice.paymentStatus || 'PAID'}
+    const backendBaseUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    const publicPdfUrl = `${backendBaseUrl}/api/public/orders/${orderData.id}/pdf`;
+    const printableItems = (orderData.items || []).filter(item => !item.isPackingCharge && !item.is_packing_charge);
 
-A statutory PDF invoice with FEFO batches and Terms & Conditions has been generated.
-For queries, contact ${settings.companyMobile}
+    // Build itemized WhatsApp lines
+    const itemLines = printableItems.slice(0, 8).map((it, idx) => {
+      const isRM = Boolean(it.rawMaterialId || it.rawMaterial || it.itemType === 'RAW_MATERIAL' || (!it.productId && !it.product));
+      const tag = isRM ? '🟣 [RM]' : '🟢 [FG]';
+      const name = it.productName || it.itemDescription || (isRM ? it.rawMaterial?.name : it.product?.name) || 'Item';
+      const qty = Number(it.quantity || 1);
+      const uom = it.uomName || (isRM ? (it.rawMaterial?.unit || 'kg') : (it.product?.unitOfSale || 'pcs'));
+      const rate = Number(it.unitPrice || 0);
+      const lineSub = Number(it.subtotal || (qty * rate));
+      return `${idx + 1}. ${tag} *${name}*\n   ${qty} ${uom} × ₹${rate.toFixed(2)} = ₹${lineSub.toFixed(2)}`;
+    }).join('\n');
 
-*${settings.companyName}*
-${settings.companyAddress}`;
+    const extraItemsCount = printableItems.length - 8;
+    const extraItemsText = extraItemsCount > 0 ? `\n...and ${extraItemsCount} more items in PDF` : '';
+
+    const caption = `🧾 *${docTitle.toUpperCase()}*
+🏢 *${settings.companyName}*
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 *Doc No:* ${docNo}
+📅 *Date:* ${new Date(orderData.createdAt || Date.now()).toLocaleDateString('en-IN')}
+👤 *Party:* ${orderData.customerName || orderData.customer?.name || 'Valued Client'}
+📞 *Phone:* ${phone}
+🏛️ *GSTIN:* ${orderData.customer?.gstin || orderData.taxRegNo || 'URP'}
+📍 *Supply:* ${orderData.placeOfSupply ? orderData.placeOfSupply : 'Intra-State'}
+
+📦 *ITEMIZED BILL SUMMARY:*
+${itemLines}${extraItemsText}
+
+💵 *FINANCIAL BREAKDOWN:*
+• Taxable Value : ₹${Number(orderData.totalSubtotal || 0).toFixed(2)}
+${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(orderData.freight).toFixed(2)}\n` : ''}${Number(orderData.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(orderData.packingCharges).toFixed(2)}\n` : ''}${Number(orderData.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(orderData.loadingCharges).toFixed(2)}\n` : ''}${Number(orderData.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(orderData.otherCharges).toFixed(2)}\n` : ''}${Number(orderData.cgst || 0) > 0 ? `• CGST Tax : ₹${Number(orderData.cgst).toFixed(2)}\n• SGST Tax : ₹${Number(orderData.sgst).toFixed(2)}\n` : ''}${Number(orderData.igst || 0) > 0 ? `• IGST Tax : ₹${Number(orderData.igst).toFixed(2)}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💰 *NET GRAND TOTAL: ₹${Number(orderData.grandTotal || 0).toFixed(2)}*
+🗣️ _${numberToIndianWords(Number(orderData.grandTotal || 0))}_
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💳 *PAYMENT SETTLEMENT:*
+• Mode : ${orderData.paymentMode || orderData.paymentMethod || orderData.paymentTerms || 'Bank Transfer'}
+• Status : ${orderData.paymentStatus || 'PENDING'}
+
+🏦 *BANK REMITTANCE (NEFT/RTGS):*
+• Bank : ${settings.bankName}
+• A/C No : ${settings.bankAccountNo}
+• IFSC : ${settings.bankIfsc}
+• Branch : ${settings.bankBranch}
+
+📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*
+${publicPdfUrl}
+
+Thank you for choosing *${settings.companyName}*!
+For queries, contact ${settings.companyMobile} &bull; ${settings.companyEmail}`;
 
     if (isWhatsAppAvailable) {
       try {
@@ -2660,8 +2912,8 @@ ${settings.companyAddress}`;
     emailSent,
     recipient: email,
     documentNo: docNo,
-    roundOff: invoice.roundOff || '-0.26',
-    grandTotal: invoice.grandTotal || '68.00'
+    roundOff: orderData.roundOff || '0.00',
+    grandTotal: orderData.grandTotal || '0.00'
   };
 };
 
@@ -2716,6 +2968,7 @@ const resendDocument = async (documentType, documentId, pdfBase64 = null, target
           items: {
             include: {
               product: true,
+              rawMaterial: true,
               batchAllocations: true
             }
           }
