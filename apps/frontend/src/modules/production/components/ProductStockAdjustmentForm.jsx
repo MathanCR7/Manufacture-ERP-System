@@ -245,11 +245,15 @@ export default function ProductStockAdjustmentForm({ editData = null, onBack }) 
             {selectedProduct && (
               <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                 Code: <strong className="font-mono text-amber-600 dark:text-amber-400">{selectedProduct.systemCode || selectedProduct.code}</strong>
-                {(selectedProduct.baseCategory || selectedProduct.category) && (
-                  <span className="ml-2 font-normal text-slate-600 dark:text-slate-300">
-                    ({selectedProduct.baseCategory || selectedProduct.category}{selectedProduct.subcategory && selectedProduct.subcategory !== '-' ? ` • ${selectedProduct.subcategory}` : ''})
-                  </span>
-                )}
+                {(() => {
+                  const catDisplay = selectedProduct.baseCategory || (typeof selectedProduct.category === 'object' && selectedProduct.category !== null ? selectedProduct.category.name : selectedProduct.category);
+                  if (!catDisplay) return null;
+                  return (
+                    <span className="ml-2 font-normal text-slate-600 dark:text-slate-300">
+                      ({catDisplay}{selectedProduct.subcategory && selectedProduct.subcategory !== '-' ? ` • ${selectedProduct.subcategory}` : ''})
+                    </span>
+                  );
+                })()}
               </span>
             )}
           </div>

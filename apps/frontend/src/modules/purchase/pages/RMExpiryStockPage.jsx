@@ -115,16 +115,19 @@ export default function RMExpiryStockPage() {
   const filteredBatches = useMemo(() => {
     if (!searchTerm.trim()) return batches;
     const s = searchTerm.trim().toLowerCase();
-    return batches.filter(b => 
-      b.rawMaterialName.toLowerCase().includes(s) ||
-      b.rawMaterialCode.toLowerCase().includes(s) ||
-      b.batchNumber.toLowerCase().includes(s) ||
-      (b.mfgBatchNo && b.mfgBatchNo.toLowerCase().includes(s)) ||
-      b.category.toLowerCase().includes(s) ||
-      b.poReferenceNo.toLowerCase().includes(s) ||
-      b.grnReferenceNo.toLowerCase().includes(s) ||
-      b.supplierName.toLowerCase().includes(s)
-    );
+    return batches.filter(b => {
+      const cat = typeof b.category === 'object' && b.category !== null ? (b.category.name || '') : String(b.category || '');
+      return (
+        String(b.rawMaterialName || '').toLowerCase().includes(s) ||
+        String(b.rawMaterialCode || '').toLowerCase().includes(s) ||
+        String(b.batchNumber || '').toLowerCase().includes(s) ||
+        String(b.mfgBatchNo || '').toLowerCase().includes(s) ||
+        cat.toLowerCase().includes(s) ||
+        String(b.poReferenceNo || '').toLowerCase().includes(s) ||
+        String(b.grnReferenceNo || '').toLowerCase().includes(s) ||
+        String(b.supplierName || '').toLowerCase().includes(s)
+      );
+    });
   }, [batches, searchTerm]);
 
   // Pagination

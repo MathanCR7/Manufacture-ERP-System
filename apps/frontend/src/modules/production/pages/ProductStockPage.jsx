@@ -86,7 +86,8 @@ export default function ProductStockPage() {
   const categoryOptions = useMemo(() => {
     const set = new Set();
     stock.forEach(item => {
-      if (item.category && item.category !== 'N/A') set.add(item.category);
+      const cat = typeof item.category === 'object' && item.category !== null ? item.category.name : (item.category || item.categoryName || '');
+      if (cat && cat !== 'N/A') set.add(cat);
     });
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [stock]);
@@ -123,19 +124,20 @@ export default function ProductStockPage() {
     let result = stock.filter(item => {
       // 1. Text Search across name, code, category, unit
       const term = searchTerm.toLowerCase().trim();
+      const itemCat = (typeof item.category === 'object' && item.category !== null ? item.category.name : (item.category || item.categoryName || ''));
       if (term) {
         const matchesTerm = (
-          (item.name || '').toLowerCase().includes(term) ||
-          (item.code || '').toLowerCase().includes(term) ||
-          (item.category || '').toLowerCase().includes(term) ||
-          (item.unit || '').toLowerCase().includes(term)
+          String(item.name || '').toLowerCase().includes(term) ||
+          String(item.code || '').toLowerCase().includes(term) ||
+          String(itemCat || '').toLowerCase().includes(term) ||
+          String(item.unit || '').toLowerCase().includes(term)
         );
         if (!matchesTerm) return false;
       }
 
       // 2. Category Filter
       if (categoryFilter !== 'ALL') {
-        if ((item.category || 'Uncategorised') !== categoryFilter) return false;
+        if ((itemCat || 'Uncategorised') !== categoryFilter) return false;
       }
 
       // 3. Status Filter
@@ -164,10 +166,14 @@ export default function ProductStockPage() {
         return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
       }
       if (sortBy === 'category_asc') {
-        return (a.category || '').localeCompare(b.category || '', undefined, { sensitivity: 'base' });
+        const catA = typeof a.category === 'object' && a.category !== null ? (a.category.name || '') : String(a.category || '');
+        const catB = typeof b.category === 'object' && b.category !== null ? (b.category.name || '') : String(b.category || '');
+        return catA.localeCompare(catB, undefined, { sensitivity: 'base' });
       }
       if (sortBy === 'category_desc') {
-        return (b.category || '').localeCompare(a.category || '', undefined, { sensitivity: 'base' });
+        const catA = typeof a.category === 'object' && a.category !== null ? (a.category.name || '') : String(a.category || '');
+        const catB = typeof b.category === 'object' && b.category !== null ? (b.category.name || '') : String(b.category || '');
+        return catB.localeCompare(catA, undefined, { sensitivity: 'base' });
       }
       if (sortBy === 'quantity_desc') {
         return Number(b.currentStock || 0) - Number(a.currentStock || 0);

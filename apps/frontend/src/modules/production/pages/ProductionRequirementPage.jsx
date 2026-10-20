@@ -26,14 +26,18 @@ export default function ProductionRequirementPage() {
   // Unique categories
   const categories = useMemo(() => {
     const set = new Set();
-    requirements.forEach(r => { if (r.category) set.add(r.category); });
+    requirements.forEach(r => {
+      const cat = typeof r.category === 'object' && r.category !== null ? r.category.name : (r.category || '');
+      if (cat) set.add(cat);
+    });
     return ['All', ...Array.from(set)];
   }, [requirements]);
 
   // Filtered requirements
   const filteredRequirements = useMemo(() => {
     return requirements.filter(r => {
-      const matchCat = selectedCategory === 'All' || r.category === selectedCategory;
+      const cat = typeof r.category === 'object' && r.category !== null ? r.category.name : (r.category || '');
+      const matchCat = selectedCategory === 'All' || cat === selectedCategory;
       const q = searchQuery.toLowerCase().trim();
       const matchSearch = !q ||
         r.productName?.toLowerCase().includes(q) ||
@@ -227,7 +231,7 @@ export default function ProductionRequirementPage() {
                     {/* Category */}
                     <td className="py-3 px-3">
                       <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] font-medium">
-                        {item.category}
+                        {typeof item.category === 'object' && item.category !== null ? item.category.name : (item.category || '-')}
                       </span>
                     </td>
 

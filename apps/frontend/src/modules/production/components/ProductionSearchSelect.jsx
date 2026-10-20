@@ -88,9 +88,10 @@ export default function ProductionSearchSelect({
     if (!search.trim()) return options;
     const q = search.toLowerCase();
     return options.filter(opt => {
-      const label = (opt.label || opt.name || '').toLowerCase();
-      const sub = (opt.subLabel || opt.code || opt.series || '').toLowerCase();
-      const extra = (opt.extra || opt.category || opt.baseName || '').toLowerCase();
+      const label = String(opt.label || opt.name || '').toLowerCase();
+      const sub = String(opt.subLabel || opt.code || opt.series || '').toLowerCase();
+      const catVal = typeof opt.category === 'object' && opt.category !== null ? (opt.category.name || '') : (opt.category || '');
+      const extra = String(opt.extra || catVal || opt.baseName || '').toLowerCase();
       return label.includes(q) || sub.includes(q) || extra.includes(q);
     });
   }, [options, search]);

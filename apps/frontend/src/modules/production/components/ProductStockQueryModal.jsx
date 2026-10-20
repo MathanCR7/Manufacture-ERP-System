@@ -245,7 +245,7 @@ export default function ProductStockQueryModal({
       [],
       ['Product Code', product.code],
       ['Product Name', product.name],
-      ['Category / Group', product.category],
+      ['Category / Group', typeof product.category === 'object' && product.category !== null ? product.category.name : (product.category || 'Finished Goods')],
       ['Subcategory', product.subcategory || 'Kulfi Traditional'],
       ['HSN Code', product.hsnCode || '21050000'],
       ['UOM', baseUom],
@@ -503,7 +503,7 @@ export default function ProductStockQueryModal({
                   <div className="flex items-baseline justify-between leading-tight">
                     <span className="text-slate-500 dark:text-slate-400 text-[11px] font-semibold w-28">Group</span>
                     <span className="font-semibold text-slate-800 dark:text-slate-200 flex-1 text-left">
-                      : ♦ {product.category || 'Finished Goods'}
+                      : ♦ {typeof product.category === 'object' && product.category !== null ? product.category.name : (product.category || 'Finished Goods')}
                     </span>
                   </div>
 

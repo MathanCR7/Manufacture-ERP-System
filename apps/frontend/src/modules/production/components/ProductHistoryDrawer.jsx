@@ -99,7 +99,7 @@ export default function ProductHistoryDrawer({ productId, isOpen, onClose }) {
     const summaryData = [
       { Parameter: 'Product Code', Value: product.code },
       { Parameter: 'Product Name', Value: product.name },
-      { Parameter: 'Category', Value: product.category },
+      { Parameter: 'Category', Value: typeof product.category === 'object' && product.category !== null ? product.category.name : (product.category || 'General') },
       { Parameter: 'Unit of Measure', Value: product.unit },
       { Parameter: 'Sale Price (INR)', Value: product.salePrice },
       { Parameter: 'Current On-Hand Stock', Value: `${product.currentStock} ${product.unit}` },
@@ -223,7 +223,7 @@ export default function ProductHistoryDrawer({ productId, isOpen, onClose }) {
                     {product.name || 'Finished Product'}
                   </h2>
                   <span className="text-xs px-2 py-0.5 rounded-full font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                    {product.category}
+                    {typeof product.category === 'object' && product.category !== null ? product.category.name : (product.category || 'General')}
                   </span>
                   {product.stockHealth && (
                     <span

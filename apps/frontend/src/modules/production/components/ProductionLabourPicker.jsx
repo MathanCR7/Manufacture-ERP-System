@@ -62,9 +62,9 @@ export default function ProductionLabourPicker({
     if (!searchTerm.trim()) return productionStaffUsers;
     const q = searchTerm.toLowerCase();
     return productionStaffUsers.filter(u => 
-      (u.name && u.name.toLowerCase().includes(q)) ||
-      (u.empId && u.empId.toLowerCase().includes(q)) ||
-      (u.email && u.email.toLowerCase().includes(q))
+      String(u.name || '').toLowerCase().includes(q) ||
+      String(u.empId || '').toLowerCase().includes(q) ||
+      String(u.email || '').toLowerCase().includes(q)
     );
   }, [productionStaffUsers, searchTerm]);
 

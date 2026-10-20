@@ -86,13 +86,16 @@ function RawMaterialSelect({
     }
     if (!search.trim()) return list;
     const q = search.trim().toLowerCase();
-    return list.filter(b =>
-      (b.rawMaterialName && b.rawMaterialName.toLowerCase().includes(q)) ||
-      (b.rawMaterialCode && b.rawMaterialCode.toLowerCase().includes(q)) ||
-      (b.batchNumber && b.batchNumber.toLowerCase().includes(q)) ||
-      (b.mfgBatchNo && b.mfgBatchNo.toLowerCase().includes(q)) ||
-      (b.category && b.category.toLowerCase().includes(q))
-    );
+    return list.filter(b => {
+      const cat = typeof b.category === 'object' && b.category !== null ? (b.category.name || '') : String(b.category || '');
+      return (
+        (b.rawMaterialName && String(b.rawMaterialName).toLowerCase().includes(q)) ||
+        (b.rawMaterialCode && String(b.rawMaterialCode).toLowerCase().includes(q)) ||
+        (b.batchNumber && String(b.batchNumber).toLowerCase().includes(q)) ||
+        (b.mfgBatchNo && String(b.mfgBatchNo).toLowerCase().includes(q)) ||
+        (cat && cat.toLowerCase().includes(q))
+      );
+    });
   }, [fefoBatches, search, statusFilter]);
 
   // Filter Catalog Raw Materials

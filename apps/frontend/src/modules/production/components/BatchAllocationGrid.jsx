@@ -3,7 +3,8 @@ import { api } from '@/lib/axios';
 import { 
   Tag, Boxes, RefreshCw, Plus, Minus, Trash2, Check, AlertTriangle, 
   HelpCircle, Calendar, ShieldCheck, Database, X, ArrowRight, Layers, ArrowLeftRight,
-  Search, Edit3, Filter, Copy, Scale, Sparkles, Calculator, Sliders, CheckCircle2
+  Search, Edit3, Filter, Copy, Scale, Sparkles, Calculator, Sliders, CheckCircle2,
+  AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +25,20 @@ const formatDateDMY = (dateVal) => {
   } catch {
     return 'dd-mm-yyyy';
   }
+};
+
+// Safe extractors for Raw Material Category and Description / Storage Notes
+const getCategoryName = (item) => {
+  if (!item) return '';
+  if (typeof item.category === 'object' && item.category !== null) {
+    return item.category.name || '';
+  }
+  return typeof item.category === 'string' ? item.category : (item.categoryName || '');
+};
+
+const getDescriptionText = (item) => {
+  if (!item) return '';
+  return item.description || item.storageNotes || item.notes || '';
 };
 
 export default function BatchAllocationGrid({
@@ -114,11 +129,13 @@ export default function BatchAllocationGrid({
   const filteredMastersToAdd = useMemo(() => {
     if (!addRmSearchTerm.trim()) return itemSetupMasters || [];
     const q = addRmSearchTerm.toLowerCase();
-    return (itemSetupMasters || []).filter(m =>
-      (m.name && m.name.toLowerCase().includes(q)) ||
-      (m.code && m.code.toLowerCase().includes(q)) ||
-      (m.category && m.category.toLowerCase().includes(q))
-    );
+    return (itemSetupMasters || []).filter(m => {
+      const name = String(m.name || '').toLowerCase();
+      const code = String(m.code || '').toLowerCase();
+      const cat = getCategoryName(m).toLowerCase();
+      const desc = getDescriptionText(m).toLowerCase();
+      return name.includes(q) || code.includes(q) || cat.includes(q) || desc.includes(q);
+    });
   }, [itemSetupMasters, addRmSearchTerm]);
 
   const handleSelectRmMaster = (master) => {
@@ -176,6 +193,8 @@ export default function BatchAllocationGrid({
       rmId: master.id,
       rmCode: master.code || 'RM',
       rmName: master.name,
+      category: getCategoryName(master),
+      description: getDescriptionText(master),
       baseTemplateQty: baseQty,
       baseRequiredQty: baseQty,
       altRequiredQty: altQty,
@@ -602,12 +621,12 @@ export default function BatchAllocationGrid({
       }
       if (lotSearchTerm.trim()) {
         const q = lotSearchTerm.trim().toLowerCase();
-        const ourBatch = (lot.internalBatchNo || '').toLowerCase();
-        const suppBatch = (lot.supplierBatchNo || lot.mfgBatchNo || '').toLowerCase();
-        const grn = (lot.grnNumber || lot.grnRef || '').toLowerCase();
-        const po = (lot.poNumber || lot.poReferenceNo || '').toLowerCase();
-        const supplier = (lot.supplierName || '').toLowerCase();
-        const weight = (lot.weight || '').toLowerCase();
+        const ourBatch = String(lot.internalBatchNo || '').toLowerCase();
+        const suppBatch = String(lot.supplierBatchNo || lot.mfgBatchNo || '').toLowerCase();
+        const grn = String(lot.grnNumber || lot.grnRef || '').toLowerCase();
+        const po = String(lot.poNumber || lot.poReferenceNo || '').toLowerCase();
+        const supplier = String(lot.supplierName || '').toLowerCase();
+        const weight = String(lot.weight || '').toLowerCase();
         if (
           !ourBatch.includes(q) &&
           !suppBatch.includes(q) &&
@@ -708,6 +727,22 @@ export default function BatchAllocationGrid({
     onUpdateRawMaterials(updated);
     setLotModalOpen(false);
   };
+
+  // Derived state for the active raw material lot modal
+  const activeRow = activeItemIndex !== null ? rawMaterials[activeItemIndex] : null;
+  const activeMaster = activeRow ? findMaster(activeRow) : null;
+  const activeCategory = getCategoryName(activeMaster) || getCategoryName(activeRow);
+  const activeDesc = getDescriptionText(activeMaster) || getDescriptionText(activeRow);
+  const activeBaseUom = activeMaster?.unitId || activeMaster?.consumptionUnit || activeRow?.baseUom || activeRow?.selectedUom || 'units';
+  const activeHasAlt = Boolean(
+    activeMaster ? (activeMaster.hasAlternateUom && activeMaster.alternateUom) : (activeRow?.hasAlternateUom && activeRow?.alternateUom)
+  );
+  const activeAltUom = activeMaster?.alternateUom || activeRow?.alternateUom || null;
+
+  // Derived state for the selected raw material in add modal
+  const selectedCatName = getCategoryName(selectedRmToAdd);
+  const selectedDescText = getDescriptionText(selectedRmToAdd);
+  const selectedBaseUomClean = selectedRmToAdd?.unitId || selectedRmToAdd?.consumptionUnit || 'liter';
 
   return (
     <div className="space-y-4">
@@ -857,23 +892,49 @@ export default function BatchAllocationGrid({
                     {index + 1}
                   </td>
 
-                  {/* Material Name & Code */}
+                  {/* Material Name, Category, UOM & Description/Storage Notes */}
                   <td className="py-2.5 px-3">
-                    <div className="font-bold text-slate-900 dark:text-white">
-                      {row.rmName}
-                    </div>
-                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 flex-wrap">
-                      <span>{row.rmCode || 'RM'}</span>
-                      {hasAlt && altUomClean && (
-                        <span
-                          className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50/90 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 select-none"
-                          title={`Alternate UOM from Item Setup: 1 ${baseUomClean} = ${Number(factor).toLocaleString()} ${altUomClean}`}
-                        >
-                          <Scale className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
-                          <span>1 {baseUomClean} = {Number(factor).toLocaleString()} {altUomClean}</span>
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const catName = getCategoryName(master) || getCategoryName(row);
+                      const descText = getDescriptionText(master) || getDescriptionText(row);
+                      return (
+                        <>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {row.rmName}
+                            </div>
+                            {catName && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                                {catName}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 flex-wrap mt-0.5">
+                            <span>{row.rmCode || 'RM'}</span>
+                            <span>•</span>
+                            <span className="text-slate-600 dark:text-slate-300 font-semibold">UOM: {baseUomClean}</span>
+                            {hasAlt && altUomClean && (
+                              <span
+                                className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-50/90 dark:bg-indigo-950/80 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-200 dark:border-indigo-800 flex items-center gap-1 select-none"
+                                title={`Alternate UOM from Item Setup: 1 ${baseUomClean} = ${Number(factor).toLocaleString()} ${altUomClean}`}
+                              >
+                                <Scale className="w-2.5 h-2.5 text-indigo-500 shrink-0" />
+                                <span>1 {baseUomClean} = {Number(factor).toLocaleString()} {altUomClean}</span>
+                              </span>
+                            )}
+                          </div>
+                          {descText && (
+                            <div 
+                              className="mt-1 text-[10px] text-amber-800 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/40 px-2 py-0.5 rounded-md border border-amber-200/60 dark:border-amber-900/40 flex items-center gap-1.5 max-w-md"
+                              title={`Description / Storage Notes: ${descText}`}
+                            >
+                              <span className="font-bold shrink-0 text-amber-900 dark:text-amber-200">Storage Notes:</span>
+                              <span className="truncate">{descText}</span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
 
                   {/* Quantity Input with Live Dual Preview */}
@@ -1093,24 +1154,47 @@ export default function BatchAllocationGrid({
               key={row.rmId || row.id || index}
               className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-2xs space-y-3"
             >
-              {/* Header: SN, Material Name, Code, and Delete */}
+              {/* Header: SN, Material Name, Category, Code, UOM, and Delete */}
               <div className="flex items-start justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-black text-xs flex items-center justify-center">
                     #{index + 1}
                   </span>
                   <div>
-                    <h5 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
-                      {row.rmName}
-                    </h5>
-                    <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2">
-                      <span>{row.rmCode || 'RM'}</span>
-                      {hasAlt && altUomClean && (
-                        <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 font-semibold text-[9px] border border-indigo-200 dark:border-indigo-800">
-                          1 {baseUomClean} = {factor} {altUomClean}
-                        </span>
-                      )}
-                    </div>
+                    {(() => {
+                      const catName = getCategoryName(master) || getCategoryName(row);
+                      const descText = getDescriptionText(master) || getDescriptionText(row);
+                      return (
+                        <>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <h5 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white">
+                              {row.rmName}
+                            </h5>
+                            {catName && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                {catName}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400 flex items-center gap-2 mt-0.5">
+                            <span>{row.rmCode || 'RM'}</span>
+                            <span>•</span>
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">UOM: {baseUomClean}</span>
+                            {hasAlt && altUomClean && (
+                              <span className="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 font-semibold text-[9px] border border-indigo-200 dark:border-indigo-800">
+                                1 {baseUomClean} = {factor} {altUomClean}
+                              </span>
+                            )}
+                          </div>
+                          {descText && (
+                            <div className="mt-1 text-[10px] text-amber-800 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-200/50 dark:border-amber-900/40 flex items-center gap-1">
+                              <span className="font-bold shrink-0 text-amber-900 dark:text-amber-200">Storage:</span>
+                              <span className="truncate">{descText}</span>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
 
@@ -1260,19 +1344,45 @@ export default function BatchAllocationGrid({
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-3xl w-full overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[92vh]">
             
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0 bg-slate-50/50 dark:bg-slate-850/50">
-              <div>
-                <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
-                  <Boxes className="w-4 h-4 text-indigo-500" />
-                  Allocate Stock Lots: {rawMaterials[activeItemIndex]?.rmName}
-                </h3>
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between shrink-0 bg-slate-50/50 dark:bg-slate-850/50">
+              <div className="space-y-1.5 flex-1 pr-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                    <Boxes className="w-4 h-4 text-indigo-500" />
+                    <span>Allocate Stock Lots: {activeRow?.rmName}</span>
+                  </h3>
+                  {activeCategory && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                      Category: {activeCategory}
+                    </span>
+                  )}
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                    UOM: {activeBaseUom}{activeHasAlt && activeAltUom ? ` / ${activeAltUom}` : ''}
+                  </span>
+                  {activeRow?.rmCode && (
+                    <span className="text-[10px] font-mono text-slate-400">
+                      ({activeRow.rmCode})
+                    </span>
+                  )}
+                </div>
                 <p className="text-[11px] text-slate-400">
                   Select available GRN batches (FEFO Expiry Order). Filter by specific GRN or search by batch number.
                 </p>
+                {activeDesc && (
+                  <div className="mt-2 bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl px-3 py-1.5 text-xs flex items-start gap-2">
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-[11px] text-amber-900 dark:text-amber-200 leading-snug">
+                      <strong className="text-amber-800 dark:text-amber-300 uppercase tracking-wide text-[10px] mr-1">
+                        Description / Storage Notes:
+                      </strong>
+                      <span>{activeDesc}</span>
+                    </div>
+                  </div>
+                )}
               </div>
               <button 
                 onClick={() => setLotModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer"
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 cursor-pointer shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1899,6 +2009,8 @@ export default function BatchAllocationGrid({
                     const alreadyInBatch = rawMaterials.some(r => r.rmId === m.id || (r.rmCode && r.rmCode === m.code));
                     const hasAlt = Boolean(m.hasAlternateUom && m.alternateUom);
                     const baseUom = m.unitId || m.consumptionUnit || 'liter';
+                    const catName = getCategoryName(m);
+                    const descText = getDescriptionText(m);
 
                     return (
                       <div
@@ -1911,20 +2023,25 @@ export default function BatchAllocationGrid({
                         }`}
                       >
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="text-xs font-black text-slate-900 dark:text-white truncate">
                               {m.name}
                             </span>
+                            {catName && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                                {catName}
+                              </span>
+                            )}
                             {alreadyInBatch && (
                               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
                                 In Batch
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5">
+                          <div className="text-[10px] font-mono text-slate-400 flex items-center gap-1.5 mt-0.5 flex-wrap">
                             <span>{m.code || 'RM'}</span>
                             <span>•</span>
-                            <span className="font-semibold text-slate-600 dark:text-slate-300">Base: {baseUom}</span>
+                            <span className="font-semibold text-slate-600 dark:text-slate-300">UOM: {baseUom}</span>
                             {canViewCosting && m.ratePerUnit > 0 && (
                               <>
                                 <span>•</span>
@@ -1938,6 +2055,14 @@ export default function BatchAllocationGrid({
                             <div className="mt-1 text-[9px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200/60 dark:border-indigo-800/60 px-1.5 py-0.5 rounded-lg inline-flex items-center gap-1">
                               <ArrowLeftRight className="w-2.5 h-2.5" />
                               1 {baseUom} = {Number(m.conversionFactor || 1).toLocaleString()} {m.alternateUom}
+                            </div>
+                          )}
+
+                          {/* Description / Storage Notes */}
+                          {descText && (
+                            <div className="mt-1.5 text-[10px] text-amber-900 dark:text-amber-300 bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200/60 dark:border-amber-900/40 rounded-lg px-2 py-1 flex items-start gap-1">
+                              <span className="font-bold shrink-0 text-amber-800 dark:text-amber-400">Storage Notes:</span>
+                              <span className="line-clamp-2">{descText}</span>
                             </div>
                           )}
                         </div>
@@ -1958,19 +2083,30 @@ export default function BatchAllocationGrid({
               {/* Selected Material Configuration Card */}
               {selectedRmToAdd && (
                 <div className="bg-slate-50 dark:bg-slate-850 p-4 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 space-y-4 animate-in fade-in">
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-200/80 dark:border-slate-800">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-200/80 dark:border-slate-800 gap-2">
                     <div>
-                      <span className="text-[10px] uppercase font-mono font-bold text-slate-400 block">
-                        Selected Formulation Material:
-                      </span>
-                      <h4 className="text-sm font-black text-slate-900 dark:text-white">
-                        {selectedRmToAdd.name} ({selectedRmToAdd.code || 'RM'})
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-[10px] uppercase font-mono font-bold text-slate-400 block">
+                          Selected Formulation Material:
+                        </span>
+                        {selectedCatName && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            Category: {selectedCatName}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          Base UOM: {selectedBaseUomClean}
+                        </span>
+                      </div>
+                      <h4 className="text-sm font-black text-slate-900 dark:text-white flex items-center gap-2">
+                        <span>{selectedRmToAdd.name}</span>
+                        <span className="text-xs font-mono font-bold text-slate-400">({selectedRmToAdd.code || 'RM'})</span>
                       </h4>
                     </div>
 
                     {/* UOM mode toggle if Alternate UOM enabled */}
                     {selectedRmToAdd.hasAlternateUom && selectedRmToAdd.alternateUom && (
-                      <div className="flex items-center gap-1 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                      <div className="flex items-center gap-1 bg-white dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold shrink-0">
                         <button
                           type="button"
                           onClick={() => setAddRmMode('BASE')}
@@ -1980,7 +2116,7 @@ export default function BatchAllocationGrid({
                               : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
                           }`}
                         >
-                          {selectedRmToAdd.unitId || selectedRmToAdd.consumptionUnit || 'Base'} (Base)
+                          {selectedBaseUomClean} (Base)
                         </button>
                         <button
                           type="button"
@@ -1996,6 +2132,21 @@ export default function BatchAllocationGrid({
                       </div>
                     )}
                   </div>
+
+                  {/* Description / Storage Notes banner */}
+                  {selectedDescText && (
+                    <div className="bg-amber-50/90 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl p-2.5 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <strong className="text-amber-800 dark:text-amber-300 block text-[10px] uppercase tracking-wider font-bold">
+                          Description / Storage Notes:
+                        </strong>
+                        <p className="text-[11px] leading-relaxed mt-0.5 text-slate-700 dark:text-slate-300">
+                          {selectedDescText}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {/* Required Qty */}

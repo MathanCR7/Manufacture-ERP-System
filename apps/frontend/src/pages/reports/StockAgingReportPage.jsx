@@ -92,11 +92,14 @@ export default function StockAgingReportPage() {
   }
   if (searchTerm.trim()) {
     const q = searchTerm.toLowerCase();
-    items = items.filter(r => 
-      (r.name && r.name.toLowerCase().includes(q)) || 
-      (r.code && r.code.toLowerCase().includes(q)) ||
-      (r.category && r.category.toLowerCase().includes(q))
-    );
+    items = items.filter(r => {
+      const cat = typeof r.category === 'object' && r.category !== null ? (r.category.name || '') : String(r.category || '');
+      return (
+        (r.name && String(r.name).toLowerCase().includes(q)) || 
+        (r.code && String(r.code).toLowerCase().includes(q)) ||
+        (cat && cat.toLowerCase().includes(q))
+      );
+    });
   }
 
   // Dual-metric comparison grouped data: Valuation ₹ vs Batch Count per age bucket
