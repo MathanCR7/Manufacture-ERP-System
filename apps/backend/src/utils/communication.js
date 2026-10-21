@@ -2153,8 +2153,73 @@ Phone : ${settings.companyMobile}`;
 };
 
 /**
- * Helper to generate modern, responsive executive HTML email for Sales Invoice
+ * Helper to compute elaborate rate-wise GST slabs for Sales Invoices (communication)
  */
+const computeCommunicationGstSlabs = (invoice, isInterState) => {
+  const round2 = (num) => Math.round((Number(num) || 0) * 100) / 100;
+  const slabMap = {};
+  const printableItems = (invoice.items || []).filter(item => !item.isPackingCharge && !item.is_packing_charge);
+
+  printableItems.forEach(i => {
+    const qty = Number(i.quantity || 1);
+    const unitPrice = Number(i.unitPrice || 0);
+    const lineDiscount = Number(i.discount || (unitPrice * (Number(i.discountPercent || 0) / 100)));
+    const lineTaxable = Math.max(0, (unitPrice - lineDiscount) * qty);
+    const rate = Number(i.gstRate !== undefined ? i.gstRate : 5);
+    if (rate <= 0) return;
+    const key = String(rate);
+    if (!slabMap[key]) {
+      slabMap[key] = {
+        rate,
+        halfRate: round2(rate / 2),
+        taxableAmount: 0,
+        cgstAmount: 0,
+        sgstAmount: 0,
+        igstAmount: 0,
+        totalTax: 0
+      };
+    }
+    const tax = round2((lineTaxable * rate) / 100);
+    slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + lineTaxable);
+    if (isInterState) {
+      slabMap[key].igstAmount = round2(slabMap[key].igstAmount + tax);
+    } else {
+      slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (tax / 2));
+      slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (tax / 2));
+    }
+    slabMap[key].totalTax = round2(slabMap[key].totalTax + tax);
+  });
+
+  // Freight & Logistics Charges (Standard 18% GST unless exempt)
+  const freightAmt = Number(invoice.freight || 0);
+  if (freightAmt > 0 && Number(invoice.freightGst !== undefined ? invoice.freightGst : 18) > 0) {
+    const fRate = Number(invoice.freightGst !== undefined ? invoice.freightGst : 18);
+    const key = String(fRate);
+    if (!slabMap[key]) {
+      slabMap[key] = {
+        rate: fRate,
+        halfRate: round2(fRate / 2),
+        taxableAmount: 0,
+        cgstAmount: 0,
+        sgstAmount: 0,
+        igstAmount: 0,
+        totalTax: 0
+      };
+    }
+    const fTax = round2((freightAmt * fRate) / 100);
+    slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + freightAmt);
+    if (isInterState) {
+      slabMap[key].igstAmount = round2(slabMap[key].igstAmount + fTax);
+    } else {
+      slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (fTax / 2));
+      slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (fTax / 2));
+    }
+    slabMap[key].totalTax = round2(slabMap[key].totalTax + fTax);
+  }
+
+  return Object.values(slabMap).sort((a, b) => a.rate - b.rate);
+};
+
 /**
  * Helper to generate modern, responsive executive HTML email for Sales Invoice
  * Displays ALL details fetched from the statutory printable PDF (Company, Bill-To, Ship-To, Items, Charges, Taxes, Words, Bank, Terms)
@@ -2568,20 +2633,58 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
                         <td style="color: #dc2626;">Invoice Discount:</td>
                         <td style="font-weight: 600; text-align: right; color: #dc2626;">-₹${invoiceDiscount.toFixed(2)}</td>
                       </tr>` : ''}
-                      ${cgst > 0 ? `
-                      <tr>
-                        <td style="color: #64748b;">CGST (Central Tax):</td>
-                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${cgst.toFixed(2)}</td>
-                      </tr>
-                      <tr>
-                        <td style="color: #64748b;">SGST (State Tax):</td>
-                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${sgst.toFixed(2)}</td>
-                      </tr>` : ''}
-                      ${igst > 0 ? `
-                      <tr>
-                        <td style="color: #64748b;">IGST (Integrated Tax):</td>
-                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${igst.toFixed(2)}</td>
-                      </tr>` : ''}
+                      
+                      <!-- Dynamic Elaborated Rate-wise GST Slabs Breakdown -->
+                      ${(() => {
+                        const emailGstSlabs = computeCommunicationGstSlabs(invoice, isInterState);
+                        if (emailGstSlabs && emailGstSlabs.length > 0) {
+                          return emailGstSlabs.map(slab => `
+                            ${!isInterState ? `
+                              <tr>
+                                <td style="color: #64748b;">Central GST (CGST ${slab.halfRate}%):</td>
+                                <td style="font-weight: 600; text-align: right; color: #b45309; font-family: monospace;">₹${slab.cgstAmount.toFixed(2)}</td>
+                              </tr>
+                              <tr>
+                                <td style="color: #64748b;">State GST (SGST ${slab.halfRate}%):</td>
+                                <td style="font-weight: 600; text-align: right; color: #b45309; font-family: monospace;">₹${slab.sgstAmount.toFixed(2)}</td>
+                              </tr>
+                            ` : `
+                              <tr>
+                                <td style="color: #64748b;">Integrated GST (IGST ${slab.rate}%):</td>
+                                <td style="font-weight: 600; text-align: right; color: #1d4ed8; font-family: monospace;">₹${slab.igstAmount.toFixed(2)}</td>
+                              </tr>
+                            `}
+                          `).join('') + `
+                            <tr style="border-top: 1px solid #e2e8f0; font-weight: 700;">
+                              <td style="color: #334155; padding-top: 4px;">Total GST Tax:</td>
+                              <td style="font-weight: 800; text-align: right; color: #b45309; font-family: monospace; padding-top: 4px;">₹${emailGstSlabs.reduce((acc, s) => acc + s.totalTax, 0).toFixed(2)}</td>
+                            </tr>
+                          `;
+                        }
+                        if (cgst > 0 || sgst > 0 || igst > 0) {
+                          return `
+                            ${cgst > 0 ? `
+                            <tr>
+                              <td style="color: #64748b;">CGST (Central Tax):</td>
+                              <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${cgst.toFixed(2)}</td>
+                            </tr>
+                            <tr>
+                              <td style="color: #64748b;">SGST (State Tax):</td>
+                              <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${sgst.toFixed(2)}</td>
+                            </tr>` : ''}
+                            ${igst > 0 ? `
+                            <tr>
+                              <td style="color: #64748b;">IGST (Integrated Tax):</td>
+                              <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${igst.toFixed(2)}</td>
+                            </tr>` : ''}
+                            <tr style="border-top: 1px solid #e2e8f0; font-weight: 700;">
+                              <td style="color: #334155; padding-top: 4px;">Total GST Tax:</td>
+                              <td style="font-weight: 800; text-align: right; color: #b45309; font-family: monospace; padding-top: 4px;">₹${(cgst + sgst + igst).toFixed(2)}</td>
+                            </tr>
+                          `;
+                        }
+                        return '';
+                      })()}
                       
                       <!-- Round-Off Adjustment Row -->
                       <tr style="background-color: #fef3c7; border-radius: 6px;">
@@ -2729,14 +2832,31 @@ const sendSalesInvoiceDual = async (invoice, targetEmail = null, bypassDuplicate
     const subject = `Statutory ${docTitle} [${docNo}] with Terms & Conditions - ${settings.companyName}`;
     const html = generateSalesInvoiceHTML(orderData, settings, email);
     const grandTotalVal = Number(orderData.grandTotal || 0).toFixed(2);
+    const emailIsInterState = String(orderData.placeOfSupply || '33') !== '33';
+    const emailSlabs = computeCommunicationGstSlabs(orderData, emailIsInterState);
+    let emailTaxBreakdownText = '';
+    if (emailSlabs && emailSlabs.length > 0) {
+      if (!emailIsInterState) {
+        emailTaxBreakdownText = emailSlabs.map(s => `CGST ${s.halfRate}%        : Rs. ${s.cgstAmount.toFixed(2)}\nSGST ${s.halfRate}%        : Rs. ${s.sgstAmount.toFixed(2)}`).join('\n');
+      } else {
+        emailTaxBreakdownText = emailSlabs.map(s => `IGST ${s.rate}%        : Rs. ${s.igstAmount.toFixed(2)}`).join('\n');
+      }
+      const totalTaxAmt = emailSlabs.reduce((acc, s) => acc + s.totalTax, 0);
+      emailTaxBreakdownText += `\nTotal GST Tax    : Rs. ${totalTaxAmt.toFixed(2)}`;
+    } else {
+      const totTax = (Number(orderData.cgst || 0) + Number(orderData.sgst || 0) + Number(orderData.igst || 0));
+      if (totTax > 0) emailTaxBreakdownText = `Total GST Tax    : Rs. ${totTax.toFixed(2)}`;
+    }
+
     const body = `Dear ${orderData.customer?.name || orderData.customerName || 'Valued Customer'},
 
 Please find your statutory ${docTitle} [${docNo}] attached to this email.
 Customer / Party : ${orderData.customerName || orderData.customer?.name || 'Valued Customer'} (${orderData.customerPhone || orderData.customer?.phone || '-'})
 Taxable Subtotal : Rs. ${Number(orderData.totalSubtotal || 0).toFixed(2)}
-Round-Off Adjust : Rs. ${Number(orderData.roundOff || 0).toFixed(2)}
+${emailTaxBreakdownText ? `${emailTaxBreakdownText}\n` : ''}Round-Off Adjust : Rs. ${Number(orderData.roundOff || 0).toFixed(2)}
 Final Net Amount : Rs. ${grandTotalVal}
 Amount in Words  : ${numberToIndianWords(Number(orderData.grandTotal || 0))}
+Payment Terms    : ${orderData.paymentTerms || (orderData.paymentStatus === 'PAID' ? 'Immediate / PAID' : 'Net 30')}
 Payment Status   : ${orderData.paymentStatus || 'PENDING'}
 
 Statutory Terms & Conditions of Supply apply.
@@ -2815,6 +2935,28 @@ Helpline: ${settings.companyMobile}`;
     const extraItemsCount = printableItems.length - 8;
     const extraItemsText = extraItemsCount > 0 ? `\n...and ${extraItemsCount} more items in PDF` : '';
 
+    const waIsInterState = String(orderData.placeOfSupply || '33') !== '33';
+    const waSlabs = computeCommunicationGstSlabs(orderData, waIsInterState);
+    let waTaxLines = '';
+    if (waSlabs && waSlabs.length > 0) {
+      if (!waIsInterState) {
+        waTaxLines = waSlabs.map(s => `• CGST ${s.halfRate}% : ₹${s.cgstAmount.toFixed(2)}\n• SGST ${s.halfRate}% : ₹${s.sgstAmount.toFixed(2)}`).join('\n');
+      } else {
+        waTaxLines = waSlabs.map(s => `• IGST ${s.rate}% : ₹${s.igstAmount.toFixed(2)}`).join('\n');
+      }
+      const totalTaxAmt = waSlabs.reduce((acc, s) => acc + s.totalTax, 0);
+      waTaxLines += `\n• Total GST Tax : ₹${totalTaxAmt.toFixed(2)}`;
+    } else {
+      const totTax = Number(orderData.cgst || 0) + Number(orderData.sgst || 0) + Number(orderData.igst || 0);
+      if (!waIsInterState) {
+        if (Number(orderData.cgst || 0) > 0) waTaxLines += `• CGST Tax : ₹${Number(orderData.cgst).toFixed(2)}\n`;
+        if (Number(orderData.sgst || 0) > 0) waTaxLines += `• SGST Tax : ₹${Number(orderData.sgst).toFixed(2)}\n`;
+      } else {
+        if (Number(orderData.igst || 0) > 0) waTaxLines += `• IGST Tax : ₹${Number(orderData.igst).toFixed(2)}\n`;
+      }
+      if (totTax > 0) waTaxLines += `• Total GST Tax : ₹${totTax.toFixed(2)}`;
+    }
+
     const caption = `🧾 *${docTitle.toUpperCase()}*
 🏢 *${settings.companyName}*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2830,13 +2972,14 @@ ${itemLines}${extraItemsText}
 
 💵 *FINANCIAL BREAKDOWN:*
 • Taxable Value : ₹${Number(orderData.totalSubtotal || 0).toFixed(2)}
-${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(orderData.freight).toFixed(2)}\n` : ''}${Number(orderData.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(orderData.packingCharges).toFixed(2)}\n` : ''}${Number(orderData.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(orderData.loadingCharges).toFixed(2)}\n` : ''}${Number(orderData.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(orderData.otherCharges).toFixed(2)}\n` : ''}${Number(orderData.cgst || 0) > 0 ? `• CGST Tax : ₹${Number(orderData.cgst).toFixed(2)}\n• SGST Tax : ₹${Number(orderData.sgst).toFixed(2)}\n` : ''}${Number(orderData.igst || 0) > 0 ? `• IGST Tax : ₹${Number(orderData.igst).toFixed(2)}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
+${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(orderData.freight).toFixed(2)}\n` : ''}${Number(orderData.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(orderData.packingCharges).toFixed(2)}\n` : ''}${Number(orderData.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(orderData.loadingCharges).toFixed(2)}\n` : ''}${Number(orderData.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(orderData.otherCharges).toFixed(2)}\n` : ''}${waTaxLines ? `${waTaxLines}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 *NET GRAND TOTAL: ₹${Number(orderData.grandTotal || 0).toFixed(2)}*
 🗣️ _${numberToIndianWords(Number(orderData.grandTotal || 0))}_
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💳 *PAYMENT SETTLEMENT:*
-• Mode : ${orderData.paymentMode || orderData.paymentMethod || orderData.paymentTerms || 'Bank Transfer'}
+• Terms : ${orderData.paymentTerms || (orderData.paymentStatus === 'PAID' ? 'Immediate / PAID' : 'Net 30')}
+• Mode : ${orderData.paymentMode || orderData.paymentMethod || 'Bank Transfer'}
 • Status : ${orderData.paymentStatus || 'PENDING'}
 
 📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*

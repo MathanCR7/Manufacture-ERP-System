@@ -602,7 +602,7 @@ export default function SalesListPage() {
           : generateA4TaxInvoice(fullOrder, activeSettings);
       } catch (pdfErr) {
         console.warn('Advanced PDF generator error, falling back:', pdfErr);
-        pdfBlob = compileInvoiceA4PDF(fullOrder, activeSettings);
+        pdfBlob = generateA4TaxInvoice(fullOrder, activeSettings);
       }
 
       if (pdfBlob) {
@@ -643,6 +643,31 @@ export default function SalesListPage() {
     const amountInWords = numberToWordsINR(rawGrandTotal);
 
     const docTypeLabel = fullOrder.type ? fullOrder.type.toUpperCase() : 'TAX INVOICE';
+    const waIsInterState = String(fullOrder.placeOfSupply || '33') !== '33';
+    const waSlabs = computeOrderGstSlabs(fullOrder, waIsInterState);
+    let waTaxLines = '';
+    if (waSlabs && waSlabs.length > 0) {
+      if (!waIsInterState) {
+        waTaxLines = waSlabs.map(s => 
+          `• CGST ${s.halfRate}% : ₹${s.cgstAmount.toFixed(2)}\n• SGST ${s.halfRate}% : ₹${s.sgstAmount.toFixed(2)}`
+        ).join('\n');
+      } else {
+        waTaxLines = waSlabs.map(s => 
+          `• IGST ${s.rate}% : ₹${s.igstAmount.toFixed(2)}`
+        ).join('\n');
+      }
+      const totalTaxSum = waSlabs.reduce((sum, s) => sum + s.totalTax, 0);
+      waTaxLines += `\n• Total GST Tax : ₹${totalTaxSum.toFixed(2)}`;
+    } else {
+      const totalTax = Number(fullOrder.cgst || 0) + Number(fullOrder.sgst || 0) + Number(fullOrder.igst || 0);
+      if (!waIsInterState) {
+        if (Number(fullOrder.cgst || 0) > 0) waTaxLines += `• CGST Tax : ₹${Number(fullOrder.cgst).toFixed(2)}\n`;
+        if (Number(fullOrder.sgst || 0) > 0) waTaxLines += `• SGST Tax : ₹${Number(fullOrder.sgst).toFixed(2)}\n`;
+      } else {
+        if (Number(fullOrder.igst || 0) > 0) waTaxLines += `• IGST Tax : ₹${Number(fullOrder.igst).toFixed(2)}\n`;
+      }
+      if (totalTax > 0) waTaxLines += `• Total GST Tax : ₹${totalTax.toFixed(2)}`;
+    }
 
     const text = `🧾 *${docTypeLabel}*
 🏢 *${company}*
@@ -659,13 +684,14 @@ ${itemLines || '1 Line Item'}${extraItemsText}
 
 💵 *FINANCIAL BREAKDOWN:*
 • Taxable Value : ₹${Number(fullOrder.totalSubtotal || 0).toFixed(2)}
-${Number(fullOrder.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(fullOrder.freight).toFixed(2)}\n` : ''}${Number(fullOrder.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(fullOrder.packingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(fullOrder.loadingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(fullOrder.otherCharges).toFixed(2)}\n` : ''}${Number(fullOrder.cgst || 0) > 0 ? `• CGST Tax : ₹${Number(fullOrder.cgst).toFixed(2)}\n• SGST Tax : ₹${Number(fullOrder.sgst).toFixed(2)}\n` : ''}${Number(fullOrder.igst || 0) > 0 ? `• IGST Tax : ₹${Number(fullOrder.igst).toFixed(2)}\n` : ''}• Round-Off : ${Number(fullOrder.roundOff || 0) < 0 ? `-₹${Math.abs(Number(fullOrder.roundOff)).toFixed(2)}` : `+₹${Number(fullOrder.roundOff || 0).toFixed(2)}`}
+${Number(fullOrder.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(fullOrder.freight).toFixed(2)}\n` : ''}${Number(fullOrder.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(fullOrder.packingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(fullOrder.loadingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(fullOrder.otherCharges).toFixed(2)}\n` : ''}${waTaxLines ? `${waTaxLines}\n` : ''}• Round-Off : ${Number(fullOrder.roundOff || 0) < 0 ? `-₹${Math.abs(Number(fullOrder.roundOff)).toFixed(2)}` : `+₹${Number(fullOrder.roundOff || 0).toFixed(2)}`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 *NET GRAND TOTAL: ₹${grandTotal}*
 🗣️ _${amountInWords}_
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💳 *PAYMENT SETTLEMENT:*
-• Mode : ${fullOrder.paymentMode || fullOrder.paymentMethod || fullOrder.paymentTerms || 'Bank Transfer'}
+• Terms : ${fullOrder.paymentTerms || (fullOrder.paymentStatus === 'PAID' ? 'Immediate / PAID' : 'Net 30')}
+• Mode : ${fullOrder.paymentMode || fullOrder.paymentMethod || 'Bank Transfer'}
 • Status : ${fullOrder.paymentStatus || 'PENDING'}
 
 📥 *DOWNLOAD / VIEW PRINTABLE BILL PDF:*
@@ -2992,16 +3018,16 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
             <div className="lg:col-span-6 space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-500 font-bold mb-1">Buyer / Employee</label>
+                  <label className="block text-slate-500 font-bold mb-1">Payment Terms</label>
                   <input
                     type="text"
                     readOnly
-                    value={editForm.salesEmployee}
-                    className="w-full h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-medium"
+                    value={editForm.paymentTerms || selectedOrder.paymentTerms || (selectedOrder.paymentStatus === 'PAID' ? 'Immediate / PAID' : 'Net 30')}
+                    className="w-full h-8 px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-500 font-bold mb-1">Owner</label>
+                  <label className="block text-slate-500 font-bold mb-1">Owner / Creator</label>
                   <input
                     type="text"
                     readOnly
@@ -3051,9 +3077,54 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                 <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₹{taxableSubtotal.toFixed(2)} INR</span>
               </div>
 
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">GST Taxes (CGST+SGST / IGST):</span>
-                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">₹{totalGstTax.toFixed(2)} INR</span>
+              {/* Dynamic Rate-wise GST Slabs Breakdown */}
+              {orderGstSlabs && orderGstSlabs.length > 0 ? (
+                orderGstSlabs.map(slab => (
+                  <React.Fragment key={slab.rate}>
+                    {!isInterState ? (
+                      <>
+                        <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                          <span className="text-slate-500 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            Central GST (CGST {slab.halfRate}%):
+                          </span>
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                            ₹{slab.cgstAmount.toFixed(2)} INR
+                          </span>
+                        </div>
+                        <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                          <span className="text-slate-500 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                            State GST (SGST {slab.halfRate}%):
+                          </span>
+                          <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                            ₹{slab.sgstAmount.toFixed(2)} INR
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-500 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                          Integrated GST (IGST {slab.rate}%):
+                        </span>
+                        <span className="font-mono font-bold text-blue-600 dark:text-blue-400">
+                          ₹{slab.igstAmount.toFixed(2)} INR
+                        </span>
+                      </div>
+                    )}
+                  </React.Fragment>
+                ))
+              ) : (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">GST Taxes (CGST+SGST / IGST):</span>
+                  <span className="font-mono font-bold text-amber-600 dark:text-amber-400">₹{totalGstTax.toFixed(2)} INR</span>
+                </div>
+              )}
+
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 px-2 rounded-lg">
+                <span className="font-bold text-slate-700 dark:text-slate-300">Total GST Tax:</span>
+                <span className="font-mono font-black text-amber-600 dark:text-amber-400">₹{totalGstTax.toFixed(2)} INR</span>
               </div>
 
               {roundOffVal !== 0 && (

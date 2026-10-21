@@ -159,7 +159,6 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   doc.setTextColor(71, 85, 105);
 
   const invoiceDate = new Date(order.createdAt || Date.now()).toLocaleDateString('en-GB');
-  const employeeName = order.salesEmployee || '-No Sales Employee-';
   const ownerName = order.owner || order.creator?.name || order.cashierName || 'Administrator';
   const paymentTermsVal = order.paymentTerms || (order.paymentStatus === 'PAID' ? 'PAID' : 'Net 30');
 
@@ -168,20 +167,20 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   doc.text(docNo, margin + 15, curY + 5);
 
   doc.setTextColor(71, 85, 105);
-  doc.text(`Date: `, margin + 50, curY + 5);
+  doc.text(`Date: `, margin + 48, curY + 5);
   doc.setTextColor(15, 23, 42);
-  doc.text(invoiceDate, margin + 58, curY + 5);
+  doc.text(invoiceDate, margin + 56, curY + 5);
 
   doc.setTextColor(71, 85, 105);
-  doc.text(`Payment Terms: `, margin + 85, curY + 5);
-  const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || Number(order.amountPaid || 0) >= Number(order.grandTotal || 0) && Number(order.grandTotal || 0) > 0;
+  doc.text(`Payment Status: `, margin + 85, curY + 5);
+  const isPaid = String(paymentTermsVal).toUpperCase() === 'PAID' || String(order.paymentStatus).toUpperCase() === 'PAID' || (Number(order.amountPaid || 0) >= Number(order.grandTotal || 0) && Number(order.grandTotal || 0) > 0);
   doc.setTextColor(isPaid ? 16 : 180, isPaid ? 120 : 60, isPaid ? 40 : 40);
-  doc.text(isPaid ? 'PAID' : paymentTermsVal, margin + 107, curY + 5);
+  doc.text(isPaid ? 'PAID' : (order.paymentStatus || 'PENDING'), margin + 108, curY + 5);
 
   doc.setTextColor(71, 85, 105);
-  doc.text(`Buyer / Staff: `, margin + 140, curY + 5);
+  doc.text(`Payment Terms: `, margin + 132, curY + 5);
   doc.setTextColor(15, 23, 42);
-  doc.text(employeeName.substring(0, 22), margin + 160, curY + 5);
+  doc.text(String(paymentTermsVal).substring(0, 28), margin + 154, curY + 5);
 
   curY += 10.5;
 
