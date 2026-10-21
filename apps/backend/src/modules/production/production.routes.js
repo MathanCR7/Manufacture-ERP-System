@@ -61,12 +61,21 @@ const cacheMiddleware = (req, res, next) => {
   next();
 };
 
-// Helper to generate unique production batch reference (MP-XXXXXX)
-const generateBatchReference = async (tx) => {
+// Helper to generate unique production batch reference (PRODYYYYMMDD-XXXX)
+const generateBatchReference = async (tx, inputDate = new Date()) => {
+  const d = inputDate ? new Date(inputDate) : new Date();
+  const validDate = isNaN(d.getTime()) ? new Date() : d;
+  
+  const year = validDate.getFullYear().toString();
+  const month = String(validDate.getMonth() + 1).padStart(2, '0');
+  const day = String(validDate.getDate()).padStart(2, '0');
+  const datePrefix = `PROD${year}${month}${day}`;
+  const searchPattern = `${datePrefix}-%`;
+
   const result = await tx.$queryRaw`
     SELECT reference_no FROM production_batches 
-    WHERE reference_no ~ '^MP-[0-9]+$' 
-    ORDER BY CAST(SUBSTRING(reference_no FROM 4) AS INTEGER) DESC 
+    WHERE reference_no LIKE ${searchPattern}
+    ORDER BY reference_no DESC 
     LIMIT 1 
     FOR UPDATE
   `;
@@ -74,14 +83,14 @@ const generateBatchReference = async (tx) => {
 
   let nextNumber = 1;
   if (lastRecord && lastRecord.reference_no) {
-    const lastNumberStr = lastRecord.reference_no.replace('MP-', '');
+    const lastNumberStr = lastRecord.reference_no.replace(`${datePrefix}-`, '');
     const parsed = parseInt(lastNumberStr, 10);
     if (!isNaN(parsed)) {
       nextNumber = parsed + 1;
     }
   }
 
-  let candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+  let candidate = `${datePrefix}-${String(nextNumber).padStart(4, '0')}`;
   while (true) {
     const existing = await tx.productionBatchNew.findUnique({
       where: { referenceNo: candidate },
@@ -89,7 +98,7 @@ const generateBatchReference = async (tx) => {
     });
     if (!existing) break;
     nextNumber++;
-    candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+    candidate = `${datePrefix}-${String(nextNumber).padStart(4, '0')}`;
   }
 
   return candidate;
@@ -872,6 +881,7 @@ router.get('/live-rate', authenticateToken, (req, res, next) => liveRateControll
 
 // ── Redesigned Production Batch Endpoints (Standard, Order-Based, Stock-Update) ──
 router.get('/batches-redesign', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatches(req, res, next));
+router.get('/batches-redesign/analyze/:batchNo', authenticateToken, (req, res, next) => productionBatchRedesignController.analyzeBatch(req, res, next));
 router.get('/batches-redesign/:id', authenticateToken, (req, res, next) => productionBatchRedesignController.getBatchById(req, res, next));
 router.post('/batches-redesign', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.createBatch(req, res, next));
 router.patch('/batches-redesign/:id/status', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF']), (req, res, next) => productionBatchRedesignController.updateStatus(req, res, next));

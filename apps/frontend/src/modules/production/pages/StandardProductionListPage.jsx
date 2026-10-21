@@ -4,12 +4,17 @@ import { api } from '@/lib/axios';
 import { 
   Factory, Plus, Search, Filter, RefreshCw, Eye, CheckCircle2, 
   Clock, AlertCircle, Play, Sparkles, Database, FileText, ChevronRight,
-  Package, Check, Layers, Lock, FlaskConical, X
+  Package, Check, Layers, Lock, FlaskConical, X, ArrowUpDown, ArrowUp, ArrowDown,
+  RotateCcw, ChevronDown, Printer, Tag
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Pagination } from '@/components/ui/Pagination';
 import BatchCompletionModal from '../components/BatchCompletionModal';
 import ProductionBatchDetailModal from '../components/ProductionBatchDetailModal';
+import BatchLabelModal from '../components/BatchLabelModal';
+import { analyzeProductionBatchNumber } from '../utils/batchNumberUtil';
 import useAuthStore from '@/app/store/authStore';
 import Swal from 'sweetalert2';
 
@@ -21,6 +26,10 @@ export default function StandardProductionListPage() {
   // View Details Modal State
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [selectedViewBatchId, setSelectedViewBatchId] = useState(null);
+
+  // GS1 Label Modal State
+  const [labelModalOpen, setLabelModalOpen] = useState(false);
+  const [selectedLabelBatch, setSelectedLabelBatch] = useState(null);
   
   // Role visibility (hide amounts for production role, allow admin to see all)
   const currentUser = useAuthStore(s => s.user);
@@ -38,26 +47,27 @@ export default function StandardProductionListPage() {
   const [batchToComplete, setBatchToComplete] = useState(null);
   const [completing, setCompleting] = useState(false);
   
-  // Filters
-  const [search, setSearch] = useState('');
+  // Pro Filters & Search State matching /rm/stock
+  const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
+  const [baseFilter, setBaseFilter] = useState('ALL');
+  const [shiftFilter, setShiftFilter] = useState('ALL');
+
+  // Sorting State - default date descending (latest first)
+  const [sortBy, setSortBy] = useState('date_desc');
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   const fetchBatches = async () => {
     try {
       setLoading(true);
-      const params = new URLSearchParams({ type: 'STANDARD' });
-      if (statusFilter !== 'ALL') params.append('status', statusFilter);
-      if (fromDate) params.append('fromDate', fromDate);
-      if (toDate) params.append('toDate', toDate);
-      if (search) params.append('search', search);
-
+      const params = new URLSearchParams({ type: 'STANDARD', limit: '200' });
       const res = await api.get(`/production/batches-redesign?${params.toString()}`);
       setBatches(res.data?.batches || []);
     } catch (err) {
       console.error('Failed to load standard production batches', err);
-      // Fallback to legacy endpoint if batches-redesign has no rows yet
       try {
         const legacyRes = await api.get('/production?status=all');
         const list = legacyRes.data?.batches || [];
@@ -72,7 +82,16 @@ export default function StandardProductionListPage() {
 
   useEffect(() => {
     fetchBatches();
-  }, [statusFilter, fromDate, toDate]);
+  }, []);
+
+  // Distinct Base Masters for filter dropdown
+  const baseOptions = useMemo(() => {
+    const set = new Set();
+    batches.forEach(b => {
+      if (b.baseName) set.add(b.baseName);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [batches]);
 
   // Handle Starting a batch
   const handleStartBatch = async (batch) => {
@@ -95,6 +114,12 @@ export default function StandardProductionListPage() {
   const handleOpenCompleteModal = (batch) => {
     setBatchToComplete(batch);
     setCompletionModalOpen(true);
+  };
+
+  // Open GS1 Label Modal
+  const handleOpenLabelModal = (batch) => {
+    setSelectedLabelBatch(batch);
+    setLabelModalOpen(true);
   };
 
   // Submit actual yield and complete batch
@@ -157,15 +182,193 @@ export default function StandardProductionListPage() {
     }
   };
 
-  const filteredBatches = useMemo(() => {
-    if (!search) return batches;
-    return batches.filter(b => 
-      b.referenceNo?.toLowerCase().includes(search.toLowerCase()) ||
-      b.batchNo?.toLowerCase().includes(search.toLowerCase()) ||
-      b.product?.name?.toLowerCase().includes(search.toLowerCase()) ||
-      b.baseName?.toLowerCase().includes(search.toLowerCase())
-    );
-  }, [batches, search]);
+  // ── FILTER & SORT MATCHING /rm/stock PATTERN ──
+  const sortedAndFiltered = useMemo(() => {
+    let result = batches.filter(b => {
+      // 1. Text Search across referenceNo, batchNo, product name, baseName, templateName, shift, machineLine
+      const term = searchTerm.toLowerCase().trim();
+      if (term) {
+        const matchesTerm = (
+          (b.referenceNo || '').toLowerCase().includes(term) ||
+          (b.batchNo || '').toLowerCase().includes(term) ||
+          (b.product?.name || '').toLowerCase().includes(term) ||
+          (b.baseName || '').toLowerCase().includes(term) ||
+          (b.templateName || '').toLowerCase().includes(term) ||
+          (b.shift || '').toLowerCase().includes(term) ||
+          (b.machineLine || '').toLowerCase().includes(term) ||
+          (b.status || '').toLowerCase().includes(term)
+        );
+        if (!matchesTerm) return false;
+      }
+
+      // 2. Status Filter
+      if (statusFilter !== 'ALL') {
+        if (statusFilter === 'PLANNED' || statusFilter === 'Planned') {
+          if (b.status !== 'Planned' && b.status !== 'Draft' && b.status !== 'PLANNED') return false;
+        } else if (statusFilter === 'IN_PROGRESS' || statusFilter === 'In Progress') {
+          if (b.status !== 'In Progress') return false;
+        } else if (statusFilter === 'COMPLETED' || statusFilter === 'Completed') {
+          if (b.status !== 'Completed' && b.status !== 'qc_passed') return false;
+        } else if (statusFilter === 'QC_QUEUE' || statusFilter === 'Lab Test In Progress') {
+          if (b.status !== 'Lab Test In Progress') return false;
+        } else if (statusFilter === 'PAUSED' || statusFilter === 'Paused') {
+          if (b.status !== 'Paused') return false;
+        } else if (statusFilter === 'CANCELLED' || statusFilter === 'Cancelled') {
+          if (b.status !== 'Cancelled' && b.status !== 'qc_failed') return false;
+        } else if (b.status !== statusFilter) {
+          return false;
+        }
+      }
+
+      // 3. Base Master Filter
+      if (baseFilter !== 'ALL') {
+        if ((b.baseName || 'Unassigned') !== baseFilter) return false;
+      }
+
+      // 4. Shift Filter
+      if (shiftFilter !== 'ALL') {
+        if ((b.shift || '').toLowerCase() !== shiftFilter.toLowerCase()) return false;
+      }
+
+      return true;
+    });
+
+    // Sort evaluation
+    result.sort((a, b) => {
+      // 1. Batch No Sort
+      if (sortBy === 'batch_asc') {
+        return (a.referenceNo || a.batchNo || '').localeCompare(b.referenceNo || b.batchNo || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+      if (sortBy === 'batch_desc') {
+        return (b.referenceNo || b.batchNo || '').localeCompare(a.referenceNo || a.batchNo || '', undefined, { numeric: true, sensitivity: 'base' });
+      }
+
+      // 2. Date Sort
+      if (sortBy === 'date_asc') {
+        const timeA = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const timeB = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return timeA - timeB;
+      }
+      if (sortBy === 'date_desc') {
+        const timeA = a.startDate ? new Date(a.startDate).getTime() : 0;
+        const timeB = b.startDate ? new Date(b.startDate).getTime() : 0;
+        return timeB - timeA;
+      }
+
+      // 3. Base & Template Sort
+      if (sortBy === 'base_asc') {
+        return (a.baseName || '').localeCompare(b.baseName || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'base_desc') {
+        return (b.baseName || '').localeCompare(a.baseName || '', undefined, { sensitivity: 'base' });
+      }
+
+      // 4. Target Product Sort
+      if (sortBy === 'product_asc') {
+        return (a.product?.name || '').localeCompare(b.product?.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (sortBy === 'product_desc') {
+        return (b.product?.name || '').localeCompare(a.product?.name || '', undefined, { sensitivity: 'base' });
+      }
+
+      // 5. Planned Qty Sort
+      if (sortBy === 'qty_desc') {
+        return Number(b.quantity || 0) - Number(a.quantity || 0);
+      }
+      if (sortBy === 'qty_asc') {
+        return Number(a.quantity || 0) - Number(b.quantity || 0);
+      }
+
+      // 6. Status Sort
+      if (sortBy === 'status_asc') {
+        return (a.status || '').localeCompare(b.status || '');
+      }
+      if (sortBy === 'status_desc') {
+        return (b.status || '').localeCompare(a.status || '');
+      }
+
+      // 7. Grand Total Cost Sort
+      if (sortBy === 'cost_desc') {
+        return Number(b.totalCost || 0) - Number(a.totalCost || 0);
+      }
+      if (sortBy === 'cost_asc') {
+        return Number(a.totalCost || 0) - Number(b.totalCost || 0);
+      }
+
+      // 8. Cost/Unit Sort
+      if (sortBy === 'cost_unit_desc') {
+        const unitCostA = a.costPerUnit || (a.quantity > 0 ? a.totalCost / a.quantity : 0);
+        const unitCostB = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
+        return Number(unitCostB || 0) - Number(unitCostA || 0);
+      }
+      if (sortBy === 'cost_unit_asc') {
+        const unitCostA = a.costPerUnit || (a.quantity > 0 ? a.totalCost / a.quantity : 0);
+        const unitCostB = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
+        return Number(unitCostA || 0) - Number(unitCostB || 0);
+      }
+
+      return 0;
+    });
+
+    return result;
+  }, [batches, searchTerm, statusFilter, baseFilter, shiftFilter, sortBy]);
+
+  // Pagination calculation
+  const totalPages = Math.ceil(sortedAndFiltered.length / itemsPerPage) || 1;
+  const paginatedBatches = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return sortedAndFiltered.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedAndFiltered, currentPage, itemsPerPage]);
+
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('ALL');
+    setBaseFilter('ALL');
+    setShiftFilter('ALL');
+    setSortBy('date_desc');
+    setCurrentPage(1);
+  };
+
+  // Toggle Column Sort Handlers
+  const handleToggleSortBatch = () => {
+    setSortBy(prev => prev === 'batch_asc' ? 'batch_desc' : 'batch_asc');
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortDate = () => {
+    setSortBy(prev => prev === 'date_desc' ? 'date_asc' : 'date_desc');
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortBase = () => {
+    setSortBy(prev => prev === 'base_asc' ? 'base_desc' : 'base_asc');
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortProduct = () => {
+    setSortBy(prev => prev === 'product_asc' ? 'product_desc' : 'product_asc');
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortQty = () => {
+    setSortBy(prev => prev === 'qty_desc' ? 'qty_asc' : 'qty_desc');
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortStatus = () => {
+    setSortBy(prev => prev === 'status_asc' ? 'status_desc' : 'status_asc');
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortCost = () => {
+    setSortBy(prev => prev === 'cost_desc' ? 'cost_asc' : 'cost_desc');
+    setCurrentPage(1);
+  };
+
+  const handleToggleSortCostUnit = () => {
+    setSortBy(prev => prev === 'cost_unit_desc' ? 'cost_unit_asc' : 'cost_unit_desc');
+    setCurrentPage(1);
+  };
 
   const formatCurrency = (val) => {
     return Number(val || 0).toLocaleString('en-IN', {
@@ -257,212 +460,515 @@ export default function StandardProductionListPage() {
         </div>
       </div>
 
-      {/* ── FILTERS ── */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
-        <div className="relative w-full sm:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <Input 
-            placeholder="Search batch #, product, base..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 h-9 rounded-xl border-slate-200 dark:border-slate-800"
-          />
-        </div>
-
-        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+      {/* ── MAIN BATCH TABLE CARD MATCHING /rm/stock TOOLBAR & LAYOUT ── */}
+      <Card className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden flex flex-col text-xs">
+        <CardContent className="p-0">
           
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="h-9 px-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          >
-            <option value="ALL">All Status</option>
-            <option value="Planned">Planned / Draft</option>
-            <option value="In Progress">In Progress</option>
-            <option value="Completed">Completed</option>
-          </select>
-        </div>
-      </div>
+          {/* Integrated Pro Toolbar: Search + Status + Base + Shift + Reset (Identical to /rm/stock) */}
+          <div className="px-3.5 py-2.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5">
+            
+            {/* Search Input with quick clear and match counter */}
+            <div className="flex items-center gap-2 flex-1 max-w-md">
+              <div className="relative w-full">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search batch #, product, base, shift, status..."
+                  value={searchTerm}
+                  onChange={(e) => { 
+                    setSearchTerm(e.target.value); 
+                    setCurrentPage(1); 
+                  }}
+                  className="w-full pl-8 pr-7 py-1.5 border border-slate-200 dark:border-slate-700/80 rounded-xl text-xs bg-white dark:bg-slate-950 dark:text-white focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 h-8 shadow-3xs transition-all placeholder:text-slate-400"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded-full transition-colors cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
 
-      {/* ── BATCH LIST TABLE ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs sm:text-sm">
-            <thead>
-              <tr className="bg-slate-50/75 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                <th className="py-3.5 px-4">Batch No</th>
-                <th className="py-3.5 px-4">Date & Shift</th>
-                <th className="py-3.5 px-4">Base & Template</th>
-                <th className="py-3.5 px-4">Target Product</th>
-                <th className="py-3.5 px-4 text-center">Planned Qty</th>
-                <th className="py-3.5 px-4 text-center">Status</th>
-                {canViewCosting ? (
-                  <>
-                    <th className="py-3.5 px-4 text-right">Grand Total</th>
-                    <th className="py-3.5 px-4 text-right">Cost/Unit</th>
-                  </>
-                ) : null}
-                <th className="py-3.5 px-4 text-right">Operations & Yield</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {loading ? (
+              {searchTerm && (
+                <div className="text-[11px] text-indigo-600 dark:text-indigo-400 font-bold whitespace-nowrap hidden sm:inline-flex items-center gap-1">
+                  <span>Found {sortedAndFiltered.length} matches</span>
+                </div>
+              )}
+            </div>
+
+            {/* Filter Dropdowns & Reset Controls */}
+            <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto justify-start lg:justify-end">
+              
+              {/* Status Filter */}
+              <div className="relative flex-1 sm:flex-none min-w-[125px] flex items-center">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  aria-label="Filter by Status"
+                >
+                  <option value="ALL">All Status</option>
+                  <option value="Planned">Planned / Draft</option>
+                  <option value="In Progress">In Progress</option>
+                  <option value="Completed">Completed / Passed</option>
+                  <option value="Lab Test In Progress">In QC Queue</option>
+                  <option value="Paused">Paused</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3 h-3" />
+                </span>
+              </div>
+
+              {/* Base Master Filter */}
+              <div className="relative flex-1 sm:flex-none min-w-[125px] flex items-center">
+                <select
+                  value={baseFilter}
+                  onChange={(e) => {
+                    setBaseFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  aria-label="Filter by Base"
+                >
+                  <option value="ALL">All Base Formulations</option>
+                  {baseOptions.map(base => (
+                    <option key={base} value={base}>{base}</option>
+                  ))}
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3 h-3" />
+                </span>
+              </div>
+
+              {/* Shift Filter */}
+              <div className="relative flex-1 sm:flex-none min-w-[105px] flex items-center">
+                <select
+                  value={shiftFilter}
+                  onChange={(e) => {
+                    setShiftFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="w-full sm:w-auto h-8 pl-2.5 pr-6 text-xs font-semibold border border-slate-200 dark:border-slate-700/80 rounded-xl bg-white dark:bg-slate-950 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1.5 focus:ring-indigo-500/30 focus:border-indigo-500 appearance-none cursor-pointer transition-all shadow-3xs hover:border-slate-300 dark:hover:border-slate-600"
+                  aria-label="Filter by Shift"
+                >
+                  <option value="ALL">All Shifts</option>
+                  <option value="Morning">Morning Shift</option>
+                  <option value="Evening">Evening Shift</option>
+                  <option value="Night">Night Shift</option>
+                  <option value="General">General Shift</option>
+                </select>
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center pointer-events-none text-slate-400">
+                  <ChevronDown className="w-3 h-3" />
+                </span>
+              </div>
+
+              {/* Reset Filters Button */}
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                title="Reset All Filters and Search"
+                className="h-8 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-950 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:border-slate-300 flex items-center gap-1 font-bold text-xs shadow-3xs cursor-pointer transition-all"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span className="hidden sm:inline">Reset</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ── BATCH LIST TABLE WITH INTERACTIVE COLUMN SORTING ── */}
+          <div className="w-full overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead className="bg-slate-50/80 dark:bg-slate-950/80 text-slate-600 dark:text-slate-400 font-bold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[10px]">
                 <tr>
-                  <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
-                    <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
-                    Loading standard production batches...
-                  </td>
-                </tr>
-              ) : filteredBatches.length === 0 ? (
-                <tr>
-                  <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
-                    No standard production batches found matching criteria.
-                  </td>
-                </tr>
-              ) : (
-                filteredBatches.map((b) => (
-                  <tr key={b.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3.5 px-4 font-mono font-black text-indigo-600 dark:text-indigo-400">
-                      {b.referenceNo || b.batchNo}
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className="font-bold text-slate-900 dark:text-white block">
-                        {new Date(b.startDate).toLocaleDateString('en-GB')}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block font-mono">
-                        Shift: {b.shift || 'Morning'} • {b.machineLine || 'Line 1'}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
-                        {b.baseName || 'Ice Cream Base'}
-                      </span>
-                      <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block font-mono">
-                        {b.templateName || 'Standard Formula'}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 font-extrabold text-slate-900 dark:text-white">
-                      {b.product?.name || 'Finished Product'}
-                    </td>
-                    <td className="py-3.5 px-4 text-center font-mono font-black text-slate-800 dark:text-slate-200">
-                      {b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                        b.status === 'Completed' || b.status === 'qc_passed'
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                          : b.status === 'Lab Test In Progress'
-                          ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 animate-pulse'
-                          : b.status === 'In Progress'
-                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
-                          : b.status === 'qc_failed'
-                          ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                          : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                      }`}>
-                        {b.status === 'Lab Test In Progress' ? '🔬 In QC Queue' : b.status}
-                      </span>
-                    </td>
-                    {canViewCosting ? (
-                      <>
-                        <td className="py-3.5 px-4 text-right font-mono font-black text-slate-900 dark:text-white">
-                          ₹{formatCurrency(b.totalCost)}
-                        </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
-                          ₹{formatCurrency(b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0))}
-                        </td>
-                      </>
-                    ) : null}
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedViewBatchId(b.id);
-                            setViewModalOpen(true);
-                          }}
-                          className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold h-8 px-2.5 cursor-pointer flex items-center gap-1 shadow-3xs"
-                          title="View complete details, SOP guide & pause history"
+                  
+                  {/* 1. Batch No */}
+                  <th className="py-2.5 px-3">
+                    <button
+                      onClick={handleToggleSortBatch}
+                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
+                      title="Sort by Batch Number"
+                    >
+                      <span>Batch No</span>
+                      {sortBy === 'batch_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'batch_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </button>
+                  </th>
+
+                  {/* 2. Date & Shift */}
+                  <th className="py-2.5 px-3">
+                    <button
+                      onClick={handleToggleSortDate}
+                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
+                      title="Sort by Production Date"
+                    >
+                      <span>Date & Shift</span>
+                      {sortBy === 'date_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'date_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </button>
+                  </th>
+
+                  {/* 3. Base & Template */}
+                  <th className="py-2.5 px-3">
+                    <button
+                      onClick={handleToggleSortBase}
+                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
+                      title="Sort by Base Formulation"
+                    >
+                      <span>Base & Template</span>
+                      {sortBy === 'base_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'base_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </button>
+                  </th>
+
+                  {/* 4. Target Product */}
+                  <th className="py-2.5 px-3">
+                    <button
+                      onClick={handleToggleSortProduct}
+                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
+                      title="Sort by Product Name"
+                    >
+                      <span>Target Product</span>
+                      {sortBy === 'product_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'product_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </button>
+                  </th>
+
+                  {/* 5. Planned Qty */}
+                  <th className="py-2.5 px-3 text-center">
+                    <button
+                      onClick={handleToggleSortQty}
+                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
+                      title="Sort by Planned Quantity"
+                    >
+                      <span>Planned Qty</span>
+                      {sortBy === 'qty_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'qty_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </button>
+                  </th>
+
+                  {/* 6. Status */}
+                  <th className="py-2.5 px-3 text-center">
+                    <button
+                      onClick={handleToggleSortStatus}
+                      className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
+                      title="Sort by Status"
+                    >
+                      <span>Status</span>
+                      {sortBy === 'status_asc' ? (
+                        <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : sortBy === 'status_desc' ? (
+                        <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                      ) : (
+                        <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                      )}
+                    </button>
+                  </th>
+
+                  {/* 7 & 8. Grand Total & Cost/Unit */}
+                  {canViewCosting ? (
+                    <>
+                      <th className="py-2.5 px-3 text-right">
+                        <button
+                          onClick={handleToggleSortCost}
+                          className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
+                          title="Sort by Grand Total Cost"
                         >
-                          <Eye className="w-3.5 h-3.5 text-indigo-500" />
-                          View
-                        </Button>
+                          <span>Grand Total</span>
+                          {sortBy === 'cost_desc' ? (
+                            <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          ) : sortBy === 'cost_asc' ? (
+                            <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                          )}
+                        </button>
+                      </th>
+                      <th className="py-2.5 px-3 text-right">
+                        <button
+                          onClick={handleToggleSortCostUnit}
+                          className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
+                          title="Sort by Unit Cost"
+                        >
+                          <span>Cost/Unit</span>
+                          {sortBy === 'cost_unit_desc' ? (
+                            <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          ) : sortBy === 'cost_unit_asc' ? (
+                            <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                          ) : (
+                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                          )}
+                        </button>
+                      </th>
+                    </>
+                  ) : null}
 
-                        {(b.status === 'Planned' || b.status === 'Draft') && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleStartBatch(b)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-8 px-3 cursor-pointer flex items-center gap-1 shadow-2xs"
-                            title="Start manufacturing batch on floor"
+                  {/* 9. Operations & Yield */}
+                  <th className="py-2.5 px-3 text-right">Operations & Yield</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {loading ? (
+                  <tr>
+                    <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
+                      <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
+                      Loading standard production batches...
+                    </td>
+                  </tr>
+                ) : paginatedBatches.length === 0 ? (
+                  <tr>
+                    <td colSpan={canViewCosting ? 9 : 7} className="py-12 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-1.5">
+                        <Package className="w-7 h-7 text-slate-300 dark:text-slate-600" />
+                        <span className="font-semibold text-slate-600 dark:text-slate-400">No standard production batches found matching criteria.</span>
+                        {searchTerm && (
+                          <button
+                            onClick={handleResetFilters}
+                            className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline cursor-pointer mt-1"
                           >
-                            <Play className="w-3 h-3 fill-current" />
-                            Start Batch
-                          </Button>
-                        )}
-
-                        {b.status === 'In Progress' && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleOpenCompleteModal(b)}
-                            className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-8 px-3 cursor-pointer flex items-center gap-1 shadow-2xs"
-                            title="Record actual yield & complete production"
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Complete & Yield
-                          </Button>
-                        )}
-
-                        {b.status === 'Lab Test In Progress' && (
-                          <div className="text-right">
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-600 dark:text-purple-400">
-                              <FlaskConical className="w-3 h-3" />
-                              QC Testing Pending
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono">
-                              Quarantined: {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                            </span>
-                          </div>
-                        )}
-
-                        {b.status === 'qc_failed' && (
-                          <div className="text-right">
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400">
-                              <X className="w-3 h-3" />
-                              QC Rejected
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono">
-                              Stock Not Added
-                            </span>
-                          </div>
-                        )}
-
-                        {b.status === 'Paused' && (
-                          <span className="text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-1 rounded-full border border-amber-200">
-                            Paused
-                          </span>
-                        )}
-
-                        {(b.status === 'Completed' || b.status === 'qc_passed') && (
-                          <div className="text-right">
-                            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                              <Check className="w-3 h-3" />
-                              Yield: {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
-                            </span>
-                            <span className="text-[10px] text-slate-400 block font-mono">
-                              Stock Available
-                            </span>
-                          </div>
+                            Clear search and filters
+                          </button>
                         )}
                       </div>
                     </td>
                   </tr>
-                ))
+                ) : (
+                  paginatedBatches.map((b) => {
+                    const batchAnalysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo);
+                    const unitCost = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
+
+                    return (
+                      <tr key={b.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                        
+                        {/* 1. Batch No */}
+                        <td className="py-2.5 px-3 font-mono">
+                          <div className="font-black text-indigo-600 dark:text-indigo-400 text-xs">
+                            {b.referenceNo || b.batchNo}
+                          </div>
+                          {batchAnalysis?.isValid && !batchAnalysis.isLegacy && (
+                            <span className="inline-block text-[9.5px] font-mono font-medium text-slate-400 dark:text-slate-500">
+                              PROD • #{batchAnalysis.sequenceFormatted}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 2. Date & Shift */}
+                        <td className="py-2.5 px-3">
+                          <span className="font-bold text-slate-900 dark:text-white block">
+                            {new Date(b.startDate).toLocaleDateString('en-GB')}
+                          </span>
+                          <span className="text-[10px] text-slate-400 block font-mono">
+                            {b.shift || 'Morning'} • {b.machineLine || 'Line 1'}
+                          </span>
+                        </td>
+
+                        {/* 3. Base & Template */}
+                        <td className="py-2.5 px-3">
+                          <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                            {b.baseName || 'Standard Base'}
+                          </span>
+                          <span className="text-[10px] text-indigo-600 dark:text-indigo-400 block font-mono">
+                            {b.templateName || 'Master Formula'}
+                          </span>
+                        </td>
+
+                        {/* 4. Target Product */}
+                        <td className="py-2.5 px-3">
+                          <span className="font-extrabold text-slate-900 dark:text-white block">
+                            {b.product?.name || 'Finished Goods'}
+                          </span>
+                          {b.product?.code && (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              SKU: {b.product.code}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 5. Planned Qty */}
+                        <td className="py-2.5 px-3 text-center font-mono">
+                          <span className="font-black text-slate-900 dark:text-white text-xs block">
+                            {b.quantity}
+                          </span>
+                          <span className="text-[10px] text-slate-400 uppercase font-semibold">
+                            {b.product?.unit?.abbreviation || 'Nos'}
+                          </span>
+                        </td>
+
+                        {/* 6. Status */}
+                        <td className="py-2.5 px-3 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                            b.status === 'Completed' || b.status === 'qc_passed'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                              : b.status === 'Lab Test In Progress'
+                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800 animate-pulse'
+                              : b.status === 'In Progress'
+                              ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                              : b.status === 'Paused'
+                              ? 'bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200'
+                              : b.status === 'qc_failed'
+                              ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+                              : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                          }`}>
+                            {b.status === 'Lab Test In Progress' ? '🔬 In QC Queue' : b.status}
+                          </span>
+                        </td>
+
+                        {/* 7 & 8. Grand Total & Cost/Unit */}
+                        {canViewCosting ? (
+                          <>
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                              ₹{formatCurrency(b.totalCost)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                              ₹{formatCurrency(unitCost)}
+                            </td>
+                          </>
+                        ) : null}
+
+                        {/* 9. Operations & Yield */}
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setSelectedViewBatchId(b.id);
+                                setViewModalOpen(true);
+                              }}
+                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs"
+                              title="View details, RM formulation, assigned staff & SOP guide"
+                            >
+                              <Eye className="w-3 h-3 text-indigo-500" />
+                              View
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleOpenLabelModal(b)}
+                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-400 text-xs font-bold h-7 px-2 cursor-pointer hidden md:flex items-center gap-1 shadow-3xs"
+                              title="Print GS1 Barcode Label"
+                            >
+                              <Printer className="w-3 h-3 text-slate-500" />
+                              GS1
+                            </Button>
+
+                            {(b.status === 'Planned' || b.status === 'Draft') && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleStartBatch(b)}
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Start manufacturing batch on floor"
+                              >
+                                <Play className="w-3 h-3 fill-current" />
+                                Start
+                              </Button>
+                            )}
+
+                            {b.status === 'In Progress' && (
+                              <Button
+                                size="sm"
+                                onClick={() => handleOpenCompleteModal(b)}
+                                className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                title="Record actual yield & complete production"
+                              >
+                                <CheckCircle2 className="w-3 h-3" />
+                                Yield
+                              </Button>
+                            )}
+
+                            {(b.status === 'Completed' || b.status === 'qc_passed') && (
+                              <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200">
+                                {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* ── PAGINATION CONTROLS (Identical to /rm/stock) ── */}
+          <div className="px-3.5 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex flex-col sm:flex-row justify-between items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="text-center sm:text-left">
+              {sortedAndFiltered.length > 0 ? (
+                <span>
+                  Showing <strong className="text-slate-700 dark:text-slate-200">{(currentPage - 1) * itemsPerPage + 1}</strong> to <strong className="text-slate-700 dark:text-slate-200">{Math.min(currentPage * itemsPerPage, sortedAndFiltered.length)}</strong> of <strong className="text-slate-700 dark:text-slate-200">{sortedAndFiltered.length}</strong> batches
+                </span>
+              ) : (
+                <span>0 batches found</span>
               )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex justify-center">
+                <Pagination 
+                  currentPage={currentPage} 
+                  totalPages={totalPages} 
+                  onPageChange={setCurrentPage} 
+                />
+              </div>
+            )}
+
+            <div className="text-[10px] text-slate-400 flex items-center justify-between sm:justify-end w-full sm:w-auto gap-2">
+              <span>Page {currentPage} of {totalPages}</span>
+              <div className="flex items-center gap-1 border-l border-slate-200 dark:border-slate-800 pl-2">
+                <span>Per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-transparent text-slate-600 dark:text-slate-300 font-semibold text-[10px] cursor-pointer focus:outline-none"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+        </CardContent>
+      </Card>
 
       {/* ── BATCH COMPLETION & STOCK DEDUCTION MODAL ── */}
       <BatchCompletionModal
@@ -476,7 +982,7 @@ export default function StandardProductionListPage() {
         submitting={completing}
       />
 
-      {/* ── PRODUCTION BATCH DETAIL MODAL (Lifecycle, Pauses, SOP Guide) ── */}
+      {/* ── PRODUCTION BATCH DETAIL MODAL (Lifecycle, Pauses, SOP Guide, RM Formulation) ── */}
       <ProductionBatchDetailModal
         isOpen={viewModalOpen}
         onClose={() => {
@@ -488,6 +994,20 @@ export default function StandardProductionListPage() {
         onOpenCompleteModal={handleOpenCompleteModal}
         canViewCosting={canViewCosting}
       />
+
+      {/* ── GS1 BATCH LABEL & BARCODE MODAL ── */}
+      {labelModalOpen && selectedLabelBatch && (
+        <BatchLabelModal
+          isOpen={labelModalOpen}
+          onClose={() => {
+            setLabelModalOpen(false);
+            setSelectedLabelBatch(null);
+          }}
+          batchId={selectedLabelBatch.id}
+          batch={selectedLabelBatch}
+          batchStatus={selectedLabelBatch.status}
+        />
+      )}
 
     </div>
   );

@@ -11,6 +11,7 @@ import { api } from '@/lib/axios';
 import Swal from 'sweetalert2';
 import BatchLabelModal from './BatchLabelModal';
 import ProductionCancelModal from './ProductionCancelModal';
+import { analyzeProductionBatchNumber } from '../utils/batchNumberUtil';
 
 export default function ProductionBatchDetailModal({
   isOpen = false,
@@ -183,6 +184,7 @@ export default function ProductionBatchDetailModal({
   const staffList = Array.isArray(batch?.labourStaffDetails) ? batch.labourStaffDetails : [];
   const totalLabourCrew = Math.max(staffList.length, Number(batch?.labourCount || 0), 1);
   const runDuration = calculateRunDuration();
+  const batchAnalysis = analyzeProductionBatchNumber(batch?.referenceNo || batch?.batchNo);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150">
@@ -198,9 +200,14 @@ export default function ProductionBatchDetailModal({
               <Factory className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-black text-base text-white font-mono">
-                  {batch?.referenceNo || batch?.batchNo || 'Production Batch'}
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-black text-base text-white font-mono flex items-center gap-2">
+                  <span>{batch?.referenceNo || batch?.batchNo || 'Production Batch'}</span>
+                  {batchAnalysis?.isValid && !batchAnalysis?.isLegacy && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+                      PROD • {batchAnalysis.formattedDate} • #{batchAnalysis.sequenceFormatted}
+                    </span>
+                  )}
                 </h3>
                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
                   batch?.status === 'Completed' || batch?.status === 'qc_passed'
@@ -237,7 +244,7 @@ export default function ProductionBatchDetailModal({
 
         {/* ── ACTION CONTROLS BAR ── */}
         <div className="bg-slate-50 dark:bg-slate-850 px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {(batch?.status === 'Planned' || batch?.status === 'Draft') && (
               <Button
                 size="sm"
@@ -319,12 +326,67 @@ export default function ProductionBatchDetailModal({
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               GS1 Label / Barcode
-              {batch?.status === 'Cancelled' && (
-                <span className="text-[9px] uppercase px-1.5 py-0.5 bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-400 rounded-md font-black ml-1">
-                  Cancelled
-                </span>
-              )}
             </Button>
+
+            <div className="h-5 w-px bg-slate-200 dark:border-slate-700 mx-1 hidden sm:block" />
+
+            {/* User Requested Quick Highlight Actions */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('formulation')}
+              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                activeTab === 'formulation'
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                  : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100'
+              }`}
+              title="View Raw Materials that need to be used for this production run with highlighted planned quantities"
+            >
+              <Database className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-300" />
+              <span>Raw Materials to Use</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                activeTab === 'formulation' ? 'bg-white/20 text-white' : 'bg-indigo-200/80 dark:bg-indigo-900 text-indigo-800 dark:text-indigo-200'
+              }`}>
+                {batch?.rmUsages?.length || 0}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('labour')}
+              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                activeTab === 'labour'
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                  : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100'
+              }`}
+              title="View assigned operators and floor staff details"
+            >
+              <Users className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+              <span>Assigned Staff</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono font-black ${
+                activeTab === 'labour' ? 'bg-white/20 text-white' : 'bg-amber-200/80 dark:bg-amber-900 text-amber-800 dark:text-amber-200'
+              }`}>
+                {totalLabourCrew}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('sop')}
+              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                activeTab === 'sop'
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                  : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
+              }`}
+              title="View Standard Operating Procedure (SOP) step-by-step guidance"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>View SOP Guide</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                activeTab === 'sop' ? 'bg-white/20 text-white' : 'bg-emerald-200/80 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200'
+              }`}>
+                SOP
+              </span>
+            </button>
           </div>
 
           {/* Quick Stats in Action Bar */}
@@ -501,6 +563,109 @@ export default function ProductionBatchDetailModal({
                         <span className="text-[10px] text-slate-400 block font-bold">Machine Line</span>
                         <span className="font-extrabold text-slate-800 dark:text-slate-200">{batch.machineLine}</span>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* ── RAW MATERIALS REQUIRED FOR THIS PRODUCTION (Highlighted Planned Quantities) ── */}
+                  <div className="bg-white dark:bg-slate-900 border-2 border-indigo-200/80 dark:border-indigo-900/60 rounded-2xl p-4 shadow-3xs space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                      <div>
+                        <h4 className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                          <span className="p-1 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400">
+                            <Database className="w-3.5 h-3.5" />
+                          </span>
+                          Raw Materials Needed For This Production
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-indigo-50 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            {batch.rmUsages?.length || 0} Materials
+                          </span>
+                        </h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                          What is planned and required to be used for Batch <strong className="font-mono text-indigo-600">{batch.referenceNo || batch.batchNo}</strong> with highlighted quantities
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('formulation')}
+                          className="px-2.5 py-1 rounded-xl text-xs font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 flex items-center gap-1 cursor-pointer transition-all shadow-3xs"
+                        >
+                          <span>Full Formulation & Lots</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {(batch.rmUsages || []).map((u, idx) => {
+                        const rmName = u.rawMaterial?.name || u.rmName || 'Raw Material';
+                        let baseUom = u.baseUom || u.rawMaterial?.unit?.abbreviation || u.rawMaterial?.unitId || 'liter';
+                        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(baseUom)) baseUom = 'units';
+
+                        const altUomCandidate = u.alternateUom || u.rawMaterial?.alternateUom || (u.rawMaterial?.consumptionUnit && u.rawMaterial.consumptionUnit.toLowerCase() !== baseUom.toLowerCase() ? u.rawMaterial.consumptionUnit : null);
+                        const hasAlt = Boolean(
+                          (u.hasAlternateUom || u.rawMaterial?.hasAlternateUom) && 
+                          altUomCandidate && 
+                          altUomCandidate.toLowerCase() !== baseUom.toLowerCase()
+                        );
+                        const altUom = hasAlt ? altUomCandidate : null;
+                        const convFactor = hasAlt ? Number(
+                          u.conversionFactor || 
+                          u.conversionFactorUsed || 
+                          u.rawMaterial?.conversionFactor || 
+                          (u.rawMaterial?.alternateUomQty && u.rawMaterial?.baseUomQty ? (u.rawMaterial.alternateUomQty / u.rawMaterial.baseUomQty) : 1000) ||
+                          1000
+                        ) : 1;
+
+                        const baseReq = Number(u.requiredQty || 0);
+                        const baseAct = u.actualUsedQty !== null ? Number(u.actualUsedQty) : null;
+
+                        return (
+                          <div 
+                            key={u.id || idx}
+                            className="p-3 rounded-xl border border-slate-200/90 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-850/50 flex flex-col justify-between gap-2 transition-all hover:border-indigo-300 dark:hover:border-indigo-700"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <span className="font-extrabold text-xs text-slate-900 dark:text-white block">
+                                  {rmName}
+                                </span>
+                                {hasAlt && altUom && (
+                                  <span className="text-[10px] text-slate-500 font-mono">
+                                    1 {baseUom} = {convFactor.toLocaleString()} {altUom}
+                                  </span>
+                                )}
+                              </div>
+                              
+                              {/* Highlighted Planned Need to Use */}
+                              <div className="text-right shrink-0">
+                                <span className="text-[8.5px] uppercase tracking-wider font-extrabold text-indigo-600 dark:text-indigo-400 block">
+                                  ★ Planned to Use
+                                </span>
+                                <div className="px-2.5 py-1 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-right mt-0.5 shadow-3xs">
+                                  <span className="font-mono font-black text-xs text-indigo-900 dark:text-indigo-200">
+                                    {baseReq.toFixed(2)} {baseUom}
+                                  </span>
+                                  {hasAlt && altUom && (
+                                    <span className="block text-[10px] font-bold text-indigo-600 dark:text-indigo-400 font-mono">
+                                      ({Number((baseReq * convFactor).toFixed(2)).toLocaleString()} {altUom})
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 dark:border-slate-800 text-[10.5px]">
+                              <span className="text-slate-500">
+                                Consumed: <strong className="font-mono text-slate-800 dark:text-slate-200">{baseAct !== null ? `${baseAct.toFixed(2)} ${baseUom}` : 'Pending Yield'}</strong>
+                              </span>
+                              <span className="text-slate-500">
+                                Unit Rate: <strong className="font-mono text-slate-800 dark:text-slate-200">₹{Number(u.unitCost || 0).toFixed(2)}/{baseUom}</strong>
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -1135,7 +1300,9 @@ export default function ProductionBatchDetailModal({
                         <tr className="bg-slate-50 dark:bg-slate-800 text-[10.5px] font-bold uppercase text-slate-500 border-b border-slate-200 dark:border-slate-700">
                           <th className="p-3">#</th>
                           <th className="p-3">Raw Material</th>
-                          <th className="p-3 text-right">Planned Qty</th>
+                          <th className="p-3 text-right bg-indigo-50/70 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-extrabold">
+                            Planned Qty (Need to Use)
+                          </th>
                           <th className="p-3 text-right">Actual Consumed</th>
                           <th className="p-3 text-right">Single Pcs Consumption</th>
                           <th className="p-3 text-right">Rate (₹)</th>
@@ -1183,15 +1350,20 @@ export default function ProductionBatchDetailModal({
                                   </span>
                                 )}
                               </td>
-                              <td className="p-3 text-right font-mono">
-                                <div className="font-bold text-slate-800 dark:text-slate-200">
-                                  {baseReq.toFixed(2)} {baseUom}
-                                </div>
-                                {hasAlt && altUom && (
-                                  <div className="text-[10px] text-slate-400">
-                                    ({Number((baseReq * convFactor).toFixed(2)).toLocaleString()} {altUom})
+                              <td className="p-3 text-right font-mono bg-indigo-50/20 dark:bg-indigo-950/10">
+                                <div className="inline-block px-2.5 py-1 rounded-xl bg-indigo-100 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800 text-right shadow-3xs">
+                                  <div className="font-black text-indigo-950 dark:text-indigo-200 text-xs">
+                                    {baseReq.toFixed(2)} {baseUom}
                                   </div>
-                                )}
+                                  {hasAlt && altUom && (
+                                    <div className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                                      ({Number((baseReq * convFactor).toFixed(2)).toLocaleString()} {altUom})
+                                    </div>
+                                  )}
+                                </div>
+                                <span className="block text-[8.5px] uppercase tracking-wider text-indigo-600 dark:text-indigo-400 font-black mt-0.5">
+                                  ★ Need to use
+                                </span>
                               </td>
                               <td className="p-3 text-right font-mono">
                                 {baseAct !== null ? (
@@ -1363,13 +1535,13 @@ export default function ProductionBatchDetailModal({
                           </div>
 
                           <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-850 p-2.5 rounded-xl font-mono text-[10.5px]">
-                            <div>
-                              <span className="text-[9px] text-slate-400 block uppercase font-bold">Planned</span>
-                              <span className="font-bold text-slate-800 dark:text-slate-200 block">
+                            <div className="p-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/80 border border-indigo-200 dark:border-indigo-800">
+                              <span className="text-[8px] text-indigo-600 dark:text-indigo-400 block uppercase font-black">★ Need to Use</span>
+                              <span className="font-black text-indigo-950 dark:text-indigo-200 block">
                                 {baseReq.toFixed(2)} {baseUom}
                               </span>
                               {hasAlt && altUom && (
-                                <span className="text-[9px] text-slate-400 block">
+                                <span className="text-[8.5px] text-indigo-600 dark:text-indigo-400 font-bold block">
                                   ({Number((baseReq * convFactor).toFixed(2)).toLocaleString()} {altUom})
                                 </span>
                               )}

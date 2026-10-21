@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   RotateCw, ArrowLeft, Save, Play, CheckCircle2, RefreshCw, Calendar, 
   Layers, Clock, AlertCircle, Sparkles, Database, Check, Package,
-  Sliders, ChevronRight, Boxes, TrendingDown, Tag
+  Sliders, ChevronRight, Boxes, TrendingDown, Tag, RotateCcw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,8 @@ import BatchAllocationGrid from '../components/BatchAllocationGrid';
 import CostingSummaryFooter from '../components/CostingSummaryFooter';
 import StandardFactoryStagesPalette from '../components/StandardFactoryStagesPalette';
 import ProductionLabourPicker from '../components/ProductionLabourPicker';
+import { getProductionMasters, peekProductionMasters } from '../services/productionMasterCache';
+import { getProductionDraft, saveProductionDraft, flushProductionDraft, clearProductionDraft } from '../services/productionDraftStore';
 import Swal from 'sweetalert2';
 
 const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
@@ -263,58 +265,160 @@ export default function StockUpdateProductionFormPage() {
     }
   }, [allTemplates, totalPlannedQty, rawMaterialMasters, uomMasters, buildLinesFromTemplate, generateFallbackRmLines]);
 
-  // ── Fetch Initial Masters (Run ONCE on mount) ──
+  const isHydratedRef = useRef(false);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+
+  // ── Fetch Initial Masters from Cache & Hydrate Draft (Run ONCE on mount) ──
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
       try {
-        setLoading(true);
-        const [bRes, tplRes, prodRes, catRes, subRes, rmRes, uomRes] = await Promise.all([
-          api.get('/production/bases'),
-          api.get('/production/templates'),
-          api.get('/products'),
-          api.get('/item-setup/product-category').catch(() => ({ data: [] })),
-          api.get('/product-subcategories').catch(() => ({ data: [] })),
-          api.get('/item-setup/raw-material').catch(() => ({ data: [] })),
-          api.get('/uom').catch(() => ({ data: [] }))
-        ]);
-
+        if (!peekProductionMasters()) {
+          setLoading(true);
+        }
+        const masters = await getProductionMasters();
         if (!isMounted) return;
 
-        const loadedBases = bRes.data || [];
-        const loadedTemplates = tplRes.data || [];
-        const loadedProds = prodRes.data?.data || prodRes.data || [];
-        const loadedRms = rmRes.data || [];
-        const loadedUoms = uomRes.data || [];
+        setBases(masters.bases || []);
+        setAllTemplates(masters.templates || []);
+        setProducts(masters.products || []);
+        setCategories(masters.categories || []);
+        setSubcategories(masters.subcategories || []);
+        setRawMaterialMasters(masters.rawMaterials || []);
+        setUomMasters(masters.uoms || []);
 
-        setBases(loadedBases);
-        setAllTemplates(loadedTemplates);
-        setProducts(loadedProds);
-        setCategories(catRes.data || []);
-        setSubcategories(subRes.data || []);
-        setRawMaterialMasters(loadedRms);
-        setUomMasters(loadedUoms);
+        // Hydrate from persistent draft if available
+        const draft = getProductionDraft();
+        if (draft && (draft.selectedProducts?.length > 0 || draft.selectedBaseId || draft.rawMaterials?.length > 0 || draft.adjustmentReason || draft.note || draft.machineLine)) {
+          if (draft.productionDate) setProductionDate(draft.productionDate);
+          if (draft.shift) setShift(draft.shift);
+          if (draft.machineLine) setMachineLine(draft.machineLine);
+          if (draft.expiryDays) setExpiryDays(Number(draft.expiryDays));
+          if (draft.adjustmentReason) setAdjustmentReason(draft.adjustmentReason);
+          if (draft.adjustmentReference) setAdjustmentReference(draft.adjustmentReference);
+          if (draft.note) setNote(draft.note);
+          if (draft.selectedBaseId) setSelectedBaseId(draft.selectedBaseId);
+          if (draft.selectedTemplate) setSelectedTemplate(draft.selectedTemplate);
+          if (draft.selectedCategoryId) setSelectedCategoryId(draft.selectedCategoryId);
+          if (draft.selectedSubcategoryId) setSelectedSubcategoryId(draft.selectedSubcategoryId);
+          if (Array.isArray(draft.selectedProducts) && draft.selectedProducts.length > 0) {
+            setSelectedProducts(draft.selectedProducts);
+          }
+          if (Array.isArray(draft.rawMaterials) && draft.rawMaterials.length > 0) {
+            setRawMaterials(draft.rawMaterials);
+          } else if (draft.selectedTemplate) {
+            handleSelectTemplate(draft.selectedTemplate, masters.rawMaterials, masters.uoms);
+          }
+          if (Array.isArray(draft.timelineStages) && draft.timelineStages.length > 0) {
+            setTimelineStages(draft.timelineStages);
+          }
+          if (draft.labourCount !== undefined) setLabourCount(Number(draft.labourCount));
+          if (Array.isArray(draft.assignedStaffIds)) setAssignedStaffIds(draft.assignedStaffIds);
+          if (Array.isArray(draft.labourStaffDetails)) setLabourStaffDetails(draft.labourStaffDetails);
+          if (draft.wastagePct !== undefined) setWastagePct(Number(draft.wastagePct));
+          if (draft.overheadPct !== undefined) setOverheadPct(Number(draft.overheadPct));
+          setHasRestoredDraft(true);
+        } else {
+          // Default initial selection if no draft exists
+          const activeBases = (masters.bases || []).filter(b => b.status === 'ACTIVE' || !b.status);
+          if (activeBases.length > 0) {
+            const icb = activeBases.find(b => (b.code || '').toUpperCase() === 'ICB') || activeBases[0];
+            setSelectedBaseId(icb.id);
 
-        const activeBases = loadedBases.filter(b => b.status === 'ACTIVE' || !b.status);
-        if (activeBases.length > 0) {
-          const icb = activeBases.find(b => (b.code || '').toUpperCase() === 'ICB') || activeBases[0];
-          setSelectedBaseId(icb.id);
-
-          const matchTpl = loadedTemplates.find(t => t.baseId === icb.id && (t.status === 'ACTIVE' || !t.status)) || loadedTemplates[0];
-          if (matchTpl) {
-            handleSelectTemplate(matchTpl, loadedRms, loadedUoms, 2000);
+            const matchTpl = (masters.templates || []).find(t => t.baseId === icb.id && (t.status === 'ACTIVE' || !t.status)) || masters.templates[0];
+            if (matchTpl) {
+              handleSelectTemplate(matchTpl, masters.rawMaterials, masters.uoms, 2000);
+            }
           }
         }
       } catch (err) {
         console.error('Initialization error:', err);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+          isHydratedRef.current = true;
+        }
       }
     };
 
     init();
     return () => { isMounted = false; };
   }, []); // Run ONCE on mount
+
+  // Auto-save draft on user edits (debounced)
+  useEffect(() => {
+    if (!isHydratedRef.current) return;
+    const currentDraft = {
+      productionDate,
+      shift,
+      machineLine,
+      expiryDays,
+      note,
+      adjustmentReason,
+      adjustmentReference,
+      selectedBaseId,
+      selectedTemplate,
+      selectedCategoryId,
+      selectedSubcategoryId,
+      selectedProducts,
+      rawMaterials,
+      timelineStages,
+      labourCount,
+      assignedStaffIds,
+      labourStaffDetails,
+      wastagePct,
+      overheadPct
+    };
+    saveProductionDraft(currentDraft, 'STOCK_UPDATE');
+  }, [
+    productionDate, shift, machineLine, expiryDays, note,
+    adjustmentReason, adjustmentReference,
+    selectedBaseId, selectedTemplate, selectedCategoryId, selectedSubcategoryId,
+    selectedProducts, rawMaterials, timelineStages, labourCount,
+    assignedStaffIds, labourStaffDetails, wastagePct, overheadPct
+  ]);
+
+  // Synchronous flush before switching mode
+  const handleSwitchMode = (targetPath, targetMode) => {
+    flushProductionDraft({
+      productionDate,
+      shift,
+      machineLine,
+      expiryDays,
+      note,
+      adjustmentReason,
+      adjustmentReference,
+      selectedBaseId,
+      selectedTemplate,
+      selectedCategoryId,
+      selectedSubcategoryId,
+      selectedProducts,
+      rawMaterials,
+      timelineStages,
+      labourCount,
+      assignedStaffIds,
+      labourStaffDetails,
+      wastagePct,
+      overheadPct
+    }, targetMode);
+    navigate(targetPath);
+  };
+
+  const handleResetDraft = () => {
+    clearProductionDraft();
+    setHasRestoredDraft(false);
+    setSelectedProducts([]);
+    setNote('');
+    const activeBases = bases.filter(b => b.status === 'ACTIVE' || !b.status);
+    if (activeBases.length > 0) {
+      const icb = activeBases.find(b => (b.code || '').toUpperCase() === 'ICB') || activeBases[0];
+      setSelectedBaseId(icb.id);
+      const matchTpl = allTemplates.find(t => t.baseId === icb.id && (t.status === 'ACTIVE' || !t.status)) || allTemplates[0];
+      if (matchTpl) {
+        handleSelectTemplate(matchTpl, rawMaterialMasters, uomMasters, 2000);
+      }
+    }
+  };
 
   // Compute live Lowest Stock Products
   const lowStockProducts = useMemo(() => {
@@ -631,6 +735,7 @@ export default function StockUpdateProductionFormPage() {
       productionType: 'STOCK_UPDATE',
       batchNumber: `STK-${Date.now().toString().slice(-6)}`,
       productionDate,
+      startDate: productionDate,
       shift,
       machineLine,
       expiryDays,
@@ -639,7 +744,7 @@ export default function StockUpdateProductionFormPage() {
       note,
       status: status === 'In Progress' ? 'In Progress' : 'Draft',
       baseId: selectedBaseId,
-      templateId: selectedTemplate.id,
+      templateId: selectedTemplate?.id,
       products: selectedProducts.map(p => ({
         productId: p.productId,
         name: p.name,
@@ -650,6 +755,17 @@ export default function StockUpdateProductionFormPage() {
         group: p.group,
         factor: p.factor
       })),
+      selectedProducts: selectedProducts.map(p => ({
+        productId: p.productId,
+        name: p.name,
+        code: p.code,
+        plannedQty: Number(p.plannedQty),
+        unit: p.unit,
+        series: p.series,
+        group: p.group,
+        factor: p.factor
+      })),
+      quantity: totalPlannedQty,
       totalPlannedQty,
       wastagePct,
       wastageAmt: costingTotals.wastageAmt,
@@ -659,13 +775,17 @@ export default function StockUpdateProductionFormPage() {
       grandTotal: costingTotals.grandTotal,
       costPerUnit: costingTotals.costPerUnit,
       rawMaterials: rawMaterials.map(rm => ({
+        rmId: rm.rmId,
         rawMaterialId: rm.rmId,
+        rmCode: rm.rmCode,
         rawMaterialCode: rm.rmCode,
+        rmName: rm.rmName,
         rawMaterialName: rm.rmName,
         requiredQty: Number(rm.requiredQty),
         baseRequiredQty: Number(rm.baseRequiredQty || rm.requiredQty),
         altRequiredQty: Number(rm.altRequiredQty || rm.requiredQty),
         uom: rm.selectedUom || rm.baseUom,
+        selectedUom: rm.selectedUom || rm.baseUom,
         baseUom: rm.baseUom,
         activeEntryMode: rm.activeEntryMode,
         unitRate: Number(rm.unitRate),
@@ -685,6 +805,7 @@ export default function StockUpdateProductionFormPage() {
     try {
       setSaving(true);
       await api.post('/production/batches-redesign', payload);
+      clearProductionDraft(); // Cleared upon starting production or saving batch!
       Swal.fire({
         title: status === 'In Progress' ? 'Production Started!' : 'Replenishment Batch Draft Saved!',
         text: `Stock replenishment batch successfully recorded.`,
@@ -866,15 +987,15 @@ export default function StockUpdateProductionFormPage() {
           <div className="flex items-center gap-1.5 p-1 bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[10px] shadow-xs">
             <button
               type="button"
-              onClick={() => navigate('/production/standard/add')}
-              className="px-3.5 py-1.5 rounded-[8px] text-slate-600 dark:text-slate-400 hover:text-slate-900 font-bold text-xs cursor-pointer"
+              onClick={() => handleSwitchMode('/production/standard/add', 'STANDARD')}
+              className="px-3.5 py-1.5 rounded-[8px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-bold text-xs cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               Standard Batch Run
             </button>
             <button
               type="button"
-              onClick={() => navigate('/production/order-based/add')}
-              className="px-3.5 py-1.5 rounded-[8px] text-slate-600 dark:text-slate-400 hover:text-slate-900 font-bold text-xs cursor-pointer"
+              onClick={() => handleSwitchMode('/production/order-based/add', 'ORDER_BASED')}
+              className="px-3.5 py-1.5 rounded-[8px] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white font-bold text-xs cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               Order Based Batch
             </button>
@@ -886,8 +1007,24 @@ export default function StockUpdateProductionFormPage() {
             </button>
           </div>
 
-          <div className="text-xs font-semibold text-slate-500">
-            Workstation Mode: <strong className="text-[#0F7B5F]">WAREHOUSE REPLENISHMENT</strong>
+          <div className="flex items-center gap-3">
+            {hasRestoredDraft && (
+              <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 shadow-2xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <span>Auto-saved Draft Loaded</span>
+                <button
+                  type="button"
+                  onClick={handleResetDraft}
+                  className="ml-1 text-[10px] underline hover:text-emerald-900 dark:hover:text-emerald-100 cursor-pointer font-bold"
+                  title="Clear draft and restore initial defaults"
+                >
+                  Reset
+                </button>
+              </div>
+            )}
+            <div className="text-xs font-semibold text-slate-500">
+              Workstation Mode: <strong className="text-[#0F7B5F]">WAREHOUSE REPLENISHMENT</strong>
+            </div>
           </div>
         </div>
 

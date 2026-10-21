@@ -10,12 +10,71 @@ const { getConversionFactor } = require('../../utils/uomConversion');
 
 const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
-// Helper to generate unique MP-XXXXXX
-async function generateBatchReference(tx) {
+// Helper to analyze and parse production batch reference
+// Format: PROD + year + month(10) + day(21) + - + sequence (e.g. PROD20261021-0001)
+function analyzeProductionBatchNumber(batchStr) {
+  if (!batchStr || typeof batchStr !== 'string') return null;
+  const trimmed = batchStr.trim();
+  
+  // Pattern 1: PROD + Year(4) + Month(2) + Day(2) + optional '-' + Sequence (e.g. PROD20261021-0001 or PROD202610210001)
+  const prodMatch = trimmed.match(/^PROD(\d{4})(\d{2})(\d{2})(?:-(\d+)|\.(\d+)|_(\d+)|(\d{3,5}))?$/i);
+  if (prodMatch) {
+    const year = parseInt(prodMatch[1], 10);
+    const month = parseInt(prodMatch[2], 10);
+    const day = parseInt(prodMatch[3], 10);
+    const seqStr = prodMatch[4] || prodMatch[5] || prodMatch[6] || prodMatch[7] || '1';
+    const sequence = parseInt(seqStr, 10);
+    
+    return {
+      isValid: true,
+      standardType: 'PROD_DATE_SEQUENCE',
+      prefix: 'PROD',
+      year,
+      month,
+      day,
+      sequence,
+      dateString: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      formattedDate: `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`,
+      formattedBatchNo: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${String(sequence).padStart(4, '0')}`,
+      isLegacy: false
+    };
+  }
+
+  // Pattern 2: Legacy MP-XXXXXX (e.g. MP-000009)
+  const mpMatch = trimmed.match(/^MP-(\d+)$/i);
+  if (mpMatch) {
+    return {
+      isValid: true,
+      standardType: 'LEGACY_MP',
+      prefix: 'MP',
+      sequence: parseInt(mpMatch[1], 10),
+      isLegacy: true,
+      formattedBatchNo: `MP-${String(parseInt(mpMatch[1], 10)).padStart(6, '0')}`
+    };
+  }
+
+  return {
+    isValid: false,
+    standardType: 'CUSTOM',
+    raw: trimmed
+  };
+}
+
+// Helper to generate unique PRODYYYYMMDD-XXXX batch reference (e.g. PROD20261021-0001)
+async function generateBatchReference(tx, inputDate = new Date()) {
+  const d = inputDate ? new Date(inputDate) : new Date();
+  const validDate = isNaN(d.getTime()) ? new Date() : d;
+  
+  const year = validDate.getFullYear().toString();
+  const month = String(validDate.getMonth() + 1).padStart(2, '0');
+  const day = String(validDate.getDate()).padStart(2, '0');
+  const datePrefix = `PROD${year}${month}${day}`;
+  const searchPattern = `${datePrefix}-%`;
+
   const result = await tx.$queryRaw`
     SELECT reference_no FROM production_batches 
-    WHERE reference_no ~ '^MP-[0-9]+$' 
-    ORDER BY CAST(SUBSTRING(reference_no FROM 4) AS INTEGER) DESC 
+    WHERE reference_no LIKE ${searchPattern}
+    ORDER BY reference_no DESC 
     LIMIT 1 
     FOR UPDATE
   `;
@@ -23,14 +82,14 @@ async function generateBatchReference(tx) {
 
   let nextNumber = 1;
   if (lastRecord && lastRecord.reference_no) {
-    const lastNumberStr = lastRecord.reference_no.replace('MP-', '');
+    const lastNumberStr = lastRecord.reference_no.replace(`${datePrefix}-`, '');
     const parsed = parseInt(lastNumberStr, 10);
     if (!isNaN(parsed)) {
       nextNumber = parsed + 1;
     }
   }
 
-  let candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+  let candidate = `${datePrefix}-${String(nextNumber).padStart(4, '0')}`;
   while (true) {
     const existing = await tx.productionBatchNew.findUnique({
       where: { referenceNo: candidate },
@@ -38,7 +97,7 @@ async function generateBatchReference(tx) {
     });
     if (!existing) break;
     nextNumber++;
-    candidate = `MP-${String(nextNumber).padStart(6, '0')}`;
+    candidate = `${datePrefix}-${String(nextNumber).padStart(4, '0')}`;
   }
 
   return candidate;
@@ -392,10 +451,43 @@ class ProductionBatchRedesignController {
   // POST /api/production/batches
   async createBatch(req, res, next) {
     try {
+      const raw = { ...req.body };
+      if ((!raw.selectedProducts || raw.selectedProducts.length === 0) && Array.isArray(raw.products)) {
+        raw.selectedProducts = raw.products;
+      }
+      if (!raw.quantity && raw.totalPlannedQty !== undefined) {
+        raw.quantity = raw.totalPlannedQty;
+      }
+      if (!raw.startDate && raw.productionDate) {
+        raw.startDate = raw.productionDate;
+      }
+      if (!raw.baseId && raw.base_id) {
+        raw.baseId = raw.base_id;
+      }
+      if (!raw.templateId && raw.template_id) {
+        raw.templateId = raw.template_id;
+      }
+      if (!raw.orderId && raw.order_id) {
+        raw.orderId = raw.order_id;
+      }
+      if (!raw.categoryId && raw.category_id) {
+        raw.categoryId = raw.category_id;
+      }
+      if (!raw.subCategoryId && raw.sub_category_id) {
+        raw.subCategoryId = raw.sub_category_id;
+      }
+
+      const isUuidStr = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.trim());
+      if (raw.baseId && !isUuidStr(raw.baseId)) raw.baseId = null;
+      if (raw.templateId && !isUuidStr(raw.templateId)) raw.templateId = null;
+      if (raw.orderId && !isUuidStr(raw.orderId)) raw.orderId = null;
+
       const schema = z.object({
         productionType: z.enum(['STANDARD', 'ORDER_BASED', 'STOCK_UPDATE']).default('STANDARD'),
-        baseId: z.string().uuid().optional().nullable(),
-        templateId: z.string().uuid().optional().nullable(),
+        baseId: z.string().optional().nullable(),
+        templateId: z.string().optional().nullable(),
+        categoryId: z.string().optional().nullable(),
+        subCategoryId: z.string().optional().nullable(),
         productId: z.string().optional().nullable(),
         selectedProducts: z.array(z.object({
           productId: z.string().optional().nullable(),
@@ -497,7 +589,7 @@ class ProductionBatchRedesignController {
           finalBatchProductId = fallbackProd?.id;
         }
 
-        const referenceNo = await generateBatchReference(tx);
+        const referenceNo = await generateBatchReference(tx, data.startDate);
         // Generate atomic unique batch number with row locking: YYYYMMDD-PRODUCTCODE-NNNNN
         const batchNumInfo = await batchNumberService.generateNextBatchNumber(tx, finalBatchProductId, data.startDate);
         const batchNo = batchNumInfo.batchNo;
@@ -544,35 +636,39 @@ class ProductionBatchRedesignController {
         const startedByVal = data.status === 'In Progress' ? (req.user?.name || req.user?.email || 'Supervisor') : null;
         const stagesJson = JSON.stringify(data.timelineStages || []);
 
-        const safeUuid = (val) => (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val)) ? val : null;
+        const safeUuid = (val) => (typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val.trim())) ? val.trim() : null;
 
         await tx.$executeRawUnsafe(
           `UPDATE "production_batches" SET
-            base_id = $1,
-            template_id = $2,
-            shift = $3,
-            machine_line = $4,
-            adjustment_reason = $5,
-            adjustment_reference = $6,
-            sub_total = $7,
-            wastage_amt = $8,
-            overhead_amt = $9,
-            grand_total = $10,
-            cost_per_unit = $11,
-            approval_status = $12,
-            timeline_stages = $13::jsonb,
-            started_at = $14,
-            started_by = $15,
-            mfd = $16,
-            shelf_life_days = $17,
+            base_id = CASE WHEN $1::text IS NULL OR $1::text = '' THEN NULL ELSE $1::uuid END,
+            template_id = CASE WHEN $2::text IS NULL OR $2::text = '' THEN NULL ELSE $2::uuid END,
+            category_id = $3,
+            sub_category_id = $4,
+            shift = $5,
+            machine_line = $6,
+            adjustment_reason = $7,
+            adjustment_reference = $8,
+            sub_total = $9,
+            wastage_amt = $10,
+            overhead_amt = $11,
+            grand_total = $12,
+            cost_per_unit = $13,
+            approval_status = $14,
+            timeline_stages = $15::jsonb,
+            started_at = $16,
+            started_by = $17,
+            mfd = $18,
+            shelf_life_days = $19,
             qc_status = 'PENDING',
-            labour_count = $18,
-            labour_staff_ids = $19::jsonb,
-            labour_staff_details = $20::jsonb,
-            labour_total_cost = $21
-          WHERE id = $22`,
+            labour_count = $20,
+            labour_staff_ids = $21::jsonb,
+            labour_staff_details = $22::jsonb,
+            labour_total_cost = $23
+          WHERE id = $24`,
           safeUuid(data.baseId),
           safeUuid(data.templateId),
+          data.categoryId || null,
+          data.subCategoryId || null,
           data.shift || null,
           data.machineLine || null,
           data.adjustmentReason || null,
@@ -1450,6 +1546,19 @@ class ProductionBatchRedesignController {
       next(err);
     }
   }
+
+  // GET /api/production/batches-redesign/analyze/:batchNo
+  async analyzeBatch(req, res, next) {
+    try {
+      const { batchNo } = req.params;
+      const analysis = analyzeProductionBatchNumber(batchNo);
+      res.json(analysis || { isValid: false, raw: batchNo });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 module.exports = new ProductionBatchRedesignController();
+module.exports.analyzeProductionBatchNumber = analyzeProductionBatchNumber;
+module.exports.generateBatchReference = generateBatchReference;
