@@ -65,6 +65,60 @@ async function ensureProductionBatchesRedesignSchema() {
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "completed_by" VARCHAR(150);',
     'ALTER TABLE "production_batches" ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMP(3);',
 
+    // Base Master Table
+    `CREATE TABLE IF NOT EXISTS "base_master" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "code" VARCHAR(20) NOT NULL UNIQUE,
+      "name" VARCHAR(100) NOT NULL UNIQUE,
+      "description" TEXT,
+      "status" VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Templates Table
+    `CREATE TABLE IF NOT EXISTS "production_templates" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "code" VARCHAR(50) NOT NULL UNIQUE,
+      "name" VARCHAR(200) NOT NULL,
+      "base_id" UUID NOT NULL REFERENCES "base_master"("id") ON DELETE CASCADE,
+      "category_id" TEXT,
+      "sub_category_id" TEXT,
+      "output_qty" DECIMAL(15, 3) NOT NULL DEFAULT 2000,
+      "output_uom" VARCHAR(20) NOT NULL DEFAULT 'Nos',
+      "wastage_pct" DECIMAL(6, 2) NOT NULL DEFAULT 6.00,
+      "overhead_pct" DECIMAL(6, 2) NOT NULL DEFAULT 10.00,
+      "sub_total" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "wastage_amt" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "overhead_amt" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "grand_total" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "cost_per_unit" DECIMAL(15, 4) NOT NULL DEFAULT 0,
+      "sop_steps" JSONB,
+      "status" VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+      "created_by" TEXT,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
+    // Production Template Lines Table
+    `CREATE TABLE IF NOT EXISTS "production_template_lines" (
+      "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      "template_id" UUID NOT NULL REFERENCES "production_templates"("id") ON DELETE CASCADE,
+      "seq_no" INT NOT NULL DEFAULT 1,
+      "item_type" VARCHAR(30) NOT NULL DEFAULT 'RAW_MATERIAL',
+      "raw_material_id" TEXT NOT NULL,
+      "raw_material_name" VARCHAR(200) NOT NULL,
+      "quantity" DECIMAL(15, 4) NOT NULL DEFAULT 0,
+      "uom" VARCHAR(20) NOT NULL,
+      "rate" DECIMAL(15, 4) NOT NULL DEFAULT 0,
+      "rate_source" VARCHAR(50) DEFAULT 'PO_LATEST',
+      "rate_override_reason" TEXT,
+      "total" DECIMAL(15, 2) NOT NULL DEFAULT 0,
+      "is_overhead" BOOLEAN NOT NULL DEFAULT false,
+      "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`,
+
     // Multi-Product batch line items table
     `CREATE TABLE IF NOT EXISTS "production_batch_items" (
       "id" UUID PRIMARY KEY DEFAULT gen_random_uuid(),

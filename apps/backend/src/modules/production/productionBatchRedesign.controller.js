@@ -743,68 +743,96 @@ class ProductionBatchRedesignController {
           // Overheads (Gas, EB, Rent, etc.) are tracked in overhead_amt, not as warehouse inventory items
           if (rm.isOverhead) continue;
 
-          // Resolve rm.rmId to a valid RawMaterial UUID
+          // Resolve rm to a valid RawMaterial record
           let finalRmId = null;
+          let rmRecord = null;
           const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
 
-          if (isUuid(rm.rmId)) {
-            const existing = await tx.rawMaterial.findUnique({ where: { id: rm.rmId } });
-            if (existing) finalRmId = existing.id;
-          }
-
-          if (!finalRmId && rm.rmId) {
-            const byCode = await tx.rawMaterial.findFirst({
-              where: {
-                OR: [
-                  { code: { equals: rm.rmId, mode: 'insensitive' } },
-                  { id: rm.rmId }
-                ]
-              }
-            });
-            if (byCode) finalRmId = byCode.id;
-          }
-
-          if (!finalRmId && rm.rmName) {
-            const cleanName = rm.rmName.trim();
-            const byName = await tx.rawMaterial.findFirst({
-              where: {
-                OR: [
-                  { name: { equals: cleanName, mode: 'insensitive' } },
-                  { name: { contains: cleanName, mode: 'insensitive' } }
-                ]
-              }
-            });
-            if (byName) finalRmId = byName.id;
-          }
-
-          let rmRecord = null;
-          // If still not matched, create a fallback active raw material record so FK is satisfied
-          if (!finalRmId) {
-            let defaultCat = await tx.rMCategory.findFirst();
-            if (!defaultCat) {
-              defaultCat = await tx.rMCategory.create({
-                data: { name: 'Raw Materials', code: 'CAT-DEFAULT' }
-              });
-            }
-            const fallbackCode = `RM-${Date.now().toString().slice(-6)}`;
-            const created = await tx.rawMaterial.create({
-              data: {
-                name: rm.rmName || 'Raw Material',
-                code: fallbackCode,
-                categoryId: defaultCat.id,
-                currentStock: 0,
-                ratePerUnit: Number(rm.unitRate || 0),
-                unitId: rm.selectedUom || 'Kg',
-                consumptionUnit: rm.selectedUom || 'Kg'
-              }
-            });
-            finalRmId = created.id;
-            rmRecord = created;
-          } else {
-            rmRecord = await tx.rawMaterial.findUnique({
-              where: { id: finalRmId },
+          // 1. Direct ID match (check rm.rmId and rm.rawMaterialId)
+          const candidateId = isUuid(rm.rmId) ? rm.rmId : (isUuid(rm.rawMaterialId) ? rm.rawMaterialId : null);
+          if (candidateId) {
+            const existing = await tx.rawMaterial.findUnique({
+              where: { id: candidateId },
               include: { category: true }
             });
+            if (existing) {
+              finalRmId = existing.id;
+              rmRecord = existing;
+            }
+          }
+
+          // 2. Lookup by Code (rm.rmCode, rm.rawMaterialCode, rm.code, or string rm.rmId)
+          if (!finalRmId) {
+            const candidateCode = rm.rmCode || rm.rawMaterialCode || rm.code || (!isUuid(rm.rmId) ? rm.rmId : null);
+            if (candidateCode && typeof candidateCode === 'string' && candidateCode.trim()) {
+              const byCode = await tx.rawMaterial.findFirst({
+                where: {
+                  code: { equals: candidateCode.trim(), mode: 'insensitive' }
+                },
+                include: { category: true }
+              });
+              if (byCode) {
+                finalRmId = byCode.id;
+                rmRecord = byCode;
+              }
+            }
+          }
+
+          // 3. Lookup by Allocated Warehouse Lot (InventoryBatch)
+          if (!finalRmId && Array.isArray(rm.allocatedBatches) && rm.allocatedBatches.length > 0) {
+            for (const alloc of rm.allocatedBatches) {
+              const lotNum = alloc.lotNumber || alloc.batchNumber || (!isUuid(alloc.batchId) ? alloc.batchId : null);
+              const lotId = isUuid(alloc.batchId) ? alloc.batchId : null;
+              
+              const invLot = await tx.inventoryBatch.findFirst({
+                where: {
+                  OR: [
+                    ...(lotId ? [{ id: lotId }] : []),
+                    ...(lotNum ? [{ batchNumber: lotNum }] : [])
+                  ]
+                }
+              });
+
+              if (invLot?.rawMaterialId) {
+                const byLotRM = await tx.rawMaterial.findUnique({
+                  where: { id: invLot.rawMaterialId },
+                  include: { category: true }
+                });
+                if (byLotRM) {
+                  finalRmId = byLotRM.id;
+                  rmRecord = byLotRM;
+                  break;
+                }
+              }
+            }
+          }
+
+          // 4. Lookup by Name (exact or partial, ignoring generic 'Raw Material')
+          if (!finalRmId) {
+            const candidateName = rm.rmName || rm.rawMaterialName || rm.name;
+            if (candidateName && typeof candidateName === 'string') {
+              const cleanName = candidateName.trim();
+              if (cleanName && cleanName.toLowerCase() !== 'raw material') {
+                const byName = await tx.rawMaterial.findFirst({
+                  where: {
+                    OR: [
+                      { name: { equals: cleanName, mode: 'insensitive' } },
+                      { name: { contains: cleanName, mode: 'insensitive' } }
+                    ]
+                  },
+                  include: { category: true }
+                });
+                if (byName) {
+                  finalRmId = byName.id;
+                  rmRecord = byName;
+                }
+              }
+            }
+          }
+
+          // If still not matched, DO NOT AUTO-CREATE A FAKE RAW MATERIAL IN MASTER INVENTORY!
+          if (!finalRmId) {
+            throw new Error(`Raw material "${rm.rmName || rm.rmCode || rm.rmId || 'Unknown'}" could not be matched with any warehouse inventory raw material. Please select an existing raw material.`);
           }
 
           const firstAlloc = rm.allocatedBatches?.[0];
