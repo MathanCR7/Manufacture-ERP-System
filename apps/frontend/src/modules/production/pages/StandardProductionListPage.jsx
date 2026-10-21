@@ -378,33 +378,38 @@ export default function StandardProductionListPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+    <div className="w-full px-2 sm:px-4 lg:px-6 py-3.5 space-y-3.5">
       
       {/* ── HEADER ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-3xs">
         <div>
           <div className="flex items-center gap-2.5">
-            <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400">
+            <div className="p-2.5 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 shrink-0">
               <Factory className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight">
-                Standard Production
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                Planned routine & regular daily manufacturing batches based on capacity and base formulations
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white tracking-tight">
+                  Standard Production Management
+                </h1>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  Daily Shopfloor
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                Planned routine manufacturing batches, capacity utilization & standard formula execution
               </p>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
           <Button 
             variant="outline" 
             size="sm" 
             onClick={fetchBatches} 
             disabled={loading}
-            className="rounded-xl border-slate-200 dark:border-slate-800 h-9"
+            className="rounded-xl border-slate-200 dark:border-slate-800 h-8 text-xs font-bold cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -412,51 +417,74 @@ export default function StandardProductionListPage() {
 
           <Button 
             onClick={() => navigate('/production/standard/add')}
-            className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-9 shadow-sm"
+            className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 text-xs shadow-sm cursor-pointer"
           >
-            <Plus className="w-4 h-4 mr-1.5" />
-            + Add Standard Production
+            <Plus className="w-3.5 h-3.5 mr-1" />
+            + Add Standard Batch
           </Button>
         </div>
       </div>
 
-      {/* ── METRIC CARDS ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Batches</p>
-          <h3 className="text-2xl font-black text-slate-900 dark:text-white mt-1">{batches.length}</h3>
+      {/* ── METRIC CARDS (Full Width, Sleek & Modern) ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-3xs flex items-center justify-between">
+          <div>
+            <p className="text-[10.5px] font-bold text-slate-400 uppercase tracking-wider">Total Batches</p>
+            <h3 className="text-2xl font-black text-slate-900 dark:text-white mt-0.5 font-mono">{batches.length}</h3>
+          </div>
+          <div className="w-10 h-10 rounded-2xl bg-slate-50 dark:bg-slate-800 text-slate-500 flex items-center justify-center">
+            <Layers className="w-5 h-5 text-indigo-500" />
+          </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">In Progress</p>
-          <h3 className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">
-            {batches.filter(b => b.status === 'In Progress').length}
-          </h3>
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-amber-200/80 dark:border-amber-900/40 shadow-3xs flex items-center justify-between">
+          <div>
+            <p className="text-[10.5px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              In Progress
+            </p>
+            <h3 className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-0.5 font-mono">
+              {batches.filter(b => b.status === 'In Progress').length}
+            </h3>
+          </div>
+          <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 flex items-center justify-center">
+            <Clock className="w-5 h-5" />
+          </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Completed</p>
-          <h3 className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-            {batches.filter(b => b.status === 'Completed' || b.status === 'qc_passed').length}
-          </h3>
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-200/80 dark:border-emerald-900/40 shadow-3xs flex items-center justify-between">
+          <div>
+            <p className="text-[10.5px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Completed</p>
+            <h3 className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-0.5 font-mono">
+              {batches.filter(b => b.status === 'Completed' || b.status === 'qc_passed').length}
+            </h3>
+          </div>
+          <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
         </div>
 
-        <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          {canViewCosting ? (
-            <>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Planned Total Cost</p>
-              <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                ₹{formatCurrency(batches.reduce((s, b) => s + (b.totalCost || 0), 0))}
-              </h3>
-            </>
-          ) : (
-            <>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Planned Total Units</p>
-              <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-1">
-                {batches.reduce((s, b) => s + (Number(b.quantity) || 0), 0).toLocaleString()} Nos
-              </h3>
-            </>
-          )}
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-indigo-200/80 dark:border-indigo-900/40 shadow-3xs flex items-center justify-between">
+          <div>
+            {canViewCosting ? (
+              <>
+                <p className="text-[10.5px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Planned Total Cost</p>
+                <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
+                  ₹{formatCurrency(batches.reduce((s, b) => s + (b.totalCost || 0), 0))}
+                </h3>
+              </>
+            ) : (
+              <>
+                <p className="text-[10.5px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Planned Total Units</p>
+                <h3 className="text-2xl font-black text-indigo-600 dark:text-indigo-400 mt-0.5 font-mono">
+                  {batches.reduce((s, b) => s + (Number(b.quantity) || 0), 0).toLocaleString()} Nos
+                </h3>
+              </>
+            )}
+          </div>
+          <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 flex items-center justify-center">
+            <Database className="w-5 h-5" />
+          </div>
         </div>
       </div>
 
@@ -589,7 +617,7 @@ export default function StandardProductionListPage() {
                 <tr>
                   
                   {/* 1. Batch No */}
-                  <th className="py-2.5 px-3">
+                  <th className="py-2.5 px-3 w-[160px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortBatch}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -607,7 +635,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 2. Date & Shift */}
-                  <th className="py-2.5 px-3">
+                  <th className="py-2.5 px-3 w-[150px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortDate}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -625,7 +653,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 3. Base & Template */}
-                  <th className="py-2.5 px-3">
+                  <th className="py-2.5 px-3 w-[170px] whitespace-nowrap">
                     <button
                       onClick={handleToggleSortBase}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -643,7 +671,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 4. Target Product */}
-                  <th className="py-2.5 px-3">
+                  <th className="py-2.5 px-3 min-w-[180px]">
                     <button
                       onClick={handleToggleSortProduct}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold"
@@ -661,7 +689,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 5. Planned Qty */}
-                  <th className="py-2.5 px-3 text-center">
+                  <th className="py-2.5 px-3 w-[110px] text-center whitespace-nowrap">
                     <button
                       onClick={handleToggleSortQty}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
@@ -679,7 +707,7 @@ export default function StandardProductionListPage() {
                   </th>
 
                   {/* 6. Status */}
-                  <th className="py-2.5 px-3 text-center">
+                  <th className="py-2.5 px-3 w-[140px] text-center whitespace-nowrap">
                     <button
                       onClick={handleToggleSortStatus}
                       className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold mx-auto"
@@ -699,7 +727,7 @@ export default function StandardProductionListPage() {
                   {/* 7 & 8. Grand Total & Cost/Unit */}
                   {canViewCosting ? (
                     <>
-                      <th className="py-2.5 px-3 text-right">
+                      <th className="py-2.5 px-3 w-[120px] text-right whitespace-nowrap">
                         <button
                           onClick={handleToggleSortCost}
                           className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
@@ -715,7 +743,7 @@ export default function StandardProductionListPage() {
                           )}
                         </button>
                       </th>
-                      <th className="py-2.5 px-3 text-right">
+                      <th className="py-2.5 px-3 w-[110px] text-right whitespace-nowrap">
                         <button
                           onClick={handleToggleSortCostUnit}
                           className="inline-flex items-center gap-1 uppercase tracking-wider text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer select-none font-bold ml-auto"
@@ -735,7 +763,7 @@ export default function StandardProductionListPage() {
                   ) : null}
 
                   {/* 9. Operations & Yield */}
-                  <th className="py-2.5 px-3 text-right">Operations & Yield</th>
+                  <th className="py-2.5 px-3 w-[210px] text-right whitespace-nowrap">Operations & Yield</th>
                 </tr>
               </thead>
 
@@ -770,10 +798,10 @@ export default function StandardProductionListPage() {
                     const unitCost = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
 
                     return (
-                      <tr key={b.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
+                      <tr key={b.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors">
                         
                         {/* 1. Batch No */}
-                        <td className="py-2.5 px-3 font-mono">
+                        <td className="py-2.5 px-3 font-mono whitespace-nowrap">
                           <div className="font-black text-indigo-600 dark:text-indigo-400 text-xs">
                             {b.referenceNo || b.batchNo}
                           </div>
@@ -785,7 +813,7 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 2. Date & Shift */}
-                        <td className="py-2.5 px-3">
+                        <td className="py-2.5 px-3 whitespace-nowrap">
                           <span className="font-bold text-slate-900 dark:text-white block">
                             {new Date(b.startDate).toLocaleDateString('en-GB')}
                           </span>
@@ -795,7 +823,7 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 3. Base & Template */}
-                        <td className="py-2.5 px-3">
+                        <td className="py-2.5 px-3 whitespace-nowrap">
                           <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
                             {b.baseName || 'Standard Base'}
                           </span>
@@ -817,7 +845,7 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 5. Planned Qty */}
-                        <td className="py-2.5 px-3 text-center font-mono">
+                        <td className="py-2.5 px-3 text-center font-mono whitespace-nowrap">
                           <span className="font-black text-slate-900 dark:text-white text-xs block">
                             {b.quantity}
                           </span>
@@ -827,7 +855,7 @@ export default function StandardProductionListPage() {
                         </td>
 
                         {/* 6. Status */}
-                        <td className="py-2.5 px-3 text-center">
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
                           <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black ${
                             b.status === 'Completed' || b.status === 'qc_passed'
                               ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
@@ -848,18 +876,18 @@ export default function StandardProductionListPage() {
                         {/* 7 & 8. Grand Total & Cost/Unit */}
                         {canViewCosting ? (
                           <>
-                            <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white">
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900 dark:text-white whitespace-nowrap">
                               ₹{formatCurrency(b.totalCost)}
                             </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                               ₹{formatCurrency(unitCost)}
                             </td>
                           </>
                         ) : null}
 
-                        {/* 9. Operations & Yield */}
-                        <td className="py-2.5 px-3 text-right">
-                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        {/* 9. Operations & Yield (Never wraps, clean single row) */}
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap w-[210px]">
+                          <div className="flex items-center justify-end gap-1.5 flex-nowrap shrink-0">
                             <Button
                               variant="outline"
                               size="sm"
@@ -867,10 +895,10 @@ export default function StandardProductionListPage() {
                                 setSelectedViewBatchId(b.id);
                                 setViewModalOpen(true);
                               }}
-                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs"
+                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
                               title="View details, RM formulation, assigned staff & SOP guide"
                             >
-                              <Eye className="w-3 h-3 text-indigo-500" />
+                              <Eye className="w-3 h-3 text-indigo-500 shrink-0" />
                               View
                             </Button>
 
@@ -878,10 +906,10 @@ export default function StandardProductionListPage() {
                               variant="outline"
                               size="sm"
                               onClick={() => handleOpenLabelModal(b)}
-                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-400 text-xs font-bold h-7 px-2 cursor-pointer hidden md:flex items-center gap-1 shadow-3xs"
+                              className="rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 text-slate-600 dark:text-slate-400 text-xs font-bold h-7 px-2 cursor-pointer flex items-center gap-1 shadow-3xs shrink-0"
                               title="Print GS1 Barcode Label"
                             >
-                              <Printer className="w-3 h-3 text-slate-500" />
+                              <Printer className="w-3 h-3 text-slate-500 shrink-0" />
                               GS1
                             </Button>
 
@@ -889,10 +917,10 @@ export default function StandardProductionListPage() {
                               <Button
                                 size="sm"
                                 onClick={() => handleStartBatch(b)}
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
                                 title="Start manufacturing batch on floor"
                               >
-                                <Play className="w-3 h-3 fill-current" />
+                                <Play className="w-3 h-3 fill-current shrink-0" />
                                 Start
                               </Button>
                             )}
@@ -901,16 +929,16 @@ export default function StandardProductionListPage() {
                               <Button
                                 size="sm"
                                 onClick={() => handleOpenCompleteModal(b)}
-                                className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs"
+                                className="bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold h-7 px-2.5 cursor-pointer flex items-center gap-1 shadow-2xs shrink-0"
                                 title="Record actual yield & complete production"
                               >
-                                <CheckCircle2 className="w-3 h-3" />
+                                <CheckCircle2 className="w-3 h-3 shrink-0" />
                                 Yield
                               </Button>
                             )}
 
                             {(b.status === 'Completed' || b.status === 'qc_passed') && (
-                              <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200">
+                              <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-lg border border-emerald-200 shrink-0">
                                 {b.actualOutput ?? b.quantity} {b.product?.unit?.abbreviation || 'Nos'}
                               </span>
                             )}

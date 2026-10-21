@@ -4,7 +4,8 @@ import {
   Clock, User, Calendar, Factory, Package, Layers, 
   FileText, ShieldCheck, AlertTriangle, ArrowRight, 
   RefreshCw, Database, Sparkles, Scale, Tag, Check, Info,
-  Printer, Zap, FlaskConical, Users, HardHat, UserCheck, CheckSquare
+  Printer, Zap, FlaskConical, Users, HardHat, UserCheck, CheckSquare,
+  Maximize2, Minimize2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/axios';
@@ -27,6 +28,7 @@ export default function ProductionBatchDetailModal({
   const [actionLoading, setActionLoading] = useState(false);
   const [showLabelModal, setShowLabelModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   const fetchBatchDetail = async () => {
     if (!batchId) return;
@@ -43,8 +45,11 @@ export default function ProductionBatchDetailModal({
   };
 
   useEffect(() => {
-    if (isOpen && batchId) {
-      fetchBatchDetail();
+    if (isOpen) {
+      setIsFullScreen(false);
+      if (batchId) {
+        fetchBatchDetail();
+      }
     }
   }, [isOpen, batchId]);
 
@@ -187,29 +192,40 @@ export default function ProductionBatchDetailModal({
   const batchAnalysis = analyzeProductionBatchNumber(batch?.referenceNo || batch?.batchNo);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150">
+    <div 
+      className={`fixed inset-0 z-50 flex items-center justify-center transition-all duration-150 bg-blue-950/20 dark:bg-blue-950/35 backdrop-blur-[2px] animate-in fade-in duration-150 ${
+        isFullScreen ? 'p-0' : 'p-2 sm:p-4 md:p-6'
+      }`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div 
-        className="w-full max-w-5xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl rounded-3xl flex flex-col overflow-hidden max-h-[90vh] animate-in zoom-in-95 duration-150"
+        className={`w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden transition-all duration-150 animate-in zoom-in-95 duration-150 ${
+          isFullScreen 
+            ? 'h-screen w-screen max-w-none max-h-none rounded-none border-0' 
+            : 'max-w-5xl lg:max-w-6xl max-h-[88vh] rounded-2xl sm:rounded-3xl'
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         
         {/* ── MODAL HEADER ── */}
-        <div className="bg-slate-900 text-white px-5 py-3.5 flex items-center justify-between border-b border-slate-800">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-400/30">
-              <Factory className="w-5 h-5" />
+        <div className="bg-slate-900 text-white px-3.5 sm:px-5 py-2.5 sm:py-3 flex items-center justify-between border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="p-2 rounded-xl sm:rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-400/30 shrink-0">
+              <Factory className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-black text-base text-white font-mono flex items-center gap-2">
-                  <span>{batch?.referenceNo || batch?.batchNo || 'Production Batch'}</span>
-                  {batchAnalysis?.isValid && !batchAnalysis?.isLegacy && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
-                      PROD • {batchAnalysis.formattedDate} • #{batchAnalysis.sequenceFormatted}
-                    </span>
-                  )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h3 className="font-black text-sm sm:text-base text-white font-mono truncate">
+                  {batch?.referenceNo || batch?.batchNo || 'Production Batch'}
                 </h3>
-                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                {batchAnalysis?.isValid && !batchAnalysis?.isLegacy && (
+                  <span className="text-[9.5px] sm:text-[10px] font-mono px-1.5 sm:px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 whitespace-nowrap">
+                    PROD • {batchAnalysis.formattedDate} • #{batchAnalysis.sequenceFormatted}
+                  </span>
+                )}
+                <span className={`px-2 py-0.5 rounded-full text-[9.5px] sm:text-[10px] font-bold whitespace-nowrap ${
                   batch?.status === 'Completed' || batch?.status === 'qc_passed'
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
                     : batch?.status === 'In Progress'
@@ -222,35 +238,56 @@ export default function ProductionBatchDetailModal({
                 }`}>
                   {batch?.status || 'Planned'}
                 </span>
-                <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full">
+                <span className="text-[9.5px] sm:text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full whitespace-nowrap hidden sm:inline-block">
                   {batch?.productionType || 'STANDARD'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {batch?.product?.name || 'Finished Goods Product'} • {batch?.baseName || 'Ice Cream Base'}
+              <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 truncate">
+                {batch?.product?.name || 'Finished Goods Product'}
+                {batch?.baseName ? ` • ${batch.baseName}` : ''}
+                {batch?.order?.customer?.name ? ` • Client: ${batch.order.customer.name}` : ''}
+                {batch?.adjustmentReason ? ` • ${batch.adjustmentReason}` : ''}
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-white rounded-xl p-1.5 transition-colors cursor-pointer"
-            title="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            <button
+              type="button"
+              onClick={() => setIsFullScreen(prev => !prev)}
+              className="text-slate-400 hover:text-white rounded-xl p-1.5 transition-colors cursor-pointer hover:bg-slate-800"
+              title={isFullScreen ? "Restore Standard Minimized Size" : "Expand to Full Screen"}
+              aria-label={isFullScreen ? "Restore Standard Minimized Size" : "Expand to Full Screen"}
+            >
+              {isFullScreen ? (
+                <Minimize2 className="w-4 h-4 text-indigo-400" />
+              ) : (
+                <Maximize2 className="w-4 h-4 text-slate-300 hover:text-white" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-slate-400 hover:text-white rounded-xl p-1.5 transition-colors cursor-pointer hover:bg-slate-800"
+              title="Close"
+              aria-label="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* ── ACTION CONTROLS BAR ── */}
-        <div className="bg-slate-50 dark:bg-slate-850 px-5 py-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between flex-wrap gap-2 text-xs">
-          <div className="flex items-center gap-2 flex-wrap">
+        {/* ── ACTION CONTROLS BAR (Single Row, Zero Overlap, Responsive) ── */}
+        <div className="bg-slate-50/95 dark:bg-slate-950/70 px-4 sm:px-6 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 overflow-x-auto scrollbar-none flex-nowrap text-xs shrink-0 select-none">
+          
+          {/* Group 1: Floor Operations & Labels */}
+          <div className="flex items-center gap-2 shrink-0 flex-nowrap">
             {(batch?.status === 'Planned' || batch?.status === 'Draft') && (
               <Button
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleStart}
-                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
                 Start Production
@@ -263,7 +300,7 @@ export default function ProductionBatchDetailModal({
                   size="sm"
                   disabled={actionLoading}
                   onClick={handlePause}
-                  className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  className="rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
                 >
                   <Pause className="w-3.5 h-3.5 fill-current" />
                   Pause Floor Run
@@ -276,7 +313,7 @@ export default function ProductionBatchDetailModal({
                     onClose();
                     if (onOpenCompleteModal) onOpenCompleteModal(batch);
                   }}
-                  className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                  className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
                 >
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   Complete & Record Actual Yield
@@ -289,7 +326,7 @@ export default function ProductionBatchDetailModal({
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleResume}
-                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5"
+                className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold h-8 px-3 shadow-2xs cursor-pointer flex items-center gap-1.5 shrink-0"
               >
                 <PlayCircle className="w-3.5 h-3.5" />
                 Resume Floor Run
@@ -302,7 +339,7 @@ export default function ProductionBatchDetailModal({
                 size="sm"
                 disabled={actionLoading}
                 onClick={handleCancel}
-                className="rounded-xl text-rose-600 border-rose-200 hover:bg-rose-50 h-8 px-3 font-bold"
+                className="rounded-xl text-rose-600 border-rose-200 hover:bg-rose-50 dark:hover:bg-rose-950/30 h-8 px-3 font-bold shrink-0"
               >
                 <XCircle className="w-3.5 h-3.5 mr-1" />
                 Cancel Run
@@ -318,26 +355,28 @@ export default function ProductionBatchDetailModal({
                 setShowLabelModal(true);
               }}
               title={batch?.status === 'Cancelled' ? 'Cannot print GS1 labels for cancelled production batch' : 'Print GS1 Batch Label / Barcode'}
-              className={`rounded-xl border h-8 px-3 flex items-center gap-1.5 font-bold transition-all ${
+              className={`rounded-xl border h-8 px-3 flex items-center gap-1.5 font-bold transition-all shrink-0 ${
                 batch?.status === 'Cancelled'
                   ? 'border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-600 opacity-50 cursor-not-allowed bg-slate-50 dark:bg-slate-900/40'
-                  : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer'
+                  : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 cursor-pointer shadow-3xs'
               }`}
             >
               <Printer className="w-3.5 h-3.5 text-slate-500" />
               GS1 Label / Barcode
             </Button>
+          </div>
 
-            <div className="h-5 w-px bg-slate-200 dark:border-slate-700 mx-1 hidden sm:block" />
+          {/* Group 2: Quick Jump Highlighting (Middle) */}
+          <div className="flex items-center gap-2 shrink-0 flex-nowrap">
+            <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden lg:block" />
 
-            {/* User Requested Quick Highlight Actions */}
             <button
               type="button"
               onClick={() => setActiveTab('formulation')}
-              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border shrink-0 text-xs shadow-3xs ${
                 activeTab === 'formulation'
                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
-                  : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100'
+                  : 'bg-indigo-50/80 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100'
               }`}
               title="View Raw Materials that need to be used for this production run with highlighted planned quantities"
             >
@@ -353,10 +392,10 @@ export default function ProductionBatchDetailModal({
             <button
               type="button"
               onClick={() => setActiveTab('labour')}
-              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border shrink-0 text-xs shadow-3xs ${
                 activeTab === 'labour'
                   ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                  : 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100'
+                  : 'bg-amber-50/80 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 hover:bg-amber-100'
               }`}
               title="View assigned operators and floor staff details"
             >
@@ -372,10 +411,10 @@ export default function ProductionBatchDetailModal({
             <button
               type="button"
               onClick={() => setActiveTab('sop')}
-              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border ${
+              className={`h-8 px-3 rounded-xl font-bold flex items-center gap-1.5 transition-all cursor-pointer border shrink-0 text-xs shadow-3xs ${
                 activeTab === 'sop'
                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                  : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
+                  : 'bg-emerald-50/80 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100'
               }`}
               title="View Standard Operating Procedure (SOP) step-by-step guidance"
             >
@@ -389,93 +428,111 @@ export default function ProductionBatchDetailModal({
             </button>
           </div>
 
-          {/* Quick Stats in Action Bar */}
-          <div className="flex items-center gap-3 text-[11px] font-mono font-bold text-slate-500">
-            <span>Planned: <strong className="text-slate-800 dark:text-slate-200">{batch?.quantity} {batch?.productUom || 'Nos'}</strong></span>
-            {batch?.actualOutput !== null && batch?.actualOutput !== undefined && (
-              <span>Actual Yield: <strong className="text-emerald-600">{batch.actualOutput} {batch?.productUom || 'Nos'}</strong></span>
+          {/* Group 3: Production Yield & Target Metrics (Right) */}
+          <div className="flex items-center gap-2 shrink-0 flex-nowrap font-mono">
+            <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 mx-1 hidden lg:block" />
+
+            <div className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center gap-1.5 text-xs shadow-3xs shrink-0">
+              <span className="text-slate-400 font-sans text-[11px] font-bold">Planned:</span>
+              <strong className="text-slate-800 dark:text-slate-200 font-black">{batch?.quantity} {batch?.productUom || 'Nos'}</strong>
+            </div>
+
+            {batch?.actualOutput !== null && batch?.actualOutput !== undefined ? (
+              <div className="px-2.5 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1.5 text-xs shadow-3xs shrink-0">
+                <span className="text-emerald-700 dark:text-emerald-300 font-sans text-[11px] font-bold">Actual Yield:</span>
+                <strong className="text-emerald-700 dark:text-emerald-300 font-black">{batch.actualOutput} {batch?.productUom || 'Nos'}</strong>
+              </div>
+            ) : (
+              <div className="px-2.5 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800 text-[11px] font-bold text-amber-700 dark:text-amber-300 flex items-center gap-1.5 shrink-0 shadow-3xs">
+                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+                <span>Pending Yield</span>
+              </div>
             )}
           </div>
+
         </div>
 
-        {/* ── TABS NAVIGATION ── */}
-        <div className="flex items-center px-5 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold overflow-x-auto scrollbar-thin">
+        {/* ── TABS NAVIGATION (Full Width, Complete Display) ── */}
+        <div className="flex items-center px-4 sm:px-6 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold overflow-x-auto scrollbar-none shrink-0 gap-1 select-none">
           <button
             type="button"
             onClick={() => setActiveTab('overview')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`py-2.5 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
               activeTab === 'overview'
                 ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <Factory className="w-3.5 h-3.5" />
-            Overview & Lifecycle
+            <span>Overview & Lifecycle</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('labour')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`py-2.5 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
               activeTab === 'labour'
                 ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <Users className="w-3.5 h-3.5" />
-            Labour & Floor Crew ({staffList.length || batch?.labourCount || 1})
+            <span>Labour & Floor Crew ({staffList.length || batch?.labourCount || 1})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('pauses')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`py-2.5 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
               activeTab === 'pauses'
                 ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
-            Pauses History ({pauseList.length})
+            <span>Pauses History ({pauseList.length})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('timeline')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`py-2.5 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
               activeTab === 'timeline'
                 ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <Layers className="w-3.5 h-3.5" />
-            Factory Stages Timeline ({batch?.timelineStages?.length || 0})
+            <span>Factory Stages Timeline ({batch?.timelineStages?.length || 0})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('formulation')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`py-2.5 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
               activeTab === 'formulation'
                 ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <Database className="w-3.5 h-3.5" />
-            RM Formulation & Per-Piece Usage ({batch?.rmUsages?.length || 0})
+            <span>RM Formulation & Per-Piece Usage ({batch?.rmUsages?.length || 0})</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('sop')}
-            className={`py-3 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+            className={`py-2.5 px-3 border-b-2 transition-all cursor-pointer whitespace-nowrap flex items-center gap-1.5 shrink-0 ${
               activeTab === 'sop'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-800'
+                ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400'
+                : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
             <ShieldCheck className="w-3.5 h-3.5" />
-            View SOP Guide
+            <span>View SOP Guide</span>
+            <span className="text-[9px] font-bold px-1.5 py-0.2 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300">
+              SOP
+            </span>
           </button>
         </div>
 
@@ -566,6 +623,57 @@ export default function ProductionBatchDetailModal({
                     </div>
                   </div>
 
+                  {/* ── LINKED CUSTOMER SALES ORDER (For Order-Based Batches) ── */}
+                  {(batch.order || batch.productionType === 'ORDER_BASED' || batch.orderId) && (
+                    <div className="bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-2xl p-4 shadow-3xs flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider block">
+                          Linked Customer Sales Order
+                        </span>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="font-mono font-black text-xs text-indigo-700 dark:text-indigo-300 bg-white dark:bg-indigo-900/60 px-2.5 py-1 rounded-xl border border-indigo-200 dark:border-indigo-800">
+                            {batch.order?.referenceNo || batch.order?.docNo || 'Sales Order'}
+                          </span>
+                          <span className="text-xs font-bold text-slate-900 dark:text-white">
+                            {batch.order?.customer?.name || 'Customer Reserved'}
+                          </span>
+                        </div>
+                      </div>
+                      {batch.order?.deliveryDate && (
+                        <div className="text-left sm:text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Target Delivery</span>
+                          <span className="text-xs font-mono font-bold text-slate-900 dark:text-white mt-1 block">
+                            {new Date(batch.order.deliveryDate).toLocaleDateString('en-GB')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* ── STOCK ADJUSTMENT REASON & REF (For Stock-Update Batches) ── */}
+                  {(batch.adjustmentReason || batch.productionType === 'STOCK_UPDATE') && (
+                    <div className="bg-amber-50/70 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 shadow-3xs flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 uppercase tracking-wider block">
+                          Stock Adjustment Reason & Purpose
+                        </span>
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="font-bold text-xs text-amber-800 dark:text-amber-200 bg-white dark:bg-amber-900/60 px-2.5 py-1 rounded-xl border border-amber-200 dark:border-amber-800">
+                            {batch.adjustmentReason || 'Floor Stock Correction / Opening Inventory Adjustment'}
+                          </span>
+                        </div>
+                      </div>
+                      {batch.adjustmentReference && (
+                        <div className="text-left sm:text-right">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Audit / Doc Ref #</span>
+                          <span className="text-xs font-mono font-bold text-slate-900 dark:text-white mt-1 block">
+                            {batch.adjustmentReference}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* ── RAW MATERIALS REQUIRED FOR THIS PRODUCTION (Highlighted Planned Quantities) ── */}
                   <div className="bg-white dark:bg-slate-900 border-2 border-indigo-200/80 dark:border-indigo-900/60 rounded-2xl p-4 shadow-3xs space-y-3">
                     <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
@@ -596,7 +704,7 @@ export default function ProductionBatchDetailModal({
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                       {(batch.rmUsages || []).map((u, idx) => {
                         const rmName = u.rawMaterial?.name || u.rmName || 'Raw Material';
                         let baseUom = u.baseUom || u.rawMaterial?.unit?.abbreviation || u.rawMaterial?.unitId || 'liter';
@@ -1639,13 +1747,15 @@ export default function ProductionBatchDetailModal({
                 </div>
               )}
 
-              {/* ── 5. VIEW SOP GUIDE ── */}
+              {/* ── 5. VIEW SOP GUIDE (Full-Screen Responsive Grid) ── */}
               {activeTab === 'sop' && (
                 <div className="space-y-4">
-                  <div className="bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800 rounded-2xl p-4 flex items-start gap-3">
-                    <ShieldCheck className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+                  <div className="bg-indigo-50/80 dark:bg-indigo-950/40 border border-indigo-200/80 dark:border-indigo-800 rounded-2xl p-4 flex items-start gap-3 shadow-3xs">
+                    <div className="p-2 rounded-xl bg-indigo-100 dark:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 shrink-0">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
                     <div>
-                      <h4 className="text-xs font-black text-indigo-900 dark:text-indigo-200 uppercase">
+                      <h4 className="text-xs font-black text-indigo-950 dark:text-indigo-200 uppercase tracking-wide">
                         Standard Operating Procedure (SOP) Guide for {batch.product?.name || 'Production Run'}
                       </h4>
                       <p className="text-[11px] text-indigo-700 dark:text-indigo-300 mt-0.5">
@@ -1654,48 +1764,134 @@ export default function ProductionBatchDetailModal({
                     </div>
                   </div>
 
-                  <div className="space-y-3 text-xs">
-                    <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs space-y-1">
-                      <span className="font-extrabold text-indigo-600 block">Step 1: Pre-Operational Line Clearance & Hygiene</span>
-                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                        Inspect mixing tanks, pasteurizer pipes, and freezing barrels for Clean-In-Place (CIP) verification. Ensure sanitization wash is drained and allergen declarations match the upcoming batch.
-                      </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 text-xs">
+                    
+                    <div className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs flex flex-col justify-between hover:border-indigo-300 transition-all">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[10px]">
+                            Stage 1
+                          </span>
+                          <span className="text-[10px] text-emerald-600 font-bold">Mandatory</span>
+                        </div>
+                        <h5 className="font-extrabold text-xs text-slate-900 dark:text-white">
+                          Pre-Operational Line Clearance & Hygiene
+                        </h5>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                          Inspect mixing tanks, pasteurizer pipes, and freezing barrels for Clean-In-Place (CIP) verification. Ensure sanitization wash is drained and allergen declarations match the upcoming batch.
+                        </p>
+                      </div>
+                      <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 text-emerald-500" />
+                        CIP Sanitization Verified
+                      </div>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs space-y-1">
-                      <span className="font-extrabold text-indigo-600 block">Step 2: Ingredient Weighing & FEFO Lot Verification</span>
-                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                        Weigh ingredients according to the recipe sheet. Verify all raw material lots (Milk, Sugar, Stabilizers) match allocated warehouse batch lots. Scan batch barcode before adding to process tanks.
-                      </p>
+                    <div className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs flex flex-col justify-between hover:border-indigo-300 transition-all">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[10px]">
+                            Stage 2
+                          </span>
+                          <span className="text-[10px] text-indigo-600 font-bold">FEFO Gate</span>
+                        </div>
+                        <h5 className="font-extrabold text-xs text-slate-900 dark:text-white">
+                          Ingredient Weighing & FEFO Lot Verification
+                        </h5>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                          Weigh ingredients according to the recipe sheet. Verify all raw material lots (Milk, Sugar, Stabilizers) match allocated warehouse batch lots. Scan batch barcode before adding to process tanks.
+                        </p>
+                      </div>
+                      <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 text-emerald-500" />
+                        Allocation Lot Scan Match
+                      </div>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs space-y-1">
-                      <span className="font-extrabold text-indigo-600 block">Step 3: Pasteurization & Thermal Emulsification</span>
-                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                        Heat base mixture to <strong>72°C and hold for 15 seconds</strong> (or 68°C for 30 minutes in vat). Record temperature in the QC batch log. Homogenize at 2000–2500 PSI to achieve uniform fat emulsion.
-                      </p>
+                    <div className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs flex flex-col justify-between hover:border-indigo-300 transition-all">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[10px]">
+                            Stage 3
+                          </span>
+                          <span className="text-[10px] text-amber-600 font-bold">Critical Control Point</span>
+                        </div>
+                        <h5 className="font-extrabold text-xs text-slate-900 dark:text-white">
+                          Pasteurization & Thermal Emulsification
+                        </h5>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                          Heat base mixture to <strong className="text-indigo-600 dark:text-indigo-400">72°C and hold for 15 seconds</strong> (or 68°C for 30 minutes in vat). Record temperature in the QC batch log. Homogenize at 2000–2500 PSI to achieve uniform fat emulsion.
+                        </p>
+                      </div>
+                      <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 text-emerald-500" />
+                        72°C Hold Time QC Check
+                      </div>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs space-y-1">
-                      <span className="font-extrabold text-indigo-600 block">Step 4: Chilling, Ageing & Agitation (4°C)</span>
-                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                        Immediately pump mix through plate chiller to cool below 4°C. Transfer to ageing vats and maintain slow agitation for <strong>minimum 4 hours</strong> to ensure fat crystallization and protein hydration.
-                      </p>
+                    <div className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs flex flex-col justify-between hover:border-indigo-300 transition-all">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[10px]">
+                            Stage 4
+                          </span>
+                          <span className="text-[10px] text-cyan-600 font-bold">Ageing Vat</span>
+                        </div>
+                        <h5 className="font-extrabold text-xs text-slate-900 dark:text-white">
+                          Chilling, Ageing & Agitation (4°C)
+                        </h5>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                          Immediately pump mix through plate chiller to cool below 4°C. Transfer to ageing vats and maintain slow agitation for <strong className="text-indigo-600 dark:text-indigo-400">minimum 4 hours</strong> to ensure fat crystallization and protein hydration.
+                        </p>
+                      </div>
+                      <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 text-emerald-500" />
+                        4°C & 4 Hours Agitation
+                      </div>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs space-y-1">
-                      <span className="font-extrabold text-indigo-600 block">Step 5: Freezing, Overrun & Bath Freezer Immersion</span>
-                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                        Inject air to target overrun percentage (40%–80% as per recipe). For kulfi/candy molds, submerge in food-grade calcium chloride brine at -25°C. Insert sanitized sticks at semi-solid stage.
-                      </p>
+                    <div className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs flex flex-col justify-between hover:border-indigo-300 transition-all">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[10px]">
+                            Stage 5
+                          </span>
+                          <span className="text-[10px] text-purple-600 font-bold">Freezer Overrun</span>
+                        </div>
+                        <h5 className="font-extrabold text-xs text-slate-900 dark:text-white">
+                          Freezing, Overrun & Bath Freezer Immersion
+                        </h5>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                          Inject air to target overrun percentage (40%–80% as per recipe). For kulfi/candy molds, submerge in food-grade calcium chloride brine at <strong className="text-indigo-600 dark:text-indigo-400">-25°C</strong>. Insert sanitized sticks at semi-solid stage.
+                        </p>
+                      </div>
+                      <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 text-emerald-500" />
+                        Brine Temperature -25°C
+                      </div>
                     </div>
 
-                    <div className="p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs space-y-1">
-                      <span className="font-extrabold text-indigo-600 block">Step 6: Packaging, Weight Check & Cold Storage Hardening</span>
-                      <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
-                        Wrap product in primary pouches. Perform automated net weight check. Transfer cartons to the deep blast tunnel at -35°C for hardening, followed by cold storage holding at -25°C.
-                      </p>
+                    <div className="p-4 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-3xs flex flex-col justify-between hover:border-indigo-300 transition-all">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-mono font-bold text-[10px]">
+                            Stage 6
+                          </span>
+                          <span className="text-[10px] text-emerald-600 font-bold">Hardening & Cold Chain</span>
+                        </div>
+                        <h5 className="font-extrabold text-xs text-slate-900 dark:text-white">
+                          Packaging, Weight Check & Cold Storage Hardening
+                        </h5>
+                        <p className="text-slate-600 dark:text-slate-400 leading-relaxed text-[11px]">
+                          Wrap product in primary pouches. Perform automated net weight check. Transfer cartons to the deep blast tunnel at <strong className="text-indigo-600 dark:text-indigo-400">-35°C</strong> for hardening, followed by cold storage holding at -25°C.
+                        </p>
+                      </div>
+                      <div className="pt-2.5 mt-2.5 border-t border-slate-100 dark:border-slate-800 text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                        <Check className="w-3 h-3 text-emerald-500" />
+                        Blast Tunnel Hardening -35°C
+                      </div>
                     </div>
+
                   </div>
                 </div>
               )}
