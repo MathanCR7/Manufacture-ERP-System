@@ -565,6 +565,7 @@ function ProductForm({ editId, onBack }) {
   const [stockMethod, setStockMethod] = useState('FIFO');
   const [openingStock, setOpeningStock] = useState(0);
   const [alertLevel, setAlertLevel] = useState(0);
+  const [hsnCode, setHsnCode] = useState('');
   const [salePrice, setSalePrice] = useState(0);
   const [priceHistoryModalOpen, setPriceHistoryModalOpen] = useState(false);
 
@@ -1806,7 +1807,30 @@ function ProductForm({ editId, onBack }) {
                   </div>
                   <div className="space-y-1">
                     <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">HSN Code</label>
-                    <HsnSelect value={hsnCode} onChange={setHsnCode} onSelect={handleHsnSelect} />
+                    <HsnSelect
+                      value={hsnCode}
+                      onChange={(val) => setHsnCode(typeof val === 'string' ? val : (val?.target?.value || ''))}
+                      onSelect={handleHsnSelect}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">GST Rate (%)</label>
+                    <select
+                      value={igst || 5}
+                      onChange={(e) => {
+                        const r = Number(e.target.value) || 0;
+                        setIgst(r);
+                        setCgst(r / 2);
+                        setSgst(r / 2);
+                      }}
+                      className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 h-10 px-3 py-2 text-xs focus:outline-none font-bold"
+                    >
+                      <option value="0">0% (Exempt)</option>
+                      <option value="5">5% (Standard Food / Ice Cream)</option>
+                      <option value="12">12%</option>
+                      <option value="18">18% (Standard Commercial)</option>
+                      <option value="28">28%</option>
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-2xs font-bold text-slate-500 dark:text-slate-400 uppercase block">Buffer Opening Stock</label>
