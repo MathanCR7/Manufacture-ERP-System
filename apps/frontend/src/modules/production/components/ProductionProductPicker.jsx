@@ -1,10 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Package, Trash2, Tag, Layers, Check, Database, Search, Filter, Sparkles } from 'lucide-react';
+import { Package, Trash2, Tag, Layers, Check, Database, Search, Filter, Sparkles, Plus, AlertCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import ProductionSearchSelect from './ProductionSearchSelect';
-import ProductSelectionModal from './ProductSelectionModal';
+import ProductSelectionModal, { createProductSearchIndex, matchProductSearch } from './ProductSelectionModal';
 
 export default function ProductionProductPicker({
   categories = [],
@@ -17,443 +16,337 @@ export default function ProductionProductPicker({
   selectedProducts = [],
   onUpdateProducts,
   onSelectProductWithTemplate = null,
+  onSelectProduct = null,
   selectedBaseId = '',
   selectedBaseName = '',
   disabled = false,
-  showHeader = false
+  showHeader = false,
+  stepNumber = 5
 }) {
-  // Filter mode: 'SELECTED_BASE', 'ICE_CREAM', 'KULFI', 'FD', or 'ALL'
-  const [activeBaseTab, setActiveBaseTab] = useState('SELECTED_BASE');
   const [catalogModalOpen, setCatalogModalOpen] = useState(false);
+  const [inlineSearchQuery, setInlineSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
-  // Count products by base category
-  const baseCounts = useMemo(() => {
-    let ice = 0;
-    let kulfi = 0;
-    let fd = 0;
-    products.forEach(p => {
-      const bName = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
-      const grp = (p.specifications?.group || '').toLowerCase();
-      const code = (p.code || '').toUpperCase();
-      if (bName.includes('KULFI') || grp.includes('kulfi') || code.startsWith('K')) {
-        kulfi += 1;
-      } else if (bName.includes('FD') || grp.includes('fd') || code.startsWith('BFD')) {
-        fd += 1;
-      } else {
-        ice += 1;
-      }
-    });
-    return { ice, kulfi, fd, total: products.length };
+  // Pre-indexed products for quick inline search
+  const productsWithIndex = useMemo(() => {
+    return (products || []).map(p => ({
+      product: p,
+      index: createProductSearchIndex(p)
+    }));
   }, [products]);
 
-  // Cascading filter for subcategories
-  const filteredSubcategories = useMemo(() => {
-    if (!selectedCategoryId) return subcategories;
-    return subcategories.filter(s => s.categoryId === selectedCategoryId);
-  }, [subcategories, selectedCategoryId]);
-
-  // Products filtered by current Base
-  const baseFilteredProducts = useMemo(() => {
-    return products.filter(p => {
-      const pBaseId = p.baseId || p.specifications?.baseId;
-      const pBaseName = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
-      const currentBaseName = (selectedBaseName || '').toUpperCase();
-
-      const matchesBase = 
-        (selectedBaseId && pBaseId === selectedBaseId) ||
-        (currentBaseName && pBaseName.includes(currentBaseName)) ||
-        (currentBaseName.includes('KULFI') && (p.specifications?.group?.toLowerCase().includes('kulfi') || p.code?.startsWith('K'))) ||
-        (currentBaseName.includes('FD') && (p.specifications?.group?.toLowerCase().includes('fd') || p.code?.startsWith('BFD'))) ||
-        (currentBaseName.includes('ICE CREAM') && (p.specifications?.group?.toLowerCase().includes('gallon') || p.code?.startsWith('BG') || p.specifications?.group?.toLowerCase().includes('popsicle')));
-
-      return matchesBase;
-    });
-  }, [products, selectedBaseId, selectedBaseName]);
-
-  // Active pool of products based on activeBaseTab
-  const activeProductsPool = useMemo(() => {
-    let list = products;
-    if (activeBaseTab === 'SELECTED_BASE' && selectedBaseId) {
-      list = baseFilteredProducts.length > 0 ? baseFilteredProducts : products;
-    } else if (activeBaseTab === 'ICE_CREAM') {
-      list = products.filter(p => {
-        const b = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
-        return b.includes('ICE') || p.code?.startsWith('BG') || p.specifications?.group?.toLowerCase().includes('gallon');
-      });
-    } else if (activeBaseTab === 'KULFI') {
-      list = products.filter(p => {
-        const b = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
-        return b.includes('KULFI') || p.code?.startsWith('K') || p.specifications?.group?.toLowerCase().includes('kulfi');
-      });
-    } else if (activeBaseTab === 'FD') {
-      list = products.filter(p => {
-        const b = (p.base?.name || p.specifications?.baseName || '').toUpperCase();
-        return b.includes('FD') || p.code?.startsWith('BFD') || p.specifications?.group?.toLowerCase().includes('fd');
-      });
-    }
-
-    if (selectedCategoryId) {
-      list = list.filter(p => p.categoryId === selectedCategoryId);
-    }
-    if (selectedSubcategoryId) {
-      list = list.filter(p => p.subcategoryId === selectedSubcategoryId);
-    }
-    return list;
-  }, [activeBaseTab, selectedBaseId, baseFilteredProducts, products, selectedCategoryId, selectedSubcategoryId]);
-
-  // Options for Category SearchSelect
-  const categoryOptions = useMemo(() => {
-    return [
-      { value: '', label: 'All Categories (e.g. Classic Cream Gallon)...' },
-      ...categories.map(c => ({
-        value: c.id,
-        label: c.name,
-        subLabel: c.code || null
-      }))
-    ];
-  }, [categories]);
-
-  // Options for Subcategory SearchSelect
-  const subcategoryOptions = useMemo(() => {
-    return [
-      { value: '', label: 'All Sub Categories...' },
-      ...filteredSubcategories.map(s => ({
-        value: s.id,
-        label: s.name,
-        subLabel: s.code || null
-      }))
-    ];
-  }, [filteredSubcategories]);
-
-  // Options for Product SearchSelect
-  const productOptions = useMemo(() => {
-    return activeProductsPool.map(p => {
-      const series = p.specifications?.series || p.brand || 'BG';
-      const group = p.specifications?.group || p.category?.name || 'Gallon';
-      const isAlreadyAdded = selectedProducts.some(sp => sp.productId === p.id);
-
-      return {
-        value: p.id,
-        label: p.name,
-        subLabel: p.code,
-        extra: `Series: ${series} • Group: ${group} ${isAlreadyAdded ? '✓ Added' : ''}`,
-        disabled: isAlreadyAdded,
-        raw: p
-      };
-    });
-  }, [activeProductsPool, selectedProducts]);
-
-  // Handle adding a product
-  const handleAddProduct = (productId, productObj = null) => {
-    if (!productId && !productObj) return;
-    const prod = productObj || products.find(p => p.id === productId);
-    if (!prod) return;
-
-    if (selectedProducts.some(p => p.productId === prod.id)) return;
-
-    const series = prod.specifications?.series || prod.brand || 'BG';
-    const group = prod.specifications?.group || prod.category?.name || 'Gallon';
-    const factor = Number(prod.specifications?.factor || 1.0);
-    const baseName = prod.base?.name || prod.specifications?.baseName || selectedBaseName || 'ICE CREAM BASE';
-
-    onUpdateProducts([
-      ...selectedProducts,
-      {
-        productId: prod.id,
-        name: prod.name,
-        code: prod.code,
-        series,
-        group,
-        factor,
-        baseName,
-        plannedQty: 100,
-        unit: prod.unit?.abbreviation || prod.unit?.name || 'Nos'
+  // Inline search quick suggestions
+  const inlineSuggestions = useMemo(() => {
+    if (!inlineSearchQuery.trim()) return [];
+    const q = inlineSearchQuery.trim();
+    const scored = [];
+    for (let i = 0; i < productsWithIndex.length; i++) {
+      const item = productsWithIndex[i];
+      const res = matchProductSearch(item.index, q);
+      if (res.matched) {
+        scored.push({
+          product: item.product,
+          score: res.score
+        });
       }
-    ]);
-
-    if (onSelectProductWithTemplate) {
-      onSelectProductWithTemplate(prod);
     }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 10).map(s => s.product);
+  }, [productsWithIndex, inlineSearchQuery]);
+
+  // Handle adding product from Catalog modal or inline search
+  const handleAddProduct = (product) => {
+    if (!product) return;
+
+    if (onSelectProduct) {
+      onSelectProduct(product);
+      return;
+    }
+
+    if (selectedProducts.some(p => p.productId === product.id)) {
+      return;
+    }
+
+    const series = product.specifications?.series || product.series || 'REGULAR';
+    const group = product.specifications?.group || product.group || 'GENERAL';
+    const factor = Number(product.specifications?.factor || product.factor || 1);
+    const baseName = product.specifications?.baseName || product.baseName || selectedBaseName;
+
+    const newProd = {
+      productId: product.id,
+      name: product.name,
+      code: product.code,
+      series,
+      group,
+      factor,
+      baseName,
+      plannedQty: 2000,
+      unit: product.unit?.abbreviation || product.unit?.name || 'Nos'
+    };
+
+    onUpdateProducts([...selectedProducts, newProd]);
   };
 
+  // Handle removing product
   const handleRemoveProduct = (productId) => {
     onUpdateProducts(selectedProducts.filter(p => p.productId !== productId));
   };
 
-  const handleQtyChange = (productId, qty) => {
+  // Handle quantity change
+  const handleQuantityChange = (productId, newQty) => {
+    const val = Math.max(0, parseFloat(newQty) || 0);
     onUpdateProducts(
-      selectedProducts.map(p => 
-        p.productId === productId ? { ...p, plannedQty: Number(qty || 0) } : p
-      )
+      selectedProducts.map(p => {
+        if (p.productId === productId) {
+          return { ...p, plannedQty: val };
+        }
+        return p;
+      })
     );
   };
 
+  const totalPlannedQty = useMemo(() => {
+    return selectedProducts.reduce((sum, p) => sum + Number(p.plannedQty || 0), 0);
+  }, [selectedProducts]);
+
   return (
     <div className="space-y-4">
-      {/* Scope pills: Current Base (x), Ice Cream (x), Kulfi (x), FD (x), All (x) */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar flex-wrap">
-        {selectedBaseName && (
-          <button
-            type="button"
-            onClick={() => setActiveBaseTab('SELECTED_BASE')}
-            className={`h-[36px] px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 shrink-0 ${
-              activeBaseTab === 'SELECTED_BASE'
-                ? 'bg-[#4F46E5] text-white shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#E3E6EC] dark:border-slate-700 hover:border-indigo-300'
-            }`}
-          >
-            <Database className="w-3.5 h-3.5" />
-            <span>Current {selectedBaseName} ({baseFilteredProducts.length})</span>
-          </button>
-        )}
-
-        <button
-          type="button"
-          onClick={() => setActiveBaseTab('ICE_CREAM')}
-          className={`h-[36px] px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer shrink-0 ${
-            activeBaseTab === 'ICE_CREAM'
-              ? 'bg-[#4F46E5] text-white shadow-xs'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#E3E6EC] dark:border-slate-700 hover:border-indigo-300'
-          }`}
-        >
-          Ice Cream ({baseCounts.ice})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveBaseTab('KULFI')}
-          className={`h-[36px] px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer shrink-0 ${
-            activeBaseTab === 'KULFI'
-              ? 'bg-[#4F46E5] text-white shadow-xs'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#E3E6EC] dark:border-slate-700 hover:border-indigo-300'
-          }`}
-        >
-          Kulfi ({baseCounts.kulfi})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveBaseTab('FD')}
-          className={`h-[36px] px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer shrink-0 ${
-            activeBaseTab === 'FD'
-              ? 'bg-[#4F46E5] text-white shadow-xs'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#E3E6EC] dark:border-slate-700 hover:border-indigo-300'
-          }`}
-        >
-          FD ({baseCounts.fd})
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveBaseTab('ALL')}
-          className={`h-[36px] px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer shrink-0 ${
-            activeBaseTab === 'ALL'
-              ? 'bg-[#4F46E5] text-white shadow-xs'
-              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-[#E3E6EC] dark:border-slate-700 hover:border-indigo-300'
-          }`}
-        >
-          All ({baseCounts.total})
-        </button>
-      </div>
-
-      {/* Filter row: Category select, Sub category select, "Add finished product" search-and-add, and amber "Catalog (x)" button */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-        {/* Category select */}
-        <div className="md:col-span-3 space-y-1.5">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            Category
-          </Label>
-          <div className="h-[44px]">
-            <ProductionSearchSelect
-              options={categoryOptions}
-              value={selectedCategoryId}
-              onChange={(val) => {
-                onChangeCategory(val);
-                onChangeSubcategory('');
-              }}
-              placeholder="All Categories..."
-              searchPlaceholder="Filter category..."
-              disabled={disabled}
-              className="h-[44px] rounded-[10px]"
-            />
+      {/* Optional Standalone Header */}
+      {showHeader && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800 gap-2">
+          <div className="flex items-center gap-2.5">
+            <span className="w-7 h-7 rounded-full bg-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+              {stepNumber}
+            </span>
+            <div>
+              <h2 className="font-bold text-base text-slate-900 dark:text-white">
+                Finished products
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Pick products formulated under <strong className="text-[#4F46E5]">{selectedBaseName || 'Selected Base'}</strong>
+              </p>
+            </div>
           </div>
-        </div>
 
-        {/* Sub category select */}
-        <div className="md:col-span-3 space-y-1.5">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            Sub Category
-          </Label>
-          <div className="h-[44px]">
-            <ProductionSearchSelect
-              options={subcategoryOptions}
-              value={selectedSubcategoryId}
-              onChange={(val) => onChangeSubcategory(val)}
-              placeholder="All Subcategories..."
-              searchPlaceholder="Filter subcategory..."
-              disabled={disabled}
-              className="h-[44px] rounded-[10px]"
-            />
-          </div>
-        </div>
-
-        {/* Add finished product search-and-add input */}
-        <div className="md:col-span-4 space-y-1.5">
-          <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            Add Finished Product
-          </Label>
-          <div className="h-[44px]">
-            <ProductionSearchSelect
-              options={productOptions}
-              value=""
-              onChange={(prodId) => handleAddProduct(prodId)}
-              placeholder="+ Search & Add Product..."
-              searchPlaceholder="Type product name, SKU..."
-              disabled={disabled}
-              className="h-[44px] rounded-[10px]"
-              renderOption={(opt) => (
-                <div className="flex-1 py-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-bold text-slate-900 dark:text-white break-words">
-                      {opt.label}
-                    </span>
-                    <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                      {opt.subLabel}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">
-                    {opt.extra}
-                  </p>
-                </div>
-              )}
-            />
-          </div>
-        </div>
-
-        {/* Amber Catalog (x) button */}
-        <div className="md:col-span-2">
-          <Button
-            type="button"
-            disabled={disabled}
-            onClick={() => setCatalogModalOpen(true)}
-            className="w-full h-[44px] rounded-[10px] bg-[#B45309] hover:bg-[#92400E] text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-            title="Open 2-tier product catalog screening popup"
-          >
-            <Sparkles className="w-4 h-4 text-amber-200" />
-            <span>Catalog ({activeProductsPool.length})</span>
-          </Button>
-        </div>
-      </div>
-
-      {/* Selected Products Table or Empty State */}
-      {selectedProducts.length > 0 ? (
-        <div className="rounded-[12px] border border-[#E3E6EC] dark:border-slate-800 overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/80 border-b border-[#E3E6EC] dark:border-slate-800 text-slate-600 dark:text-slate-400 font-bold uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-4 w-12 text-center">#</th>
-                  <th className="py-3 px-4">Product Name</th>
-                  <th className="py-3 px-4 w-32">SKU / Code</th>
-                  <th className="py-3 px-4 w-44">Planned Qty</th>
-                  <th className="py-3 px-4 w-20 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E3E6EC] dark:divide-slate-800">
-                {selectedProducts.map((p, idx) => (
-                  <tr key={p.productId || idx} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 px-4 text-center font-mono font-bold text-slate-400">
-                      {idx + 1}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div 
-                        className="font-bold text-sm text-slate-900 dark:text-white break-words whitespace-normal leading-snug"
-                        title={p.name}
-                      >
-                        {p.name}
-                      </div>
-                      <div className="flex items-center gap-2 pt-0.5 text-xs text-slate-400 font-mono flex-wrap">
-                        <span>Series: <strong className="text-slate-700 dark:text-slate-300">{p.series}</strong></span>
-                        <span>•</span>
-                        <span>Group: <strong className="text-slate-700 dark:text-slate-300">{p.group}</strong></span>
-                        {p.baseName && (
-                          <>
-                            <span>•</span>
-                            <span className="text-indigo-600 dark:text-indigo-400 font-bold">{p.baseName}</span>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-slate-700 dark:text-slate-300">
-                      <span className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 text-xs">
-                        {p.code || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min="1"
-                          disabled={disabled}
-                          value={p.plannedQty}
-                          onChange={(e) => handleQtyChange(p.productId, e.target.value)}
-                          className="h-[44px] text-center font-mono font-bold text-sm rounded-[10px] w-28 border-[#E3E6EC]"
-                        />
-                        <span className="text-xs font-bold text-slate-500 font-mono">
-                          {p.unit || 'Nos'}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => handleRemoveProduct(p.productId)}
-                        className="p-2 rounded-[8px] text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                        title="Remove product from batch"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        /* Empty state: dashed box, "No products added yet", help text, and amber "Open product catalog" button */
-        <div className="p-8 rounded-[12px] border-2 border-dashed border-[#E3E6EC] dark:border-slate-800 text-center bg-slate-50/50 dark:bg-slate-900/50 space-y-3">
-          <div className="w-12 h-12 rounded-full bg-amber-50 dark:bg-amber-950/60 text-[#B45309] dark:text-amber-400 flex items-center justify-center mx-auto shadow-xs">
-            <Package className="w-6 h-6" />
-          </div>
-          <div>
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white">
-              No products added yet
-            </h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto pt-1 leading-relaxed">
-              Add products using the search-and-add bar above, or browse the complete 2-tier screening catalog popup to pick items.
-            </p>
-          </div>
-          <Button
-            type="button"
-            disabled={disabled}
-            onClick={() => setCatalogModalOpen(true)}
-            className="h-[44px] px-5 rounded-[10px] bg-[#B45309] hover:bg-[#92400E] text-white font-bold text-xs inline-flex items-center gap-2 shadow-xs cursor-pointer"
-          >
-            <Sparkles className="w-4 h-4 text-amber-200" />
-            <span>Open Product Catalog</span>
-          </Button>
+          <span className="text-xs font-semibold text-slate-500">
+            Formulated under {selectedBaseName || 'Active Base'}
+          </span>
         </div>
       )}
 
-      {/* 2-tier Catalog Modal */}
+      {/* Top Action & Search Bar (Categories pills removed as requested!) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* Quick Inline Multi-Token Search Bar */}
+        <div className="relative flex-1 max-w-lg">
+          <div className="relative flex items-center">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
+            <Input
+              type="text"
+              value={inlineSearchQuery}
+              onChange={(e) => setInlineSearchQuery(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+              placeholder="Search & add product (e.g. BFD107, gallon pista, mango)..."
+              disabled={disabled}
+              className="h-[44px] pl-10 pr-9 rounded-xl text-xs font-semibold border-[#E3E6EC] dark:border-slate-700 bg-white dark:bg-slate-900"
+            />
+            {inlineSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setInlineSearchQuery('')}
+                className="absolute right-3 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Search Dropdown Results */}
+          {isSearchFocused && inlineSuggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-30 max-h-60 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+              {inlineSuggestions.map((prod) => {
+                const isAdded = selectedProducts.some(p => p.productId === prod.id);
+                return (
+                  <div
+                    key={prod.id}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleAddProduct(prod);
+                      setInlineSearchQuery('');
+                      setIsSearchFocused(false);
+                    }}
+                    className={`p-2.5 px-3 flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-slate-800 cursor-pointer transition-colors ${
+                      isAdded ? 'opacity-60 bg-slate-50' : ''
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-amber-700 dark:text-amber-400">
+                          {prod.code}
+                        </span>
+                        <span className="font-bold text-xs text-slate-900 dark:text-white">
+                          {prod.name}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-400 pt-0.5">
+                        {prod.category?.name || 'General'} • {prod.base?.name || selectedBaseName}
+                      </div>
+                    </div>
+
+                    <div>
+                      {isAdded ? (
+                        <span className="text-[10px] font-bold text-emerald-600 px-2 py-0.5 rounded bg-emerald-50">
+                          ✓ Added
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-indigo-600 px-2 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100">
+                          + Add
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Prominent Open Catalog Button */}
+        <Button
+          type="button"
+          onClick={() => setCatalogModalOpen(true)}
+          disabled={disabled}
+          className="h-[44px] px-5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs shadow-xs flex items-center gap-2 transition-all cursor-pointer shrink-0 border border-amber-400/60"
+        >
+          <Sparkles className="w-4 h-4 fill-slate-950" />
+          <span>Catalog ({products.length})</span>
+        </Button>
+      </div>
+
+      {/* Selected Products Table (as shown in user mockup) */}
+      <div className="border border-[#E3E6EC] dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-2xs">
+        <table className="w-full border-collapse text-xs select-text">
+          <thead>
+            <tr className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border-b border-[#E3E6EC] dark:border-slate-800 font-extrabold text-[10px] uppercase tracking-wider select-none">
+              <th className="py-3 px-3 text-left w-12">#</th>
+              <th className="py-3 px-4 text-left">PRODUCT NAME</th>
+              <th className="py-3 px-4 text-center w-36">SKU / CODE</th>
+              <th className="py-3 px-4 text-center w-48">PLANNED QTY</th>
+              <th className="py-3 px-4 text-center w-20">ACTION</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#E3E6EC] dark:divide-slate-800">
+            {selectedProducts.map((p, idx) => (
+              <tr 
+                key={p.productId || idx}
+                className="hover:bg-slate-50/80 dark:hover:bg-slate-850/60 transition-colors"
+              >
+                {/* Row Number */}
+                <td className="py-3.5 px-3 text-slate-400 font-mono text-xs">
+                  {idx + 1}
+                </td>
+
+                {/* Product Name & Series Breakdown */}
+                <td className="py-3.5 px-4">
+                  <div className="font-bold text-slate-900 dark:text-white text-sm break-words">
+                    {p.name}
+                  </div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 pt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <span>Series: <strong className="text-slate-700 dark:text-slate-300">{p.series || 'REGULAR'}</strong></span>
+                    <span>•</span>
+                    <span>Group: <strong className="text-slate-700 dark:text-slate-300">{p.group || 'FD Gallon'}</strong></span>
+                    <span>•</span>
+                    <span className="font-bold text-[#4F46E5] dark:text-indigo-400">{p.baseName || selectedBaseName}</span>
+                  </div>
+                </td>
+
+                {/* SKU / Code */}
+                <td className="py-3.5 px-4 text-center">
+                  <span className="font-mono font-bold text-xs px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                    {p.code || 'N/A'}
+                  </span>
+                </td>
+
+                {/* Planned Quantity Input */}
+                <td className="py-3.5 px-4">
+                  <div className="flex items-center justify-center gap-2">
+                    <Input
+                      type="number"
+                      min="1"
+                      disabled={disabled}
+                      value={p.plannedQty}
+                      onChange={(e) => handleQuantityChange(p.productId, e.target.value)}
+                      className="w-28 h-[38px] text-center font-mono font-bold text-xs rounded-lg border-[#E3E6EC] dark:border-slate-700"
+                    />
+                    <span className="text-xs font-bold text-slate-500 shrink-0">
+                      {p.unit || 'Ltr'}
+                    </span>
+                  </div>
+                </td>
+
+                {/* Action / Delete */}
+                <td className="py-3.5 px-4 text-center">
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => handleRemoveProduct(p.productId)}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                    title="Remove product from batch"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+
+            {/* Empty State */}
+            {selectedProducts.length === 0 && (
+              <tr>
+                <td colSpan={5} className="py-10 text-center text-slate-400 bg-slate-50/40">
+                  <Package className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
+                  <p className="font-bold text-xs text-slate-700 dark:text-slate-300">
+                    No finished products selected
+                  </p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Click the <strong>Catalog ({products.length})</strong> button above or search to add products formulated under {selectedBaseName || 'Active Base'}.
+                  </p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => setCatalogModalOpen(true)}
+                    className="mt-3 bg-indigo-50 hover:bg-indigo-100 text-[#4F46E5] font-bold text-xs rounded-lg border border-indigo-200"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                    Browse Product Catalog
+                  </Button>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+
+        {/* Table Footer with Total Quantity */}
+        {selectedProducts.length > 0 && (
+          <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border-t border-[#E3E6EC] dark:border-slate-800 flex items-center justify-between text-xs font-bold text-slate-700 dark:text-slate-300">
+            <span>Total Planned Products: <strong className="text-slate-900 dark:text-white">{selectedProducts.length} items</strong></span>
+            <span className="font-mono font-black text-sm text-[#0F7B5F]">
+              Total Output Qty: {totalPlannedQty.toLocaleString()} {selectedProducts[0]?.unit || 'Nos'}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Catalog Browser Modal (just like /sales/order) */}
       <ProductSelectionModal
         isOpen={catalogModalOpen}
         onClose={() => setCatalogModalOpen(false)}
-        products={activeProductsPool.length > 0 ? activeProductsPool : products}
-        onSelectProduct={(p) => handleAddProduct(p.id, p)}
-        title={`Select Finished Product (${selectedBaseName || 'ICE CREAM BASE'})`}
+        products={products}
+        selectedProducts={selectedProducts}
+        onSelectProduct={(prod) => {
+          handleAddProduct(prod);
+        }}
+        selectedBaseName={selectedBaseName}
+        title="Finished Product Catalog"
       />
     </div>
   );

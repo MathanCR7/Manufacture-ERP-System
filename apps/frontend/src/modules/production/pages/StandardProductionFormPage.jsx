@@ -686,15 +686,15 @@ export default function StandardProductionFormPage() {
   // Handle Save Batch
   const handleSave = async (status = 'Draft') => {
     if (!isPlanTargetSet) {
-      Swal.fire({ title: 'Validation Error', text: 'Please set production date and shift in Card 1.', icon: 'warning' });
+      Swal.fire({ title: 'Validation Error', text: 'Please set production date and shift in Step 1.', icon: 'warning' });
       return;
     }
     if (!selectedBaseId || !selectedTemplate) {
-      Swal.fire({ title: 'Validation Error', text: 'Please select both Base Master and Production Template in Card 2.', icon: 'warning' });
+      Swal.fire({ title: 'Validation Error', text: 'Please select both Base Master and Production Template in Step 2.', icon: 'warning' });
       return;
     }
     if (selectedProducts.length === 0) {
-      Swal.fire({ title: 'Validation Error', text: 'Please select at least one finished product in Card 3.', icon: 'warning' });
+      Swal.fire({ title: 'Validation Error', text: 'Please select at least one finished product in Step 5.', icon: 'warning' });
       return;
     }
     if (status === 'In Progress' && !areRawMaterialsAllocated) {
@@ -896,43 +896,43 @@ export default function StandardProductionFormPage() {
 
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
 
-          {/* Step 3: Products */}
+          {/* Step 3: Raw Material Formulation & Lots */}
           <div className="flex items-center gap-2 shrink-0">
             <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-              isProductAdded ? 'bg-[#0F7B5F] text-white' : isBaseAndTemplateChosen ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
+              areRawMaterialsAllocated ? 'bg-[#0F7B5F] text-white' : isBaseAndTemplateChosen ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
             }`}>
-              {isProductAdded ? '✓' : '3'}
+              {areRawMaterialsAllocated ? '✓' : '3'}
             </span>
-            <span className={isProductAdded ? 'text-[#0F7B5F]' : isBaseAndTemplateChosen ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-              3. Products
+            <span className={areRawMaterialsAllocated ? 'text-[#0F7B5F]' : isBaseAndTemplateChosen ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
+              3. Formulation &amp; Lots
             </span>
           </div>
 
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
 
-          {/* Step 4: Raw Material Formulation & Lots (DISPLAYED AT 4!) */}
-          <div className="flex items-center gap-2 shrink-0">
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-              areRawMaterialsAllocated ? 'bg-[#0F7B5F] text-white' : isProductAdded ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
-            }`}>
-              {areRawMaterialsAllocated ? '✓' : '4'}
-            </span>
-            <span className={areRawMaterialsAllocated ? 'text-[#0F7B5F]' : isProductAdded ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-              4. Formulation &amp; Lots
-            </span>
-          </div>
-
-          <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-
-          {/* Step 5: Factory Stages (DISPLAYED AT 5!) */}
+          {/* Step 4: Factory Stages Palette & Timeline */}
           <div className="flex items-center gap-2 shrink-0">
             <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
               areStageDurationsSet ? 'bg-[#0F7B5F] text-white' : areRawMaterialsAllocated ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
             }`}>
-              {areStageDurationsSet ? '✓' : '5'}
+              {areStageDurationsSet ? '✓' : '4'}
             </span>
             <span className={areStageDurationsSet ? 'text-[#0F7B5F]' : areRawMaterialsAllocated ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-              5. Factory Stages
+              4. Factory Stages
+            </span>
+          </div>
+
+          <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+
+          {/* Step 5: Finished Products */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
+              isProductAdded ? 'bg-[#0F7B5F] text-white' : areStageDurationsSet ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
+            }`}>
+              {isProductAdded ? '✓' : '5'}
+            </span>
+            <span className={isProductAdded ? 'text-[#0F7B5F]' : areStageDurationsSet ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
+              5. Finished Products
             </span>
           </div>
 
@@ -941,11 +941,11 @@ export default function StandardProductionFormPage() {
           {/* Step 6: Review & Staff */}
           <div className="flex items-center gap-2 shrink-0">
             <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-              isStaffAssigned ? 'bg-[#0F7B5F] text-white' : areStageDurationsSet ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
+              isStaffAssigned ? 'bg-[#0F7B5F] text-white' : isProductAdded ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
             }`}>
               {isStaffAssigned ? '✓' : '6'}
             </span>
-            <span className={isStaffAssigned ? 'text-[#0F7B5F]' : areStageDurationsSet ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
+            <span className={isStaffAssigned ? 'text-[#0F7B5F]' : isProductAdded ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
               6. Staff &amp; Review
             </span>
           </div>
@@ -1001,13 +1001,13 @@ export default function StandardProductionFormPage() {
           </div>
         </div>
 
-        {/* ── MAIN GRID: LEFT COLUMN (1fr) + RIGHT SIDEBAR (380px) ── */}
+        {/* ── TOP SECTION: STEP 1 & STEP 2 (LEFT) + BATCH SUMMARY & STAFF (RIGHT SIDEBAR) ── */}
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-5 items-start">
           
-          {/* ── LEFT COLUMN: STACKED NUMBERED CARDS ── */}
+          {/* ── LEFT COLUMN: STEP 1 & STEP 2 ── */}
           <div className="space-y-5">
             
-            {/* Card 1: Shift & Date Parameters */}
+            {/* Step 1: Shift & Date Parameters */}
             <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800">
                 <div className="flex items-center gap-2.5">
@@ -1085,7 +1085,7 @@ export default function StandardProductionFormPage() {
               </div>
             </div>
 
-            {/* Card 2: Base master & template */}
+            {/* Step 2: Base master & template */}
             <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800">
                 <div className="flex items-center gap-2.5">
@@ -1107,14 +1107,14 @@ export default function StandardProductionFormPage() {
                 </span>
               </div>
 
-              {/* 3 selectable option cards: [FDB] FD Base, [ICB] Ice Cream Base, [KLB] Kulfi Base */}
+              {/* 4 selectable base cards */}
               <ProductionBasePicker
                 bases={bases}
                 selectedBaseId={selectedBaseId}
                 onSelectBase={handleSelectBase}
               />
 
-              {/* Template row (full width, selectable): tag TPL-0001, template name, Batch size 2000 Nos, Cost ₹20,839.6 */}
+              {/* Production Template row */}
               <ProductionTemplatePicker
                 templates={templatesForSelectedBase}
                 selectedTemplateId={selectedTemplate?.id || (typeof selectedTemplate === 'string' ? selectedTemplate : '')}
@@ -1123,74 +1123,9 @@ export default function StandardProductionFormPage() {
               />
             </div>
 
-            {/* Card 3: Finished products */}
-            <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-full bg-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                    3
-                  </span>
-                  <div>
-                    <h2 className="font-bold text-base text-slate-900 dark:text-white">
-                      Finished products
-                    </h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Pick products formulated under <strong className="text-[#4F46E5]">{selectedBaseName}</strong>
-                    </p>
-                  </div>
-                </div>
-
-                <span className="text-xs font-semibold text-slate-500">
-                  Formulated under {selectedBaseName}
-                </span>
-              </div>
-
-              <ProductionProductPicker
-                categories={categories}
-                subcategories={subcategories}
-                products={products}
-                selectedCategoryId={selectedCategoryId}
-                selectedSubcategoryId={selectedSubcategoryId}
-                onSelectCategory={setSelectedCategoryId}
-                onSelectSubcategory={setSelectedSubcategoryId}
-                selectedProducts={selectedProducts}
-                onSelectProduct={handleSelectProduct}
-                onUpdateProducts={handleUpdateProducts}
-                totalPlannedQty={totalPlannedQty}
-                baseFilterId={selectedBaseId}
-              />
-
-              {/* Learned Formulation Notice */}
-              {learnedFormulationNotice && (
-                <div className="bg-gradient-to-r from-amber-50 to-indigo-50 dark:from-slate-850 dark:to-indigo-950/40 border border-amber-300 dark:border-amber-700/60 rounded-[12px] p-3.5 flex items-center justify-between gap-3 shadow-xs">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-xs">
-                      <Sparkles className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                        Formulation auto-learned for {learnedFormulationNotice.productName} (Batch #{learnedFormulationNotice.lastRef || 'PREV'})
-                      </h4>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                        Quantities scaled to actual per-piece ratios from previous completed runs.
-                      </p>
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setLearnedFormulationNotice(null)}
-                    className="text-xs font-bold text-slate-400 hover:text-slate-600 rounded-lg h-7 px-2 shrink-0 cursor-pointer"
-                  >
-                    ✕
-                  </Button>
-                </div>
-              )}
-            </div>
-
           </div>
 
-          {/* ── RIGHT SIDEBAR (STICKY, TOP: 92px) ── */}
+          {/* ── RIGHT SIDEBAR (STICKY, TOP: 92px): BATCH SUMMARY & LABOUR STAFF ── */}
           <aside className="space-y-5 xl:sticky xl:top-[92px]">
             
             {/* Card "Batch summary" */}
@@ -1242,7 +1177,7 @@ export default function StandardProductionFormPage() {
                 </div>
               </div>
 
-              {/* READINESS Checklist with green or grey dots */}
+              {/* READINESS Checklist */}
               <div className="pt-2 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-black uppercase tracking-wider text-slate-400">
@@ -1276,25 +1211,25 @@ export default function StandardProductionFormPage() {
 
                   {/* Item 3 */}
                   <div className="flex items-center gap-2.5">
-                    <span className={`w-3 h-3 rounded-full shrink-0 ${isProductAdded ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
-                    <span className={isProductAdded ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
-                      At least one product added ({selectedProducts.length})
-                    </span>
-                  </div>
-
-                  {/* Item 4: Raw Materials Lot Allocation */}
-                  <div className="flex items-center gap-2.5">
                     <span className={`w-3 h-3 rounded-full shrink-0 ${areRawMaterialsAllocated ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
                     <span className={areRawMaterialsAllocated ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
                       Raw materials allocated ({allocatedRmLines.length} of {requiredRmLines.length})
                     </span>
                   </div>
 
-                  {/* Item 5 */}
+                  {/* Item 4 */}
                   <div className="flex items-center gap-2.5">
                     <span className={`w-3 h-3 rounded-full shrink-0 ${areStageDurationsSet ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
                     <span className={areStageDurationsSet ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
                       Stage durations set (&gt; 0 mins)
+                    </span>
+                  </div>
+
+                  {/* Item 5 */}
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-3 h-3 rounded-full shrink-0 ${isProductAdded ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
+                    <span className={isProductAdded ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
+                      At least one product added ({selectedProducts.length})
                     </span>
                   </div>
 
@@ -1308,7 +1243,7 @@ export default function StandardProductionFormPage() {
                 </div>
               </div>
 
-              {/* End with a full-width Start button */}
+              {/* Start Standard Production button */}
               <Button
                 type="button"
                 disabled={saving || !isReadyToStart}
@@ -1324,29 +1259,17 @@ export default function StandardProductionFormPage() {
               </Button>
             </div>
 
-            {/* Card "Labour & floor staff" */}
-            <ProductionLabourPicker
-              labourCount={labourCount}
-              assignedStaffIds={assignedStaffIds}
-              labourStaffDetails={labourStaffDetails}
-              onChange={({ labourCount: lc, assignedStaffIds: asIds, labourStaffDetails: lsd }) => {
-                setLabourCount(lc);
-                setAssignedStaffIds(asIds);
-                setLabourStaffDetails(lsd);
-              }}
-            />
-
           </aside>
 
         </div>
 
-        {/* ── 4) FULL-WIDTH SECTION: RAW MATERIAL FORMULATION & LOT ALLOCATION (DISPLAYED AT 4 ABOVE FACTORY STAGES!) ── */}
+        {/* ── STEP 3: FULL-WIDTH SECTION: RAW MATERIAL FORMULATION & LOT ALLOCATION ── */}
         <div className="w-full space-y-4">
           <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800 gap-2 mb-4">
               <div className="flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-full bg-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                  4
+                  3
                 </span>
                 <div>
                   <h3 className="font-bold text-base text-slate-900 dark:text-white">
@@ -1369,7 +1292,7 @@ export default function StandardProductionFormPage() {
               </div>
             </div>
 
-            {/* Live Recipe Formulation Grid: displays immediately after entering product or selecting template */}
+            {/* Live Recipe Formulation Grid */}
             {selectedTemplate || rawMaterials.length > 0 || selectedProducts.length > 0 ? (
               <BatchAllocationGrid
                 rawMaterials={rawMaterials}
@@ -1384,7 +1307,7 @@ export default function StandardProductionFormPage() {
               <div className="p-8 rounded-[12px] border border-dashed border-[#E3E6EC] text-center text-slate-400 space-y-2 bg-slate-50/50">
                 <Boxes className="w-8 h-8 mx-auto text-slate-400" />
                 <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                  Select a Production Template in Card 2 or enter finished products in Card 3 to load formulation lines
+                  Select a Production Template in Step 2 to load formulation lines
                 </p>
                 <p className="text-xs text-slate-500">
                   Live recipe scaling, alternate UOM selection, and mandatory inventory lot reservation will appear here.
@@ -1394,14 +1317,99 @@ export default function StandardProductionFormPage() {
           </div>
         </div>
 
-        {/* ── 5) FULL-WIDTH SECTION: FACTORY STAGES PALETTE & 6) TIMELINE SEQUENCE (NOW 5 & 6 BELOW RAW MATERIALS!) ── */}
+        {/* ── STEP 4: FULL-WIDTH SECTION: FACTORY STAGES PALETTE & TIMELINE SEQUENCE (COMBINED!) ── */}
         <div className="w-full">
           <StandardFactoryStagesPalette
             stages={timelineStages}
             onChangeStages={setTimelineStages}
             isEditable={true}
-            stagesStepNumber={5}
-            timelineStepNumber={6}
+            stepNumber={4}
+          />
+        </div>
+
+        {/* ── STEP 5: FULL-WIDTH SECTION: FINISHED PRODUCTS ── */}
+        <div className="w-full space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800 gap-2 mb-4">
+              <div className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-full bg-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                  5
+                </span>
+                <div>
+                  <h2 className="font-bold text-base text-slate-900 dark:text-white">
+                    Finished products
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Pick products formulated under <strong className="text-[#4F46E5]">{selectedBaseName || 'Selected Base'}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-xs font-semibold text-slate-500">
+                Formulated under {selectedBaseName || 'Active Base'}
+              </span>
+            </div>
+
+            <ProductionProductPicker
+              categories={categories}
+              subcategories={subcategories}
+              products={products}
+              selectedCategoryId={selectedCategoryId}
+              selectedSubcategoryId={selectedSubcategoryId}
+              onSelectCategory={setSelectedCategoryId}
+              onSelectSubcategory={setSelectedSubcategoryId}
+              selectedProducts={selectedProducts}
+              onSelectProduct={handleSelectProduct}
+              onUpdateProducts={handleUpdateProducts}
+              totalPlannedQty={totalPlannedQty}
+              baseFilterId={selectedBaseId}
+              selectedBaseName={selectedBaseName}
+              showHeader={false}
+              stepNumber={5}
+            />
+
+            {/* Learned Formulation Notice */}
+            {learnedFormulationNotice && (
+              <div className="mt-4 bg-gradient-to-r from-amber-50 to-indigo-50 dark:from-slate-850 dark:to-indigo-950/40 border border-amber-300 dark:border-amber-700/60 rounded-[12px] p-3.5 flex items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-black shrink-0 shadow-xs">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                      Formulation auto-learned for {learnedFormulationNotice.productName} (Batch #{learnedFormulationNotice.lastRef || 'PREV'})
+                    </h4>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      Quantities scaled to actual per-piece ratios from previous completed runs.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setLearnedFormulationNotice(null)}
+                  className="text-xs font-bold text-slate-400 hover:text-slate-600 rounded-lg h-7 px-2 shrink-0 cursor-pointer"
+                >
+                  ✕
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── STEP 6: FULL-WIDTH SECTION: LABOUR & FLOOR STAFF ALLOCATION ── */}
+        <div className="w-full">
+          <ProductionLabourPicker
+            labourCount={labourCount}
+            assignedStaffIds={assignedStaffIds}
+            labourStaffDetails={labourStaffDetails}
+            onChange={({ labourCount: lc, assignedStaffIds: asIds, labourStaffDetails: lsd }) => {
+              setLabourCount(lc);
+              setAssignedStaffIds(asIds);
+              setLabourStaffDetails(lsd);
+            }}
+            stepNumber={6}
+            fullWidth={true}
           />
         </div>
 

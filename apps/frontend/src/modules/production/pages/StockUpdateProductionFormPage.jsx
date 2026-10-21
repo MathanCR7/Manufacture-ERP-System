@@ -1007,43 +1007,43 @@ export default function StockUpdateProductionFormPage() {
 
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
 
-          {/* Step 3: Products */}
+          {/* Step 3: Raw Material Formulation & Lots */}
           <div className="flex items-center gap-2 shrink-0">
             <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-              isProductAdded ? 'bg-[#0F7B5F] text-white' : isBaseAndTemplateChosen ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
+              areRawMaterialsAllocated ? 'bg-[#0F7B5F] text-white' : isBaseAndTemplateChosen ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
             }`}>
-              {isProductAdded ? '✓' : '3'}
+              {areRawMaterialsAllocated ? '✓' : '3'}
             </span>
-            <span className={isProductAdded ? 'text-[#0F7B5F]' : isBaseAndTemplateChosen ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-              3. Products
+            <span className={areRawMaterialsAllocated ? 'text-[#0F7B5F]' : isBaseAndTemplateChosen ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
+              3. Formulation &amp; Lots
             </span>
           </div>
 
           <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
 
-          {/* Step 4: Formulation & Lots */}
-          <div className="flex items-center gap-2 shrink-0">
-            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-              areRawMaterialsAllocated ? 'bg-[#0F7B5F] text-white' : isProductAdded ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
-            }`}>
-              {areRawMaterialsAllocated ? '✓' : '4'}
-            </span>
-            <span className={areRawMaterialsAllocated ? 'text-[#0F7B5F]' : isProductAdded ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-              4. Formulation &amp; Lots
-            </span>
-          </div>
-
-          <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-
-          {/* Step 5: Factory Stages */}
+          {/* Step 4: Factory Stages */}
           <div className="flex items-center gap-2 shrink-0">
             <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
               areStageDurationsSet ? 'bg-[#0F7B5F] text-white' : areRawMaterialsAllocated ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
             }`}>
-              {areStageDurationsSet ? '✓' : '5'}
+              {areStageDurationsSet ? '✓' : '4'}
             </span>
             <span className={areStageDurationsSet ? 'text-[#0F7B5F]' : areRawMaterialsAllocated ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-              5. Factory Stages
+              4. Factory Stages
+            </span>
+          </div>
+
+          <ChevronRight className="w-3.5 h-3.5 text-slate-300 shrink-0" />
+
+          {/* Step 5: Finished Products */}
+          <div className="flex items-center gap-2 shrink-0">
+            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
+              isProductAdded ? 'bg-[#0F7B5F] text-white' : areStageDurationsSet ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
+            }`}>
+              {isProductAdded ? '✓' : '5'}
+            </span>
+            <span className={isProductAdded ? 'text-[#0F7B5F]' : areStageDurationsSet ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
+              5. Finished Products
             </span>
           </div>
 
@@ -1052,12 +1052,12 @@ export default function StockUpdateProductionFormPage() {
           {/* Step 6: Review & Staff */}
           <div className="flex items-center gap-2 shrink-0">
             <span className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold ${
-              isStaffAssigned ? 'bg-[#0F7B5F] text-white' : areStageDurationsSet ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
+              isStaffAssigned ? 'bg-[#0F7B5F] text-white' : isProductAdded ? 'bg-[#4F46E5] text-white' : 'bg-slate-200 text-slate-500'
             }`}>
               {isStaffAssigned ? '✓' : '6'}
             </span>
-            <span className={isStaffAssigned ? 'text-[#0F7B5F]' : areStageDurationsSet ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
-              6. Staff &amp; Review
+            <span className={isStaffAssigned ? 'text-[#0F7B5F]' : isProductAdded ? 'text-slate-900 dark:text-white' : 'text-slate-400'}>
+              6. Labour &amp; Staff
             </span>
           </div>
         </div>
@@ -1266,44 +1266,6 @@ export default function StockUpdateProductionFormPage() {
               />
             </div>
 
-            {/* Card 3: Finished products */}
-            <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800">
-                <div className="flex items-center gap-2.5">
-                  <span className="w-7 h-7 rounded-full bg-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                    3
-                  </span>
-                  <div>
-                    <h2 className="font-bold text-base text-slate-900 dark:text-white">
-                      Finished products
-                    </h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Products to produce to replenish warehouse inventory
-                    </p>
-                  </div>
-                </div>
-
-                <span className="text-xs font-semibold text-slate-500">
-                  {selectedProducts.length} Products Added
-                </span>
-              </div>
-
-              <ProductionProductPicker
-                categories={categories}
-                subcategories={subcategories}
-                products={products}
-                selectedCategoryId={selectedCategoryId}
-                selectedSubcategoryId={selectedSubcategoryId}
-                onSelectCategory={setSelectedCategoryId}
-                onSelectSubcategory={setSelectedSubcategoryId}
-                selectedProducts={selectedProducts}
-                onSelectProduct={handleSelectProduct}
-                onUpdateProducts={handleUpdateProducts}
-                totalPlannedQty={totalPlannedQty}
-                baseFilterId={selectedBaseId}
-              />
-            </div>
-
           </div>
 
           {/* ── RIGHT SIDEBAR ── */}
@@ -1389,13 +1351,6 @@ export default function StockUpdateProductionFormPage() {
                   </div>
 
                   <div className="flex items-center gap-2.5">
-                    <span className={`w-3 h-3 rounded-full shrink-0 ${isProductAdded ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
-                    <span className={isProductAdded ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
-                      At least one product added ({selectedProducts.length})
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2.5">
                     <span className={`w-3 h-3 rounded-full shrink-0 ${areRawMaterialsAllocated ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
                     <span className={areRawMaterialsAllocated ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
                       Raw materials allocated ({allocatedRmLines.length} of {requiredRmLines.length})
@@ -1406,6 +1361,13 @@ export default function StockUpdateProductionFormPage() {
                     <span className={`w-3 h-3 rounded-full shrink-0 ${areStageDurationsSet ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
                     <span className={areStageDurationsSet ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
                       Stage durations set (&gt; 0 mins)
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-3 h-3 rounded-full shrink-0 ${isProductAdded ? 'bg-[#0F7B5F]' : 'bg-[#CBD5E1]'}`} />
+                    <span className={isProductAdded ? 'text-slate-800 dark:text-slate-200 font-medium' : 'text-slate-400'}>
+                      At least one product added ({selectedProducts.length})
                     </span>
                   </div>
 
@@ -1434,29 +1396,17 @@ export default function StockUpdateProductionFormPage() {
               </Button>
             </div>
 
-            {/* Card "Labour & floor staff" */}
-            <ProductionLabourPicker
-              labourCount={labourCount}
-              assignedStaffIds={assignedStaffIds}
-              labourStaffDetails={labourStaffDetails}
-              onChange={({ labourCount: lc, assignedStaffIds: asIds, labourStaffDetails: lsd }) => {
-                setLabourCount(lc);
-                setAssignedStaffIds(asIds);
-                setLabourStaffDetails(lsd);
-              }}
-            />
-
           </aside>
 
         </div>
 
-        {/* ── 4) FULL-WIDTH SECTION: RAW MATERIAL FORMULATION & LOT ALLOCATION (NOW DISPLAYED AT 4!) ── */}
+        {/* ── STEP 3: FULL-WIDTH SECTION: RAW MATERIAL FORMULATION & LOT ALLOCATION ── */}
         <div className="w-full space-y-4">
           <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800 gap-2 mb-4">
               <div className="flex items-center gap-2.5">
                 <span className="w-7 h-7 rounded-full bg-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                  4
+                  3
                 </span>
                 <div>
                   <h3 className="font-bold text-base text-slate-900 dark:text-white">
@@ -1494,7 +1444,7 @@ export default function StockUpdateProductionFormPage() {
               <div className="p-8 rounded-[12px] border border-dashed border-[#E3E6EC] text-center text-slate-400 space-y-2 bg-slate-50/50">
                 <Boxes className="w-8 h-8 mx-auto text-slate-400" />
                 <p className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                  Select a Production Template in Card 2 or add finished products in Card 3 to load formulation lines
+                  Select a Production Template in Card 2 or add finished products in Card 5 to load formulation lines
                 </p>
                 <p className="text-xs text-slate-500">
                   Live recipe scaling, alternate UOM selection, and mandatory inventory lot reservation will appear here.
@@ -1504,14 +1454,72 @@ export default function StockUpdateProductionFormPage() {
           </div>
         </div>
 
-        {/* ── 5) FULL-WIDTH SECTION: FACTORY STAGES PALETTE & 6) TIMELINE SEQUENCE (NOW 5 & 6!) ── */}
+        {/* ── STEP 4: FULL-WIDTH SECTION: FACTORY STAGES PALETTE & TIMELINE SEQUENCE ── */}
         <div className="w-full">
           <StandardFactoryStagesPalette
             stages={timelineStages}
             onChangeStages={setTimelineStages}
             isEditable={true}
-            stagesStepNumber={5}
-            timelineStepNumber={6}
+            stepNumber={4}
+          />
+        </div>
+
+        {/* ── STEP 5: FULL-WIDTH SECTION: FINISHED PRODUCTS ── */}
+        <div className="w-full space-y-4">
+          <div className="bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[12px] p-5 shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#E3E6EC] dark:border-slate-800 gap-2 mb-4">
+              <div className="flex items-center gap-2.5">
+                <span className="w-7 h-7 rounded-full bg-[#4F46E5] text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                  5
+                </span>
+                <div>
+                  <h2 className="font-bold text-base text-slate-900 dark:text-white">
+                    Finished products
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Products to produce to replenish warehouse inventory
+                  </p>
+                </div>
+              </div>
+
+              <span className="text-xs font-semibold text-slate-500">
+                {selectedProducts.length} Products Added
+              </span>
+            </div>
+
+            <ProductionProductPicker
+              categories={categories}
+              subcategories={subcategories}
+              products={products}
+              selectedCategoryId={selectedCategoryId}
+              selectedSubcategoryId={selectedSubcategoryId}
+              onSelectCategory={setSelectedCategoryId}
+              onSelectSubcategory={setSelectedSubcategoryId}
+              selectedProducts={selectedProducts}
+              onSelectProduct={handleSelectProduct}
+              onUpdateProducts={handleUpdateProducts}
+              totalPlannedQty={totalPlannedQty}
+              baseFilterId={selectedBaseId}
+              selectedBaseName={selectedBaseName}
+              showHeader={false}
+              stepNumber={5}
+            />
+          </div>
+        </div>
+
+        {/* ── STEP 6: FULL-WIDTH SECTION: LABOUR & FLOOR STAFF ALLOCATION ── */}
+        <div className="w-full">
+          <ProductionLabourPicker
+            labourCount={labourCount}
+            assignedStaffIds={assignedStaffIds}
+            labourStaffDetails={labourStaffDetails}
+            onChange={({ labourCount: lc, assignedStaffIds: asIds, labourStaffDetails: lsd }) => {
+              setLabourCount(lc);
+              setAssignedStaffIds(asIds);
+              setLabourStaffDetails(lsd);
+            }}
+            stepNumber={6}
+            fullWidth={true}
           />
         </div>
 
