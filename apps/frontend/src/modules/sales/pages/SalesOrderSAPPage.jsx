@@ -20,7 +20,7 @@ import QuickAddCustomerModal from '@/components/forms/QuickAddCustomerModal';
 import ProductStockQueryModal from '@/modules/production/components/ProductStockQueryModal';
 import RMLotAllocationModal from '@/modules/sales/components/RMLotAllocationModal';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
-import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin, round2 } from '@/utils/gstEngine';
+import { calculateGST, numberToWordsINR, getIndianStates, getStateCodeFromGstin, round2, computeOrderGstSlabs } from '@/utils/gstEngine';
 import { generateA4TaxInvoice, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
@@ -500,6 +500,14 @@ export default function SalesOrderPage() {
     const match = String(code).match(/\d+/);
     if (match) return Number(match[0]);
     return 0; // EXEMPT
+  };
+
+  const getChargeBadgeText = (code) => {
+    const rate = getTaxRateFromCode(code);
+    if (rate <= 0) return 'Exempt (0%)';
+    if (isInterState) return `${rate}% IGST`;
+    const half = Math.round((rate / 2) * 100) / 100;
+    return `CGST ${half}% + SGST ${half}%`;
   };
 
   // Logistics Tab Fields
@@ -1219,6 +1227,11 @@ export default function SalesOrderPage() {
 
   // Financial Summary Computations (Integrated with precise GST Engine)
   const financials = useMemo(() => {
+    // Only non-packing line items (Products and Raw Materials) belong to Total Product Amount
+    const nonPackingLines = computedLines.filter(l => (l.productId || l.rawMaterialId) && !l.isPackingCharge);
+    const totalProductAmount = nonPackingLines.reduce((sum, l) => sum + (l.lineGross || 0), 0);
+    const productLineDiscountTotal = nonPackingLines.reduce((sum, l) => sum + (l.lineDiscount || 0), 0);
+
     const totalBeforeDiscount = computedLines.reduce((sum, l) => sum + (l.lineGross || 0), 0);
     const lineDiscountTotal = computedLines.reduce((sum, l) => sum + (l.lineDiscount || 0), 0);
     const netLinesTotal = Math.max(0, totalBeforeDiscount - lineDiscountTotal);
@@ -1244,6 +1257,28 @@ export default function SalesOrderPage() {
 
     // Extra manual packing beyond line items
     const extraPackingCharges = Math.max(0, pAmt - packingLinesAmount);
+
+    // Dynamically build active charges list for the subtotal label
+    const activeCharges = [];
+    if (pAmt > 0) activeCharges.push('Packing');
+    if (lAmt > 0) activeCharges.push('Loading');
+    if (fAmt > 0) activeCharges.push('Freight');
+    if (oAmt > 0) activeCharges.push('Other Charges');
+
+    let productAndChargesLabel = 'Total Product Amount';
+    if (activeCharges.length === 1) {
+      productAndChargesLabel = `Total Product & ${activeCharges[0]} Amount`;
+    } else if (activeCharges.length === 2) {
+      productAndChargesLabel = `Total Product & ${activeCharges[0]} and ${activeCharges[1]} Amount`;
+    } else if (activeCharges.length > 2) {
+      const last = activeCharges[activeCharges.length - 1];
+      const rest = activeCharges.slice(0, -1).join(', ');
+      productAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+    }
+
+    // Product amount after discount + all available charges
+    const netProductAmount = Math.max(0, totalProductAmount - (docDiscAmt + productLineDiscountTotal));
+    const totalProductAndCharges = netProductAmount + fAmt + pAmt + lAmt + oAmt;
 
     const targetBuyerState = isInterState
       ? (placeOfSupply && String(placeOfSupply) !== String(sellerStateCode) ? placeOfSupply : (sellerStateCode === '33' ? '29' : '33'))
@@ -1298,12 +1333,17 @@ export default function SalesOrderPage() {
     const balanceDue = Math.max(0, grandTotal - (Number(advancePaid) || 0));
 
     return {
+      totalProductAmount: round2(totalProductAmount),
       totalBeforeDiscount: round2(totalBeforeDiscount),
       lineDiscountTotal: round2(lineDiscountTotal),
+      productLineDiscountTotal: round2(productLineDiscountTotal),
       docDiscAmt: round2(docDiscAmt),
       discountPercent: effectiveDiscountPercent,
       taxableSubtotal: gstCalcResult.taxableSubtotal,
       netTaxableSubtotal: gstCalcResult.netTaxableSubtotal,
+      totalProductAndCharges: round2(totalProductAndCharges),
+      productAndChargesLabel,
+      activeCharges,
       totalChargesAmount: gstCalcResult.totalChargesAmount,
       totalTaxableCharges: gstCalcResult.totalTaxableCharges,
       effectiveTaxRate: gstCalcResult.items?.[0]?.gstRate || 5,
@@ -3198,6 +3238,59 @@ export default function SalesOrderPage() {
     const grandTotalFormatted = Number(orderData.grandTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
     const amountInWords = numberToWordsINR(Number(orderData.grandTotal || 0));
 
+    // Dynamic Product & Charges breakdown
+    const waProductAmt = printableLines.reduce((s, it) => s + Number(it.subtotal || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+    const waDisc = Number(orderData.discountValue || orderData.invoiceDiscount || 0);
+    const waFreight = Number(orderData.freight || 0);
+    const waPacking = Number(orderData.packingCharges || 0);
+    const waLoading = Number(orderData.loadingCharges || 0);
+    const waOther = Number(orderData.otherCharges || 0);
+
+    const waActiveCharges = [];
+    if (waPacking > 0) waActiveCharges.push('Packing');
+    if (waLoading > 0) waActiveCharges.push('Loading');
+    if (waFreight > 0) waActiveCharges.push('Freight');
+    if (waOther > 0) waActiveCharges.push('Other Charges');
+
+    let waProductAndChargesLabel = 'Total Product Amount';
+    if (waActiveCharges.length === 1) {
+      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} Amount`;
+    } else if (waActiveCharges.length === 2) {
+      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} and ${waActiveCharges[1]} Amount`;
+    } else if (waActiveCharges.length > 2) {
+      const last = waActiveCharges[waActiveCharges.length - 1];
+      const rest = waActiveCharges.slice(0, -1).join(', ');
+      waProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+    }
+
+    const waTotalProductAndCharges = Math.max(0, waProductAmt - waDisc) + waFreight + waPacking + waLoading + waOther;
+
+    const waIsInterState = String(orderData.placeOfSupply || '33') !== '33';
+    const waSlabs = computeOrderGstSlabs(orderData, waIsInterState);
+    let waTaxLines = '';
+    if (waSlabs && waSlabs.length > 0) {
+      if (!waIsInterState) {
+        waTaxLines = waSlabs.map(s => 
+          `• CGST ${s.halfRate}% : ₹${s.cgstAmount.toFixed(2)}\n• SGST ${s.halfRate}% : ₹${s.sgstAmount.toFixed(2)}`
+        ).join('\n');
+      } else {
+        waTaxLines = waSlabs.map(s => 
+          `• IGST ${s.rate}% : ₹${s.igstAmount.toFixed(2)}`
+        ).join('\n');
+      }
+      const totalTaxSum = waSlabs.reduce((sum, s) => sum + s.totalTax, 0);
+      waTaxLines += `\n• Total GST Tax : ₹${totalTaxSum.toFixed(2)}`;
+    } else {
+      const totalTax = Number(orderData.cgst || 0) + Number(orderData.sgst || 0) + Number(orderData.igst || 0);
+      if (!waIsInterState) {
+        if (Number(orderData.cgst || 0) > 0) waTaxLines += `• CGST Tax : ₹${Number(orderData.cgst).toFixed(2)}\n`;
+        if (Number(orderData.sgst || 0) > 0) waTaxLines += `• SGST Tax : ₹${Number(orderData.sgst).toFixed(2)}\n`;
+      } else {
+        if (Number(orderData.igst || 0) > 0) waTaxLines += `• IGST Tax : ₹${Number(orderData.igst).toFixed(2)}\n`;
+      }
+      if (totalTax > 0) waTaxLines += `• Total GST Tax : ₹${totalTax.toFixed(2)}`;
+    }
+
     const text = `🧾 *${orderData.type ? orderData.type.toUpperCase() : 'TAX INVOICE'}*
 🏢 *${liveCompany?.companyName || 'LEONEX'}*
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3212,8 +3305,9 @@ export default function SalesOrderPage() {
 ${itemLines}${extraItemsText}
 
 💵 *FINANCIAL BREAKDOWN:*
-• Taxable Value : ₹${Number(orderData.totalSubtotal || 0).toFixed(2)}
-${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(orderData.freight).toFixed(2)}\n` : ''}${Number(orderData.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(orderData.packingCharges).toFixed(2)}\n` : ''}${Number(orderData.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(orderData.loadingCharges).toFixed(2)}\n` : ''}${Number(orderData.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(orderData.otherCharges).toFixed(2)}\n` : ''}${Number(orderData.cgst || 0) > 0 ? `• CGST Tax : ₹${Number(orderData.cgst).toFixed(2)}\n• SGST Tax : ₹${Number(orderData.sgst).toFixed(2)}\n` : ''}${Number(orderData.igst || 0) > 0 ? `• IGST Tax : ₹${Number(orderData.igst).toFixed(2)}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
+• Total Product Amount : ₹${waProductAmt.toFixed(2)}
+${waDisc > 0 ? `• Discount : -₹${waDisc.toFixed(2)}\n` : ''}${waFreight > 0 ? `• Freight & Logistics (${getChargeBadgeText(freightTaxCode)}) : ₹${waFreight.toFixed(2)}\n` : ''}${waPacking > 0 ? `• Package Charges (${getChargeBadgeText(packingTaxCode)}) : ₹${waPacking.toFixed(2)}\n` : ''}${waLoading > 0 ? `• Loading Charges (${getChargeBadgeText(loadingTaxCode)}) : ₹${waLoading.toFixed(2)}\n` : ''}${waOther > 0 ? `• Other Charges (${getChargeBadgeText(otherTaxCode)}) : ₹${waOther.toFixed(2)}\n` : ''}• *${waProductAndChargesLabel}* : ₹${waTotalProductAndCharges.toFixed(2)}
+${waTaxLines ? `${waTaxLines}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 *NET GRAND TOTAL: ₹${grandTotalFormatted}*
 🗣️ _${amountInWords}_
@@ -6718,13 +6812,13 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
         {/* Right Column: Totals & Tax Breakdown (Cols 6) */}
         <div className="lg:col-span-6 flex flex-col items-end space-y-1.5 text-[11.5px]">
           
-          {/* Total Before Discount */}
+          {/* Total Product Amount (Finished Products & Raw Materials where Packing? is not checked) */}
           <div className="flex items-center justify-end w-full max-w-[480px]">
-            <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Total Before Discount</label>
+            <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Total Product Amount</label>
             <input
               type="text"
               readOnly
-              value={`₹${financials.totalBeforeDiscount.toFixed(2)} INR`}
+              value={`₹${(financials.totalProductAmount !== undefined ? financials.totalProductAmount : financials.totalBeforeDiscount).toFixed(2)} INR`}
               className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
@@ -6824,7 +6918,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 }`}
                 title={`Freight Tax Code: ${freightTaxCode} (${getTaxRateFromCode(freightTaxCode)}%)`}
               >
-                {getTaxRateFromCode(freightTaxCode) > 0 ? `${getTaxRateFromCode(freightTaxCode)}% GST` : 'Exempt (0%)'}
+                {getChargeBadgeText(freightTaxCode)}
               </span>
               <button
                 type="button"
@@ -6893,7 +6987,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 }`}
                 title={`Packing Tax Code: ${packingTaxCode} (${getTaxRateFromCode(packingTaxCode)}%)`}
               >
-                {getTaxRateFromCode(packingTaxCode) > 0 ? `${getTaxRateFromCode(packingTaxCode)}% GST` : 'Exempt (0%)'}
+                {getChargeBadgeText(packingTaxCode)}
               </span>
               <button
                 type="button"
@@ -6956,7 +7050,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 }`}
                 title={`Loading Tax Code: ${loadingTaxCode} (${getTaxRateFromCode(loadingTaxCode)}%)`}
               >
-                {getTaxRateFromCode(loadingTaxCode) > 0 ? `${getTaxRateFromCode(loadingTaxCode)}% GST` : 'Exempt (0%)'}
+                {getChargeBadgeText(loadingTaxCode)}
               </span>
               <button
                 type="button"
@@ -7019,7 +7113,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                 }`}
                 title={`Other Charges Tax Code: ${otherTaxCode} (${getTaxRateFromCode(otherTaxCode)}%)`}
               >
-                {getTaxRateFromCode(otherTaxCode) > 0 ? `${getTaxRateFromCode(otherTaxCode)}% GST` : 'Exempt (0%)'}
+                {getChargeBadgeText(otherTaxCode)}
               </span>
               <button
                 type="button"
@@ -7068,14 +7162,19 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             </div>
           </div>
 
-          {/* Taxable Subtotal */}
+          {/* Total Product & Available Charges Amount (Replaces Taxable Subtotal) */}
           <div className="flex items-center justify-end w-full max-w-[480px]">
-            <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">Taxable Subtotal</label>
+            <label 
+              className="flex-1 text-[var(--sap-text-muted)] font-bold pr-3 text-right text-[11px] truncate"
+              title={financials.productAndChargesLabel}
+            >
+              {financials.productAndChargesLabel}
+            </label>
             <input
               type="text"
               readOnly
-              value={`₹${(financials.taxableSubtotal || 0).toFixed(2)} INR`}
-              className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+              value={`₹${(financials.totalProductAndCharges !== undefined ? financials.totalProductAndCharges : (financials.taxableSubtotal || 0)).toFixed(2)} INR`}
+              className="w-40 h-[24px] px-2 text-right font-mono font-bold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
             />
           </div>
 

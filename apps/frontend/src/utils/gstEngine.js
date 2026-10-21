@@ -421,24 +421,61 @@ export function calculateGST(params = {}) {
 }
 
 /**
+ * Parse ancillary tax codes from order object or embedded internal note
+ */
+export function getOrderAncillaryTaxCodes(order = {}) {
+  let codes = order.ancillaryTaxCodes || {};
+  if ((!codes || Object.keys(codes).length === 0) && order.internalNote && order.internalNote.includes('[[ANCILLARY_TAX_CODES:')) {
+    try {
+      const match = order.internalNote.match(/\[\[ANCILLARY_TAX_CODES:(.*?)\]\]/s);
+      if (match && match[1]) codes = JSON.parse(match[1]);
+    } catch (e) {}
+  }
+  return codes;
+}
+
+/**
+ * Extract numerical tax percentage from tax code
+ */
+export function getTaxRateFromCode(code, fallback = 0) {
+  if (!code) return fallback;
+  const c = String(code).trim().toUpperCase();
+  if (c === 'EXEMPT' || c === 'NIL' || c === 'ZERO' || c === '0%') return 0;
+  if (c.includes('28')) return 28;
+  if (c.includes('18')) return 18;
+  if (c.includes('12')) return 12;
+  if (c.includes('5')) return 5;
+  const num = parseFloat(c.replace(/[^0-9.]/g, ''));
+  return isNaN(num) ? fallback : num;
+}
+
+/**
+ * Format charge label with exact percentage based on supply type (IGST vs CGST/SGST)
+ */
+export function formatChargeGstLabel(baseLabel, rate, isInterState) {
+  const r = Number(rate) || 0;
+  if (r <= 0) {
+    return `${baseLabel} (Exempt 0%):`;
+  }
+  if (isInterState) {
+    return `${baseLabel} (${r}% IGST):`;
+  }
+  const half = Math.round((r / 2) * 100) / 100;
+  return `${baseLabel} (CGST ${half}% + SGST ${half}%):`;
+}
+
+/**
  * Helper to compute elaborate GST slabs from an arbitrary order object
  */
 export function computeOrderGstSlabs(order = {}, overrideIsInterState = null) {
   if (!order) return [];
 
-  // If already calculated and present
-  if (Array.isArray(order.gstSlabs) && order.gstSlabs.length > 0) {
-    return order.gstSlabs;
-  }
-  if (order.gstCalcResult && Array.isArray(order.gstCalcResult.gstSlabs) && order.gstCalcResult.gstSlabs.length > 0) {
-    return order.gstCalcResult.gstSlabs;
-  }
-
   const isInterState = overrideIsInterState !== null 
     ? Boolean(overrideIsInterState) 
-    : (String(order.placeOfSupply || order.buyerStateCode || '33') !== '33' || order.taxType === 'INTER_STATE' || Boolean(order.igst && Number(order.igst) > 0 && (!order.cgst || Number(order.cgst) === 0)));
+    : (String(order.placeOfSupply || order.buyerStateCode || '33') !== '33' || order.taxType === 'INTER_STATE' || order.taxType === 'Inter-State' || Boolean(order.igst && Number(order.igst) > 0 && (!order.cgst || Number(order.cgst) === 0)));
 
   const slabMap = {};
+  const ancCodes = getOrderAncillaryTaxCodes(order);
 
   (order.items || []).forEach(it => {
     const qty = Number(it.quantity || it.qty || 1);
@@ -481,91 +518,135 @@ export function computeOrderGstSlabs(order = {}, overrideIsInterState = null) {
   // Freight charges
   const freightAmt = Number(order.freight || 0);
   if (freightAmt > 0 && order.freightGst !== false) {
-    const fRate = Number(order.freightRate || 18);
-    const key = String(fRate);
-    if (!slabMap[key]) {
-      slabMap[key] = {
-        rate: fRate,
-        halfRate: round2(fRate / 2),
-        taxableAmount: 0,
-        cgstRate: isInterState ? 0 : round2(fRate / 2),
-        cgstAmount: 0,
-        sgstRate: isInterState ? 0 : round2(fRate / 2),
-        sgstAmount: 0,
-        igstRate: isInterState ? fRate : 0,
-        igstAmount: 0,
-        totalTax: 0,
-      };
+    const fRate = getTaxRateFromCode(order.freightTaxCode || ancCodes.freightTaxCode, Number(order.freightRate !== undefined ? order.freightRate : 0));
+    if (fRate > 0) {
+      const key = String(fRate);
+      if (!slabMap[key]) {
+        slabMap[key] = {
+          rate: fRate,
+          halfRate: round2(fRate / 2),
+          taxableAmount: 0,
+          cgstRate: isInterState ? 0 : round2(fRate / 2),
+          cgstAmount: 0,
+          sgstRate: isInterState ? 0 : round2(fRate / 2),
+          sgstAmount: 0,
+          igstRate: isInterState ? fRate : 0,
+          igstAmount: 0,
+          totalTax: 0,
+        };
+      }
+      const fTax = round2(freightAmt * (fRate / 100));
+      slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + freightAmt);
+      if (isInterState) {
+        slabMap[key].igstAmount = round2(slabMap[key].igstAmount + fTax);
+      } else {
+        slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (fTax / 2));
+        slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (fTax / 2));
+      }
+      slabMap[key].totalTax = round2(slabMap[key].totalTax + fTax);
     }
-    const fTax = round2(freightAmt * (fRate / 100));
-    slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + freightAmt);
-    if (isInterState) {
-      slabMap[key].igstAmount = round2(slabMap[key].igstAmount + fTax);
-    } else {
-      slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (fTax / 2));
-      slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (fTax / 2));
+  }
+
+  // Packing charges: Only apply tax on extra packing charges beyond line items already taxed
+  const packingLinesSum = (order.items || [])
+    .filter(it => it.isPackingCharge || it.is_packing_charge)
+    .reduce((sum, it) => sum + (Number(it.subtotal) || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+  const totalPackingAmt = Number(order.packingCharges || 0);
+  const extraPackingAmt = Math.max(0, totalPackingAmt - packingLinesSum);
+
+  if (extraPackingAmt > 0 && order.packingGst !== false) {
+    const packingItemRate = order.items?.find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+    const pRate = getTaxRateFromCode(order.packingTaxCode || ancCodes.packingTaxCode, Number(order.packingChargesRate || order.packingRate || packingItemRate || 0));
+    if (pRate > 0) {
+      const key = String(pRate);
+      if (!slabMap[key]) {
+        slabMap[key] = {
+          rate: pRate,
+          halfRate: round2(pRate / 2),
+          taxableAmount: 0,
+          cgstRate: isInterState ? 0 : round2(pRate / 2),
+          cgstAmount: 0,
+          sgstRate: isInterState ? 0 : round2(pRate / 2),
+          sgstAmount: 0,
+          igstRate: isInterState ? pRate : 0,
+          igstAmount: 0,
+          totalTax: 0,
+        };
+      }
+      const pTax = round2(extraPackingAmt * (pRate / 100));
+      slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + extraPackingAmt);
+      if (isInterState) {
+        slabMap[key].igstAmount = round2(slabMap[key].igstAmount + pTax);
+      } else {
+        slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (pTax / 2));
+        slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (pTax / 2));
+      }
+      slabMap[key].totalTax = round2(slabMap[key].totalTax + pTax);
     }
-    slabMap[key].totalTax = round2(slabMap[key].totalTax + fTax);
   }
 
   // Loading charges
   const loadingAmt = Number(order.loadingCharges || 0);
-  if (loadingAmt > 0 && order.loadingGst) {
-    const lRate = Number(order.loadingChargesRate || order.loadingRate || 18);
-    const key = String(lRate);
-    if (!slabMap[key]) {
-      slabMap[key] = {
-        rate: lRate,
-        halfRate: round2(lRate / 2),
-        taxableAmount: 0,
-        cgstRate: isInterState ? 0 : round2(lRate / 2),
-        cgstAmount: 0,
-        sgstRate: isInterState ? 0 : round2(lRate / 2),
-        sgstAmount: 0,
-        igstRate: isInterState ? lRate : 0,
-        igstAmount: 0,
-        totalTax: 0,
-      };
+  if (loadingAmt > 0 && order.loadingGst !== false) {
+    const lRate = getTaxRateFromCode(order.loadingTaxCode || ancCodes.loadingTaxCode, Number(order.loadingChargesRate || order.loadingRate || 0));
+    if (lRate > 0) {
+      const key = String(lRate);
+      if (!slabMap[key]) {
+        slabMap[key] = {
+          rate: lRate,
+          halfRate: round2(lRate / 2),
+          taxableAmount: 0,
+          cgstRate: isInterState ? 0 : round2(lRate / 2),
+          cgstAmount: 0,
+          sgstRate: isInterState ? 0 : round2(lRate / 2),
+          sgstAmount: 0,
+          igstRate: isInterState ? lRate : 0,
+          igstAmount: 0,
+          totalTax: 0,
+        };
+      }
+      const lTax = round2(loadingAmt * (lRate / 100));
+      slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + loadingAmt);
+      if (isInterState) {
+        slabMap[key].igstAmount = round2(slabMap[key].igstAmount + lTax);
+      } else {
+        slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (lTax / 2));
+        slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (lTax / 2));
+      }
+      slabMap[key].totalTax = round2(slabMap[key].totalTax + lTax);
     }
-    const lTax = round2(loadingAmt * (lRate / 100));
-    slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + loadingAmt);
-    if (isInterState) {
-      slabMap[key].igstAmount = round2(slabMap[key].igstAmount + lTax);
-    } else {
-      slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (lTax / 2));
-      slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (lTax / 2));
-    }
-    slabMap[key].totalTax = round2(slabMap[key].totalTax + lTax);
   }
 
   // Other charges
   const otherAmt = Number(order.otherCharges || 0);
-  if (otherAmt > 0 && order.otherGst) {
-    const oRate = Number(order.otherChargesRate || order.otherRate || 18);
-    const key = String(oRate);
-    if (!slabMap[key]) {
-      slabMap[key] = {
-        rate: oRate,
-        halfRate: round2(oRate / 2),
-        taxableAmount: 0,
-        cgstRate: isInterState ? 0 : round2(oRate / 2),
-        cgstAmount: 0,
-        sgstRate: isInterState ? 0 : round2(oRate / 2),
-        sgstAmount: 0,
-        igstRate: isInterState ? oRate : 0,
-        igstAmount: 0,
-        totalTax: 0,
-      };
+  if (otherAmt > 0 && order.otherGst !== false) {
+    const oRate = getTaxRateFromCode(order.otherTaxCode || ancCodes.otherTaxCode, Number(order.otherChargesRate || order.otherRate || 0));
+    if (oRate > 0) {
+      const key = String(oRate);
+      if (!slabMap[key]) {
+        slabMap[key] = {
+          rate: oRate,
+          halfRate: round2(oRate / 2),
+          taxableAmount: 0,
+          cgstRate: isInterState ? 0 : round2(oRate / 2),
+          cgstAmount: 0,
+          sgstRate: isInterState ? 0 : round2(oRate / 2),
+          sgstAmount: 0,
+          igstRate: isInterState ? oRate : 0,
+          igstAmount: 0,
+          totalTax: 0,
+        };
+      }
+      const oTax = round2(otherAmt * (oRate / 100));
+      slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + otherAmt);
+      if (isInterState) {
+        slabMap[key].igstAmount = round2(slabMap[key].igstAmount + oTax);
+      } else {
+        slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (oTax / 2));
+        slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (oTax / 2));
+      }
+      slabMap[key].totalTax = round2(slabMap[key].totalTax + oTax);
     }
-    const oTax = round2(otherAmt * (oRate / 100));
-    slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + otherAmt);
-    if (isInterState) {
-      slabMap[key].igstAmount = round2(slabMap[key].igstAmount + oTax);
-    } else {
-      slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (oTax / 2));
-      slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (oTax / 2));
-    }
-    slabMap[key].totalTax = round2(slabMap[key].totalTax + oTax);
   }
 
   return Object.values(slabMap).sort((a, b) => a.rate - b.rate);

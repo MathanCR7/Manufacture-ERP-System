@@ -2,8 +2,14 @@ const nodemailer = require('nodemailer');
 const PDFDocument = require('pdfkit');
 const axios = require('axios');
 const prisma = require('../database/prisma');
-const { getTaxSettingsData } = require('../modules/setup/tax.controller');
-const { numberToIndianWords } = require('./gstEngine');
+const { 
+  numberToIndianWords, 
+  getOrderAncillaryTaxCodes, 
+  getTaxRateFromCode, 
+  formatChargeGstLabel, 
+  computeOrderGstSlabs, 
+  round2 
+} = require('./gstEngine');
 
 // Create standard Nodemailer transporter using credentials supplied by user in environment
 const transporter = nodemailer.createTransport({
@@ -709,16 +715,63 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
       calcLineY += 10.5;
     };
 
-    printCalcLine('Taxable Goods Subtotal:', `Rs. ${taxableSubtotal.toFixed(2)}`);
-    if (freightAmt > 0) printCalcLine('Freight & Logistics:', `Rs. ${freightAmt.toFixed(2)}`);
-    if (packingAmt > 0) printCalcLine('Packing Charges:', `Rs. ${packingAmt.toFixed(2)}`);
-    if (loadingAmt > 0) printCalcLine('Loading Charges:', `Rs. ${loadingAmt.toFixed(2)}`);
-    if (otherAmt > 0) printCalcLine('Other Charges:', `Rs. ${otherAmt.toFixed(2)}`);
+    // Dynamic Product & Charges calculation for backend PDF
+    const activeChargeNames = [];
+    if (packingAmt > 0) activeChargeNames.push('Packing');
+    if (loadingAmt > 0) activeChargeNames.push('Loading');
+    if (freightAmt > 0) activeChargeNames.push('Freight');
+    if (otherAmt > 0) activeChargeNames.push('Other Charges');
+
+    let productAndChargesLabel = 'Total Product Amount:';
+    if (activeChargeNames.length === 1) {
+      productAndChargesLabel = `Total Product & ${activeChargeNames[0]} Amount:`;
+    } else if (activeChargeNames.length === 2) {
+      productAndChargesLabel = `Total Product & ${activeChargeNames[0]} and ${activeChargeNames[1]} Amount:`;
+    } else if (activeChargeNames.length > 2) {
+      const last = activeChargeNames[activeChargeNames.length - 1];
+      const rest = activeChargeNames.slice(0, -1).join(', ');
+      productAndChargesLabel = `Total Product & ${rest} and ${last} Amount:`;
+    } else if (invoiceDiscount > 0) {
+      productAndChargesLabel = 'Net Product Amount:';
+    }
+
+    const ancCodes = getOrderAncillaryTaxCodes(invoice);
+    const freightRate = getTaxRateFromCode(invoice.freightTaxCode || ancCodes.freightTaxCode, Number(invoice.freightRate !== undefined ? invoice.freightRate : (invoice.freightGst !== false ? 18 : 0)));
+    const packingItemRate = (invoice.items || []).find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+    const packingRate = getTaxRateFromCode(invoice.packingTaxCode || ancCodes.packingTaxCode, Number(invoice.packingChargesRate || invoice.packingRate || packingItemRate || 5));
+    const loadingRate = getTaxRateFromCode(invoice.loadingTaxCode || ancCodes.loadingTaxCode, Number(invoice.loadingChargesRate || invoice.loadingRate || 0));
+    const otherRate = getTaxRateFromCode(invoice.otherTaxCode || ancCodes.otherTaxCode, Number(invoice.otherChargesRate || invoice.otherRate || 0));
+
+    const freightRateLabel = formatChargeGstLabel('Freight & Logistics', freightRate, isInterState);
+    const packingRateLabel = formatChargeGstLabel('Package Charges', packingRate, isInterState);
+    const loadingRateLabel = formatChargeGstLabel('Loading Charges', loadingRate, isInterState);
+    const otherRateLabel = formatChargeGstLabel('Other Charges', otherRate, isInterState);
+
+    const hasExtraLines = invoiceDiscount > 0 || activeChargeNames.length > 0;
+    const totalProductAndCharges = Math.max(0, taxableSubtotal - invoiceDiscount) + freightAmt + packingAmt + loadingAmt + otherAmt;
+
+    // Safeguard grandTotal from stale/corrupt database totals
+    const exactGrand = totalProductAndCharges + cgst + sgst + igst;
+    const roundedTarget = Math.round(exactGrand);
+    if (Math.abs(grandTotal - roundedTarget) > 1.05) {
+      grandTotal = roundedTarget;
+      roundOff = round2(roundedTarget - exactGrand);
+    }
+    const safeRoundOffDisplay = roundOff < 0 ? `-Rs. ${Math.abs(roundOff).toFixed(2)}` : `+Rs. ${Number(roundOff).toFixed(2)}`;
+
+    printCalcLine('Total Product Amount:', `Rs. ${taxableSubtotal.toFixed(2)}`);
     if (invoiceDiscount > 0) printCalcLine('Invoice Discount:', `-Rs. ${invoiceDiscount.toFixed(2)}`, false, '#dc2626');
+    if (freightAmt > 0) printCalcLine(`${freightRateLabel}:`, `Rs. ${freightAmt.toFixed(2)}`);
+    if (packingAmt > 0) printCalcLine(`${packingRateLabel}:`, `Rs. ${packingAmt.toFixed(2)}`);
+    if (loadingAmt > 0) printCalcLine(`${loadingRateLabel}:`, `Rs. ${loadingAmt.toFixed(2)}`);
+    if (otherAmt > 0) printCalcLine(`${otherRateLabel}:`, `Rs. ${otherAmt.toFixed(2)}`);
+    if (hasExtraLines) {
+      printCalcLine(productAndChargesLabel, `Rs. ${totalProductAndCharges.toFixed(2)}`, true, '#0f172a');
+    }
     if (cgst > 0) printCalcLine('CGST Tax:', `Rs. ${cgst.toFixed(2)}`);
     if (sgst > 0) printCalcLine('SGST Tax:', `Rs. ${sgst.toFixed(2)}`);
     if (igst > 0) printCalcLine('IGST Tax:', `Rs. ${igst.toFixed(2)}`);
-    printCalcLine('Round-Off Adjustment:', roundOffDisplay, true, '#92400e', '#fef3c7');
+    printCalcLine('Round-Off Adjustment:', safeRoundOffDisplay, true, '#92400e', '#fef3c7');
 
     doc.strokeColor('#0f172a').lineWidth(1).moveTo(305, calcLineY).lineTo(565, calcLineY).stroke();
     calcLineY += 3;
@@ -2156,68 +2209,7 @@ Phone : ${settings.companyMobile}`;
  * Helper to compute elaborate rate-wise GST slabs for Sales Invoices (communication)
  */
 const computeCommunicationGstSlabs = (invoice, isInterState) => {
-  const round2 = (num) => Math.round((Number(num) || 0) * 100) / 100;
-  const slabMap = {};
-  const printableItems = (invoice.items || []).filter(item => !item.isPackingCharge && !item.is_packing_charge);
-
-  printableItems.forEach(i => {
-    const qty = Number(i.quantity || 1);
-    const unitPrice = Number(i.unitPrice || 0);
-    const lineDiscount = Number(i.discount || (unitPrice * (Number(i.discountPercent || 0) / 100)));
-    const lineTaxable = Math.max(0, (unitPrice - lineDiscount) * qty);
-    const rate = Number(i.gstRate !== undefined ? i.gstRate : 5);
-    if (rate <= 0) return;
-    const key = String(rate);
-    if (!slabMap[key]) {
-      slabMap[key] = {
-        rate,
-        halfRate: round2(rate / 2),
-        taxableAmount: 0,
-        cgstAmount: 0,
-        sgstAmount: 0,
-        igstAmount: 0,
-        totalTax: 0
-      };
-    }
-    const tax = round2((lineTaxable * rate) / 100);
-    slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + lineTaxable);
-    if (isInterState) {
-      slabMap[key].igstAmount = round2(slabMap[key].igstAmount + tax);
-    } else {
-      slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (tax / 2));
-      slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (tax / 2));
-    }
-    slabMap[key].totalTax = round2(slabMap[key].totalTax + tax);
-  });
-
-  // Freight & Logistics Charges (Standard 18% GST unless exempt)
-  const freightAmt = Number(invoice.freight || 0);
-  if (freightAmt > 0 && Number(invoice.freightGst !== undefined ? invoice.freightGst : 18) > 0) {
-    const fRate = Number(invoice.freightGst !== undefined ? invoice.freightGst : 18);
-    const key = String(fRate);
-    if (!slabMap[key]) {
-      slabMap[key] = {
-        rate: fRate,
-        halfRate: round2(fRate / 2),
-        taxableAmount: 0,
-        cgstAmount: 0,
-        sgstAmount: 0,
-        igstAmount: 0,
-        totalTax: 0
-      };
-    }
-    const fTax = round2((freightAmt * fRate) / 100);
-    slabMap[key].taxableAmount = round2(slabMap[key].taxableAmount + freightAmt);
-    if (isInterState) {
-      slabMap[key].igstAmount = round2(slabMap[key].igstAmount + fTax);
-    } else {
-      slabMap[key].cgstAmount = round2(slabMap[key].cgstAmount + (fTax / 2));
-      slabMap[key].sgstAmount = round2(slabMap[key].sgstAmount + (fTax / 2));
-    }
-    slabMap[key].totalTax = round2(slabMap[key].totalTax + fTax);
-  }
-
-  return Object.values(slabMap).sort((a, b) => a.rate - b.rate);
+  return computeOrderGstSlabs(invoice, isInterState);
 };
 
 /**
@@ -2308,7 +2300,48 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
   if (grandTotal === 0) {
     grandTotal = taxableSubtotal + freightAmt + packingAmt + loadingAmt + otherAmt - invoiceDiscount + cgst + sgst + igst + roundOff;
   }
-  const netDue = Math.max(0, grandTotal - amountPaid);
+
+  // Dynamic Product & Charges calculation for HTML email
+  const emailActiveCharges = [];
+  if (packingAmt > 0) emailActiveCharges.push('Packing');
+  if (loadingAmt > 0) emailActiveCharges.push('Loading');
+  if (freightAmt > 0) emailActiveCharges.push('Freight');
+  if (otherAmt > 0) emailActiveCharges.push('Other Charges');
+
+  let emailProductAndChargesLabel = 'Total Product Amount';
+  if (emailActiveCharges.length === 1) {
+    emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} Amount`;
+  } else if (emailActiveCharges.length === 2) {
+    emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} and ${emailActiveCharges[1]} Amount`;
+  } else if (emailActiveCharges.length > 2) {
+    const last = emailActiveCharges[emailActiveCharges.length - 1];
+    const rest = emailActiveCharges.slice(0, -1).join(', ');
+    emailProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+  } else if (invoiceDiscount > 0) {
+    emailProductAndChargesLabel = 'Net Product Amount';
+  }
+
+  const emailHasExtra = invoiceDiscount > 0 || emailActiveCharges.length > 0;
+  const emailTotalProductAndCharges = Math.max(0, taxableSubtotal - invoiceDiscount) + freightAmt + packingAmt + loadingAmt + otherAmt;
+
+  const ancCodes = getOrderAncillaryTaxCodes(invoice);
+  const freightRate = getTaxRateFromCode(invoice.freightTaxCode || ancCodes.freightTaxCode, Number(invoice.freightRate !== undefined ? invoice.freightRate : (invoice.freightGst !== false ? 18 : 0)));
+  const packingItemRate = (invoice.items || []).find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+  const packingRate = getTaxRateFromCode(invoice.packingTaxCode || ancCodes.packingTaxCode, Number(invoice.packingChargesRate || invoice.packingRate || packingItemRate || 5));
+  const loadingRate = getTaxRateFromCode(invoice.loadingTaxCode || ancCodes.loadingTaxCode, Number(invoice.loadingChargesRate || invoice.loadingRate || 0));
+  const otherRate = getTaxRateFromCode(invoice.otherTaxCode || ancCodes.otherTaxCode, Number(invoice.otherChargesRate || invoice.otherRate || 0));
+
+  const freightRateLabel = formatChargeGstLabel('Freight & Logistics', freightRate, isInterState);
+  const packingRateLabel = formatChargeGstLabel('Package Charges', packingRate, isInterState);
+  const loadingRateLabel = formatChargeGstLabel('Loading Charges', loadingRate, isInterState);
+  const otherRateLabel = formatChargeGstLabel('Other Charges', otherRate, isInterState);
+
+  const exactGrand = emailTotalProductAndCharges + cgst + sgst + igst;
+  const roundedTarget = Math.round(exactGrand);
+  if (Math.abs(grandTotal - roundedTarget) > 1.05) {
+    grandTotal = roundedTarget;
+    roundOff = round2(roundedTarget - exactGrand);
+  }
   const roundOffDisplay = roundOff < 0 ? `-₹${Math.abs(roundOff).toFixed(2)}` : `+₹${Number(roundOff).toFixed(2)}`;
   const wordsINR = numberToIndianWords(grandTotal);
 
@@ -2605,33 +2638,38 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
                     </div>
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; line-height: 1.8;">
                       <tr>
-                        <td style="color: #64748b;">Taxable Goods Subtotal:</td>
+                        <td style="color: #64748b;">Total Product Amount:</td>
                         <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${taxableSubtotal.toFixed(2)}</td>
                       </tr>
-                      ${freightAmt > 0 ? `
-                      <tr>
-                        <td style="color: #64748b;">Freight & Logistics:</td>
-                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${freightAmt.toFixed(2)}</td>
-                      </tr>` : ''}
-                      ${packingAmt > 0 ? `
-                      <tr>
-                        <td style="color: #64748b;">Packing Charges:</td>
-                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${packingAmt.toFixed(2)}</td>
-                      </tr>` : ''}
-                      ${loadingAmt > 0 ? `
-                      <tr>
-                        <td style="color: #64748b;">Loading Charges:</td>
-                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${loadingAmt.toFixed(2)}</td>
-                      </tr>` : ''}
-                      ${otherAmt > 0 ? `
-                      <tr>
-                        <td style="color: #64748b;">Other Charges:</td>
-                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${otherAmt.toFixed(2)}</td>
-                      </tr>` : ''}
                       ${invoiceDiscount > 0 ? `
                       <tr>
                         <td style="color: #dc2626;">Invoice Discount:</td>
                         <td style="font-weight: 600; text-align: right; color: #dc2626;">-₹${invoiceDiscount.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${freightAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">${freightRateLabel}:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${freightAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${packingAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">${packingRateLabel}:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${packingAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${loadingAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">${loadingRateLabel}:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${loadingAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${otherAmt > 0 ? `
+                      <tr>
+                        <td style="color: #64748b;">${otherRateLabel}:</td>
+                        <td style="font-weight: 600; text-align: right; color: #0f172a;">₹${otherAmt.toFixed(2)}</td>
+                      </tr>` : ''}
+                      ${emailHasExtra ? `
+                      <tr style="border-top: 1px solid #cbd5e1; background-color: #f1f5f9;">
+                        <td style="color: #1e293b; font-weight: 700; padding: 4px 6px;">${emailProductAndChargesLabel}:</td>
+                        <td style="font-weight: 800; text-align: right; color: #0f172a; padding: 4px 6px; font-family: monospace;">₹${emailTotalProductAndCharges.toFixed(2)}</td>
                       </tr>` : ''}
                       
                       <!-- Dynamic Elaborated Rate-wise GST Slabs Breakdown -->
@@ -2848,12 +2886,58 @@ const sendSalesInvoiceDual = async (invoice, targetEmail = null, bypassDuplicate
       if (totTax > 0) emailTaxBreakdownText = `Total GST Tax    : Rs. ${totTax.toFixed(2)}`;
     }
 
+    // Dynamic Product & Charges calculation for text email
+    const emailProductLines = (orderData.items || []).filter(i => !i.isPackingCharge && !i.is_packing_charge);
+    const emailProductAmt = emailProductLines.reduce((s, it) => s + Number(it.subtotal || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+    const emailDisc = Number(orderData.discountValue || orderData.invoiceDiscount || 0);
+    const emailFreight = Number(orderData.freight || 0);
+    const emailPackingLinesSum = (orderData.items || [])
+      .filter(i => i.isPackingCharge || i.is_packing_charge)
+      .reduce((s, i) => s + Number(i.subtotal || (Number(i.quantity || 1) * Number(i.unitPrice || 0))), 0);
+    const emailPacking = Math.max(Number(orderData.packingCharges || 0), emailPackingLinesSum);
+    const emailLoading = Number(orderData.loadingCharges || 0);
+    const emailOther = Number(orderData.otherCharges || 0);
+
+    const emailActiveCharges = [];
+    if (emailPacking > 0) emailActiveCharges.push('Packing');
+    if (emailLoading > 0) emailActiveCharges.push('Loading');
+    if (emailFreight > 0) emailActiveCharges.push('Freight');
+    if (emailOther > 0) emailActiveCharges.push('Other Charges');
+
+    let emailProductAndChargesLabel = 'Total Product Amount';
+    if (emailActiveCharges.length === 1) {
+      emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} Amount`;
+    } else if (emailActiveCharges.length === 2) {
+      emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} and ${emailActiveCharges[1]} Amount`;
+    } else if (emailActiveCharges.length > 2) {
+      const last = emailActiveCharges[emailActiveCharges.length - 1];
+      const rest = emailActiveCharges.slice(0, -1).join(', ');
+      emailProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+    } else if (emailDisc > 0) {
+      emailProductAndChargesLabel = 'Net Product Amount';
+    }
+
+    const emailAncCodes = getOrderAncillaryTaxCodes(orderData);
+    const emailFreightRate = getTaxRateFromCode(orderData.freightTaxCode || emailAncCodes.freightTaxCode, Number(orderData.freightRate !== undefined ? orderData.freightRate : (orderData.freightGst !== false ? 18 : 0)));
+    const emailPackingItemRate = (orderData.items || []).find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+    const emailPackingRate = getTaxRateFromCode(orderData.packingTaxCode || emailAncCodes.packingTaxCode, Number(orderData.packingChargesRate || orderData.packingRate || emailPackingItemRate || 5));
+    const emailLoadingRate = getTaxRateFromCode(orderData.loadingTaxCode || emailAncCodes.loadingTaxCode, Number(orderData.loadingChargesRate || orderData.loadingRate || 0));
+    const emailOtherRate = getTaxRateFromCode(orderData.otherTaxCode || emailAncCodes.otherTaxCode, Number(orderData.otherChargesRate || orderData.otherRate || 0));
+
+    const emailFreightRateLabel = formatChargeGstLabel('Freight & Logistics', emailFreightRate, emailIsInterState);
+    const emailPackingRateLabel = formatChargeGstLabel('Package Charges', emailPackingRate, emailIsInterState);
+    const emailLoadingRateLabel = formatChargeGstLabel('Loading Charges', emailLoadingRate, emailIsInterState);
+    const emailOtherRateLabel = formatChargeGstLabel('Other Charges', emailOtherRate, emailIsInterState);
+
+    const emailHasExtra = emailDisc > 0 || emailActiveCharges.length > 0;
+    const emailTotalProductAndCharges = Math.max(0, emailProductAmt - emailDisc) + emailFreight + emailPacking + emailLoading + emailOther;
+
     const body = `Dear ${orderData.customer?.name || orderData.customerName || 'Valued Customer'},
 
 Please find your statutory ${docTitle} [${docNo}] attached to this email.
 Customer / Party : ${orderData.customerName || orderData.customer?.name || 'Valued Customer'} (${orderData.customerPhone || orderData.customer?.phone || '-'})
-Taxable Subtotal : Rs. ${Number(orderData.totalSubtotal || 0).toFixed(2)}
-${emailTaxBreakdownText ? `${emailTaxBreakdownText}\n` : ''}Round-Off Adjust : Rs. ${Number(orderData.roundOff || 0).toFixed(2)}
+Total Product Amount : Rs. ${emailProductAmt.toFixed(2)}
+${emailDisc > 0 ? `Discount         : -Rs. ${emailDisc.toFixed(2)}\n` : ''}${emailFreight > 0 ? `${emailFreightRateLabel.padEnd(20)} : Rs. ${emailFreight.toFixed(2)}\n` : ''}${emailPacking > 0 ? `${emailPackingRateLabel.padEnd(20)} : Rs. ${emailPacking.toFixed(2)}\n` : ''}${emailLoading > 0 ? `${emailLoadingRateLabel.padEnd(20)} : Rs. ${emailLoading.toFixed(2)}\n` : ''}${emailOther > 0 ? `${emailOtherRateLabel.padEnd(20)} : Rs. ${emailOther.toFixed(2)}\n` : ''}${emailHasExtra ? `${emailProductAndChargesLabel} : Rs. ${emailTotalProductAndCharges.toFixed(2)}\n` : ''}${emailTaxBreakdownText ? `${emailTaxBreakdownText}\n` : ''}Round-Off Adjust : Rs. ${Number(orderData.roundOff || 0).toFixed(2)}
 Final Net Amount : Rs. ${grandTotalVal}
 Amount in Words  : ${numberToIndianWords(Number(orderData.grandTotal || 0))}
 Payment Terms    : ${orderData.paymentTerms || (orderData.paymentStatus === 'PAID' ? 'Immediate / PAID' : 'Net 30')}
@@ -2935,7 +3019,50 @@ Helpline: ${settings.companyMobile}`;
     const extraItemsCount = printableItems.length - 8;
     const extraItemsText = extraItemsCount > 0 ? `\n...and ${extraItemsCount} more items in PDF` : '';
 
+    // Dynamic Product & Charges calculation for WhatsApp
+    const waProductLines = (orderData.items || []).filter(i => !i.isPackingCharge && !i.is_packing_charge);
+    const waProductAmt = waProductLines.reduce((s, it) => s + Number(it.subtotal || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+    const waDisc = Number(orderData.discountValue || orderData.invoiceDiscount || 0);
+    const waFreight = Number(orderData.freight || 0);
+    const waPackingLinesSum = (orderData.items || [])
+      .filter(i => i.isPackingCharge || i.is_packing_charge)
+      .reduce((s, i) => s + Number(i.subtotal || (Number(i.quantity || 1) * Number(it.unitPrice || 0))), 0);
+    const waPacking = Math.max(Number(orderData.packingCharges || 0), waPackingLinesSum);
+    const waLoading = Number(orderData.loadingCharges || 0);
+    const waOther = Number(orderData.otherCharges || 0);
+
+    const waActiveCharges = [];
+    if (waPacking > 0) waActiveCharges.push('Packing');
+    if (waLoading > 0) waActiveCharges.push('Loading');
+    if (waFreight > 0) waActiveCharges.push('Freight');
+    if (waOther > 0) waActiveCharges.push('Other Charges');
+
+    let waProductAndChargesLabel = 'Total Product Amount';
+    if (waActiveCharges.length === 1) {
+      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} Amount`;
+    } else if (waActiveCharges.length === 2) {
+      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} and ${waActiveCharges[1]} Amount`;
+    } else if (waActiveCharges.length > 2) {
+      const last = waActiveCharges[waActiveCharges.length - 1];
+      const rest = waActiveCharges.slice(0, -1).join(', ');
+      waProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+    }
+
+    const waTotalProductAndCharges = Math.max(0, waProductAmt - waDisc) + waFreight + waPacking + waLoading + waOther;
+
     const waIsInterState = String(orderData.placeOfSupply || '33') !== '33';
+    const waAncCodes = getOrderAncillaryTaxCodes(orderData);
+    const waFreightRate = getTaxRateFromCode(orderData.freightTaxCode || waAncCodes.freightTaxCode, Number(orderData.freightRate !== undefined ? orderData.freightRate : (orderData.freightGst !== false ? 18 : 0)));
+    const waPackingItemRate = (orderData.items || []).find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+    const waPackingRate = getTaxRateFromCode(orderData.packingTaxCode || waAncCodes.packingTaxCode, Number(orderData.packingChargesRate || orderData.packingRate || waPackingItemRate || 5));
+    const waLoadingRate = getTaxRateFromCode(orderData.loadingTaxCode || waAncCodes.loadingTaxCode, Number(orderData.loadingChargesRate || orderData.loadingRate || 0));
+    const waOtherRate = getTaxRateFromCode(orderData.otherTaxCode || waAncCodes.otherTaxCode, Number(orderData.otherChargesRate || orderData.otherRate || 0));
+
+    const waFreightRateLabel = formatChargeGstLabel('Freight & Logistics', waFreightRate, waIsInterState);
+    const waPackingRateLabel = formatChargeGstLabel('Package Charges', waPackingRate, waIsInterState);
+    const waLoadingRateLabel = formatChargeGstLabel('Loading Charges', waLoadingRate, waIsInterState);
+    const waOtherRateLabel = formatChargeGstLabel('Other Charges', waOtherRate, waIsInterState);
+
     const waSlabs = computeCommunicationGstSlabs(orderData, waIsInterState);
     let waTaxLines = '';
     if (waSlabs && waSlabs.length > 0) {
@@ -2971,8 +3098,9 @@ Helpline: ${settings.companyMobile}`;
 ${itemLines}${extraItemsText}
 
 💵 *FINANCIAL BREAKDOWN:*
-• Taxable Value : ₹${Number(orderData.totalSubtotal || 0).toFixed(2)}
-${Number(orderData.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(orderData.freight).toFixed(2)}\n` : ''}${Number(orderData.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(orderData.packingCharges).toFixed(2)}\n` : ''}${Number(orderData.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(orderData.loadingCharges).toFixed(2)}\n` : ''}${Number(orderData.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(orderData.otherCharges).toFixed(2)}\n` : ''}${waTaxLines ? `${waTaxLines}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
+• Total Product Amount : ₹${waProductAmt.toFixed(2)}
+${waDisc > 0 ? `• Discount : -₹${waDisc.toFixed(2)}\n` : ''}${waFreight > 0 ? `• ${waFreightRateLabel} : ₹${waFreight.toFixed(2)}\n` : ''}${waPacking > 0 ? `• ${waPackingRateLabel} : ₹${waPacking.toFixed(2)}\n` : ''}${waLoading > 0 ? `• ${waLoadingRateLabel} : ₹${waLoading.toFixed(2)}\n` : ''}${waOther > 0 ? `• ${waOtherRateLabel} : ₹${waOther.toFixed(2)}\n` : ''}• *${waProductAndChargesLabel}* : ₹${waTotalProductAndCharges.toFixed(2)}
+${waTaxLines ? `${waTaxLines}\n` : ''}• Round-Off : ${Number(orderData.roundOff || 0) < 0 ? `-₹${Math.abs(Number(orderData.roundOff)).toFixed(2)}` : `+₹${Number(orderData.roundOff || 0).toFixed(2)}`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 *NET GRAND TOTAL: ₹${Number(orderData.grandTotal || 0).toFixed(2)}*
 🗣️ _${numberToIndianWords(Number(orderData.grandTotal || 0))}_

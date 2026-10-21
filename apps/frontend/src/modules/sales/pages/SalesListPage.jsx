@@ -19,7 +19,7 @@ import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
 import { generateA4TaxInvoice, generateThermalReceipt, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
-import { numberToWordsINR, getIndianStates, computeOrderGstSlabs } from '@/utils/gstEngine';
+import { numberToWordsINR, getIndianStates, computeOrderGstSlabs, formatChargeGstLabel, getOrderAncillaryTaxCodes, getTaxRateFromCode } from '@/utils/gstEngine';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 import ProductPriceHistoryModal from '@/modules/item-setup/components/ProductPriceHistoryModal';
 
@@ -642,8 +642,50 @@ export default function SalesListPage() {
     const rawGrandTotal = Number(fullOrder.grandTotal || fullOrder.totalSubtotal || 0);
     const amountInWords = numberToWordsINR(rawGrandTotal);
 
+    // Dynamic Product & Charges calculation for WhatsApp
+    const waProductLines = (fullOrder.items || []).filter(i => !i.isPackingCharge && !i.is_packing_charge);
+    const waProductAmt = waProductLines.reduce((s, it) => s + Number(it.subtotal || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+    const waDisc = Number(fullOrder.discountValue || fullOrder.invoiceDiscount || 0);
+    const waFreight = Number(fullOrder.freight || 0);
+    const waPacking = Number(fullOrder.packingCharges || 0);
+    const waLoading = Number(fullOrder.loadingCharges || 0);
+    const waOther = Number(fullOrder.otherCharges || 0);
+
+    const waActiveCharges = [];
+    if (waPacking > 0) waActiveCharges.push('Packing');
+    if (waLoading > 0) waActiveCharges.push('Loading');
+    if (waFreight > 0) waActiveCharges.push('Freight');
+    if (waOther > 0) waActiveCharges.push('Other Charges');
+
+    let waProductAndChargesLabel = 'Total Product Amount';
+    if (waActiveCharges.length === 1) {
+      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} Amount`;
+    } else if (waActiveCharges.length === 2) {
+      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} and ${waActiveCharges[1]} Amount`;
+    } else if (waActiveCharges.length > 2) {
+      const last = waActiveCharges[waActiveCharges.length - 1];
+      const rest = waActiveCharges.slice(0, -1).join(', ');
+      waProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+    }
+
+    const waTotalProductAndCharges = Math.max(0, waProductAmt - waDisc) + waFreight + waPacking + waLoading + waOther;
+
     const docTypeLabel = fullOrder.type ? fullOrder.type.toUpperCase() : 'TAX INVOICE';
     const waIsInterState = String(fullOrder.placeOfSupply || '33') !== '33';
+    const waAncCodes = getOrderAncillaryTaxCodes(fullOrder);
+    const waFreightRate = getTaxRateFromCode(fullOrder.freightTaxCode || waAncCodes.freightTaxCode, Number(fullOrder.freightRate !== undefined ? fullOrder.freightRate : (fullOrder.freightGst !== false ? 18 : 0)));
+    const waPackingItemRate = fullOrder.items?.find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+    const waPackingRate = getTaxRateFromCode(fullOrder.packingTaxCode || waAncCodes.packingTaxCode, Number(fullOrder.packingChargesRate || fullOrder.packingRate || waPackingItemRate || 5));
+    const waLoadingRate = getTaxRateFromCode(fullOrder.loadingTaxCode || waAncCodes.loadingTaxCode, Number(fullOrder.loadingChargesRate || fullOrder.loadingRate || 0));
+    const waOtherRate = getTaxRateFromCode(fullOrder.otherTaxCode || waAncCodes.otherTaxCode, Number(fullOrder.otherChargesRate || fullOrder.otherRate || 0));
+
+    const getWaRateText = (rate) => {
+      if (rate <= 0) return 'Exempt 0%';
+      if (waIsInterState) return `${rate}% IGST`;
+      const half = Math.round((rate / 2) * 100) / 100;
+      return `CGST ${half}% + SGST ${half}%`;
+    };
+
     const waSlabs = computeOrderGstSlabs(fullOrder, waIsInterState);
     let waTaxLines = '';
     if (waSlabs && waSlabs.length > 0) {
@@ -683,8 +725,9 @@ export default function SalesListPage() {
 ${itemLines || '1 Line Item'}${extraItemsText}
 
 💵 *FINANCIAL BREAKDOWN:*
-• Taxable Value : ₹${Number(fullOrder.totalSubtotal || 0).toFixed(2)}
-${Number(fullOrder.freight || 0) > 0 ? `• Freight & Logistics : ₹${Number(fullOrder.freight).toFixed(2)}\n` : ''}${Number(fullOrder.packingCharges || 0) > 0 ? `• Packing Charges : ₹${Number(fullOrder.packingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.loadingCharges || 0) > 0 ? `• Loading Charges : ₹${Number(fullOrder.loadingCharges).toFixed(2)}\n` : ''}${Number(fullOrder.otherCharges || 0) > 0 ? `• Other Charges : ₹${Number(fullOrder.otherCharges).toFixed(2)}\n` : ''}${waTaxLines ? `${waTaxLines}\n` : ''}• Round-Off : ${Number(fullOrder.roundOff || 0) < 0 ? `-₹${Math.abs(Number(fullOrder.roundOff)).toFixed(2)}` : `+₹${Number(fullOrder.roundOff || 0).toFixed(2)}`}
+• Total Product Amount : ₹${waProductAmt.toFixed(2)}
+${waDisc > 0 ? `• Discount : -₹${waDisc.toFixed(2)}\n` : ''}${waFreight > 0 ? `• Freight & Logistics (${getWaRateText(waFreightRate)}) : ₹${waFreight.toFixed(2)}\n` : ''}${waPacking > 0 ? `• Package Charges (${getWaRateText(waPackingRate)}) : ₹${waPacking.toFixed(2)}\n` : ''}${waLoading > 0 ? `• Loading Charges (${getWaRateText(waLoadingRate)}) : ₹${waLoading.toFixed(2)}\n` : ''}${waOther > 0 ? `• Other Charges (${getWaRateText(waOtherRate)}) : ₹${waOther.toFixed(2)}\n` : ''}• *${waProductAndChargesLabel}* : ₹${waTotalProductAndCharges.toFixed(2)}
+${waTaxLines ? `${waTaxLines}\n` : ''}• Round-Off : ${Number(fullOrder.roundOff || 0) < 0 ? `-₹${Math.abs(Number(fullOrder.roundOff)).toFixed(2)}` : `+₹${Number(fullOrder.roundOff || 0).toFixed(2)}`}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 💰 *NET GRAND TOTAL: ₹${grandTotal}*
 🗣️ _${amountInWords}_
@@ -1135,26 +1178,65 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
 
     // Financial breakdown values
     const itemsList = selectedOrder.items || [];
+    // Only non-packing line items (Products and Raw Materials) belong to Total Product Amount
+    const productLines = itemsList.filter(item => !item.isPackingCharge && !item.is_packing_charge);
+    const totalProductAmount = productLines.reduce((sum, item) => sum + (Number(item.unitPrice || 0) * Number(item.quantity || 0)), 0);
     const totalBeforeDiscount = itemsList.reduce((sum, item) => sum + (Number(item.unitPrice || 0) * Number(item.quantity || 0)), 0);
     const lineDiscountTotal = itemsList.reduce((sum, item) => sum + (Number(item.discount || 0) * Number(item.quantity || 0)), 0);
     const discountVal = Number(selectedOrder.discountValue || lineDiscountTotal || 0);
     const freightVal = Number(selectedOrder.freight || 0);
     const loadingVal = Number(selectedOrder.loadingCharges || 0);
-    const packingVal = Number(selectedOrder.packingCharges || 0);
+    const packingLinesSum = itemsList
+      .filter(it => it.isPackingCharge || it.is_packing_charge)
+      .reduce((sum, it) => sum + (Number(it.subtotal) || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+    const packingVal = Math.max(Number(selectedOrder.packingCharges || 0), packingLinesSum);
     const otherVal = Number(selectedOrder.otherCharges || 0);
     const taxableSubtotal = Number(selectedOrder.totalSubtotal || (totalBeforeDiscount - lineDiscountTotal) || 0);
+
+    const activeChargeNames = [];
+    if (packingVal > 0) activeChargeNames.push('Packing');
+    if (loadingVal > 0) activeChargeNames.push('Loading');
+    if (freightVal > 0) activeChargeNames.push('Freight');
+    if (otherVal > 0) activeChargeNames.push('Other Charges');
+
+    let productAndChargesLabel = 'Total Product Amount';
+    if (activeChargeNames.length === 1) {
+      productAndChargesLabel = `Total Product & ${activeChargeNames[0]} Amount`;
+    } else if (activeChargeNames.length === 2) {
+      productAndChargesLabel = `Total Product & ${activeChargeNames[0]} and ${activeChargeNames[1]} Amount`;
+    } else if (activeChargeNames.length > 2) {
+      const last = activeChargeNames[activeChargeNames.length - 1];
+      const rest = activeChargeNames.slice(0, -1).join(', ');
+      productAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+    }
+
+    const totalProductAndCharges = Math.max(0, totalProductAmount - discountVal) + freightVal + loadingVal + packingVal + otherVal;
     const cgstVal = Number(selectedOrder.cgst || 0);
     const sgstVal = Number(selectedOrder.sgst || 0);
     const igstVal = Number(selectedOrder.igst || 0);
     const totalGstTax = cgstVal + sgstVal + igstVal;
-    const roundOffVal = Number(selectedOrder.roundOff || 0);
-    const grandTotalVal = Number(selectedOrder.grandTotal || (taxableSubtotal + totalGstTax + freightVal + loadingVal + packingVal + otherVal + roundOffVal));
+    const isInterState = String(editForm.placeOfSupply || '33') !== '33';
+    const ancCodes = getOrderAncillaryTaxCodes(selectedOrder);
+    const freightRate = getTaxRateFromCode(selectedOrder.freightTaxCode || ancCodes.freightTaxCode, Number(selectedOrder.freightRate !== undefined ? selectedOrder.freightRate : (selectedOrder.freightGst !== false ? 18 : 0)));
+    const packingItemRate = itemsList.find(it => it.isPackingCharge || it.is_packing_charge)?.gstRate;
+    const packingRate = getTaxRateFromCode(selectedOrder.packingTaxCode || ancCodes.packingTaxCode, Number(selectedOrder.packingChargesRate || selectedOrder.packingRate || packingItemRate || 5));
+    const loadingRate = getTaxRateFromCode(selectedOrder.loadingTaxCode || ancCodes.loadingTaxCode, Number(selectedOrder.loadingChargesRate || selectedOrder.loadingRate || 0));
+    const otherRate = getTaxRateFromCode(selectedOrder.otherTaxCode || ancCodes.otherTaxCode, Number(selectedOrder.otherChargesRate || selectedOrder.otherRate || 0));
+
+    const freightRateLabel = formatChargeGstLabel('Freight & Logistics Charges', freightRate, isInterState);
+    const packingRateLabel = formatChargeGstLabel('Package Charges', packingRate, isInterState);
+    const loadingRateLabel = formatChargeGstLabel('Loading Charges', loadingRate, isInterState);
+    const otherRateLabel = formatChargeGstLabel('Other Charges', otherRate, isInterState);
+
+    const orderGstSlabs = computeOrderGstSlabs(selectedOrder, isInterState);
+    const exactNetGrand = totalProductAndCharges + totalGstTax;
+    const targetRounded = Math.round(exactNetGrand);
+    const isCloseToDbTotal = Math.abs(Number(selectedOrder.grandTotal || 0) - targetRounded) <= 1.05;
+    const grandTotalVal = isCloseToDbTotal ? Number(selectedOrder.grandTotal) : targetRounded;
+    const roundOffVal = isCloseToDbTotal && selectedOrder.roundOff !== undefined ? Number(selectedOrder.roundOff) : Math.round((targetRounded - exactNetGrand) * 100) / 100;
     const advancePaidVal = Number(editForm.amountPaid || 0);
     const balanceDueVal = Math.max(0, grandTotalVal - advancePaidVal);
     const amountInWords = numberToWordsINR(grandTotalVal);
-
-    const isInterState = String(editForm.placeOfSupply || '33') !== '33';
-    const orderGstSlabs = computeOrderGstSlabs(selectedOrder, isInterState);
 
     return (
       <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn font-sans">
@@ -2595,7 +2677,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-500 font-bold mb-1">Freight (₹)</label>
+                    <label className="block text-slate-500 font-bold mb-1 truncate" title={freightRateLabel}>{freightRateLabel} (₹)</label>
                     <input
                       type="text"
                       readOnly
@@ -2604,7 +2686,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 font-bold mb-1">Loading (₹)</label>
+                    <label className="block text-slate-500 font-bold mb-1 truncate" title={loadingRateLabel}>{loadingRateLabel} (₹)</label>
                     <input
                       type="text"
                       readOnly
@@ -2613,7 +2695,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 font-bold mb-1">Packing (₹)</label>
+                    <label className="block text-slate-500 font-bold mb-1 truncate" title={packingRateLabel}>{packingRateLabel} (₹)</label>
                     <input
                       type="text"
                       readOnly
@@ -2622,7 +2704,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 font-bold mb-1">Other Charges (₹)</label>
+                    <label className="block text-slate-500 font-bold mb-1 truncate" title={otherRateLabel}>{otherRateLabel} (₹)</label>
                     <input
                       type="text"
                       readOnly
@@ -3058,23 +3140,48 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
             {/* Right Side: Financial Ledger Summary (Cols 6) */}
             <div className="lg:col-span-6 space-y-2 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 lg:pl-6 pt-3 lg:pt-0">
               <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Total Before Discount:</span>
-                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₹{totalBeforeDiscount.toFixed(2)} INR</span>
+                <span className="text-slate-500">Total Product Amount:</span>
+                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₹{totalProductAmount.toFixed(2)} INR</span>
               </div>
 
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Discount Amount:</span>
-                <span className="font-mono text-rose-500">-₹{discountVal.toFixed(2)} INR</span>
-              </div>
+              {discountVal > 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">Discount Amount:</span>
+                  <span className="font-mono text-rose-500">-₹{discountVal.toFixed(2)} INR</span>
+                </div>
+              )}
 
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Freight & Logistics Charges:</span>
-                <span className="font-mono text-slate-700 dark:text-slate-300">₹{(freightVal + loadingVal + packingVal + otherVal).toFixed(2)} INR</span>
-              </div>
+              {freightVal > 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">{freightRateLabel}:</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">₹{freightVal.toFixed(2)} INR</span>
+                </div>
+              )}
 
-              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-slate-500">Taxable Subtotal:</span>
-                <span className="font-mono font-bold text-slate-800 dark:text-slate-200">₹{taxableSubtotal.toFixed(2)} INR</span>
+              {packingVal > 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">{packingRateLabel}:</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">₹{packingVal.toFixed(2)} INR</span>
+                </div>
+              )}
+
+              {loadingVal > 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">{loadingRateLabel}:</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">₹{loadingVal.toFixed(2)} INR</span>
+                </div>
+              )}
+
+              {otherVal > 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-500">{otherRateLabel}:</span>
+                  <span className="font-mono text-slate-700 dark:text-slate-300">₹{otherVal.toFixed(2)} INR</span>
+                </div>
+              )}
+
+              <div className="flex justify-between py-1 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60 px-1.5 rounded">
+                <span className="text-slate-700 dark:text-slate-200 font-bold">{productAndChargesLabel}:</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white">₹{totalProductAndCharges.toFixed(2)} INR</span>
               </div>
 
               {/* Dynamic Rate-wise GST Slabs Breakdown */}

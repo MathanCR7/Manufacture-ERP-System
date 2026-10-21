@@ -1427,6 +1427,26 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
     }
 
     // 6. Precise GST Engine calculation
+    // Detect if packing charges are already present as line items (isPackingCharge: true)
+    const packingLinesAmount = itemsPrepared
+      .filter(it => it.isPackingCharge)
+      .reduce((acc, it) => acc + (Number(it.subtotal) || 0), 0);
+    const rawPackingCharges = Number(data.packingCharges || 0);
+    const extraPackingCharges = Math.max(0, rawPackingCharges - packingLinesAmount);
+
+    const ancCodes = {
+      freightTaxCode: data.freightTaxCode || (data.freightGst ? (isInterState ? 'IGST18' : 'SCG18') : 'EXEMPT'),
+      loadingTaxCode: data.loadingTaxCode || (data.loadingGst ? (isInterState ? 'IGST18' : 'SCG18') : 'EXEMPT'),
+      packingTaxCode: data.packingTaxCode || (data.packingGst ? (isInterState ? 'IGST18' : 'SCG18') : 'EXEMPT'),
+      otherTaxCode: data.otherTaxCode || (data.otherGst ? (isInterState ? 'IGST18' : 'SCG18') : 'EXEMPT')
+    };
+
+    const freightRate = gstEngine.getTaxRateFromCode(data.freightTaxCode || ancCodes.freightTaxCode, data.freightRate !== undefined ? Number(data.freightRate) : (data.freightGst ? 18 : 0));
+    const packingItemRate = itemsPrepared.find(it => it.isPackingCharge)?.gstRate;
+    const packingRate = gstEngine.getTaxRateFromCode(data.packingTaxCode || ancCodes.packingTaxCode, data.packingRate !== undefined ? Number(data.packingRate) : (packingItemRate !== undefined ? Number(packingItemRate) : (data.packingGst ? 18 : 0)));
+    const loadingRate = gstEngine.getTaxRateFromCode(data.loadingTaxCode || ancCodes.loadingTaxCode, data.loadingRate !== undefined ? Number(data.loadingRate) : (data.loadingGst ? 18 : 0));
+    const otherRate = gstEngine.getTaxRateFromCode(data.otherTaxCode || ancCodes.otherTaxCode, data.otherRate !== undefined ? Number(data.otherRate) : (data.otherGst ? 18 : 0));
+
     const gstResult = gstEngine.calculateGST({
       items: itemsPrepared.map(it => ({
         productId: it.productId || it.rawMaterialId,
@@ -1439,16 +1459,20 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       additionalCharges: {
         freight: Number(data.freight || 0),
         loading: Number(data.loadingCharges || 0),
-        packing: Number(data.packingCharges || 0),
+        packing: extraPackingCharges,
         insurance: Number(data.insurance || 0),
         other: Number(data.otherCharges || 0),
       },
       chargeTaxRates: {
-        freightGst: Boolean(data.freightGst),
-        loadingGst: Boolean(data.loadingGst),
-        packingGst: Boolean(data.packingGst),
+        freightRate,
+        loadingRate,
+        packingRate,
+        otherRate,
+        freightGst: freightRate > 0,
+        loadingGst: loadingRate > 0,
+        packingGst: packingRate > 0,
         insuranceGst: Boolean(data.insuranceGst),
-        otherGst: Boolean(data.otherGst),
+        otherGst: otherRate > 0,
       },
       invoiceDiscount: Number(data.discountValue || data.invoiceDiscount || 0),
       tdsDeduction: Number(data.tdsDeduction || 0),
@@ -1486,12 +1510,6 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
       finalInternalNote += `\n[[TERMS_AND_CONDITIONS:${data.termsAndConditions}]]`;
     }
 
-    const ancCodes = {
-      freightTaxCode: data.freightTaxCode || (data.freightGst ? 'SCG18' : 'EXEMPT'),
-      loadingTaxCode: data.loadingTaxCode || (data.loadingGst ? 'SCG18' : 'EXEMPT'),
-      packingTaxCode: data.packingTaxCode || (data.packingGst ? 'SCG18' : 'EXEMPT'),
-      otherTaxCode: data.otherTaxCode || (data.otherGst ? 'SCG18' : 'EXEMPT')
-    };
     finalInternalNote = finalInternalNote.replace(/\[\[ANCILLARY_TAX_CODES:.*?\]\]/gs, '').trim();
     finalInternalNote += `\n[[ANCILLARY_TAX_CODES:${JSON.stringify(ancCodes)}]]`;
     if (data.attachmentUrl && !finalInternalNote.includes(data.attachmentUrl)) {
@@ -1547,15 +1565,15 @@ async function processBillingOrder({ req, type, data, defaultStatus }) {
         invoiceDiscount: Number(data.discountValue || data.invoiceDiscount || 0),
         tdsDeduction: Number(data.tdsDeduction || 0),
         freight: gstResult.charges?.freight || 0,
-        freightGst: Boolean(data.freightGst),
+        freightGst: freightRate > 0,
         loadingCharges: gstResult.charges?.loadingCharges || gstResult.charges?.loading || 0,
-        loadingGst: Boolean(data.loadingGst),
-        packingCharges: gstResult.charges?.packingCharges || gstResult.charges?.packing || 0,
-        packingGst: Boolean(data.packingGst),
+        loadingGst: loadingRate > 0,
+        packingCharges: rawPackingCharges > 0 ? rawPackingCharges : (packingLinesAmount > 0 ? packingLinesAmount : (gstResult.charges?.packingCharges || gstResult.charges?.packing || 0)),
+        packingGst: packingRate > 0,
         insurance: gstResult.charges?.insurance || 0,
         insuranceGst: Boolean(data.insuranceGst),
         otherCharges: gstResult.charges?.otherCharges || gstResult.charges?.other || 0,
-        otherGst: Boolean(data.otherGst),
+        otherGst: otherRate > 0,
         cgst: gstResult.cgst ?? gstResult.taxBreakdown?.cgst ?? 0,
         sgst: gstResult.sgst ?? gstResult.taxBreakdown?.sgst ?? 0,
         igst: gstResult.igst ?? gstResult.taxBreakdown?.igst ?? 0,
