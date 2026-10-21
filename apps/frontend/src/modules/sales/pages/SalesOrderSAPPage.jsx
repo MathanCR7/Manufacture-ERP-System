@@ -1320,7 +1320,8 @@ export default function SalesOrderPage() {
       freightDisplay: fAmt,
       loadingChargesDisplay: lAmt,
       otherChargesDisplay: oAmt,
-      gstCalcResult
+      gstCalcResult,
+      gstSlabs: gstCalcResult.gstSlabs || []
     };
   }, [
     computedLines,
@@ -2716,8 +2717,10 @@ export default function SalesOrderPage() {
       cgst: financials.cgst,
       sgst: financials.sgst,
       igst: financials.igst,
+      totalTax: financials.totalTax,
       roundOff: financials.roundOff,
       grandTotal: financials.grandTotal,
+      gstSlabs: financials.gstSlabs,
       items: activeLines.map(l => ({
         productId: l.productId || undefined,
         rawMaterialId: l.rawMaterialId || undefined,
@@ -3005,8 +3008,10 @@ export default function SalesOrderPage() {
       cgst: financials.cgst,
       sgst: financials.sgst,
       igst: financials.igst,
+      totalTax: financials.totalTax,
       roundOff: financials.roundOff,
       grandTotal: financials.grandTotal,
+      gstSlabs: financials.gstSlabs,
       internalNote: remarks
     };
 
@@ -7087,48 +7092,100 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
             </span>
           </div>
 
-          {/* Detailed Tax Lines: CGST + SGST or IGST */}
+          {/* Detailed Elaborated Tax Lines: CGST + SGST per active slab or IGST per active slab */}
           {!isInterState ? (
             <>
-              {/* CGST */}
-              <div className="flex items-center justify-end w-full max-w-[480px]">
-                <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
-                  Central GST (CGST)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`₹${(financials.cgst || 0).toFixed(2)} INR`}
-                  className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
-                />
-              </div>
+              {financials.gstSlabs && financials.gstSlabs.length > 0 ? (
+                financials.gstSlabs.map(slab => (
+                  <React.Fragment key={`slab_intra_${slab.rate}`}>
+                    {/* CGST */}
+                    <div className="flex items-center justify-end w-full max-w-[480px]">
+                      <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                        Central GST (CGST {slab.halfRate}%)
+                      </label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={`₹${(slab.cgstAmount || 0).toFixed(2)} INR`}
+                        className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
 
-              {/* SGST */}
-              <div className="flex items-center justify-end w-full max-w-[480px]">
-                <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
-                  State GST (SGST)
-                </label>
-                <input
-                  type="text"
-                  readOnly
-                  value={`₹${(financials.sgst || 0).toFixed(2)} INR`}
-                  className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
-                />
-              </div>
+                    {/* SGST */}
+                    <div className="flex items-center justify-end w-full max-w-[480px]">
+                      <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                        State GST (SGST {slab.halfRate}%)
+                      </label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={`₹${(slab.sgstAmount || 0).toFixed(2)} INR`}
+                        className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                      />
+                    </div>
+                  </React.Fragment>
+                ))
+              ) : (
+                <>
+                  {/* Central GST (CGST) */}
+                  <div className="flex items-center justify-end w-full max-w-[480px]">
+                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                      Central GST (CGST)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`₹${(financials.cgst || 0).toFixed(2)} INR`}
+                      className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                    />
+                  </div>
+
+                  {/* State GST (SGST) */}
+                  <div className="flex items-center justify-end w-full max-w-[480px]">
+                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                      State GST (SGST)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`₹${(financials.sgst || 0).toFixed(2)} INR`}
+                      className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-[var(--sap-text)] outline-none"
+                    />
+                  </div>
+                </>
+              )}
             </>
           ) : (
-            /* IGST */
-            <div className="flex items-center justify-end w-full max-w-[480px]">
-              <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
-                Integrated GST (IGST)
-              </label>
-              <input
-                type="text"
-                readOnly
-                value={`₹${(financials.igst || 0).toFixed(2)} INR`}
-                className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
-              />
-            </div>
+            /* IGST per active slab */
+            <>
+              {financials.gstSlabs && financials.gstSlabs.length > 0 ? (
+                financials.gstSlabs.map(slab => (
+                  <div key={`slab_inter_${slab.rate}`} className="flex items-center justify-end w-full max-w-[480px]">
+                    <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                      Integrated GST (IGST {slab.rate}%)
+                    </label>
+                    <input
+                      type="text"
+                      readOnly
+                      value={`₹${(slab.igstAmount || 0).toFixed(2)} INR`}
+                      className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
+                    />
+                  </div>
+                ))
+              ) : (
+                <div className="flex items-center justify-end w-full max-w-[480px]">
+                  <label className="flex-1 text-[var(--sap-text-muted)] font-semibold pr-3 text-right">
+                    Integrated GST (IGST)
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={`₹${(financials.igst || 0).toFixed(2)} INR`}
+                    className="w-40 h-[24px] px-2 text-right font-mono font-semibold border border-[var(--sap-border-inner)] bg-[var(--sap-input-readonly)] text-blue-600 dark:text-blue-400 outline-none"
+                  />
+                </div>
+              )}
+            </>
           )}
 
           {/* Total GST Taxes */}

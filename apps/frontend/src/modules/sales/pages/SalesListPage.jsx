@@ -19,7 +19,7 @@ import DashboardBackButton from '@/components/ui/DashboardBackButton';
 import useAuthStore from '@/app/store/authStore';
 import useCompanyStore from '@/app/store/companyStore';
 import { generateA4TaxInvoice, generateThermalReceipt, getSalesDocumentPdfFilename } from '@/utils/salesPdfGenerator';
-import { numberToWordsINR, getIndianStates } from '@/utils/gstEngine';
+import { numberToWordsINR, getIndianStates, computeOrderGstSlabs } from '@/utils/gstEngine';
 import DocumentFlowModal from '@/modules/sales/components/DocumentFlowModal';
 import ProductPriceHistoryModal from '@/modules/item-setup/components/ProductPriceHistoryModal';
 
@@ -1128,6 +1128,7 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
     const amountInWords = numberToWordsINR(grandTotalVal);
 
     const isInterState = String(editForm.placeOfSupply || '33') !== '33';
+    const orderGstSlabs = computeOrderGstSlabs(selectedOrder, isInterState);
 
     return (
       <div className="w-full max-w-full px-4 sm:px-6 lg:px-8 py-5 space-y-4 mx-auto transition-all duration-300 animate__animated animate__fadeIn font-sans">
@@ -1693,7 +1694,9 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                     const discAmt = (rate * (discPct / 100)) * qty;
                     const lineTotal = Math.max(0, (rate * qty) - discAmt);
                     const gstRateVal = Number(item.gstRate || 5);
-                    const taxCode = gstRateVal === 18 ? 'SCG18 (18%)' : (gstRateVal === 12 ? 'SCG12 (12%)' : (gstRateVal === 28 ? 'SCG28 (28%)' : 'SCG5 (5%)'));
+                    const taxCode = isInterState 
+                      ? (gstRateVal === 18 ? 'IGST18 (18%)' : (gstRateVal === 12 ? 'IGST12 (12%)' : (gstRateVal === 28 ? 'IGST28 (28%)' : 'IGST5 (5%)')))
+                      : (gstRateVal === 18 ? 'SCG18 (18%)' : (gstRateVal === 12 ? 'SCG12 (12%)' : (gstRateVal === 28 ? 'SCG28 (28%)' : 'SCG5 (5%)')));
 
                     return (
                       <tr key={item.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
@@ -2605,33 +2608,163 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
               </div>
             </div>
 
-            {/* GST Computation Summary */}
-            <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-white">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                <div>
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Taxable Subtotal</div>
-                  <div className="font-mono font-black text-sm text-white">₹{taxableSubtotal.toFixed(2)}</div>
-                </div>
-                {!isInterState ? (
-                  <>
-                    <div>
-                      <div className="text-[10px] uppercase font-bold text-slate-400">CGST (@2.5%)</div>
-                      <div className="font-mono font-bold text-sm text-amber-400">₹{cgstVal.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] uppercase font-bold text-slate-400">SGST (@2.5%)</div>
-                      <div className="font-mono font-bold text-sm text-amber-400">₹{sgstVal.toFixed(2)}</div>
-                    </div>
-                  </>
-                ) : (
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-slate-400">IGST (@5%)</div>
-                    <div className="font-mono font-bold text-sm text-amber-400">₹{igstVal.toFixed(2)}</div>
+            {/* Elaborated GST Taxes & Ledger Breakdown */}
+            <div className="space-y-4">
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl text-white">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+                  <div className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                    <span>🏛️ Comprehensive GST Tax Ledger & Rate Slabs</span>
                   </div>
-                )}
-                <div>
-                  <div className="text-[10px] uppercase font-bold text-slate-400">Total GST Tax</div>
-                  <div className="font-mono font-black text-sm text-emerald-400">₹{totalGstTax.toFixed(2)}</div>
+                  <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                    isInterState 
+                      ? 'bg-blue-900/60 text-blue-300 border border-blue-700' 
+                      : 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
+                  }`}>
+                    {isInterState ? '🌐 INTER-STATE (IGST)' : '🏛️ INTRA-STATE (CGST + SGST)'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Taxable Goods Value</div>
+                    <div className="font-mono font-black text-sm text-white">₹{taxableSubtotal.toFixed(2)}</div>
+                  </div>
+                  {!isInterState ? (
+                    <>
+                      <div>
+                        <div className="text-[10px] uppercase font-bold text-slate-400">Total Central GST (CGST)</div>
+                        <div className="font-mono font-bold text-sm text-amber-400">₹{cgstVal.toFixed(2)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase font-bold text-slate-400">Total State GST (SGST)</div>
+                        <div className="font-mono font-bold text-sm text-amber-400">₹{sgstVal.toFixed(2)}</div>
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-slate-400">Total Integrated GST (IGST)</div>
+                      <div className="font-mono font-bold text-sm text-blue-400">₹{igstVal.toFixed(2)}</div>
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-slate-400">Total GST Tax</div>
+                    <div className="font-mono font-black text-sm text-emerald-400">₹{totalGstTax.toFixed(2)}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rate-wise Elaborate GST Slabs Breakdown Table */}
+              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                  <span className="font-black text-xs text-slate-800 dark:text-slate-200 uppercase tracking-tight">
+                    Elaborated Tax Breakdown by GST Rate Slab
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-medium">
+                    Calculated for all items & logistics charges
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100/70 dark:bg-slate-950 text-slate-600 dark:text-slate-400 uppercase font-bold text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="px-3.5 py-2.5">GST Rate Slab</th>
+                        <th className="px-3.5 py-2.5 text-right">Taxable Amount (₹)</th>
+                        {!isInterState ? (
+                          <>
+                            <th className="px-3.5 py-2.5 text-right">CGST Rate</th>
+                            <th className="px-3.5 py-2.5 text-right">CGST Amount (₹)</th>
+                            <th className="px-3.5 py-2.5 text-right">SGST Rate</th>
+                            <th className="px-3.5 py-2.5 text-right">SGST Amount (₹)</th>
+                          </>
+                        ) : (
+                          <>
+                            <th className="px-3.5 py-2.5 text-right">IGST Rate</th>
+                            <th className="px-3.5 py-2.5 text-right">IGST Amount (₹)</th>
+                          </>
+                        )}
+                        <th className="px-3.5 py-2.5 text-right font-black">Total Tax (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
+                      {orderGstSlabs && orderGstSlabs.length > 0 ? (
+                        orderGstSlabs.map((slab) => (
+                          <tr key={slab.rate} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                            <td className="px-3.5 py-2.5 font-sans font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+                              <span className="w-2 h-2 rounded-full bg-indigo-500" />
+                              <span>{slab.rate}% GST Slab</span>
+                            </td>
+                            <td className="px-3.5 py-2.5 text-right font-bold text-slate-700 dark:text-slate-300">
+                              ₹{slab.taxableAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            {!isInterState ? (
+                              <>
+                                <td className="px-3.5 py-2.5 text-right text-slate-500">
+                                  {slab.halfRate}%
+                                </td>
+                                <td className="px-3.5 py-2.5 text-right font-bold text-amber-600 dark:text-amber-400">
+                                  ₹{slab.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-3.5 py-2.5 text-right text-slate-500">
+                                  {slab.halfRate}%
+                                </td>
+                                <td className="px-3.5 py-2.5 text-right font-bold text-amber-600 dark:text-amber-400">
+                                  ₹{slab.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="px-3.5 py-2.5 text-right text-slate-500">
+                                  {slab.rate}%
+                                </td>
+                                <td className="px-3.5 py-2.5 text-right font-bold text-blue-600 dark:text-blue-400">
+                                  ₹{slab.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                              </>
+                            )}
+                            <td className="px-3.5 py-2.5 text-right font-black text-emerald-600 dark:text-emerald-400">
+                              ₹{slab.totalTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={isInterState ? 4 : 6} className="px-3.5 py-4 text-center text-slate-400 font-sans italic">
+                            No taxable items with active GST rate slabs found.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                    <tfoot className="bg-slate-50 dark:bg-slate-950 font-bold border-t border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <td className="px-3.5 py-2.5 text-slate-700 dark:text-slate-300 font-sans">Total Ledger Slabs</td>
+                        <td className="px-3.5 py-2.5 text-right font-mono text-slate-900 dark:text-white">
+                          ₹{taxableSubtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        {!isInterState ? (
+                          <>
+                            <td className="px-3.5 py-2.5 text-right text-slate-400">-</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-amber-600 dark:text-amber-400">
+                              ₹{cgstVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3.5 py-2.5 text-right text-slate-400">-</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-amber-600 dark:text-amber-400">
+                              ₹{sgstVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </>
+                        ) : (
+                          <>
+                            <td className="px-3.5 py-2.5 text-right text-slate-400">-</td>
+                            <td className="px-3.5 py-2.5 text-right font-mono text-blue-600 dark:text-blue-400">
+                              ₹{igstVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                          </>
+                        )}
+                        <td className="px-3.5 py-2.5 text-right font-mono font-black text-emerald-600 dark:text-emerald-400">
+                          ₹{totalGstTax.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
             </div>
