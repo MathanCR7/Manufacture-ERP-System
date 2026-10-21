@@ -189,7 +189,8 @@ export default function ProductionBatchDetailModal({
   const staffList = Array.isArray(batch?.labourStaffDetails) ? batch.labourStaffDetails : [];
   const totalLabourCrew = Math.max(staffList.length, Number(batch?.labourCount || 0), 1);
   const runDuration = calculateRunDuration();
-  const batchAnalysis = analyzeProductionBatchNumber(batch?.referenceNo || batch?.batchNo);
+  const batchAnalysis = analyzeProductionBatchNumber(batch?.referenceNo || batch?.batchNo, batch?.startDate || batch?.createdAt);
+  const displayRefNo = batchAnalysis?.formattedBatchNo || batch?.referenceNo || batch?.batchNo || 'Production Batch';
 
   return (
     <div 
@@ -218,9 +219,9 @@ export default function ProductionBatchDetailModal({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                 <h3 className="font-black text-sm sm:text-base text-white font-mono truncate">
-                  {batch?.referenceNo || batch?.batchNo || 'Production Batch'}
+                  {displayRefNo}
                 </h3>
-                {batchAnalysis?.isValid && !batchAnalysis?.isLegacy && (
+                {batchAnalysis?.isValid && (
                   <span className="text-[9.5px] sm:text-[10px] font-mono px-1.5 sm:px-2 py-0.5 rounded-md bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 whitespace-nowrap">
                     PROD • {batchAnalysis.formattedDate} • #{batchAnalysis.sequenceFormatted}
                   </span>
@@ -688,7 +689,7 @@ export default function ProductionBatchDetailModal({
                           </span>
                         </h4>
                         <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                          What is planned and required to be used for Batch <strong className="font-mono text-indigo-600">{batch.referenceNo || batch.batchNo}</strong> with highlighted quantities
+                          What is planned and required to be used for Batch <strong className="font-mono text-indigo-600">{displayRefNo}</strong> with highlighted quantities
                         </p>
                       </div>
 

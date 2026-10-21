@@ -655,8 +655,9 @@ export default function OrderBasedProductionListPage() {
                   </tr>
                 ) : (
                   paginatedBatches.map((b) => {
-                    const batchAnalysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo);
+                    const batchAnalysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo, b.startDate || b.createdAt);
                     const unitCost = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
+                    const displayRefNo = batchAnalysis?.formattedBatchNo || b.referenceNo || b.batchNo;
 
                     return (
                       <tr 
@@ -667,9 +668,9 @@ export default function OrderBasedProductionListPage() {
                         <td className="py-2.5 px-3 whitespace-nowrap">
                           <div className="flex flex-col">
                             <span className="font-mono font-black text-indigo-600 dark:text-indigo-400 text-xs">
-                              {b.referenceNo || b.batchNo}
+                              {displayRefNo}
                             </span>
-                            {batchAnalysis?.isValid && !batchAnalysis?.isLegacy && (
+                            {batchAnalysis?.isValid && (
                               <span className="text-[9.5px] font-mono text-slate-400 dark:text-slate-500 flex items-center gap-1 mt-0.5">
                                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 inline-block" />
                                 {batchAnalysis.formattedDate} • #{batchAnalysis.sequenceFormatted}

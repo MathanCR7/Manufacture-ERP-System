@@ -152,50 +152,61 @@ router.get('/production-requirements', authenticateToken, async (req, res, next)
       },
       include: {
         product: { include: { unit: true, category: true } },
+        rawMaterial: { include: { unit: true, category: true } },
         order: { select: { id: true, docNo: true, referenceNo: true, deliveryDate: true, customer: { select: { name: true } } } }
       }
     });
 
     const grouped = {};
     for (const it of openOrderItems) {
-      const pid = it.productId;
+      const pid = it.productId || it.rawMaterialId || it.productName || it.id;
+      const itemName = it.product?.name || it.rawMaterial?.name || it.productName || 'Unnamed Item';
+      const itemCode = it.product?.code || it.rawMaterial?.code || it.hsnCode || 'ITEM';
+      const itemCategory = it.product?.category?.name || it.rawMaterial?.category?.name || (it.itemType === 'RAW_MATERIAL' ? 'Packaging & Material' : 'Finished Goods');
+      const itemUnit = it.uomName || it.product?.unit?.abbreviation || it.rawMaterial?.unit?.abbreviation || 'pcs';
+
       if (!grouped[pid]) {
         grouped[pid] = {
-          productId: pid,
-          productCode: it.product?.code || 'NO-CODE',
-          productName: it.product?.name || 'Unnamed Product',
-          category: it.product?.category?.name || 'General',
-          unit: it.uomName || it.product?.unit?.abbreviation || 'pcs',
+          productId: it.productId,
+          rawMaterialId: it.rawMaterialId,
+          itemType: it.itemType || (it.productId ? 'PRODUCT' : 'RAW_MATERIAL'),
+          productCode: itemCode,
+          productName: itemName,
+          category: itemCategory,
+          unit: itemUnit,
           totalShortfall: 0,
           earliestDeliveryDate: it.order?.deliveryDate || new Date(),
           ordersInvolved: []
         };
       }
       grouped[pid].totalShortfall += Number(it.shortfallQty);
-      if (new Date(it.order.deliveryDate) < new Date(grouped[pid].earliestDeliveryDate)) {
+      if (it.order?.deliveryDate && new Date(it.order.deliveryDate) < new Date(grouped[pid].earliestDeliveryDate)) {
         grouped[pid].earliestDeliveryDate = it.order.deliveryDate;
       }
       grouped[pid].ordersInvolved.push({
-        orderId: it.order.id,
-        docNo: it.order.docNo || it.order.referenceNo,
-        customerName: it.order.customer?.name,
+        orderId: it.order?.id,
+        docNo: it.order?.docNo || it.order?.referenceNo,
+        customerName: it.order?.customer?.name || 'Customer',
         shortfall: Number(it.shortfallQty),
-        deliveryDate: it.order.deliveryDate
+        deliveryDate: it.order?.deliveryDate
       });
     }
 
     const results = [];
     for (const pid of Object.keys(grouped)) {
       const itemData = grouped[pid];
-      const activeBatches = await prisma.productionBatchNew.findMany({
-        where: {
-          productId: pid,
-          status: { in: ['Planned', 'In Progress'] },
-          deletedAt: null
-        },
-        select: { quantity: true, partiallyDoneQty: true }
-      });
-      const inProduction = activeBatches.reduce((s, b) => s + (Number(b.quantity) - Number(b.partiallyDoneQty || 0)), 0);
+      let inProduction = 0;
+      if (itemData.productId) {
+        const activeBatches = await prisma.productionBatchNew.findMany({
+          where: {
+            productId: itemData.productId,
+            status: { in: ['Planned', 'In Progress'] },
+            deletedAt: null
+          },
+          select: { quantity: true, partiallyDoneQty: true }
+        });
+        inProduction = activeBatches.reduce((s, b) => s + (Number(b.quantity) - Number(b.partiallyDoneQty || 0)), 0);
+      }
       const netToProduce = Math.max(0, itemData.totalShortfall - inProduction);
 
       results.push({

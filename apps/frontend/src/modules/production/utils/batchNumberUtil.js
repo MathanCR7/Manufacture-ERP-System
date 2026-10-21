@@ -4,7 +4,7 @@
  * Year: 2026, Month: 10, Day: 21, Seq: 0001
  */
 
-export function analyzeProductionBatchNumber(batchStr) {
+export function analyzeProductionBatchNumber(batchStr, dateContext = null) {
   if (!batchStr || typeof batchStr !== 'string') {
     return {
       isValid: false,
@@ -39,23 +39,35 @@ export function analyzeProductionBatchNumber(batchStr) {
       formattedDate: `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`,
       sequenceFormatted: String(sequence).padStart(4, '0'),
       formattedBatchNo: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${String(sequence).padStart(4, '0')}`,
-      display: trimmed,
+      display: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${String(sequence).padStart(4, '0')}`,
       isLegacy: false
     };
   }
 
-  // Pattern 2: Legacy MP-XXXXXX (e.g. MP-000009)
+  // Pattern 2: Legacy MP-XXXXXX (e.g. MP-000009) -> Standardize directly to PRODYYYYMMDD-XXXX
   const mpMatch = trimmed.match(/^MP-(\d+)$/i);
   if (mpMatch) {
     const seq = parseInt(mpMatch[1], 10);
+    const d = dateContext ? new Date(dateContext) : new Date();
+    const validDate = isNaN(d.getTime()) ? new Date() : d;
+    const year = validDate.getFullYear();
+    const month = validDate.getMonth() + 1;
+    const day = validDate.getDate();
+
     return {
       isValid: true,
-      standardType: 'LEGACY_MP',
-      prefix: 'MP',
+      standardType: 'LEGACY_CONVERTED',
+      prefix: 'PROD',
+      year,
+      month,
+      day,
       sequence: seq,
-      isLegacy: true,
-      formattedBatchNo: `MP-${String(seq).padStart(6, '0')}`,
-      display: trimmed
+      dateString: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      formattedDate: `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`,
+      sequenceFormatted: String(seq).padStart(4, '0'),
+      formattedBatchNo: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${String(seq).padStart(4, '0')}`,
+      display: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${String(seq).padStart(4, '0')}`,
+      isLegacy: false
     };
   }
 
@@ -63,6 +75,7 @@ export function analyzeProductionBatchNumber(batchStr) {
     isValid: false,
     standardType: 'CUSTOM',
     raw: trimmed,
+    formattedBatchNo: trimmed,
     display: trimmed
   };
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   ShoppingBag, ArrowLeft, Save, Play, CheckCircle2, RefreshCw, Calendar, 
@@ -25,7 +25,10 @@ const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-
 export default function OrderBasedProductionFormPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const preselectedOrderId = searchParams.get('orderId');
+  const location = useLocation();
+  const preselectedOrderId = searchParams.get('orderId') || location.state?.orderId || '';
+  const preselectedProductId = searchParams.get('productId') || location.state?.productId || '';
+  const preselectedQuantity = searchParams.get('quantity') || location.state?.quantity || '';
 
   // ── Master Data ──
   const [bases, setBases] = useState([]);
@@ -466,17 +469,36 @@ export default function OrderBasedProductionFormPage() {
       setSelectedOrderDetails(null);
       return;
     }
-    const order = orders.find(o => o.id === selectedOrderId);
-    if (order) {
+
+    let isCancelled = false;
+
+    const loadOrderData = async () => {
+      let order = orders.find(o => o.id === selectedOrderId);
+      if (!order || !Array.isArray(order.items) || order.items.length === 0) {
+        try {
+          const res = await api.get(`/orders/${selectedOrderId}`);
+          if (res.data) {
+            order = res.data;
+          }
+        } catch (err) {
+          console.warn('Failed to fetch direct order details:', err.message);
+        }
+      }
+
+      if (isCancelled || !order) return;
       setSelectedOrderDetails(order);
 
       if (Array.isArray(order.items) && order.items.length > 0) {
         const mappedProducts = order.items.map(item => {
-          const prod = products.find(p => p.id === item.productId) || {};
+          const prod = products.find(p => p.id === item.productId) || item.product || {};
           const series = prod.specifications?.series || prod.brand || 'BG';
           const group = prod.specifications?.group || prod.category?.name || 'Gallon';
           const factor = Number(prod.specifications?.factor || 1.0);
           const baseName = prod.base?.name || prod.specifications?.baseName || selectedBaseName || 'ICE CREAM BASE';
+
+          // If a preselected product and quantity were passed, apply to matching product
+          const isTarget = preselectedProductId && (item.productId === preselectedProductId || prod.id === preselectedProductId);
+          const effectiveQty = isTarget && preselectedQuantity ? Number(preselectedQuantity) : Number(item.shortfallQty || item.quantity || 100);
 
           return {
             productId: item.productId || prod.id,
@@ -486,14 +508,15 @@ export default function OrderBasedProductionFormPage() {
             group,
             factor,
             baseName,
-            plannedQty: Number(item.quantity || 100),
-            unit: prod.unit?.abbreviation || prod.unit?.name || 'Nos'
+            plannedQty: effectiveQty,
+            unit: prod.unit?.abbreviation || prod.unit?.name || item.uomName || 'Nos'
           };
         });
 
         setSelectedProducts(mappedProducts);
 
-        const firstProd = products.find(p => p.id === order.items[0]?.productId);
+        const firstProdId = preselectedProductId || order.items[0]?.productId;
+        const firstProd = products.find(p => p.id === firstProdId) || order.items[0]?.product;
         if (firstProd?.baseId && bases.some(b => b.id === firstProd.baseId)) {
           setSelectedBaseId(firstProd.baseId);
           const matchTpl = allTemplates.find(t => t.baseId === firstProd.baseId && (t.status === 'ACTIVE' || !t.status)) || allTemplates[0];
@@ -503,8 +526,11 @@ export default function OrderBasedProductionFormPage() {
           }
         }
       }
-    }
-  }, [selectedOrderId, orders, products, bases]);
+    };
+
+    loadOrderData();
+    return () => { isCancelled = true; };
+  }, [selectedOrderId, orders, products, bases, allTemplates, preselectedProductId, preselectedQuantity]);
 
   // When user switches base in Card 2
   const handleSelectBase = (baseId) => {
@@ -1080,9 +1106,14 @@ export default function OrderBasedProductionFormPage() {
                   className="w-full h-[44px] px-3 bg-white dark:bg-slate-900 border border-[#E3E6EC] dark:border-slate-800 rounded-[10px] text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#4F46E5] cursor-pointer"
                 >
                   <option value="">-- Choose Sales Order to Manufacture --</option>
+                  {selectedOrderDetails && !activeOrders.some(o => o.id === selectedOrderDetails.id) && (
+                    <option key={selectedOrderDetails.id} value={selectedOrderDetails.id}>
+                      {selectedOrderDetails.docNo || selectedOrderDetails.orderNumber || selectedOrderDetails.referenceNo || 'Sales Order'} · {selectedOrderDetails.customer?.name || selectedOrderDetails.partyName || 'Customer'} (Selected from Requirements)
+                    </option>
+                  )}
                   {activeOrders.map(ord => (
                     <option key={ord.id} value={ord.id}>
-                      {ord.orderNumber || ord.order_number} · {ord.customer?.name || ord.partyName || 'Customer'} · ₹{Number(ord.totalAmount || ord.total_amount || 0).toLocaleString()} ({ord.status || 'Pending'})
+                      {ord.docNo || ord.orderNumber || ord.order_number || ord.referenceNo} · {ord.customer?.name || ord.partyName || 'Customer'} · ₹{Number(ord.totalAmount || ord.total_amount || 0).toLocaleString()} ({ord.status || 'Pending'})
                     </option>
                   ))}
                 </select>

@@ -794,7 +794,8 @@ export default function StandardProductionListPage() {
                   </tr>
                 ) : (
                   paginatedBatches.map((b) => {
-                    const batchAnalysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo);
+                    const batchAnalysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo, b.startDate || b.createdAt);
+                    const displayRefNo = batchAnalysis?.formattedBatchNo || b.referenceNo || b.batchNo;
                     const unitCost = b.costPerUnit || (b.quantity > 0 ? b.totalCost / b.quantity : 0);
 
                     return (
@@ -803,9 +804,9 @@ export default function StandardProductionListPage() {
                         {/* 1. Batch No */}
                         <td className="py-2.5 px-3 font-mono whitespace-nowrap">
                           <div className="font-black text-indigo-600 dark:text-indigo-400 text-xs">
-                            {b.referenceNo || b.batchNo}
+                            {displayRefNo}
                           </div>
-                          {batchAnalysis?.isValid && !batchAnalysis.isLegacy && (
+                          {batchAnalysis?.isValid && (
                             <span className="inline-block text-[9.5px] font-mono font-medium text-slate-400 dark:text-slate-500">
                               PROD • #{batchAnalysis.sequenceFormatted}
                             </span>

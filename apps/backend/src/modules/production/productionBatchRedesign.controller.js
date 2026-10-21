@@ -12,7 +12,7 @@ const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-
 
 // Helper to analyze and parse production batch reference
 // Format: PROD + year + month(10) + day(21) + - + sequence (e.g. PROD20261021-0001)
-function analyzeProductionBatchNumber(batchStr) {
+function analyzeProductionBatchNumber(batchStr, dateContext = null) {
   if (!batchStr || typeof batchStr !== 'string') return null;
   const trimmed = batchStr.trim();
   
@@ -24,6 +24,7 @@ function analyzeProductionBatchNumber(batchStr) {
     const day = parseInt(prodMatch[3], 10);
     const seqStr = prodMatch[4] || prodMatch[5] || prodMatch[6] || prodMatch[7] || '1';
     const sequence = parseInt(seqStr, 10);
+    const sequenceFormatted = String(sequence).padStart(4, '0');
     
     return {
       isValid: true,
@@ -33,23 +34,39 @@ function analyzeProductionBatchNumber(batchStr) {
       month,
       day,
       sequence,
+      sequenceFormatted,
       dateString: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
       formattedDate: `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`,
-      formattedBatchNo: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${String(sequence).padStart(4, '0')}`,
+      formattedBatchNo: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${sequenceFormatted}`,
       isLegacy: false
     };
   }
 
-  // Pattern 2: Legacy MP-XXXXXX (e.g. MP-000009)
+  // Pattern 2: Legacy MP-XXXXXX (e.g. MP-000009) -> Standardize into PRODYYYYMMDD-XXXX
   const mpMatch = trimmed.match(/^MP-(\d+)$/i);
   if (mpMatch) {
+    const sequence = parseInt(mpMatch[1], 10);
+    const sequenceFormatted = String(sequence).padStart(4, '0');
+    const d = dateContext ? new Date(dateContext) : new Date();
+    const validDate = isNaN(d.getTime()) ? new Date() : d;
+    const year = validDate.getFullYear();
+    const month = validDate.getMonth() + 1;
+    const day = validDate.getDate();
+
     return {
       isValid: true,
-      standardType: 'LEGACY_MP',
-      prefix: 'MP',
-      sequence: parseInt(mpMatch[1], 10),
-      isLegacy: true,
-      formattedBatchNo: `MP-${String(parseInt(mpMatch[1], 10)).padStart(6, '0')}`
+      standardType: 'PROD_DATE_SEQUENCE',
+      prefix: 'PROD',
+      year,
+      month,
+      day,
+      sequence,
+      sequenceFormatted,
+      dateString: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+      formattedDate: `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}`,
+      formattedBatchNo: `PROD${year}${String(month).padStart(2, '0')}${String(day).padStart(2, '0')}-${sequenceFormatted}`,
+      isLegacy: false,
+      legacyOriginal: trimmed
     };
   }
 
@@ -191,10 +208,13 @@ class ProductionBatchRedesignController {
 
       const formatted = batches.map(b => {
         const extra = extraDetails[b.id] || {};
+        const analysis = analyzeProductionBatchNumber(b.referenceNo || b.batchNo, b.startDate || b.createdAt);
+        const resolvedRef = analysis?.formattedBatchNo || b.referenceNo || b.batchNo;
         return {
           id: b.id,
-          referenceNo: b.referenceNo,
-          batchNo: b.batchNo || b.referenceNo,
+          referenceNo: resolvedRef,
+          batchNo: b.batchNo || resolvedRef,
+          batchAnalysis: analysis,
           productionType: b.productionType,
           startDate: b.startDate,
           completeDate: b.completeDate,
@@ -385,10 +405,14 @@ class ProductionBatchRedesignController {
         };
       });
 
+      const batchAnalysis = analyzeProductionBatchNumber(batch.referenceNo || batch.batchNo, batch.startDate || batch.createdAt);
+      const resolvedRef = batchAnalysis?.formattedBatchNo || batch.referenceNo || batch.batchNo;
+
       res.json({
         id: batch.id,
-        referenceNo: batch.referenceNo,
-        batchNo: batch.batchNo || batch.referenceNo,
+        referenceNo: resolvedRef,
+        batchNo: batch.batchNo || resolvedRef,
+        batchAnalysis,
         productionType: batch.productionType,
         startDate: batch.startDate,
         completeDate: batch.completeDate,

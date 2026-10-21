@@ -790,7 +790,6 @@ const MENU_GROUPS = [
     icon: Factory,
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'],
     items: [
-      { name: '⚡ Production Requirements', path: '/production/requirements', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'], badgeKey: 'productionRequirements' },
       {
         id: 'createProductionSubmenu',
         name: '⚙️ Create Production',
@@ -811,7 +810,8 @@ const MENU_GROUPS = [
           { name: '🥛 Base Master', path: '/production/masters/base', roles: ['MAIN_MASTER', 'SUPERVISOR'] },
           { name: '📑 Production Template', path: '/production/templates', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'] },
         ]
-      }
+      },
+      { name: '⚡ Production Requirements', path: '/production/requirements', roles: ['MAIN_MASTER', 'SUPERVISOR', 'PRODUCTION_STAFF'], badgeKey: 'productionRequirements' }
     ]
   },
   {

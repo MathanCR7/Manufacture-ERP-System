@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { 
   RotateCw, ArrowLeft, Save, Play, CheckCircle2, RefreshCw, Calendar, 
@@ -24,6 +24,11 @@ const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-
 
 export default function StockUpdateProductionFormPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const paramProductId = searchParams.get('productId') || location.state?.productId || '';
+  const paramQuantity = searchParams.get('quantity') || location.state?.quantity || '';
+  const paramOrderId = searchParams.get('orderId') || location.state?.orderId || '';
 
   // ── Master Data from Live APIs ──
   const [bases, setBases] = useState([]);
@@ -287,47 +292,126 @@ export default function StockUpdateProductionFormPage() {
         setRawMaterialMasters(masters.rawMaterials || []);
         setUomMasters(masters.uoms || []);
 
-        // Hydrate from persistent draft if available
-        const draft = getProductionDraft();
-        if (draft && (draft.selectedProducts?.length > 0 || draft.selectedBaseId || draft.rawMaterials?.length > 0 || draft.adjustmentReason || draft.note || draft.machineLine)) {
-          if (draft.productionDate) setProductionDate(draft.productionDate);
-          if (draft.shift) setShift(draft.shift);
-          if (draft.machineLine) setMachineLine(draft.machineLine);
-          if (draft.expiryDays) setExpiryDays(Number(draft.expiryDays));
-          if (draft.adjustmentReason) setAdjustmentReason(draft.adjustmentReason);
-          if (draft.adjustmentReference) setAdjustmentReference(draft.adjustmentReference);
-          if (draft.note) setNote(draft.note);
-          if (draft.selectedBaseId) setSelectedBaseId(draft.selectedBaseId);
-          if (draft.selectedTemplate) setSelectedTemplate(draft.selectedTemplate);
-          if (draft.selectedCategoryId) setSelectedCategoryId(draft.selectedCategoryId);
-          if (draft.selectedSubcategoryId) setSelectedSubcategoryId(draft.selectedSubcategoryId);
-          if (Array.isArray(draft.selectedProducts) && draft.selectedProducts.length > 0) {
-            setSelectedProducts(draft.selectedProducts);
-          }
-          if (Array.isArray(draft.rawMaterials) && draft.rawMaterials.length > 0) {
-            setRawMaterials(draft.rawMaterials);
-          } else if (draft.selectedTemplate) {
-            handleSelectTemplate(draft.selectedTemplate, masters.rawMaterials, masters.uoms);
-          }
-          if (Array.isArray(draft.timelineStages) && draft.timelineStages.length > 0) {
-            setTimelineStages(draft.timelineStages);
-          }
-          if (draft.labourCount !== undefined) setLabourCount(Number(draft.labourCount));
-          if (Array.isArray(draft.assignedStaffIds)) setAssignedStaffIds(draft.assignedStaffIds);
-          if (Array.isArray(draft.labourStaffDetails)) setLabourStaffDetails(draft.labourStaffDetails);
-          if (draft.wastagePct !== undefined) setWastagePct(Number(draft.wastagePct));
-          if (draft.overheadPct !== undefined) setOverheadPct(Number(draft.overheadPct));
-          setHasRestoredDraft(true);
-        } else {
-          // Default initial selection if no draft exists
-          const activeBases = (masters.bases || []).filter(b => b.status === 'ACTIVE' || !b.status);
-          if (activeBases.length > 0) {
-            const icb = activeBases.find(b => (b.code || '').toUpperCase() === 'ICB') || activeBases[0];
-            setSelectedBaseId(icb.id);
+        // Pre-populate if redirected from requirements with orderId or productId
+        if (paramOrderId || paramProductId) {
+          let prefilledProducts = [];
+          let targetTotalQty = Number(paramQuantity) || 2000;
 
-            const matchTpl = (masters.templates || []).find(t => t.baseId === icb.id && (t.status === 'ACTIVE' || !t.status)) || masters.templates[0];
-            if (matchTpl) {
-              handleSelectTemplate(matchTpl, masters.rawMaterials, masters.uoms, 2000);
+          if (paramOrderId) {
+            try {
+              const res = await api.get(`/orders/${paramOrderId}`);
+              const order = res.data;
+              if (order) {
+                setAdjustmentReason('Order Deficit Replenishment');
+                setAdjustmentReference(`SO-${order.docNo || order.referenceNo || paramOrderId.slice(-6)}`);
+                if (order.customer?.name) {
+                  setNote(`Order fulfillment for ${order.customer.name} (SO: ${order.docNo || order.referenceNo})`);
+                }
+
+                if (Array.isArray(order.items) && order.items.length > 0) {
+                  prefilledProducts = order.items.map(it => {
+                    const prod = (masters.products || []).find(p => p.id === it.productId) || it.product || {};
+                    const isTarget = paramProductId && (it.productId === paramProductId || prod.id === paramProductId);
+                    const qty = isTarget && paramQuantity ? Number(paramQuantity) : Number(it.shortfallQty || it.quantity || 100);
+
+                    return {
+                      productId: it.productId || prod.id,
+                      name: it.productName || prod.name || 'Ordered Product',
+                      code: it.productCode || prod.code || 'SKU',
+                      series: prod.specifications?.series || prod.brand || 'BG',
+                      group: prod.specifications?.group || prod.category?.name || 'Gallon',
+                      factor: Number(prod.specifications?.factor || 1.0),
+                      baseName: prod.base?.name || 'ICE CREAM BASE',
+                      plannedQty: qty,
+                      unit: prod.unit?.abbreviation || prod.unit?.name || it.uomName || 'Nos'
+                    };
+                  });
+                  targetTotalQty = prefilledProducts.reduce((s, p) => s + Number(p.plannedQty || 0), 0) || 2000;
+                }
+              }
+            } catch (err) {
+              console.warn('Failed to fetch order for stock update:', err.message);
+            }
+          }
+
+          if (prefilledProducts.length === 0 && paramProductId) {
+            const prod = (masters.products || []).find(p => p.id === paramProductId);
+            if (prod) {
+              setAdjustmentReason('Low Stock Replenishment');
+              setAdjustmentReference(`REQ-${prod.code || Date.now().toString().slice(-6)}`);
+              targetTotalQty = Number(paramQuantity) > 0 ? Number(paramQuantity) : 100;
+              prefilledProducts = [{
+                productId: prod.id,
+                name: prod.name,
+                code: prod.code,
+                series: prod.specifications?.series || prod.brand || 'BG',
+                group: prod.specifications?.group || prod.category?.name || 'Gallon',
+                factor: Number(prod.specifications?.factor || 1.0),
+                baseName: prod.base?.name || 'ICE CREAM BASE',
+                plannedQty: targetTotalQty,
+                unit: prod.unit?.abbreviation || prod.unit?.name || 'Nos'
+              }];
+            }
+          }
+
+          if (prefilledProducts.length > 0) {
+            setSelectedProducts(prefilledProducts);
+
+            // Auto-select base and template for first product
+            const firstPId = paramProductId || prefilledProducts[0]?.productId;
+            const firstProd = (masters.products || []).find(p => p.id === firstPId) || (masters.products || [])[0];
+            const baseIdToUse = firstProd?.baseId || (masters.bases || [])[0]?.id;
+            if (baseIdToUse) {
+              setSelectedBaseId(baseIdToUse);
+              const matchTpl = (masters.templates || []).find(t => t.baseId === baseIdToUse && (t.status === 'ACTIVE' || !t.status)) || masters.templates[0];
+              if (matchTpl) {
+                handleSelectTemplate(matchTpl, masters.rawMaterials, masters.uoms, targetTotalQty);
+              }
+            }
+          }
+        } else {
+          // Hydrate from persistent draft if available
+          const draft = getProductionDraft();
+          if (draft && (draft.selectedProducts?.length > 0 || draft.selectedBaseId || draft.rawMaterials?.length > 0 || draft.adjustmentReason || draft.note || draft.machineLine)) {
+            if (draft.productionDate) setProductionDate(draft.productionDate);
+            if (draft.shift) setShift(draft.shift);
+            if (draft.machineLine) setMachineLine(draft.machineLine);
+            if (draft.expiryDays) setExpiryDays(Number(draft.expiryDays));
+            if (draft.adjustmentReason) setAdjustmentReason(draft.adjustmentReason);
+            if (draft.adjustmentReference) setAdjustmentReference(draft.adjustmentReference);
+            if (draft.note) setNote(draft.note);
+            if (draft.selectedBaseId) setSelectedBaseId(draft.selectedBaseId);
+            if (draft.selectedTemplate) setSelectedTemplate(draft.selectedTemplate);
+            if (draft.selectedCategoryId) setSelectedCategoryId(draft.selectedCategoryId);
+            if (draft.selectedSubcategoryId) setSelectedSubcategoryId(draft.selectedSubcategoryId);
+            if (Array.isArray(draft.selectedProducts) && draft.selectedProducts.length > 0) {
+              setSelectedProducts(draft.selectedProducts);
+            }
+            if (Array.isArray(draft.rawMaterials) && draft.rawMaterials.length > 0) {
+              setRawMaterials(draft.rawMaterials);
+            } else if (draft.selectedTemplate) {
+              handleSelectTemplate(draft.selectedTemplate, masters.rawMaterials, masters.uoms);
+            }
+            if (Array.isArray(draft.timelineStages) && draft.timelineStages.length > 0) {
+              setTimelineStages(draft.timelineStages);
+            }
+            if (draft.labourCount !== undefined) setLabourCount(Number(draft.labourCount));
+            if (Array.isArray(draft.assignedStaffIds)) setAssignedStaffIds(draft.assignedStaffIds);
+            if (Array.isArray(draft.labourStaffDetails)) setLabourStaffDetails(draft.labourStaffDetails);
+            if (draft.wastagePct !== undefined) setWastagePct(Number(draft.wastagePct));
+            if (draft.overheadPct !== undefined) setOverheadPct(Number(draft.overheadPct));
+            setHasRestoredDraft(true);
+          } else {
+            // Default initial selection if no draft exists
+            const activeBases = (masters.bases || []).filter(b => b.status === 'ACTIVE' || !b.status);
+            if (activeBases.length > 0) {
+              const icb = activeBases.find(b => (b.code || '').toUpperCase() === 'ICB') || activeBases[0];
+              setSelectedBaseId(icb.id);
+
+              const matchTpl = (masters.templates || []).find(t => t.baseId === icb.id && (t.status === 'ACTIVE' || !t.status)) || masters.templates[0];
+              if (matchTpl) {
+                handleSelectTemplate(matchTpl, masters.rawMaterials, masters.uoms, 2000);
+              }
             }
           }
         }
