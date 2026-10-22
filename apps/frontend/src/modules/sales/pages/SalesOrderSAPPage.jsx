@@ -1269,11 +1269,9 @@ export default function SalesOrderPage() {
     if (activeCharges.length === 1) {
       productAndChargesLabel = `Total Product & ${activeCharges[0]} Amount`;
     } else if (activeCharges.length === 2) {
-      productAndChargesLabel = `Total Product & ${activeCharges[0]} and ${activeCharges[1]} Amount`;
+      productAndChargesLabel = `Total Product, ${activeCharges[0]} & ${activeCharges[1]}`;
     } else if (activeCharges.length > 2) {
-      const last = activeCharges[activeCharges.length - 1];
-      const rest = activeCharges.slice(0, -1).join(', ');
-      productAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+      productAndChargesLabel = 'Total Product & Charges Amount';
     }
 
     // Product amount after discount + all available charges
@@ -3256,11 +3254,9 @@ export default function SalesOrderPage() {
     if (waActiveCharges.length === 1) {
       waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} Amount`;
     } else if (waActiveCharges.length === 2) {
-      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} and ${waActiveCharges[1]} Amount`;
+      waProductAndChargesLabel = `Total Product, ${waActiveCharges[0]} & ${waActiveCharges[1]}`;
     } else if (waActiveCharges.length > 2) {
-      const last = waActiveCharges[waActiveCharges.length - 1];
-      const rest = waActiveCharges.slice(0, -1).join(', ');
-      waProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+      waProductAndChargesLabel = 'Total Product & Charges Amount';
     }
 
     const waTotalProductAndCharges = Math.max(0, waProductAmt - waDisc) + waFreight + waPacking + waLoading + waOther;

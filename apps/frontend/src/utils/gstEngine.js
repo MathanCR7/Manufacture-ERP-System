@@ -484,8 +484,8 @@ export function computeOrderGstSlabs(order = {}, overrideIsInterState = null) {
     const discAmt = Number(it.discount || 0);
     const gross = qty * unitPrice;
     const lineDisc = discPct > 0 ? (gross * (discPct / 100)) : discAmt;
-    const taxable = Number(it.taxableValue !== undefined ? it.taxableValue : (Number(it.subtotal || 0) || Math.max(0, gross - lineDisc)));
-    const rate = Number(it.gstRate !== undefined ? it.gstRate : (it.gst_rate !== undefined ? it.gst_rate : (it.product?.gstRate || 5)));
+    const taxable = Number(it.taxableValue !== undefined ? it.taxableValue : (Number(it.subtotal || 0) || Number(it.totalAmount || 0) || Number(it.amount || 0) || Math.max(0, gross - lineDisc)));
+    const rate = Number(it.gstRate !== undefined ? it.gstRate : (it.gst_rate !== undefined ? it.gst_rate : (it.taxRate !== undefined ? it.taxRate : (it.tax_rate !== undefined ? it.tax_rate : (it.product?.gstRate || 5)))));
     if (rate <= 0) return;
 
     const key = String(rate);

@@ -710,7 +710,7 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
         doc.fillColor(bg).rect(307, calcLineY - 2, 256, 11).fill();
       }
       doc.fillColor(color).fontSize(7.5).font(bold ? 'Helvetica-Bold' : 'Helvetica');
-      doc.text(label, 313, calcLineY);
+      doc.text(label, 313, calcLineY, { width: 138 });
       doc.text(val, 455, calcLineY, { width: 102, align: 'right' });
       calcLineY += 10.5;
     };
@@ -726,13 +726,11 @@ const generateInvoicePDFBuffer = (invoice, settings) => {
     if (activeChargeNames.length === 1) {
       productAndChargesLabel = `Total Product & ${activeChargeNames[0]} Amount:`;
     } else if (activeChargeNames.length === 2) {
-      productAndChargesLabel = `Total Product & ${activeChargeNames[0]} and ${activeChargeNames[1]} Amount:`;
+      productAndChargesLabel = `Total Product, ${activeChargeNames[0]} & ${activeChargeNames[1]}:`;
     } else if (activeChargeNames.length > 2) {
-      const last = activeChargeNames[activeChargeNames.length - 1];
-      const rest = activeChargeNames.slice(0, -1).join(', ');
-      productAndChargesLabel = `Total Product & ${rest} and ${last} Amount:`;
+      productAndChargesLabel = 'Total Product & Charges Amount:';
     } else if (invoiceDiscount > 0) {
-      productAndChargesLabel = 'Net Product Amount:';
+      productAndChargesLabel = 'Net Product Taxable Amount:';
     }
 
     const ancCodes = getOrderAncillaryTaxCodes(invoice);
@@ -2312,13 +2310,11 @@ const generateSalesInvoiceHTML = (invoice, settings, targetEmail) => {
   if (emailActiveCharges.length === 1) {
     emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} Amount`;
   } else if (emailActiveCharges.length === 2) {
-    emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} and ${emailActiveCharges[1]} Amount`;
+    emailProductAndChargesLabel = `Total Product, ${emailActiveCharges[0]} & ${emailActiveCharges[1]}`;
   } else if (emailActiveCharges.length > 2) {
-    const last = emailActiveCharges[emailActiveCharges.length - 1];
-    const rest = emailActiveCharges.slice(0, -1).join(', ');
-    emailProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+    emailProductAndChargesLabel = 'Total Product & Charges Amount';
   } else if (invoiceDiscount > 0) {
-    emailProductAndChargesLabel = 'Net Product Amount';
+    emailProductAndChargesLabel = 'Net Product Taxable Amount';
   }
 
   const emailHasExtra = invoiceDiscount > 0 || emailActiveCharges.length > 0;
@@ -2908,13 +2904,11 @@ const sendSalesInvoiceDual = async (invoice, targetEmail = null, bypassDuplicate
     if (emailActiveCharges.length === 1) {
       emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} Amount`;
     } else if (emailActiveCharges.length === 2) {
-      emailProductAndChargesLabel = `Total Product & ${emailActiveCharges[0]} and ${emailActiveCharges[1]} Amount`;
+      emailProductAndChargesLabel = `Total Product, ${emailActiveCharges[0]} & ${emailActiveCharges[1]}`;
     } else if (emailActiveCharges.length > 2) {
-      const last = emailActiveCharges[emailActiveCharges.length - 1];
-      const rest = emailActiveCharges.slice(0, -1).join(', ');
-      emailProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+      emailProductAndChargesLabel = 'Total Product & Charges Amount';
     } else if (emailDisc > 0) {
-      emailProductAndChargesLabel = 'Net Product Amount';
+      emailProductAndChargesLabel = 'Net Product Taxable Amount';
     }
 
     const emailAncCodes = getOrderAncillaryTaxCodes(orderData);
@@ -3041,11 +3035,9 @@ Helpline: ${settings.companyMobile}`;
     if (waActiveCharges.length === 1) {
       waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} Amount`;
     } else if (waActiveCharges.length === 2) {
-      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} and ${waActiveCharges[1]} Amount`;
+      waProductAndChargesLabel = `Total Product, ${waActiveCharges[0]} & ${waActiveCharges[1]}`;
     } else if (waActiveCharges.length > 2) {
-      const last = waActiveCharges[waActiveCharges.length - 1];
-      const rest = waActiveCharges.slice(0, -1).join(', ');
-      waProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+      waProductAndChargesLabel = 'Total Product & Charges Amount';
     }
 
     const waTotalProductAndCharges = Math.max(0, waProductAmt - waDisc) + waFreight + waPacking + waLoading + waOther;

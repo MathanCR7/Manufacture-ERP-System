@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { numberToWordsINR, getIndianStates, computeOrderGstSlabs, formatChargeGstLabel, getOrderAncillaryTaxCodes, getTaxRateFromCode } from './gstEngine';
+import { numberToWordsINR, getIndianStates, computeOrderGstSlabs, formatChargeGstLabel, getOrderAncillaryTaxCodes, getTaxRateFromCode } from './gstEngine.js';
 
 // High-resolution cached Rupee symbol canvas data URL to prevent WinAnsi font corruption
 let _rupeeLightData = null;
@@ -607,13 +607,11 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   if (activeChargeNames.length === 1) {
     productAndChargesLabel = `Total Product & ${activeChargeNames[0]} Amount:`;
   } else if (activeChargeNames.length === 2) {
-    productAndChargesLabel = `Total Product & ${activeChargeNames[0]} and ${activeChargeNames[1]} Amount:`;
+    productAndChargesLabel = `Total Product, ${activeChargeNames[0]} & ${activeChargeNames[1]}:`;
   } else if (activeChargeNames.length > 2) {
-    const last = activeChargeNames[activeChargeNames.length - 1];
-    const rest = activeChargeNames.slice(0, -1).join(', ');
-    productAndChargesLabel = `Total Product & ${rest} and ${last} Amount:`;
+    productAndChargesLabel = 'Total Product & Charges Amount:';
   } else if (discVal > 0) {
-    productAndChargesLabel = 'Net Product Amount:';
+    productAndChargesLabel = 'Net Product Taxable Amount:';
   }
 
   const hasExtraLines = discVal > 0 || activeChargeNames.length > 0;
@@ -652,10 +650,10 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
   if (gstSlabs.length > 1) rightRowsCount++; // Total GST row
   if (roundOff !== 0) rightRowsCount++;
 
-  // Dynamic box height: perfectly accommodates all elaborated tax slabs without overflow
-  const rightContentH = 6 + (rightRowsCount * 4.2) + 14;
+  // Dynamic box height: perfectly accommodates all elaborated tax slabs without overflow or collision
+  const rightContentH = 8 + (rightRowsCount * 4.4) + 16;
   const leftContentH = 14 + (wordsLines.length * 4) + 24;
-  const summaryCardH = Math.max(54, leftContentH, rightContentH);
+  const summaryCardH = Math.max(56, leftContentH, Math.ceil(rightContentH));
 
   // Check bottom room for totals & summary block
   if (curY > pageHeight - (summaryCardH + 25)) {
@@ -727,19 +725,58 @@ export function generateA4TaxInvoice(order, companyDetails = {}) {
 
   let rY = curY + 5;
   const printRow = (label, amountNum, isNegative = false, bold = false) => {
-    doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(bold ? 15 : 71, bold ? 23 : 85, bold ? 42 : 105);
-    doc.text(label, rSumX + 3.5, rY);
-
     const formatted = `${isNegative ? '- ' : ''}${Math.abs(Number(amountNum) || 0).toFixed(2)}`;
-    const numW = doc.getTextWidth(formatted);
     const rightMarginX = rSumX + sumColW - 3.5;
 
-    // Draw clean Rupee glyph before the numerical value
-    drawRupeeGlyph(doc, rightMarginX - numW - 2.8, rY, 2.2, false);
-    doc.text(formatted, rightMarginX, rY, { align: 'right' });
-    rY += 4.2;
+    // Measurement font settings
+    let fSize = bold ? 7.5 : 7.2;
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(fSize);
+
+    const numW = doc.getTextWidth(formatted);
+    const glyphW = 2.2;
+    const glyphMargin = 2.8;
+    const glyphX = rightMarginX - numW - glyphMargin;
+
+    // Strict boundary: clear safe zone of 3.0mm before the Rupee glyph so text NEVER intersects with amount
+    const maxLabelW = Math.max(20, glyphX - 3.0 - (rSumX + 3.5));
+    let labelW = doc.getTextWidth(label);
+
+    // If label only slightly exceeds (within 10%), try scaling down to 6.8pt font to fit on single line
+    if (labelW > maxLabelW && labelW <= maxLabelW * 1.10) {
+      fSize = 6.8;
+      doc.setFontSize(fSize);
+      labelW = doc.getTextWidth(label);
+    }
+
+    doc.setTextColor(bold ? 15 : 71, bold ? 23 : 85, bold ? 42 : 105);
+
+    if (labelW > maxLabelW) {
+      // Auto-wrap label so it NEVER intersects or collides with the amount column
+      const lines = doc.splitTextToSize(label, maxLabelW);
+
+      for (let i = 0; i < lines.length; i++) {
+        doc.text(lines[i], rSumX + 3.5, rY + (i * 3.4));
+      }
+
+      // Render Rupee glyph and amount aligned with the last line of the multi-line row
+      const targetRowY = rY + ((lines.length - 1) * 3.4);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      drawRupeeGlyph(doc, glyphX, targetRowY, glyphW, false);
+      doc.text(formatted, rightMarginX, targetRowY, { align: 'right' });
+
+      rY += (lines.length * 3.4) + 1.0;
+    } else {
+      // Single line fits cleanly
+      doc.text(label, rSumX + 3.5, rY);
+
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      drawRupeeGlyph(doc, glyphX, rY, glyphW, false);
+      doc.text(formatted, rightMarginX, rY, { align: 'right' });
+      rY += 4.2;
+    }
   };
 
   printRow('Total Product Amount:', totalTaxableValue);

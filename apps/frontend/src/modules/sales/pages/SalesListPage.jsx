@@ -661,11 +661,9 @@ export default function SalesListPage() {
     if (waActiveCharges.length === 1) {
       waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} Amount`;
     } else if (waActiveCharges.length === 2) {
-      waProductAndChargesLabel = `Total Product & ${waActiveCharges[0]} and ${waActiveCharges[1]} Amount`;
+      waProductAndChargesLabel = `Total Product, ${waActiveCharges[0]} & ${waActiveCharges[1]}`;
     } else if (waActiveCharges.length > 2) {
-      const last = waActiveCharges[waActiveCharges.length - 1];
-      const rest = waActiveCharges.slice(0, -1).join(', ');
-      waProductAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+      waProductAndChargesLabel = 'Total Product & Charges Amount';
     }
 
     const waTotalProductAndCharges = Math.max(0, waProductAmt - waDisc) + waFreight + waPacking + waLoading + waOther;
@@ -1203,11 +1201,9 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
     if (activeChargeNames.length === 1) {
       productAndChargesLabel = `Total Product & ${activeChargeNames[0]} Amount`;
     } else if (activeChargeNames.length === 2) {
-      productAndChargesLabel = `Total Product & ${activeChargeNames[0]} and ${activeChargeNames[1]} Amount`;
+      productAndChargesLabel = `Total Product, ${activeChargeNames[0]} & ${activeChargeNames[1]}`;
     } else if (activeChargeNames.length > 2) {
-      const last = activeChargeNames[activeChargeNames.length - 1];
-      const rest = activeChargeNames.slice(0, -1).join(', ');
-      productAndChargesLabel = `Total Product & ${rest} and ${last} Amount`;
+      productAndChargesLabel = 'Total Product & Charges Amount';
     }
 
     const totalProductAndCharges = Math.max(0, totalProductAmount - discountVal) + freightVal + loadingVal + packingVal + otherVal;
