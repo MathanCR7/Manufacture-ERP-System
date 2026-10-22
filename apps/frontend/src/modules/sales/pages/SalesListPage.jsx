@@ -1802,36 +1802,63 @@ For queries, contact ${activeSettings?.companyMobile || '+91 99404 54154'}`;
                       ? (gstRateVal === 18 ? 'IGST18 (18%)' : (gstRateVal === 12 ? 'IGST12 (12%)' : (gstRateVal === 28 ? 'IGST28 (28%)' : 'IGST5 (5%)')))
                       : (gstRateVal === 18 ? 'SCG18 (18%)' : (gstRateVal === 12 ? 'SCG12 (12%)' : (gstRateVal === 28 ? 'SCG28 (28%)' : 'SCG5 (5%)')));
 
+                    const isRM = Boolean(item.rawMaterialId || item.itemType === 'RAW_MATERIAL' || item.rawMaterial);
+                    const itemCode = isRM 
+                      ? (item.rawMaterial?.code || (item.productCode && item.productCode !== 'ITEM' ? item.productCode : null) || 'RM')
+                      : (item.product?.code || item.product?.systemCode || (item.productCode && item.productCode !== 'ITEM' ? item.productCode : null) || `BFD10${idx + 1}`);
+                    const itemName = item.productName || (isRM ? item.rawMaterial?.name : item.product?.name) || 'Item';
+                    const itemCat = isRM 
+                      ? (item.rawMaterial?.category?.name || item.rawMaterial?.category || (item.isPackingCharge ? 'Packing Items' : 'Raw Material'))
+                      : (item.product?.category?.name || 'Ice Cream');
+                    const itemSubcat = isRM 
+                      ? (item.rawMaterial?.subcategory?.name || (item.isPackingCharge ? 'Packaging' : '-'))
+                      : (item.product?.subcategory?.name || 'Standard');
+                    const itemUom = item.uomName || (isRM ? (item.rawMaterial?.unitId || 'kg') : (item.product?.unit?.name || 'pcs'));
+
                     return (
                       <tr key={item.id || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
                         <td className="px-3 py-3 text-center text-slate-400 font-mono font-bold">{idx + 1}</td>
-                        <td className="px-3 py-3 font-mono font-bold text-amber-600 dark:text-amber-400">
-                          {item.product?.code || item.product?.systemCode || `BFD10${idx + 1}`}
+                        <td className="px-3 py-3 font-mono font-bold">
+                          <span className={isRM ? "text-blue-600 dark:text-blue-400" : "text-amber-600 dark:text-amber-400"}>
+                            {itemCode}
+                          </span>
                         </td>
                         <td className="px-3 py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-slate-900 dark:text-white">
-                              {item.productName || item.product?.name || 'Finished Ice Cream Product'}
+                              {itemName}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => setPriceHistoryModalProduct({ id: item.productId || item.product?.id, name: item.productName || item.product?.name, code: item.product?.code })}
-                              className="text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
-                              title="View Product Price History & BOM Cost Analysis"
-                            >
-                              <TrendingUp className="w-3.5 h-3.5" />
-                            </button>
+                            {isRM && (
+                              <span className="text-[9.5px] px-1.5 py-0.2 rounded font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                RM
+                              </span>
+                            )}
+                            {item.isPackingCharge && (
+                              <span className="text-[9.5px] px-1.5 py-0.2 rounded font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                                📦 Packing
+                              </span>
+                            )}
+                            {!isRM && (
+                              <button
+                                type="button"
+                                onClick={() => setPriceHistoryModalProduct({ id: item.productId || item.product?.id, name: itemName, code: itemCode })}
+                                className="text-slate-400 hover:text-emerald-600 transition-colors cursor-pointer"
+                                title="View Product Price History & BOM Cost Analysis"
+                              >
+                                <TrendingUp className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                           {item.hsnCode && (
                             <span className="text-[10px] text-slate-400 font-mono">HSN: {item.hsnCode}</span>
                           )}
                         </td>
                         <td className="px-3 py-3 text-slate-600 dark:text-slate-300">
-                          <div>{item.product?.category?.name || 'Ice Cream'}</div>
-                          <span className="text-[10px] text-slate-400">{item.product?.subcategory?.name || 'Standard'}</span>
+                          <div>{itemCat}</div>
+                          <span className="text-[10px] text-slate-400">{itemSubcat}</span>
                         </td>
                         <td className="px-3 py-3 text-center font-mono text-slate-500">
-                          {item.uomName || item.product?.unit?.name || 'pcs'}
+                          {itemUom}
                         </td>
                         <td className="px-3 py-3 text-right font-mono font-black text-slate-900 dark:text-white">
                           {qty}

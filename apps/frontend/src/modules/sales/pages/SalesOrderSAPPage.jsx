@@ -333,6 +333,52 @@ const createEmptyLine = (index = 1, isInter = false) => ({
   batchAllocations: []
 });
 
+// Full-Coverage Excel-like Column Widths for Document Rows Table (Fully covers screen start to end)
+const DEFAULT_SAP_DOC_COL_WIDTHS = {
+  rowNo: 38,
+  itemType: 115,
+  systemCode: 135,
+  productName: 240, // Generous width ensuring placeholder, title & search icon fit perfectly
+  category: 120,
+  subcategory: 135,
+  uom: 85,          // Fits "Unit of Sale *" without truncating
+  packing: 65,      // Fits "Packing?" without truncating
+  quantity: 75,
+  salePrice: 115,   // Fits "Sale Price (INR) *" without truncating
+  discount: 80,     // Fits "Discount %" without truncating
+  taxCode: 105,     // Fits "Tax Code" cleanly
+  total: 110,       // Fits "Total (LC)" cleanly
+  inStock: 75,
+  remainingStock: 105, // Fits "Remaining Stock" without truncating
+  reserved: 75,
+  stockCheck: 135,  // Fits "Stock Check / Shortfall" without truncating
+  actions: 36
+};
+
+// Safe Minimum Widths to Prevent Broken / Illegible Slivers
+const MIN_SAP_DOC_COL_WIDTHS = {
+  rowNo: 28,
+  itemType: 95,
+  systemCode: 110,
+  productName: 175,
+  category: 80,
+  subcategory: 85,
+  uom: 55,
+  packing: 45,
+  quantity: 55,
+  salePrice: 75,
+  discount: 55,
+  taxCode: 80,
+  total: 80,
+  inStock: 60,
+  remainingStock: 70,
+  reserved: 60,
+  stockCheck: 95,
+  actions: 30
+};
+
+const STORAGE_KEY_COL_WIDTHS = 'sap_order_studio_col_widths_v5';
+
 export default function SalesOrderPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -350,6 +396,130 @@ export default function SalesOrderPage() {
   useEffect(() => {
     fetchCompany();
   }, [fetchCompany]);
+
+  // Excel-like Column Resizing & Persistence State (with Full-Coverage Clamping)
+  const [colWidths, setColWidths] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_COL_WIDTHS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const validated = { ...DEFAULT_SAP_DOC_COL_WIDTHS };
+        Object.keys(DEFAULT_SAP_DOC_COL_WIDTHS).forEach(key => {
+          const val = Number(parsed[key]);
+          const minW = MIN_SAP_DOC_COL_WIDTHS[key] || 35;
+          if (!isNaN(val) && val > 0) {
+            validated[key] = Math.max(minW, val);
+          }
+        });
+        return validated;
+      }
+    } catch (e) {
+      console.error('Failed to parse saved column widths', e);
+    }
+    return DEFAULT_SAP_DOC_COL_WIDTHS;
+  });
+
+  const [resizingCol, setResizingCol] = useState(null);
+  const resizingColRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_COL_WIDTHS, JSON.stringify(colWidths));
+    } catch (e) {}
+  }, [colWidths]);
+
+  const handleResizeMouseDown = useCallback((colKey, e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const targetCol = colKey;
+    const startX = e.clientX;
+    const thEl = e.currentTarget.closest('th');
+    const startWidth = thEl ? thEl.getBoundingClientRect().width : (colWidths[targetCol] || DEFAULT_SAP_DOC_COL_WIDTHS[targetCol] || 100);
+    resizingColRef.current = { colKey: targetCol, startX, startWidth };
+    setResizingCol(targetCol);
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent) => {
+      const active = resizingColRef.current;
+      if (!active) return;
+      const deltaX = moveEvent.clientX - active.startX;
+      const minW = MIN_SAP_DOC_COL_WIDTHS[targetCol] || 35;
+      const newWidth = Math.max(minW, Math.min(900, Math.round(active.startWidth + deltaX)));
+
+      setColWidths(prev => ({
+        ...prev,
+        [targetCol]: newWidth
+      }));
+    };
+
+    const onMouseUp = () => {
+      resizingColRef.current = null;
+      setResizingCol(null);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [colWidths]);
+
+  const handleResetColWidths = useCallback(() => {
+    setColWidths(DEFAULT_SAP_DOC_COL_WIDTHS);
+    try {
+      localStorage.removeItem(STORAGE_KEY_COL_WIDTHS);
+      localStorage.removeItem('sap_order_studio_col_widths_v4');
+      localStorage.removeItem('sap_order_studio_col_widths_v3');
+      localStorage.removeItem('sap_order_studio_col_widths_v2');
+      localStorage.removeItem('sap_order_studio_col_widths');
+    } catch (e) {}
+  }, []);
+
+  const handleColDoubleClick = useCallback((colKey) => {
+    setColWidths(prev => ({
+      ...prev,
+      [colKey]: DEFAULT_SAP_DOC_COL_WIDTHS[colKey]
+    }));
+  }, []);
+
+  const totalTableWidth = useMemo(() => {
+    return Object.values(colWidths).reduce((sum, w) => sum + (Number(w) || 0), 0);
+  }, [colWidths]);
+
+  const renderTh = (colKey, label, align = 'left', tooltip = null) => {
+    const width = colWidths[colKey] || DEFAULT_SAP_DOC_COL_WIDTHS[colKey];
+    const isResizingThis = resizingCol === colKey;
+    const isLastCol = colKey === 'actions';
+
+    return (
+      <th
+        key={colKey}
+        style={{ width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` }}
+        className={`relative py-1 px-1.5 ${!isLastCol ? 'border-r border-[var(--sap-border-inner)]' : ''} select-none group/th overflow-hidden`}
+        title={tooltip || label}
+      >
+        <div className={`truncate flex items-center ${align === 'center' ? 'justify-center' : (align === 'right' ? 'justify-end' : 'justify-start')} w-full pr-0.5 font-bold text-[10.5px]`}>
+          <span className="truncate">{label}</span>
+        </div>
+        {!isLastCol && (
+          <div
+            onMouseDown={(e) => handleResizeMouseDown(colKey, e)}
+            onDoubleClick={() => handleColDoubleClick(colKey)}
+            title="Drag border to resize column • Double-click to reset"
+            className={`absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-amber-500/80 active:bg-amber-600 transition-all z-20 flex items-center justify-center ${
+              isResizingThis ? 'bg-amber-500 opacity-100' : 'opacity-0 group-hover/th:opacity-100'
+            }`}
+          >
+            <div className="w-[1px] h-3 bg-amber-700/80 dark:bg-amber-300/80 rounded-full" />
+          </div>
+        )}
+      </th>
+    );
+  };
 
   // Converted Source Order Tracking
   const [sourceOrderId, setSourceOrderId] = useState(convertFromId || null);
@@ -661,17 +831,61 @@ export default function SalesOrderPage() {
   useEffect(() => {
     if (rawMaterials.length === 0 && products.length === 0) return;
     setLines(prev => prev.map(line => {
-      if (line.rawMaterialId) {
-        const rm = rmMap.get(line.rawMaterialId);
+      if (!line.productId && !line.rawMaterialId && !line.itemDescription) return line;
+
+      const isRM = line.itemType === 'RAW_MATERIAL'
+        || Boolean(line.rawMaterialId)
+        || Boolean(line.rawMaterial)
+        || (line.productId && rmMap.has(line.productId) && !productMap.has(line.productId))
+        || (line.itemDescription && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === line.itemDescription?.toLowerCase()));
+
+      if (isRM) {
+        const rmId = line.rawMaterialId || (line.productId && rmMap.has(line.productId) ? line.productId : null);
+        const rm = (rmId ? rmMap.get(rmId) : null)
+          || line.rawMaterial
+          || Array.from(rmMap.values()).find(r => r.name?.toLowerCase() === line.itemDescription?.toLowerCase());
+
         if (rm) {
           const freshStock = Number(rm.currentStock !== undefined ? rm.currentStock : (rm.availableQuantity !== undefined ? rm.availableQuantity : (rm.stock || 0)));
-          return { ...line, stock: freshStock, onHand: freshStock, rawMaterial: rm };
+          return {
+            ...line,
+            itemType: 'RAW_MATERIAL',
+            rawMaterialId: rm.id,
+            productId: null,
+            rawMaterial: rm,
+            rawProduct: null,
+            systemCode: line.systemCode || rm.code || rm.sku || 'RM',
+            itemDescription: line.itemDescription || rm.printName || rm.name,
+            category: line.category || rm.category?.name || rm.category || 'Packing Items',
+            baseCategory: 'Raw Material',
+            unitOfSale: line.unitOfSale || rm.unitId || 'kg',
+            stock: freshStock,
+            onHand: freshStock
+          };
         }
-      } else if (line.productId) {
-        const prod = productMap.get(line.productId);
+      } else {
+        const prodId = line.productId;
+        const prod = (prodId ? productMap.get(prodId) : null)
+          || line.rawProduct
+          || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === line.itemDescription?.toLowerCase());
+
         if (prod) {
           const freshStock = getProductLiveStock(prod);
-          return { ...line, stock: freshStock, onHand: freshStock, rawProduct: prod };
+          return {
+            ...line,
+            itemType: 'PRODUCT',
+            productId: prod.id,
+            rawMaterialId: null,
+            rawProduct: prod,
+            rawMaterial: null,
+            systemCode: line.systemCode || prod.code || prod.systemCode,
+            itemDescription: line.itemDescription || prod.name || prod.productName,
+            category: line.category || prod.category?.name || prod.category || 'Finished Goods',
+            baseCategory: prod.baseCategory || 'General',
+            unitOfSale: line.unitOfSale || prod.unit?.name || prod.unitOfSale || 'pcs',
+            stock: freshStock,
+            onHand: freshStock
+          };
         }
       }
       return line;
@@ -1428,24 +1642,25 @@ export default function SalesOrderPage() {
     setFreight(round2(goodsBaseTotal * (safePct / 100)));
   };
 
-  const handlePackingAmountChange = (amt) => {
-    const safeAmt = Math.max(0, amt);
-    setPackingCharges(safeAmt);
-    const calculatedPercent = goodsBaseTotal > 0 ? round2((safeAmt / goodsBaseTotal) * 100) : 0;
-    setPackingPercent(calculatedPercent);
+  // Multi-item Packaging Calculation & Pro-Rata Distribution by Quantity Helper:
+  const distributePackingAcrossLines = (prevLines, targetAmount, currentPackingTaxCode) => {
+    const taxCodeToUse = currentPackingTaxCode || packingTaxCode || 'IGST28';
+    const taxRateToUse = getTaxRateFromCode(taxCodeToUse);
+    const packingIndices = [];
+    prevLines.forEach((l, idx) => {
+      if (l.isPackingCharge) packingIndices.push(idx);
+    });
 
-    // Synchronize packing line in Document Rows with calculated Sale Price
-    setLines(prev => {
-      let packingLineIndex = prev.findIndex(l => l.isPackingCharge);
-      // If no line is marked as packing yet, find the first empty line
-      if (packingLineIndex === -1) {
-        packingLineIndex = prev.findIndex(l => !l.productId && !l.rawMaterialId && !l.itemDescription);
-        if (packingLineIndex !== -1) {
-          const target = prev[packingLineIndex];
+    // If no line is marked as packing yet, find the first empty line
+    if (packingIndices.length === 0) {
+      if (targetAmount > 0) {
+        const emptyIdx = prevLines.findIndex(l => !l.productId && !l.rawMaterialId && !l.itemDescription);
+        if (emptyIdx !== -1) {
+          const target = prevLines[emptyIdx];
           const qty = Math.max(1, Number(target.quantity) || 1);
-          const newUnitPrice = round2(safeAmt / qty);
-          return prev.map((l, idx) => {
-            if (idx !== packingLineIndex) return l;
+          const newUnitPrice = round2(targetAmount / qty);
+          return prevLines.map((l, idx) => {
+            if (idx !== emptyIdx) return l;
             return {
               ...l,
               isPackingCharge: true,
@@ -1454,30 +1669,86 @@ export default function SalesOrderPage() {
               unitPrice: newUnitPrice,
               lineDiscount: 0,
               discountPercent: 0,
-              taxCode: packingTaxCode,
-              gstRate: getTaxRateFromCode(packingTaxCode),
-              lineTotal: safeAmt
+              taxCode: taxCodeToUse,
+              gstRate: taxRateToUse,
+              lineTotal: targetAmount
             };
           });
         }
-      } else {
-        return prev.map((l, idx) => {
-          if (idx !== packingLineIndex) return l;
-          const qty = Math.max(1, Number(l.quantity) || 1);
-          const newUnitPrice = round2(safeAmt / qty);
-          return {
-            ...l,
-            unitPrice: newUnitPrice,
-            lineDiscount: 0,
-            discountPercent: 0,
-            taxCode: packingTaxCode,
-            gstRate: getTaxRateFromCode(packingTaxCode),
-            lineTotal: safeAmt
-          };
-        });
       }
-      return prev;
+      return prevLines;
+    }
+
+    if (targetAmount <= 0) {
+      return prevLines.map((l, idx) => {
+        if (!packingIndices.includes(idx)) return l;
+        return {
+          ...l,
+          unitPrice: 0,
+          lineDiscount: 0,
+          discountPercent: 0,
+          lineTotal: 0,
+          taxCode: l.taxCode || taxCodeToUse,
+          gstRate: l.gstRate !== undefined && l.gstRate !== null ? l.gstRate : taxRateToUse
+        };
+      });
+    }
+
+    const totalQty = packingIndices.reduce((sum, idx) => {
+      return sum + Math.max(1, Number(prevLines[idx].quantity) || 1);
+    }, 0);
+
+    const k = packingIndices.length;
+    let accumulatedActualTotal = 0;
+    const lineUpdates = new Map();
+
+    packingIndices.forEach((lineIdx, pIdx) => {
+      const line = prevLines[lineIdx];
+      const qty = Math.max(1, Number(line.quantity) || 1);
+      const isLast = (pIdx === k - 1);
+
+      let unitPrice = 0;
+      let lineTotal = 0;
+
+      if (isLast) {
+        // Last packing item absorbs any rounding difference to ensure exact penny/paisa reconciliation
+        const remainingTarget = Math.max(0, round2(targetAmount - accumulatedActualTotal));
+        unitPrice = round2(remainingTarget / qty);
+        lineTotal = round2(unitPrice * qty);
+      } else {
+        const targetLineAmt = round2(targetAmount * (qty / (totalQty || 1)));
+        unitPrice = round2(targetLineAmt / qty);
+        lineTotal = round2(unitPrice * qty);
+        accumulatedActualTotal += lineTotal;
+      }
+
+      lineUpdates.set(lineIdx, {
+        unitPrice,
+        lineTotal,
+        lineDiscount: 0,
+        discountPercent: 0,
+        taxCode: line.taxCode || taxCodeToUse,
+        gstRate: line.gstRate !== undefined && line.gstRate !== null ? line.gstRate : taxRateToUse
+      });
     });
+
+    return prevLines.map((l, idx) => {
+      if (!lineUpdates.has(idx)) return l;
+      return {
+        ...l,
+        ...lineUpdates.get(idx)
+      };
+    });
+  };
+
+  const handlePackingAmountChange = (amt) => {
+    const safeAmt = Math.max(0, amt);
+    setPackingCharges(safeAmt);
+    const calculatedPercent = goodsBaseTotal > 0 ? round2((safeAmt / goodsBaseTotal) * 100) : 0;
+    setPackingPercent(calculatedPercent);
+
+    // Synchronize packing lines in Document Rows by splitting proportionally across all checked raw materials
+    setLines(prev => distributePackingAcrossLines(prev, safeAmt, packingTaxCode));
   };
 
   const handlePackingPercentChange = (pct) => {
@@ -1486,49 +1757,8 @@ export default function SalesOrderPage() {
     const calculatedAmount = round2(goodsBaseTotal * (safePct / 100));
     setPackingCharges(calculatedAmount);
 
-    // Synchronize packing line in Document Rows with calculated Sale Price
-    setLines(prev => {
-      let packingLineIndex = prev.findIndex(l => l.isPackingCharge);
-      if (packingLineIndex === -1) {
-        packingLineIndex = prev.findIndex(l => !l.productId && !l.rawMaterialId && !l.itemDescription);
-        if (packingLineIndex !== -1) {
-          const target = prev[packingLineIndex];
-          const qty = Math.max(1, Number(target.quantity) || 1);
-          const newUnitPrice = round2(calculatedAmount / qty);
-          return prev.map((l, idx) => {
-            if (idx !== packingLineIndex) return l;
-            return {
-              ...l,
-              isPackingCharge: true,
-              itemDescription: 'Packaging & Handling Charges',
-              quantity: qty,
-              unitPrice: newUnitPrice,
-              lineDiscount: 0,
-              discountPercent: 0,
-              taxCode: packingTaxCode,
-              gstRate: getTaxRateFromCode(packingTaxCode),
-              lineTotal: calculatedAmount
-            };
-          });
-        }
-      } else {
-        return prev.map((l, idx) => {
-          if (idx !== packingLineIndex) return l;
-          const qty = Math.max(1, Number(l.quantity) || 1);
-          const newUnitPrice = round2(calculatedAmount / qty);
-          return {
-            ...l,
-            unitPrice: newUnitPrice,
-            lineDiscount: 0,
-            discountPercent: 0,
-            taxCode: packingTaxCode,
-            gstRate: getTaxRateFromCode(packingTaxCode),
-            lineTotal: calculatedAmount
-          };
-        });
-      }
-      return prev;
-    });
+    // Synchronize packing lines in Document Rows by splitting proportionally across all checked raw materials
+    setLines(prev => distributePackingAcrossLines(prev, calculatedAmount, packingTaxCode));
   };
 
   const handleLoadingAmountChange = (amt) => {
@@ -1555,14 +1785,14 @@ export default function SalesOrderPage() {
     setOtherCharges(round2(goodsBaseTotal * (safePct / 100)));
   };
 
-  // Update specific line field with bidirectional sync for packing charges
+  // Update specific line field with bidirectional sync for multi-item packing charges
   const handleLineChange = (lineId, field, value) => {
     if (isDocumentLocked) return;
     setLines(prev => {
       let isPackingToggleToTrue = false;
-      const targetLine = prev.find(l => l.id === lineId);
+      let isPackingToggleToFalse = false;
 
-      const updated = prev.map(l => {
+      let updated = prev.map(l => {
         if (l.id !== lineId) return l;
         const lineUpdate = { ...l, [field]: value };
         if (field === 'isPackingCharge') {
@@ -1570,16 +1800,13 @@ export default function SalesOrderPage() {
             isPackingToggleToTrue = true;
             lineUpdate.taxCode = packingTaxCode;
             lineUpdate.gstRate = getTaxRateFromCode(packingTaxCode);
-            // If the line currently has no price but package charges are set, populate price
-            if ((Number(l.unitPrice) || 0) === 0 && packingCharges > 0) {
-              const qty = Math.max(1, Number(l.quantity) || 1);
-              lineUpdate.unitPrice = round2(packingCharges / qty);
-            }
           } else {
-            // Toggled off: clear packing charges if this was the packing line
-            setPackingCharges(0);
-            setPackingPercent(0);
+            isPackingToggleToFalse = true;
           }
+        }
+        if (field === 'taxCode') {
+          lineUpdate.taxCode = value;
+          lineUpdate.gstRate = getTaxRateFromCode(value);
         }
         return lineUpdate;
       });
@@ -1597,31 +1824,111 @@ export default function SalesOrderPage() {
         return sum + ((price - discAmt) * qty);
       }, 0));
 
-      if (isPacking && (field === 'unitPrice' || field === 'quantity' || field === 'discountPercent' || field === 'isPackingCharge')) {
-        const qty = Number(currentLine?.quantity) || 1;
-        const price = Number(currentLine?.unitPrice) || 0;
-        const discPct = Number(currentLine?.discountPercent) || 0;
-        const lineNet = round2((price - (price * (discPct / 100))) * qty);
+      const packingLines = updated.filter(l => l.isPackingCharge);
 
-        // If toggled to packing and line already had an amount, sync charges to line
-        // Or if user edited unitPrice/quantity, sync charges to line
-        if (!isPackingToggleToTrue || lineNet > 0) {
-          setPackingCharges(lineNet);
+      if (field === 'isPackingCharge') {
+        if (isPackingToggleToTrue) {
+          // If packaging percentage or amount exists, distribute it across all packing items by quantity (Method A)
+          let targetPackingAmt = 0;
+          if (packingPercent > 0 && newGoodsTotal > 0) {
+            targetPackingAmt = round2(newGoodsTotal * (packingPercent / 100));
+          } else if (packingCharges > 0) {
+            targetPackingAmt = packingCharges;
+          }
+
+          if (targetPackingAmt > 0) {
+            setPackingCharges(targetPackingAmt);
+            updated = distributePackingAcrossLines(updated, targetPackingAmt, packingTaxCode);
+          } else {
+            const totalPacking = round2(packingLines.reduce((sum, l) => {
+              const q = Number(l.quantity) || 1;
+              const p = Number(l.unitPrice) || 0;
+              const d = Number(l.discountPercent) || 0;
+              return sum + ((p - (p * (d / 100))) * q);
+            }, 0));
+            setPackingCharges(totalPacking);
+            const effectiveBase = newGoodsTotal > 0 ? newGoodsTotal : goodsBaseTotal;
+            if (effectiveBase > 0) {
+              setPackingPercent(round2((totalPacking / effectiveBase) * 100));
+            }
+          }
+        } else if (isPackingToggleToFalse) {
+          // Reset price and total for the unchecked row so it doesn't inflate order
+          updated = updated.map(l => l.id === lineId ? { ...l, unitPrice: 0, lineTotal: 0 } : l);
+          const remainingPackingLines = updated.filter(l => l.isPackingCharge && l.id !== lineId);
+
+          if (remainingPackingLines.length > 0) {
+            let targetPackingAmt = 0;
+            if (packingPercent > 0 && newGoodsTotal > 0) {
+              targetPackingAmt = round2(newGoodsTotal * (packingPercent / 100));
+            } else if (packingCharges > 0) {
+              targetPackingAmt = packingCharges;
+            }
+
+            if (targetPackingAmt > 0) {
+              setPackingCharges(targetPackingAmt);
+              updated = distributePackingAcrossLines(updated, targetPackingAmt, packingTaxCode);
+            } else {
+              const remainingPacking = round2(remainingPackingLines.reduce((sum, l) => {
+                const q = Number(l.quantity) || 1;
+                const p = Number(l.unitPrice) || 0;
+                const d = Number(l.discountPercent) || 0;
+                return sum + ((p - (p * (d / 100))) * q);
+              }, 0));
+              setPackingCharges(remainingPacking);
+              const effectiveBase = newGoodsTotal > 0 ? newGoodsTotal : goodsBaseTotal;
+              if (effectiveBase > 0) {
+                setPackingPercent(round2((remainingPacking / effectiveBase) * 100));
+              }
+            }
+          } else {
+            setPackingCharges(0);
+            setPackingPercent(0);
+          }
+        }
+      } else if (isPacking) {
+        if (field === 'quantity') {
+          // When changing quantity of a packing line:
+          // Keep target package charges intact and re-distribute proportionally across new quantities (Method A)
+          let targetPackingAmt = 0;
+          if (packingPercent > 0 && newGoodsTotal > 0) {
+            targetPackingAmt = round2(newGoodsTotal * (packingPercent / 100));
+          } else if (packingCharges > 0) {
+            targetPackingAmt = packingCharges;
+          }
+
+          if (targetPackingAmt > 0) {
+            setPackingCharges(targetPackingAmt);
+            updated = distributePackingAcrossLines(updated, targetPackingAmt, packingTaxCode);
+          } else {
+            const totalPacking = round2(packingLines.reduce((sum, l) => {
+              const q = Number(l.quantity) || 1;
+              const p = Number(l.unitPrice) || 0;
+              const d = Number(l.discountPercent) || 0;
+              return sum + ((p - (p * (d / 100))) * q);
+            }, 0));
+            setPackingCharges(totalPacking);
+          }
+        } else if (field === 'unitPrice' || field === 'discountPercent') {
+          // User manually edited unit price on packing item, so sum all packing items
+          const totalPacking = round2(packingLines.reduce((sum, l) => {
+            const q = Number(l.quantity) || 1;
+            const p = Number(l.unitPrice) || 0;
+            const d = Number(l.discountPercent) || 0;
+            return sum + ((p - (p * (d / 100))) * q);
+          }, 0));
+          setPackingCharges(totalPacking);
           const effectiveBase = newGoodsTotal > 0 ? newGoodsTotal : goodsBaseTotal;
           if (effectiveBase > 0) {
-            setPackingPercent(round2((lineNet / effectiveBase) * 100));
+            setPackingPercent(round2((totalPacking / effectiveBase) * 100));
           }
         }
       } else if (!isPacking && (field === 'unitPrice' || field === 'quantity' || field === 'discountPercent')) {
+        // Non-packing line changed
         if (packingPercent > 0 && newGoodsTotal > 0) {
           const newPackingAmt = round2(newGoodsTotal * (packingPercent / 100));
           setPackingCharges(newPackingAmt);
-          const pLine = updated.find(l => l.isPackingCharge);
-          if (pLine) {
-            const pQty = Math.max(1, Number(pLine.quantity) || 1);
-            pLine.unitPrice = round2(newPackingAmt / pQty);
-            pLine.lineTotal = newPackingAmt;
-          }
+          updated = distributePackingAcrossLines(updated, newPackingAmt, packingTaxCode);
         }
         if (freightPercent > 0 && newGoodsTotal > 0) {
           setFreight(round2(newGoodsTotal * (freightPercent / 100)));
@@ -1675,9 +1982,9 @@ export default function SalesOrderPage() {
     const gstPct = (Number(product.cgst || 0) + Number(product.sgst || 0)) || Number(product.igst || 0) || 5;
     let taxCd;
     if (isInterState) {
-      taxCd = gstPct === 18 ? 'IGST18' : (gstPct === 12 ? 'IGST12' : (gstPct === 28 ? 'IGST28' : (gstPct === 0 ? 'EXEMPT' : 'IGST5')));
+      taxCd = gstPct === 18 ? 'IGST18' : (gstPct === 12 ? 'IGST12' : (gstPct === 28 ? 'IGST28' : (gstPct === 9 ? 'IGST9' : (gstPct === 0 ? 'EXEMPT' : 'IGST5'))));
     } else {
-      taxCd = gstPct === 18 ? 'SCG18' : (gstPct === 12 ? 'SCG12' : (gstPct === 28 ? 'SCG28' : (gstPct === 0 ? 'EXEMPT' : 'SCG5')));
+      taxCd = gstPct === 18 ? 'SCG18' : (gstPct === 12 ? 'SCG12' : (gstPct === 28 ? 'SCG28' : (gstPct === 9 ? 'SCG9' : (gstPct === 0 ? 'EXEMPT' : 'SCG5'))));
     }
     const liveStock = getProductLiveStock(product);
 
@@ -1731,41 +2038,58 @@ export default function SalesOrderPage() {
     const liveStock = Number(rm.currentStock || 0);
     const isPack = asPacking || (rm.category?.name || '').toUpperCase().includes('PACKING') || (rm.name || '').toUpperCase().includes('BOX') || (rm.name || '').toUpperCase().includes('ICE');
 
-    setLines(prev => prev.map(l => {
-      if (l.id !== lineId) return l;
-      return {
-        ...l,
-        productId: null,
-        rawMaterialId: rm.id,
-        itemType: 'RAW_MATERIAL',
-        systemCode: rm.code || 'RM',
-        itemDescription: rm.printName || rm.name,
-        category: rm.category?.name || rm.category || 'Raw Material',
-        baseCategory: rm.category?.name || 'Raw Material',
-        subcategory: '-',
-        unitOfSale: rm.unitId || 'kg',
-        unitPrice: price,
-        discountPercent: 0,
-        taxCode: taxCd,
-        gstRate: gstPct,
-        stock: liveStock,
-        rawMaterial: rm,
-        rawProduct: null,
-        isPackingCharge: isPack,
-        batchAllocations: []
-      };
-    }));
+    setLines(prev => {
+      let mapped = prev.map(l => {
+        if (l.id !== lineId) return l;
+        return {
+          ...l,
+          productId: null,
+          rawMaterialId: rm.id,
+          itemType: 'RAW_MATERIAL',
+          systemCode: rm.code || 'RM',
+          itemDescription: rm.printName || rm.name,
+          category: rm.category?.name || rm.category || (isPack ? 'Packing Items' : 'Raw Material'),
+          baseCategory: 'Raw Material',
+          subcategory: '-',
+          unitOfSale: rm.unitId || 'kg',
+          unitPrice: price,
+          discountPercent: 0,
+          taxCode: taxCd,
+          gstRate: gstPct,
+          stock: liveStock,
+          rawMaterial: rm,
+          rawProduct: null,
+          isPackingCharge: isPack,
+          batchAllocations: []
+        };
+      });
+
+      if (isPack) {
+        let targetPackingAmt = 0;
+        if (packingPercent > 0 && goodsBaseTotal > 0) {
+          targetPackingAmt = round2(goodsBaseTotal * (packingPercent / 100));
+        } else if (packingCharges > 0) {
+          targetPackingAmt = packingCharges;
+        }
+
+        if (targetPackingAmt > 0) {
+          setPackingCharges(targetPackingAmt);
+          mapped = distributePackingAcrossLines(mapped, targetPackingAmt, packingTaxCode);
+        } else if (price > 0) {
+          const packLines = mapped.filter(l => l.isPackingCharge);
+          const totalPack = round2(packLines.reduce((sum, l) => sum + (Number(l.quantity || 1) * Number(l.unitPrice || 0)), 0));
+          setPackingCharges(totalPack);
+        }
+      }
+
+      const idx = mapped.findIndex(l => l.id === lineId);
+      if (idx === mapped.length - 1) {
+        return [...mapped, createEmptyLine(mapped.length + 1)];
+      }
+      return mapped;
+    });
 
     setActiveGridSearchLineId(null);
-
-    // Append fresh empty line if this was the last row
-    setLines(prev => {
-      const idx = prev.findIndex(l => l.id === lineId);
-      if (idx === prev.length - 1) {
-        return [...prev, createEmptyLine(prev.length + 1)];
-      }
-      return prev;
-    });
 
     setStatusMessage({
       type: 'ready',
@@ -2211,15 +2535,27 @@ export default function SalesOrderPage() {
 
       if (Array.isArray(ord.items) && ord.items.length > 0) {
         setLines(ord.items.map((it, idx) => {
-          const isRM = it.itemType === 'RAW_MATERIAL' || (!it.productId && Boolean(it.rawMaterialId));
-          const rmObj = isRM ? (it.rawMaterial || rmMap.get(it.rawMaterialId)) : null;
-          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (it.product?.gstRate || 5)));
+          const isRM = it.itemType === 'RAW_MATERIAL' 
+            || Boolean(it.rawMaterialId) 
+            || Boolean(it.rawMaterial) 
+            || (it.productId && rmMap.has(it.productId) && !productMap.has(it.productId))
+            || (it.productName && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === it.productName?.toLowerCase()));
+
+          const rmObj = isRM 
+            ? (it.rawMaterial || (it.rawMaterialId ? rmMap.get(it.rawMaterialId) : null) || (it.productId ? rmMap.get(it.productId) : null) || Array.from(rmMap.values()).find(r => r.name?.toLowerCase() === it.productName?.toLowerCase()))
+            : null;
+
+          const prodObj = !isRM
+            ? (it.product || (it.productId ? productMap.get(it.productId) : null) || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === it.productName?.toLowerCase()))
+            : null;
+
+          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (prodObj?.gstRate || it.product?.gstRate || 5)));
           const taxCd = isInter
-            ? (itemGst === 18 ? 'IGST18' : (itemGst === 12 ? 'IGST12' : (itemGst === 28 ? 'IGST28' : (itemGst === 0 ? 'EXEMPT' : 'IGST5'))))
-            : (itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : (itemGst === 0 ? 'EXEMPT' : 'SCG5'))));
+            ? (itemGst === 18 ? 'IGST18' : (itemGst === 12 ? 'IGST12' : (itemGst === 28 ? 'IGST28' : (itemGst === 9 ? 'IGST9' : (itemGst === 0 ? 'EXEMPT' : 'IGST5')))))
+            : (itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : (itemGst === 9 ? 'SCG9' : (itemGst === 0 ? 'EXEMPT' : 'SCG5')))));
           const liveStock = isRM
             ? Number(rmObj?.currentStock !== undefined ? rmObj.currentStock : (rmObj?.availableQuantity !== undefined ? rmObj.availableQuantity : (it.rawMaterial?.currentStock !== undefined ? it.rawMaterial.currentStock : 0)))
-            : (it.product ? getProductLiveStock(it.product) : 0);
+            : (prodObj ? getProductLiveStock(prodObj) : (it.product ? getProductLiveStock(it.product) : 0));
           const uPrice = Number(it.unitPrice || 0);
           const lineDisc = Number(it.discount || 0);
           const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
@@ -2239,17 +2575,25 @@ export default function SalesOrderPage() {
           return {
             id: `line_${it.id || idx}`,
             rowNo: idx + 1,
-            productId: isRM ? null : it.productId,
-            rawMaterialId: isRM ? (it.rawMaterialId || it.productId) : null,
+            productId: isRM ? null : (prodObj?.id || it.productId),
+            rawMaterialId: isRM ? (rmObj?.id || it.rawMaterialId || it.productId) : null,
             itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
             isPackingCharge: Boolean(it.isPackingCharge),
             batchAllocations: restoredAllocations,
-            systemCode: isRM ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || `RM-${idx + 1}`) : (it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`),
-            itemDescription: isRM ? (it.productName || rmObj?.name || it.rawMaterial?.name || '') : (it.productName || it.product?.productName || it.product?.name || ''),
-            category: isRM ? (rmObj?.category?.name || rmObj?.category || 'Raw Material') : (it.product?.category?.name || it.product?.category || 'Ice Cream'),
-            baseCategory: isRM ? 'Raw Material' : (it.product?.baseCategory || it.product?.category?.name || 'General'),
-            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (it.product?.subcategory?.name || it.product?.subcategory || '-'),
-            unitOfSale: isRM ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') : (it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs'),
+            systemCode: isRM 
+              ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || (it.hsnCode ? `RM-${it.hsnCode}` : `RM-${idx + 1}`)) 
+              : (prodObj?.code || prodObj?.systemCode || it.product?.code || `BFD10${idx + 1}`),
+            itemDescription: isRM 
+              ? (it.productName || rmObj?.printName || rmObj?.name || it.rawMaterial?.name || '') 
+              : (it.productName || prodObj?.name || prodObj?.productName || it.product?.name || ''),
+            category: isRM 
+              ? (rmObj?.category?.name || rmObj?.category || (it.isPackingCharge ? 'Packing Items' : 'Raw Material')) 
+              : (prodObj?.category?.name || prodObj?.category || it.product?.category?.name || 'Ice Cream'),
+            baseCategory: isRM ? 'Raw Material' : (prodObj?.baseCategory || 'General'),
+            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (prodObj?.subcategory?.name || it.product?.subcategory?.name || '-'),
+            unitOfSale: isRM 
+              ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') 
+              : (it.uomName || prodObj?.unitOfSale || prodObj?.unit?.name || it.product?.unit?.name || 'pcs'),
             quantity: Number(it.quantity || 1),
             unitPrice: uPrice,
             discountPercent: discPct,
@@ -2257,7 +2601,7 @@ export default function SalesOrderPage() {
             gstRate: itemGst,
             distrRule: isRM ? 'Raw Material Warehouse' : 'Main FG Warehouse',
             stock: liveStock,
-            rawProduct: isRM ? null : it.product,
+            rawProduct: isRM ? null : (prodObj || it.product),
             rawMaterial: isRM ? (rmObj || it.rawMaterial) : null
           };
         }));
@@ -2265,7 +2609,12 @@ export default function SalesOrderPage() {
 
       const rawLines = Array.isArray(ord.items) ? ord.items : [];
       const snapLines = rawLines.map((it) => {
-        const isRM = it.itemType === 'RAW_MATERIAL' || (!it.productId && Boolean(it.rawMaterialId));
+        const isRM = it.itemType === 'RAW_MATERIAL' 
+          || Boolean(it.rawMaterialId) 
+          || Boolean(it.rawMaterial) 
+          || (it.productId && rmMap.has(it.productId) && !productMap.has(it.productId))
+          || (it.productName && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === it.productName?.toLowerCase()));
+
         const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? 18 : (it.product?.gstRate || 5)));
         const uPrice = Number(it.unitPrice || 0);
         const lineDisc = Number(it.discount || 0);
@@ -2382,11 +2731,27 @@ export default function SalesOrderPage() {
 
       if (Array.isArray(ord.items) && ord.items.length > 0) {
         setLines(ord.items.map((it, idx) => {
-          const isRM = it.itemType === 'RAW_MATERIAL' || (!it.productId && Boolean(it.rawMaterialId));
-          const rmObj = isRM ? (it.rawMaterial || rmMap.get(it.rawMaterialId)) : null;
-          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (it.product?.gstRate || 5)));
-          const taxCd = itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : 'SCG5'));
-          const liveStock = isRM ? Number(rmObj?.currentStock || 0) : (it.product ? getProductLiveStock(it.product) : 0);
+          const isRM = it.itemType === 'RAW_MATERIAL' 
+            || Boolean(it.rawMaterialId) 
+            || Boolean(it.rawMaterial) 
+            || (it.productId && rmMap.has(it.productId) && !productMap.has(it.productId))
+            || (it.productName && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === it.productName?.toLowerCase()));
+
+          const rmObj = isRM 
+            ? (it.rawMaterial || (it.rawMaterialId ? rmMap.get(it.rawMaterialId) : null) || (it.productId ? rmMap.get(it.productId) : null) || Array.from(rmMap.values()).find(r => r.name?.toLowerCase() === it.productName?.toLowerCase()))
+            : null;
+
+          const prodObj = !isRM
+            ? (it.product || (it.productId ? productMap.get(it.productId) : null) || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === it.productName?.toLowerCase()))
+            : null;
+
+          const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (prodObj?.gstRate || it.product?.gstRate || 5)));
+          const taxCd = isInterState
+            ? (itemGst === 18 ? 'IGST18' : (itemGst === 12 ? 'IGST12' : (itemGst === 28 ? 'IGST28' : (itemGst === 9 ? 'IGST9' : (itemGst === 0 ? 'EXEMPT' : 'IGST5')))))
+            : (itemGst === 18 ? 'SCG18' : (itemGst === 12 ? 'SCG12' : (itemGst === 28 ? 'SCG28' : (itemGst === 9 ? 'SCG9' : (itemGst === 0 ? 'EXEMPT' : 'SCG5')))));
+          const liveStock = isRM 
+            ? Number(rmObj?.currentStock !== undefined ? rmObj.currentStock : (rmObj?.availableQuantity !== undefined ? rmObj.availableQuantity : (it.rawMaterial?.currentStock !== undefined ? it.rawMaterial.currentStock : 0)))
+            : (prodObj ? getProductLiveStock(prodObj) : (it.product ? getProductLiveStock(it.product) : 0));
           const uPrice = Number(it.unitPrice || 0);
           const lineDisc = Number(it.discount || 0);
           const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
@@ -2398,23 +2763,31 @@ export default function SalesOrderPage() {
             id: `line_${it.id || idx}`,
             sourceOrderItemId: it.id,
             rowNo: idx + 1,
-            productId: isRM ? null : it.productId,
-            rawMaterialId: isRM ? (it.rawMaterialId || it.productId) : null,
+            productId: isRM ? null : (prodObj?.id || it.productId),
+            rawMaterialId: isRM ? (rmObj?.id || it.rawMaterialId || it.productId) : null,
             itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
             isPackingCharge: Boolean(it.isPackingCharge),
             batchAllocations: it.batchAllocationsData || it.batchAllocations || [],
-            systemCode: isRM ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || `RM-${idx + 1}`) : (it.product?.code || it.product?.systemCode || `BFD10${idx + 1}`),
-            itemDescription: isRM ? (it.productName || rmObj?.name || it.rawMaterial?.name || '') : (it.productName || it.product?.productName || it.product?.name || ''),
-            category: isRM ? (rmObj?.category?.name || rmObj?.category || 'Raw Material') : (it.product?.category?.name || it.product?.category || 'Ice Cream'),
-            baseCategory: isRM ? 'Raw Material' : (it.product?.baseCategory || it.product?.category?.name || 'General'),
-            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (it.product?.subcategory?.name || it.product?.subcategory || '-'),
-            unitOfSale: isRM ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') : (it.uomName || it.product?.unitOfSale || it.product?.unit?.name || 'pcs'),
+            systemCode: isRM 
+              ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || (it.hsnCode ? `RM-${it.hsnCode}` : `RM-${idx + 1}`)) 
+              : (prodObj?.code || prodObj?.systemCode || it.product?.code || `BFD10${idx + 1}`),
+            itemDescription: isRM 
+              ? (it.productName || rmObj?.printName || rmObj?.name || it.rawMaterial?.name || '') 
+              : (it.productName || prodObj?.name || prodObj?.productName || it.product?.name || ''),
+            category: isRM 
+              ? (rmObj?.category?.name || rmObj?.category || (it.isPackingCharge ? 'Packing Items' : 'Raw Material')) 
+              : (prodObj?.category?.name || prodObj?.category || it.product?.category?.name || 'Ice Cream'),
+            baseCategory: isRM ? 'Raw Material' : (prodObj?.baseCategory || 'General'),
+            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (prodObj?.subcategory?.name || it.product?.subcategory?.name || '-'),
+            unitOfSale: isRM 
+              ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') 
+              : (it.uomName || prodObj?.unitOfSale || prodObj?.unit?.name || it.product?.unit?.name || 'pcs'),
             quantity: remainingToBill > 0 ? remainingToBill : totalOrderQty,
             unitPrice: uPrice,
             discountPercent: discPct,
             taxCode: taxCd,
             gstRate: itemGst,
-            rawProduct: isRM ? null : it.product,
+            rawProduct: isRM ? null : (prodObj || it.product),
             rawMaterial: isRM ? (rmObj || it.rawMaterial) : null,
             sourceReservedQty: Number(it.reservedQty || 0),
             sourceShortfallQty: Number(it.shortfallQty || 0),
@@ -4485,33 +4858,84 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               </div>
             )}
 
-            {/* FULL SCREEN DOCUMENT LINE TABLE GRID WITH LIVE STOCK */}
-            <div className="w-full flex-1 border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] overflow-x-auto max-h-[500px] shadow-sm relative">
-              <table className="w-full min-w-[1460px] border-collapse text-[11.5px] select-text">
-                <thead>
-                  <tr className="bg-[var(--sap-header-bg)] text-[var(--sap-text)] border-b border-[var(--sap-border-inner)] sticky top-0 z-10 font-bold select-none text-[11px]">
-                    <th className="w-10 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">#</th>
-                    <th className="w-28 py-1.5 px-1.5 border-r border-[var(--sap-border-inner)] text-center">Item Type</th>
-                    <th className="w-36 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">System Code *</th>
-                    <th className="w-64 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Product / Item Name *</th>
-                    <th className="w-36 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Category *</th>
-                    <th className="w-44 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Base / Subcategory</th>
-                    <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">Unit of Sale *</th>
-                    <th className="w-16 py-1.5 px-1 border-r border-[var(--sap-border-inner)] text-center">Packing?</th>
-                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Quantity</th>
-                    <th className="w-28 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Sale Price (INR) *</th>
-                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Discount %</th>
-                    <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-left">Tax Code</th>
-                    <th className="w-32 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Total (LC)</th>
-                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">In Stock</th>
-                    <th className="w-24 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right" title="Remaining stock after deducting entered quantity">Remaining Stock</th>
-                    <th className="w-20 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-right">Reserved</th>
-                    <th className="w-32 py-1.5 px-2 border-r border-[var(--sap-border-inner)] text-center">
-                      {orderMode === 'INVOICE' ? 'Stock Check' : 'Stock Check / Shortfall'}
-                    </th>
-                    <th className="w-10 py-1.5 px-1 text-center">✕</th>
-                  </tr>
-                </thead>
+            {/* DOCUMENT ROWS EXCEL-STYLE RESIZABLE GRID */}
+            <div className="w-full flex flex-col">
+              {/* Compact Excel Toolbar */}
+              <div className="w-full flex items-center justify-between px-2.5 py-1 text-xs bg-[var(--sap-header-bg)] border border-b-0 border-[var(--sap-border-inner)] rounded-t-xs">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-[var(--sap-text)] flex items-center gap-1.5 text-[11.5px]">
+                    <Table className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Document Rows</span>
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-white/70 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-[var(--sap-border-inner)]">
+                    {computedLines.filter(l => l.productId || l.rawMaterialId || l.itemDescription).length} items
+                  </span>
+                  <span className="text-[10px] text-[var(--sap-text-muted)] hidden md:inline-flex items-center gap-1.5 ml-2">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Excel Column Resizer: Drag column borders to resize • Double-click border to reset</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResetColWidths}
+                    className="px-2 py-0.5 rounded text-[10.5px] font-semibold text-[var(--sap-text)] hover:text-amber-700 dark:hover:text-amber-300 hover:bg-white/60 dark:hover:bg-slate-700/60 border border-transparent hover:border-[var(--sap-border-inner)] transition-all flex items-center gap-1 cursor-pointer"
+                    title="Reset all column widths to default sizes"
+                  >
+                    <RefreshCw className="w-3 h-3 text-slate-500" />
+                    <span>Reset Column Widths</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* FULL SCREEN DOCUMENT LINE TABLE GRID WITH LIVE STOCK */}
+              <div className="w-full flex-1 border border-[var(--sap-border-inner)] bg-[var(--sap-input-bg)] overflow-x-auto max-h-[500px] shadow-sm relative">
+                <table
+                  style={{ tableLayout: 'fixed', width: '100%', minWidth: `${totalTableWidth}px` }}
+                  className="w-full border-collapse text-[11.5px] select-text"
+                >
+                  <colgroup>
+                    <col style={{ width: `${colWidths.rowNo}px` }} />
+                    <col style={{ width: `${colWidths.itemType}px` }} />
+                    <col style={{ width: `${colWidths.systemCode}px` }} />
+                    <col style={{ width: `${colWidths.productName}px` }} />
+                    <col style={{ width: `${colWidths.category}px` }} />
+                    <col style={{ width: `${colWidths.subcategory}px` }} />
+                    <col style={{ width: `${colWidths.uom}px` }} />
+                    <col style={{ width: `${colWidths.packing}px` }} />
+                    <col style={{ width: `${colWidths.quantity}px` }} />
+                    <col style={{ width: `${colWidths.salePrice}px` }} />
+                    <col style={{ width: `${colWidths.discount}px` }} />
+                    <col style={{ width: `${colWidths.taxCode}px` }} />
+                    <col style={{ width: `${colWidths.total}px` }} />
+                    <col style={{ width: `${colWidths.inStock}px` }} />
+                    <col style={{ width: `${colWidths.remainingStock}px` }} />
+                    <col style={{ width: `${colWidths.reserved}px` }} />
+                    <col style={{ width: `${colWidths.stockCheck}px` }} />
+                    <col style={{ width: `${colWidths.actions}px` }} />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-[var(--sap-header-bg)] text-[var(--sap-text)] border-b border-[var(--sap-border-inner)] sticky top-0 z-10 font-bold select-none text-[11px] h-[30px]">
+                      {renderTh('rowNo', '#', 'center')}
+                      {renderTh('itemType', 'Item Type', 'center')}
+                      {renderTh('systemCode', 'System Code *', 'left')}
+                      {renderTh('productName', 'Product / Item Name *', 'left')}
+                      {renderTh('category', 'Category *', 'left')}
+                      {renderTh('subcategory', 'Base / Subcategory', 'left')}
+                      {renderTh('uom', 'Unit of Sale *', 'center')}
+                      {renderTh('packing', 'Packing?', 'center')}
+                      {renderTh('quantity', 'Quantity', 'right')}
+                      {renderTh('salePrice', 'Sale Price (INR) *', 'right')}
+                      {renderTh('discount', 'Discount %', 'right')}
+                      {renderTh('taxCode', 'Tax Code', 'left')}
+                      {renderTh('total', 'Total (LC)', 'right')}
+                      {renderTh('inStock', 'In Stock', 'right')}
+                      {renderTh('remainingStock', 'Remaining Stock', 'right', 'Remaining stock after deducting entered quantity')}
+                      {renderTh('reserved', 'Reserved', 'right')}
+                      {renderTh('stockCheck', orderMode === 'INVOICE' ? 'Stock Check' : 'Stock Check / Shortfall', 'center')}
+                      {renderTh('actions', '✕', 'center')}
+                    </tr>
+                  </thead>
                 <tbody>
                   {computedLines.map((line, idx) => (
                     <tr
@@ -4549,9 +4973,9 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                         </div>
                       </td>
 
-                      {/* System Code with Orange Drill-down */}
-                      <td className="border-r border-[var(--sap-border-inner)] p-0">
-                        <div className="flex items-center h-full px-1">
+                      {/* System Code with Fixed Search and Orange Drill-down */}
+                      <td className="border-r border-[var(--sap-border-inner)] p-0 overflow-hidden">
+                        <div className="flex items-center h-full w-full px-1 min-w-0 gap-0.5">
                           <input
                             type="text"
                             value={line.systemCode}
@@ -4565,54 +4989,56 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                             }}
                             onClick={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.systemCode || ''); }}
                             onFocus={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.systemCode || ''); }}
-                            className={`flex-1 h-full px-1 bg-transparent border-0 outline-none font-mono font-bold text-[11px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
+                            className={`flex-1 min-w-0 h-full bg-transparent border-0 outline-none font-mono font-bold text-[11px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal truncate ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                           />
-                          {!isDocumentLocked && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.systemCode || '');
-                              }}
-                              className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
-                              title="Search and select product in grid"
-                            >
-                              🔍
-                            </button>
-                          )}
-                          {line.productId && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setStockQueryProductId(line.productId);
-                                setIsStockQueryOpen(true);
-                              }}
-                              className="w-5 h-full text-[var(--sap-drilldown)] font-extrabold text-[12px] flex items-center justify-center shrink-0 hover:scale-125 cursor-pointer"
-                              title="Drill-down into live batches"
-                            >
-                              ➔
-                            </button>
-                          )}
-                          {line.rawMaterialId && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenRMLotModal(line);
-                              }}
-                              className="w-5 h-full text-blue-600 font-extrabold text-[12px] flex items-center justify-center shrink-0 hover:scale-125 cursor-pointer"
-                              title="Drill-down into RM Batches / FEFO lots"
-                            >
-                              ➔
-                            </button>
-                          )}
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            {!isDocumentLocked && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.systemCode || '');
+                                }}
+                                className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded cursor-pointer transition-colors shrink-0"
+                                title="Search Code in catalog"
+                              >
+                                <Search className="w-3 h-3" />
+                              </button>
+                            )}
+                            {line.productId && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setStockQueryProductId(line.productId);
+                                  setIsStockQueryOpen(true);
+                                }}
+                                className="w-3.5 h-full text-[var(--sap-drilldown)] font-extrabold text-[11px] flex items-center justify-center shrink-0 hover:scale-125 cursor-pointer"
+                                title="Drill-down into live batches"
+                              >
+                                ➔
+                              </button>
+                            )}
+                            {line.rawMaterialId && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenRMLotModal(line);
+                                }}
+                                className="w-3.5 h-full text-blue-600 font-extrabold text-[11px] flex items-center justify-center shrink-0 hover:scale-125 cursor-pointer"
+                                title="Drill-down into RM Batches / FEFO lots"
+                              >
+                                ➔
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </td>
 
-                      {/* Product Name * */}
-                      <td className="border-r border-[var(--sap-border-inner)] p-0">
-                        <div className="flex items-center h-full px-1">
+                      {/* Product Name * with Fixed Docked Search Icon */}
+                      <td className="border-r border-[var(--sap-border-inner)] p-0 overflow-hidden">
+                        <div className="flex items-center h-full w-full px-1 min-w-0 gap-1">
                           <input
                             type="text"
                             value={line.itemDescription}
@@ -4626,7 +5052,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                             }}
                             onClick={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.itemDescription || ''); }}
                             onFocus={(e) => { if (!isDocumentLocked) handleOpenGridSearch(line.id, e.target, line.itemDescription || ''); }}
-                            className={`flex-1 h-full px-1 bg-transparent border-0 outline-none font-semibold text-[11.5px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
+                            className={`flex-1 min-w-0 h-full bg-transparent border-0 outline-none font-semibold text-[11.5px] text-[var(--sap-text)] placeholder:text-slate-400 placeholder:font-normal truncate ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                           />
                           {!isDocumentLocked && (
                             <button
@@ -4635,27 +5061,27 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                                 e.stopPropagation();
                                 handleOpenGridSearch(line.id, e.currentTarget.parentElement, line.itemDescription || '');
                               }}
-                              className="px-1 text-slate-400 hover:text-amber-600 cursor-pointer text-[10px]"
-                              title="Search and select product in grid"
+                              className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-amber-600 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 rounded cursor-pointer transition-colors shrink-0"
+                              title="Search item by name in catalog"
                             >
-                              ▾
+                              <Search className="w-3 h-3" />
                             </button>
                           )}
                         </div>
                       </td>
 
                       {/* Category * */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-[11px] text-[var(--sap-text-muted)] truncate">
+                      <td className="border-r border-[var(--sap-border-inner)] px-1 text-[11px] text-[var(--sap-text-muted)] truncate">
                         {line.category || '-'}
                       </td>
 
                       {/* Base / Subcategory */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-[10.5px] text-[var(--sap-text-muted)] truncate">
+                      <td className="border-r border-[var(--sap-border-inner)] px-1 text-[10.5px] text-[var(--sap-text-muted)] truncate">
                         {line.baseCategory ? `${line.baseCategory}${line.subcategory && line.subcategory !== '-' ? ` • ${line.subcategory}` : ''}` : '-'}
                       </td>
 
                       {/* Unit of Sale * */}
-                      <td className="border-r border-[var(--sap-border-inner)] text-center text-[11px] font-semibold text-[var(--sap-text)]">
+                      <td className="border-r border-[var(--sap-border-inner)] text-center text-[11px] font-semibold text-[var(--sap-text)] px-0.5">
                         {line.unitOfSale || (line.rawMaterialId ? 'kg' : 'pcs')}
                       </td>
 
@@ -4681,7 +5107,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                           value={line.quantity}
                           readOnly={isDocumentLocked}
                           onChange={(e) => handleLineChange(line.id, 'quantity', Math.max(1, parseInt(e.target.value, 10) || 1))}
-                          className={`w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono font-bold text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
+                          className={`w-full h-full px-1 bg-transparent border-0 outline-none text-right font-mono font-bold text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                         />
                       </td>
 
@@ -4693,7 +5119,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                           value={line.unitPrice}
                           readOnly={isDocumentLocked}
                           onChange={(e) => handleLineChange(line.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                          className={`w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono font-semibold text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
+                          className={`w-full h-full px-1 bg-transparent border-0 outline-none text-right font-mono font-semibold text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                         />
                       </td>
 
@@ -4707,7 +5133,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                           value={line.discountPercent}
                           readOnly={isDocumentLocked}
                           onChange={(e) => handleLineChange(line.id, 'discountPercent', parseFloat(e.target.value) || 0)}
-                          className={`w-full h-full px-2 bg-transparent border-0 outline-none text-right font-mono text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
+                          className={`w-full h-full px-1 bg-transparent border-0 outline-none text-right font-mono text-[11.5px] text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : ''}`}
                         />
                       </td>
 
@@ -4718,14 +5144,12 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                           disabled={isDocumentLocked}
                           onChange={(e) => {
                             const val = e.target.value;
-                            const rate = getTaxRateFromCode(val);
                             handleLineChange(line.id, 'taxCode', val);
-                            handleLineChange(line.id, 'gstRate', rate);
                             if (line.isPackingCharge) {
                               setPackingTaxCode(val);
                             }
                           }}
-                          className={`w-full h-full px-1.5 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
+                          className={`w-full h-full px-1 bg-transparent border-0 outline-none text-[11px] font-medium text-[var(--sap-text)] ${isDocumentLocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer'}`}
                         >
                           {!isInterState ? (
                             <>
@@ -4750,17 +5174,17 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                       </td>
 
                       {/* Total (LC) */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono font-bold text-[11.5px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
+                      <td className="border-r border-[var(--sap-border-inner)] px-1 text-right font-mono font-bold text-[11.5px] text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
                         {line.lineTotal ? `${line.lineTotal.toFixed(2)} INR` : '0.00 INR'}
                       </td>
 
                       {/* In Stock (formerly On-Hand) */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] font-bold text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
+                      <td className="border-r border-[var(--sap-border-inner)] px-1 text-right font-mono text-[11px] font-bold text-[var(--sap-text)] bg-[var(--sap-input-readonly)]">
                         {(line.productId || line.rawMaterialId) ? line.inStock : '-'}
                       </td>
 
                       {/* Remaining Stock (In Stock minus entered Quantity) */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono text-[11px] bg-[var(--sap-input-readonly)]">
+                      <td className="border-r border-[var(--sap-border-inner)] px-1 text-right font-mono text-[11px] bg-[var(--sap-input-readonly)]">
                         {(line.productId || line.rawMaterialId) ? (
                           <span className={`font-bold ${line.remainingStock === 0 && line.quantity > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-700 dark:text-slate-200'}`}>
                             {line.remainingStock}
@@ -4769,7 +5193,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
                       </td>
 
                       {/* Reserved */}
-                      <td className="border-r border-[var(--sap-border-inner)] px-2 text-right font-mono font-semibold text-[11px] text-emerald-700 dark:text-emerald-400 bg-[var(--sap-input-readonly)]">
+                      <td className="border-r border-[var(--sap-border-inner)] px-1 text-right font-mono font-semibold text-[11px] text-emerald-700 dark:text-emerald-400 bg-[var(--sap-input-readonly)]">
                         {line.productId ? (orderMode === 'QUOTATION' ? 0 : line.reservedQty) : (line.rawMaterialId ? 0 : '-')}
                       </td>
 
@@ -5198,6 +5622,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
               )}
             </div>
           </div>
+        </div>
         )}
 
         {/* TAB 2: LOGISTICS */}

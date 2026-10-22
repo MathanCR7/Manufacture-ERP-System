@@ -520,6 +520,11 @@ router.get('/:id/details', authenticateToken, async (req, res, next) => {
                 category: true
               }
             },
+            rawMaterial: {
+              include: {
+                category: true
+              }
+            },
             batchAllocations: true
           }
         },
@@ -910,11 +915,19 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       ewayBillNo: z.string().optional().nullable(),
       amountPaid: z.coerce.number().optional().default(0),
       items: z.array(z.object({
-        productId: z.string().uuid(),
+        productId: z.string().optional().nullable(),
+        rawMaterialId: z.string().optional().nullable(),
+        itemType: z.string().optional().default('PRODUCT'),
+        isPackingCharge: z.boolean().optional().default(false),
+        productName: z.string().optional(),
         quantity: z.coerce.number().positive(),
-        unitPrice: z.coerce.number().positive(),
+        unitPrice: z.coerce.number().min(0).default(0),
         discount: z.coerce.number().default(0),
-        deliveryDate: z.string()
+        discountPercent: z.coerce.number().optional().default(0),
+        gstRate: z.coerce.number().optional(),
+        hsnCode: z.string().optional(),
+        uomName: z.string().optional(),
+        deliveryDate: z.string().optional()
       })),
       deliveries: z.array(z.object({
         deliveryDate: z.string(),
@@ -930,20 +943,46 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
       // 1. Lock and generate reference
       const referenceNo = await generateOrderReference(tx);
 
-      // 2. Fetch products details to calculate cost & profit
+      // 2. Fetch products and raw materials details to calculate cost & profit
       let totalSubtotal = 0;
       let totalCost = 0;
       let totalProfit = 0;
       const orderItemsData = [];
 
       for (const item of data.items) {
-        const prod = await tx.finishedProduct.findUnique({
-          where: { id: item.productId }
-        });
-        if (!prod) throw new Error(`Product not found: ${item.productId}`);
+        const isRawMaterial = item.itemType === 'RAW_MATERIAL' || Boolean(item.rawMaterialId);
+        const rawMatId = item.rawMaterialId || (isRawMaterial ? item.productId : null);
+        let prod = null;
+        let rm = null;
+        let costPerUnit = 0;
+        let name = item.productName || '';
+        let hsn = item.hsnCode || '';
+        let gst = item.gstRate !== undefined ? Number(item.gstRate) : 18;
+        let uom = item.uomName || 'pcs';
+
+        if (isRawMaterial) {
+          rm = await tx.rawMaterial.findUnique({ where: { id: rawMatId } });
+          if (!rm) throw new Error(`Raw Material not found: ${rawMatId}`);
+          costPerUnit = Number(rm.ratePerUnit || 0);
+          name = name || rm.name;
+          hsn = hsn || rm.hsnCode || '21069099';
+          gst = item.gstRate !== undefined ? Number(item.gstRate) : (rm.gstRate !== undefined ? Number(rm.gstRate) : 18);
+          uom = uom || rm.unitId || 'kg';
+        } else {
+          prod = await tx.finishedProduct.findUnique({
+            where: { id: item.productId },
+            include: { unit: true }
+          });
+          if (!prod) throw new Error(`Product not found: ${item.productId}`);
+          costPerUnit = Number(prod.totalCost || 0);
+          name = name || prod.name;
+          hsn = hsn || prod.hsnCode || '21050000';
+          gst = item.gstRate !== undefined ? Number(item.gstRate) : (prod.gstRate !== undefined ? Number(prod.gstRate) : 5);
+          uom = uom || prod.unit?.abbreviation || prod.unit?.name || 'pcs';
+        }
 
         const itemSubtotal = (Number(item.unitPrice) - Number(item.discount)) * item.quantity;
-        const itemCost = Number(prod.totalCost) * item.quantity;
+        const itemCost = costPerUnit * item.quantity;
         const itemProfit = itemSubtotal - itemCost;
 
         totalSubtotal += itemSubtotal;
@@ -951,14 +990,22 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
         totalProfit += itemProfit;
 
         orderItemsData.push({
-          productId: item.productId,
+          productId: isRawMaterial ? null : item.productId,
+          rawMaterialId: isRawMaterial ? rawMatId : null,
+          itemType: isRawMaterial ? 'RAW_MATERIAL' : 'PRODUCT',
+          isPackingCharge: Boolean(item.isPackingCharge),
+          productName: name,
+          hsnCode: hsn,
+          gstRate: gst,
+          uomName: uom,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           discount: item.discount,
+          discountPercent: item.discountPercent || 0,
           subtotal: itemSubtotal,
           cost: itemCost,
           profit: itemProfit,
-          deliveryDate: new Date(item.deliveryDate)
+          deliveryDate: item.deliveryDate ? new Date(item.deliveryDate) : new Date()
         });
       }
 
@@ -1024,9 +1071,17 @@ router.post('/', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR',
         data: orderItemsData.map(it => ({
           orderId: newOrder.id,
           productId: it.productId,
+          rawMaterialId: it.rawMaterialId,
+          itemType: it.itemType,
+          isPackingCharge: it.isPackingCharge,
+          productName: it.productName,
+          hsnCode: it.hsnCode,
+          gstRate: it.gstRate,
+          uomName: it.uomName,
           quantity: it.quantity,
           unitPrice: it.unitPrice,
           discount: it.discount,
+          discountPercent: it.discountPercent,
           subtotal: it.subtotal,
           cost: it.cost,
           profit: it.profit,
@@ -2517,7 +2572,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
         expiryDate: z.any().optional(),
         productName: z.string().optional(),
         quantity: z.coerce.number().positive(),
-        unitPrice: z.coerce.number().positive(),
+        unitPrice: z.coerce.number().min(0).default(0),
         discount: z.coerce.number().default(0),
         discountPercent: z.coerce.number().optional().default(0),
         gstRate: z.coerce.number().optional(),
@@ -2549,7 +2604,7 @@ router.put('/:id', authenticateToken, roleMiddleware(['MAIN_MASTER', 'SUPERVISOR
       const orderItemsData = [];
 
       for (const item of data.items) {
-        const isRawMaterial = item.itemType === 'RAW_MATERIAL' || Boolean(item.rawMaterialId && !item.productId);
+        const isRawMaterial = item.itemType === 'RAW_MATERIAL' || Boolean(item.rawMaterialId);
         const rawMatId = item.rawMaterialId || (isRawMaterial ? item.productId : null);
         let prod = null;
         let rm = null;
