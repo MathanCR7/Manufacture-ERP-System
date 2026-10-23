@@ -833,17 +833,15 @@ export default function SalesOrderPage() {
     setLines(prev => prev.map(line => {
       if (!line.productId && !line.rawMaterialId && !line.itemDescription) return line;
 
+      // An item is a Raw Material ONLY if explicitly set or strictly a raw material ID with no product
       const isRM = line.itemType === 'RAW_MATERIAL'
-        || Boolean(line.rawMaterialId)
-        || Boolean(line.rawMaterial)
-        || (line.productId && rmMap.has(line.productId) && !productMap.has(line.productId))
-        || (line.itemDescription && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === line.itemDescription?.toLowerCase()));
+        || (Boolean(line.rawMaterialId) && !line.productId && !line.rawProduct)
+        || (Boolean(line.rawMaterial) && !line.productId && !line.rawProduct);
 
       if (isRM) {
-        const rmId = line.rawMaterialId || (line.productId && rmMap.has(line.productId) ? line.productId : null);
+        const rmId = line.rawMaterialId || (line.productId && rmMap.has(line.productId) && !productMap.has(line.productId) ? line.productId : null);
         const rm = (rmId ? rmMap.get(rmId) : null)
-          || line.rawMaterial
-          || Array.from(rmMap.values()).find(r => r.name?.toLowerCase() === line.itemDescription?.toLowerCase());
+          || line.rawMaterial;
 
         if (rm) {
           const freshStock = Number(rm.currentStock !== undefined ? rm.currentStock : (rm.availableQuantity !== undefined ? rm.availableQuantity : (rm.stock || 0)));
@@ -857,7 +855,7 @@ export default function SalesOrderPage() {
             systemCode: line.systemCode || rm.code || rm.sku || 'RM',
             itemDescription: line.itemDescription || rm.printName || rm.name,
             category: line.category || rm.category?.name || rm.category || 'Packing Items',
-            baseCategory: 'Raw Material',
+            baseCategory: line.baseCategory || 'Raw Material',
             unitOfSale: line.unitOfSale || rm.unitId || 'kg',
             stock: freshStock,
             onHand: freshStock
@@ -867,6 +865,7 @@ export default function SalesOrderPage() {
         const prodId = line.productId;
         const prod = (prodId ? productMap.get(prodId) : null)
           || line.rawProduct
+          || (line.systemCode ? Array.from(productMap.values()).find(p => p.code?.toLowerCase() === line.systemCode?.toLowerCase()) : null)
           || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === line.itemDescription?.toLowerCase());
 
         if (prod) {
@@ -881,7 +880,8 @@ export default function SalesOrderPage() {
             systemCode: line.systemCode || prod.code || prod.systemCode,
             itemDescription: line.itemDescription || prod.name || prod.productName,
             category: line.category || prod.category?.name || prod.category || 'Finished Goods',
-            baseCategory: prod.baseCategory || 'General',
+            baseCategory: line.baseCategory || prod.baseCategory || prod.subcategory?.name || 'General',
+            subcategory: line.subcategory || prod.subcategory?.name || prod.subcategory || '-',
             unitOfSale: line.unitOfSale || prod.unit?.name || prod.unitOfSale || 'pcs',
             stock: freshStock,
             onHand: freshStock
@@ -1338,7 +1338,7 @@ export default function SalesOrderPage() {
       const discAmt = gross * (discPct / 100);
       const lineTotal = Math.max(0, gross - discAmt);
       
-      const isRM = line.itemType === 'RAW_MATERIAL' || Boolean(line.rawMaterialId);
+      const isRM = line.itemType === 'RAW_MATERIAL' || (Boolean(line.rawMaterialId) && !line.productId);
       const matchedProd = line.productId ? productMap.get(line.productId) : null;
       const matchedRM = line.rawMaterialId ? rmMap.get(line.rawMaterialId) : null;
       const onHand = isRM
@@ -2535,18 +2535,18 @@ export default function SalesOrderPage() {
 
       if (Array.isArray(ord.items) && ord.items.length > 0) {
         setLines(ord.items.map((it, idx) => {
+          // Strictly distinguish Raw Material vs Finished Product:
+          // A line is a Raw Material ONLY if explicitly set or has rawMaterialId without a productId.
           const isRM = it.itemType === 'RAW_MATERIAL' 
-            || Boolean(it.rawMaterialId) 
-            || Boolean(it.rawMaterial) 
-            || (it.productId && rmMap.has(it.productId) && !productMap.has(it.productId))
-            || (it.productName && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === it.productName?.toLowerCase()));
+            || (Boolean(it.rawMaterialId) && !it.productId && !it.product) 
+            || (Boolean(it.rawMaterial) && !it.productId && !it.product);
 
           const rmObj = isRM 
-            ? (it.rawMaterial || (it.rawMaterialId ? rmMap.get(it.rawMaterialId) : null) || (it.productId ? rmMap.get(it.productId) : null) || Array.from(rmMap.values()).find(r => r.name?.toLowerCase() === it.productName?.toLowerCase()))
+            ? (it.rawMaterial || (it.rawMaterialId ? rmMap.get(it.rawMaterialId) : null) || (it.rawMaterialCode ? Array.from(rmMap.values()).find(r => r.code?.toLowerCase() === it.rawMaterialCode?.toLowerCase()) : null))
             : null;
 
           const prodObj = !isRM
-            ? (it.product || (it.productId ? productMap.get(it.productId) : null) || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === it.productName?.toLowerCase()))
+            ? (it.product || (it.productId ? productMap.get(it.productId) : null) || (it.productCode ? Array.from(productMap.values()).find(p => p.code?.toLowerCase() === it.productCode?.toLowerCase()) : null) || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === it.productName?.toLowerCase()))
             : null;
 
           const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (prodObj?.gstRate || it.product?.gstRate || 5)));
@@ -2576,23 +2576,27 @@ export default function SalesOrderPage() {
             id: `line_${it.id || idx}`,
             rowNo: idx + 1,
             productId: isRM ? null : (prodObj?.id || it.productId),
-            rawMaterialId: isRM ? (rmObj?.id || it.rawMaterialId || it.productId) : null,
+            rawMaterialId: isRM ? (rmObj?.id || it.rawMaterialId) : null,
             itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
             isPackingCharge: Boolean(it.isPackingCharge),
             batchAllocations: restoredAllocations,
             systemCode: isRM 
-              ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || (it.hsnCode ? `RM-${it.hsnCode}` : `RM-${idx + 1}`)) 
-              : (prodObj?.code || prodObj?.systemCode || it.product?.code || `BFD10${idx + 1}`),
+              ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || it.productCode || (it.hsnCode ? `RM-${it.hsnCode}` : `RM-${idx + 1}`)) 
+              : (it.productCode || it.systemCode || prodObj?.code || prodObj?.systemCode || it.product?.code || `BFD10${idx + 1}`),
             itemDescription: isRM 
               ? (it.productName || rmObj?.printName || rmObj?.name || it.rawMaterial?.name || '') 
               : (it.productName || prodObj?.name || prodObj?.productName || it.product?.name || ''),
             category: isRM 
-              ? (rmObj?.category?.name || rmObj?.category || (it.isPackingCharge ? 'Packing Items' : 'Raw Material')) 
-              : (prodObj?.category?.name || prodObj?.category || it.product?.category?.name || 'Ice Cream'),
-            baseCategory: isRM ? 'Raw Material' : (prodObj?.baseCategory || 'General'),
-            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (prodObj?.subcategory?.name || it.product?.subcategory?.name || '-'),
+              ? (it.category || rmObj?.category?.name || rmObj?.category || (it.isPackingCharge ? 'Packing Items' : 'Raw Material')) 
+              : (it.category || it.categoryName || prodObj?.category?.name || prodObj?.category || it.product?.category?.name || 'Ice Cream'),
+            baseCategory: isRM 
+              ? 'Raw Material' 
+              : (it.baseCategory || prodObj?.baseCategory || prodObj?.subcategory?.name || it.product?.subcategory?.name || 'General'),
+            subcategory: isRM 
+              ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') 
+              : (it.subcategory || prodObj?.subcategory?.name || prodObj?.subcategory || it.product?.subcategory?.name || '-'),
             unitOfSale: isRM 
-              ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') 
+              ? (it.uomName || rmObj?.unitId || rmObj?.uom?.abbreviation || 'kg') 
               : (it.uomName || prodObj?.unitOfSale || prodObj?.unit?.name || it.product?.unit?.name || 'pcs'),
             quantity: Number(it.quantity || 1),
             unitPrice: uPrice,
@@ -2610,18 +2614,16 @@ export default function SalesOrderPage() {
       const rawLines = Array.isArray(ord.items) ? ord.items : [];
       const snapLines = rawLines.map((it) => {
         const isRM = it.itemType === 'RAW_MATERIAL' 
-          || Boolean(it.rawMaterialId) 
-          || Boolean(it.rawMaterial) 
-          || (it.productId && rmMap.has(it.productId) && !productMap.has(it.productId))
-          || (it.productName && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === it.productName?.toLowerCase()));
+          || (Boolean(it.rawMaterialId) && !it.productId && !it.product) 
+          || (Boolean(it.rawMaterial) && !it.productId && !it.product);
 
         const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? 18 : (it.product?.gstRate || 5)));
         const uPrice = Number(it.unitPrice || 0);
         const lineDisc = Number(it.discount || 0);
         const discPct = Number(it.discountPercent !== undefined ? it.discountPercent : (lineDisc && uPrice ? (lineDisc / uPrice) * 100 : 0));
         return {
-          productId: isRM ? null : it.productId,
-          rawMaterialId: isRM ? (it.rawMaterialId || it.productId) : null,
+          productId: isRM ? null : (it.productId || it.product?.id),
+          rawMaterialId: isRM ? (it.rawMaterialId || null) : null,
           itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
           isPackingCharge: Boolean(it.isPackingCharge),
           quantity: Number(it.quantity || 1),
@@ -2732,17 +2734,15 @@ export default function SalesOrderPage() {
       if (Array.isArray(ord.items) && ord.items.length > 0) {
         setLines(ord.items.map((it, idx) => {
           const isRM = it.itemType === 'RAW_MATERIAL' 
-            || Boolean(it.rawMaterialId) 
-            || Boolean(it.rawMaterial) 
-            || (it.productId && rmMap.has(it.productId) && !productMap.has(it.productId))
-            || (it.productName && Array.from(rmMap.values()).some(r => r.name?.toLowerCase() === it.productName?.toLowerCase()));
+            || (Boolean(it.rawMaterialId) && !it.productId && !it.product) 
+            || (Boolean(it.rawMaterial) && !it.productId && !it.product);
 
           const rmObj = isRM 
-            ? (it.rawMaterial || (it.rawMaterialId ? rmMap.get(it.rawMaterialId) : null) || (it.productId ? rmMap.get(it.productId) : null) || Array.from(rmMap.values()).find(r => r.name?.toLowerCase() === it.productName?.toLowerCase()))
+            ? (it.rawMaterial || (it.rawMaterialId ? rmMap.get(it.rawMaterialId) : null) || (it.rawMaterialCode ? Array.from(rmMap.values()).find(r => r.code?.toLowerCase() === it.rawMaterialCode?.toLowerCase()) : null))
             : null;
 
           const prodObj = !isRM
-            ? (it.product || (it.productId ? productMap.get(it.productId) : null) || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === it.productName?.toLowerCase()))
+            ? (it.product || (it.productId ? productMap.get(it.productId) : null) || (it.productCode ? Array.from(productMap.values()).find(p => p.code?.toLowerCase() === it.productCode?.toLowerCase()) : null) || Array.from(productMap.values()).find(p => p.name?.toLowerCase() === it.productName?.toLowerCase()))
             : null;
 
           const itemGst = Number(it.gstRate !== undefined && it.gstRate !== null ? it.gstRate : (isRM ? (rmObj?.gstRate || 18) : (prodObj?.gstRate || it.product?.gstRate || 5)));
@@ -2764,23 +2764,27 @@ export default function SalesOrderPage() {
             sourceOrderItemId: it.id,
             rowNo: idx + 1,
             productId: isRM ? null : (prodObj?.id || it.productId),
-            rawMaterialId: isRM ? (rmObj?.id || it.rawMaterialId || it.productId) : null,
+            rawMaterialId: isRM ? (rmObj?.id || it.rawMaterialId) : null,
             itemType: isRM ? 'RAW_MATERIAL' : 'PRODUCT',
             isPackingCharge: Boolean(it.isPackingCharge),
             batchAllocations: it.batchAllocationsData || it.batchAllocations || [],
             systemCode: isRM 
-              ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || (it.hsnCode ? `RM-${it.hsnCode}` : `RM-${idx + 1}`)) 
-              : (prodObj?.code || prodObj?.systemCode || it.product?.code || `BFD10${idx + 1}`),
+              ? (rmObj?.code || rmObj?.sku || it.rawMaterial?.code || it.productCode || (it.hsnCode ? `RM-${it.hsnCode}` : `RM-${idx + 1}`)) 
+              : (it.productCode || it.systemCode || prodObj?.code || prodObj?.systemCode || it.product?.code || `BFD10${idx + 1}`),
             itemDescription: isRM 
               ? (it.productName || rmObj?.printName || rmObj?.name || it.rawMaterial?.name || '') 
               : (it.productName || prodObj?.name || prodObj?.productName || it.product?.name || ''),
             category: isRM 
-              ? (rmObj?.category?.name || rmObj?.category || (it.isPackingCharge ? 'Packing Items' : 'Raw Material')) 
-              : (prodObj?.category?.name || prodObj?.category || it.product?.category?.name || 'Ice Cream'),
-            baseCategory: isRM ? 'Raw Material' : (prodObj?.baseCategory || 'General'),
-            subcategory: isRM ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') : (prodObj?.subcategory?.name || it.product?.subcategory?.name || '-'),
+              ? (it.category || rmObj?.category?.name || rmObj?.category || (it.isPackingCharge ? 'Packing Items' : 'Raw Material')) 
+              : (it.category || it.categoryName || prodObj?.category?.name || prodObj?.category || it.product?.category?.name || 'Ice Cream'),
+            baseCategory: isRM 
+              ? 'Raw Material' 
+              : (it.baseCategory || prodObj?.baseCategory || prodObj?.subcategory?.name || it.product?.subcategory?.name || 'General'),
+            subcategory: isRM 
+              ? (rmObj?.subcategory?.name || rmObj?.subcategory || '-') 
+              : (it.subcategory || prodObj?.subcategory?.name || prodObj?.subcategory || it.product?.subcategory?.name || '-'),
             unitOfSale: isRM 
-              ? (rmObj?.unitId || rmObj?.uom?.abbreviation || it.uomName || 'kg') 
+              ? (it.uomName || rmObj?.unitId || rmObj?.uom?.abbreviation || 'kg') 
               : (it.uomName || prodObj?.unitOfSale || prodObj?.unit?.name || it.product?.unit?.name || 'pcs'),
             quantity: remainingToBill > 0 ? remainingToBill : totalOrderQty,
             unitPrice: uPrice,
