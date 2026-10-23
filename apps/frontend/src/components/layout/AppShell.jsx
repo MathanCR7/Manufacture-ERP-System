@@ -1325,11 +1325,14 @@ const AppShell = () => {
     };
     
     fetchBadges();
-    const interval = setInterval(fetchBadges, 15000);
-    return () => clearInterval(interval);
+    const handleFocus = () => {
+      if (!document.hidden) fetchBadges();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
   }, [token, user]);
 
-  // Fetch attendance status
+  // Fetch attendance status (on mount and window focus)
   useEffect(() => {
     const fetchAttendanceStatus = async () => {
       if (!token) return;
@@ -1342,9 +1345,12 @@ const AppShell = () => {
     };
 
     fetchAttendanceStatus();
-    const interval = setInterval(fetchAttendanceStatus, 15000);
-    return () => clearInterval(interval);
-  }, [token, location.pathname]);
+    const handleFocus = () => {
+      if (!document.hidden) fetchAttendanceStatus();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [token]);
 
   // Initialize Dark Mode based on HTML class or local storage
   useEffect(() => {

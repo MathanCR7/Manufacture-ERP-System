@@ -114,13 +114,10 @@ const NotificationBell = () => {
       }
     };
 
-    // Initial fetch
+    // Initial fetch on mount
     syncNotifications();
 
-    // Fast background sync interval (every 4 seconds) to guarantee real-time updates without reload
-    const pollInterval = setInterval(syncNotifications, 4000);
-
-    // Establish live SSE stream with automatic reconnection
+    // Establish live SSE stream with automatic reconnection (real-time push without polling)
     const connectSSE = () => {
       if (!isSubscribed) return;
       const token = useAuthStore.getState().token;
@@ -190,7 +187,6 @@ const NotificationBell = () => {
 
     return () => {
       isSubscribed = false;
-      clearInterval(pollInterval);
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       if (eventSource) eventSource.close();
     };

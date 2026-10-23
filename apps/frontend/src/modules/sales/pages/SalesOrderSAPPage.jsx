@@ -7764,7 +7764,7 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
         </div>
       </div>
 
-      {/* FULL SCREEN BOTTOM ACTIONS BAR (Golden Yellow Add/Update Button, Cancel, PDF Print, Copy From/To) */}
+      {/* FULL SCREEN BOTTOM ACTIONS BAR (Golden Yellow Add/Update Button, Cancel, PDF Print) */}
       <div className="w-full px-4 py-2.5 bg-[var(--sap-bg-window)] border-t border-[var(--sap-border-inner)] flex flex-wrap items-center justify-between gap-3 shadow-md">
         
         {/* Left Actions */}
@@ -7909,47 +7909,6 @@ For queries, contact ${liveCompany?.companyMobile || '+91 99404 54154'}`;
 
 
 
-        </div>
-
-        {/* Right Workflow Actions (Copy From / Copy To) */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              Swal.fire({
-                title: 'Copy From',
-                text: 'Select source Quotation or Sales Agreement to import lines.',
-                icon: 'info',
-                confirmButtonColor: '#f0b429'
-              });
-            }}
-            className="px-3.5 h-[28px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] text-[var(--sap-text)] font-bold text-xs border border-[var(--sap-border-inner)] rounded-xs transition-colors cursor-pointer flex items-center gap-1"
-          >
-            <span>Copy From</span>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (orderMode === 'QUOTATION' && editOrderId) {
-                handleConvertToOrderFromStudio();
-              } else if (orderMode === 'STANDARD' && editOrderId) {
-                handleConvertToInvoiceFromStudio();
-              } else {
-                Swal.fire({
-                  title: 'Copy To',
-                  text: 'Save this document first before copying to downstream documents.',
-                  icon: 'info',
-                  confirmButtonColor: '#f0b429'
-                });
-              }
-            }}
-            className="px-3.5 h-[28px] bg-[var(--sap-btn-sec)] hover:bg-[var(--sap-btn-sec-hover)] text-[var(--sap-text)] font-bold text-xs border border-[var(--sap-border-inner)] rounded-xs transition-colors cursor-pointer flex items-center gap-1"
-          >
-            <span>Copy To</span>
-            <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-          </button>
         </div>
       </div>
 

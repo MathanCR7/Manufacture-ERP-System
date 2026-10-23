@@ -165,14 +165,13 @@ export default function DashboardPage() {
     enabled: !!token && isAdmin
   });
 
-  // 11. System Alerts Feed (auto-refresh every 30s)
+  // 11. System Alerts Feed
   const alertsQuery = useQuery({
     queryKey: ['dashboard-alerts'],
     queryFn: async () => {
       const res = await api.get('/notifications?unread=true&limit=8');
       return res.data;
     },
-    refetchInterval: 30000,
     enabled: !!token
   });
 

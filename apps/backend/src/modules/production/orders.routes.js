@@ -152,7 +152,7 @@ router.get('/production-requirements', authenticateToken, async (req, res, next)
       },
       include: {
         product: { include: { unit: true, category: true } },
-        rawMaterial: { include: { unit: true, category: true } },
+        rawMaterial: { include: { category: true } },
         order: { select: { id: true, docNo: true, referenceNo: true, deliveryDate: true, customer: { select: { name: true } } } }
       }
     });
@@ -163,7 +163,7 @@ router.get('/production-requirements', authenticateToken, async (req, res, next)
       const itemName = it.product?.name || it.rawMaterial?.name || it.productName || 'Unnamed Item';
       const itemCode = it.product?.code || it.rawMaterial?.code || it.hsnCode || 'ITEM';
       const itemCategory = it.product?.category?.name || it.rawMaterial?.category?.name || (it.itemType === 'RAW_MATERIAL' ? 'Packaging & Material' : 'Finished Goods');
-      const itemUnit = it.uomName || it.product?.unit?.abbreviation || it.rawMaterial?.unit?.abbreviation || 'pcs';
+      const itemUnit = it.uomName || it.product?.unit?.abbreviation || it.rawMaterial?.consumptionUnit || 'pcs';
 
       if (!grouped[pid]) {
         grouped[pid] = {

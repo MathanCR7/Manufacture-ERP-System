@@ -99,8 +99,11 @@ const ensureISODate = (d) => {
   return formatISODate(new Date());
 };
 
-export default function OperationsCalendar({ operationalMilestones = [], fullScreen = true }) {
+const EMPTY_MILESTONES = [];
+
+export default function OperationsCalendar({ operationalMilestones = EMPTY_MILESTONES, fullScreen = true }) {
   const calendarContainerRef = useRef(null);
+  const fetchingRef = useRef(false);
   const [isNativeFullScreen, setIsNativeFullScreen] = useState(false);
   const [railOpen, setRailOpen] = useState(true);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
@@ -216,6 +219,8 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
 
   // Fetch 100% Real-Time Calendar Data from PostgreSQL Database & Feeds
   const fetchLiveCalendarData = useCallback(async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
     setLoading(true);
     try {
       const [hRes, eRes, fRes, rRes] = await Promise.allSettled([
@@ -358,9 +363,10 @@ export default function OperationsCalendar({ operationalMilestones = [], fullScr
       console.error('Failed to fetch real-time calendar data:', err);
       addToast('Sync Error', 'Could not refresh operational records from database', 'error');
     } finally {
+      fetchingRef.current = false;
       setLoading(false);
     }
-  }, [viewedYear, operationalMilestones]);
+  }, [viewedYear]);
 
   useEffect(() => {
     fetchLiveCalendarData();
