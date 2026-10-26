@@ -33,7 +33,13 @@ import {
   Boxes,
   Maximize2,
   Loader2,
-  Sparkles
+  Sparkles,
+  Download,
+  FileText,
+  AlertOctagon,
+  ShieldAlert,
+  SlidersHorizontal,
+  TableProperties
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import Swal from 'sweetalert2';
@@ -66,17 +72,21 @@ export default function RMINOUTStockPage() {
 
   // View Mode: 'material' (Grouped by Material) | 'ledger' (Chronological Stream of all In/Out)
   const [viewMode, setViewMode] = useState('material');
+  const [isCompactDensity, setIsCompactDensity] = useState(true);
 
   // Search & Filter State
   const [searchTerm, setSearchTerm] = useState(initialSearch);
   const [categoryFilter, setCategoryFilter] = useState(initialCategory);
-  const [movementFilter, setMovementFilter] = useState('ALL'); // ALL | IN_PROGRESS | WITH_MOVEMENT | IN_ONLY | OUT_ONLY | NET_POSITIVE | NET_NEGATIVE | LOW_STOCK | OUT_OF_STOCK
+  const [movementFilter, setMovementFilter] = useState('ALL'); // ALL | IN_PROGRESS | LAB_REJECTED | WITH_MOVEMENT | IN_ONLY | OUT_ONLY | NET_POSITIVE | NET_NEGATIVE | LOW_STOCK | OUT_OF_STOCK
   const [sortBy, setSortBy] = useState('code_asc');
   const [lastRefreshed, setLastRefreshed] = useState(new Date());
 
+  // Export Modal State
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(15);
+  const [itemsPerPage, setItemsPerPage] = useState(25);
 
   // Expanded Material Rows for inline ledger view
   const [expandedMaterialIds, setExpandedMaterialIds] = useState(new Set());
@@ -90,7 +100,7 @@ export default function RMINOUTStockPage() {
   const [selectedStockQueryId, setSelectedStockQueryId] = useState(null);
   const [isStockQueryOpen, setIsStockQueryOpen] = useState(false);
 
-  // 1. Primary Query: Fetch Base RM Stock (Identical API to /rm/stock - guaranteed to work on running backend)
+  // 1. Primary Query: Fetch Base RM Stock
   const {
     data: baseStock = [],
     isLoading: isBaseLoading,
@@ -107,7 +117,7 @@ export default function RMINOUTStockPage() {
     staleTime: 15000,
   });
 
-  // 2. Secondary Query: Try dedicated /rm-stock/in-out endpoint
+  // 2. Secondary Query: Dedicated /rm-stock/in-out endpoint
   const {
     data: dedicatedData = null,
     isFetching: isDedicatedFetching,
@@ -125,7 +135,6 @@ export default function RMINOUTStockPage() {
         const response = await api.get(`/rm-stock/in-out?${params.toString()}`);
         return response.data;
       } catch (err) {
-        // Fallback silently if backend hasn't restarted yet
         return null;
       }
     },
@@ -201,115 +210,158 @@ export default function RMINOUTStockPage() {
       const res = await api.get(`/rm-stock/${matId}/history`);
       const hData = res.data;
 
-      // Flatten transactions
       const txList = [];
 
       // GRN receipts (IN)
       (hData.grnReceipts || []).forEach(g => {
+        const isLabRejected = String(g.status || '').toUpperCase().includes('REJECT') || Number(g.rejectedQty || 0) > 0;
+        const labStatus = isLabRejected ? 'LAB_REJECTED' : 'LAB_APPROVED';
+        const rate = Number(g.unitPrice || g.rate || 0);
+        const qty = Number(g.actualReceivedQty || 0);
+        const amount = Math.round(qty * rate * 100) / 100;
+        const poRef = g.poReferenceNo || 'PO';
+        const batchNo = g.batch?.batchNumber || '—';
+
         txList.push({
           id: `grn-${g.id}`,
           date: g.receivedDate,
           flow: 'IN',
           type: 'GRN',
-          typeLabel: 'GRN Inward Receipt',
-          quantity: Number(g.actualReceivedQty || 0),
+          typeLabel: isLabRejected ? 'GRN Inward (Lab Rejected)' : 'GRN Inward Receipt',
+          quantity: qty,
+          rate,
+          amount,
           referenceNo: g.referenceNo || 'GRN',
-          poReferenceNo: g.poReferenceNo,
+          poReferenceNo: poRef,
           poId: g.poId,
           grnId: g.grnId || g.id,
-          batchNumber: g.batch?.batchNumber || '—',
+          batchNumber: batchNo,
           partyName: g.supplierName || 'Vendor Receipt',
           user: g.receivedByName || 'Gate Officer',
-          notes: g.discrepancyNotes || `Challan: ${g.challanNumber || 'N/A'}`
+          labStatus,
+          isLabRejected,
+          notes: g.discrepancyNotes || `Challan: ${g.challanNumber || 'N/A'}`,
+          compositeComment: `PO: ${poRef} | Batch: ${batchNo} | Qty: ${qty} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Lab/QC: ${labStatus}`
         });
       });
 
-      // Stock Adjustments (ADDITION = IN, SUBTRACTION = OUT)
+      // Stock Adjustments
       (hData.stockAdjustments || []).forEach(a => {
         const isAdd = a.type === 'ADDITION';
+        const qty = Number(a.quantity || 0);
         txList.push({
           id: `adj-${a.id}`,
           date: a.createdAt,
           flow: isAdd ? 'IN' : 'OUT',
           type: isAdd ? 'ADJUSTMENT_ADD' : 'ADJUSTMENT_SUB',
           typeLabel: isAdd ? 'Stock Adjustment (+)' : 'Stock Adjustment (-)',
-          quantity: Number(a.quantity || 0),
+          quantity: qty,
+          rate: 0,
+          amount: 0,
           referenceNo: `ADJ-${a.id.slice(-6).toUpperCase()}`,
           batchNumber: 'Manual Correction',
           partyName: `Adjustment: ${a.notes || a.type}`,
           user: a.userName || 'Supervisor',
-          notes: a.notes || 'Stock Reconciliation'
+          labStatus: 'RECONCILED',
+          isLabRejected: false,
+          notes: a.notes || 'Stock Reconciliation',
+          compositeComment: `Ref: ADJ-${a.id.slice(-6).toUpperCase()} | Type: Adjustment (${isAdd ? '+' : '-'}) | Qty: ${qty} | User: ${a.userName || 'Staff'}`
         });
       });
 
-      // Production Usages (OUT) - Highlight In-Progress batches
+      // Production Usages (OUT)
       (hData.productionUsages || []).forEach(u => {
         if (u.isCancelled) return;
         const bStatus = String(u.batchStatus || '').toLowerCase();
         const isInProgress = bStatus.includes('progress') || bStatus.includes('running') || bStatus.includes('paused') || bStatus.includes('draft');
+        const qty = Number(u.actualUsedQty || u.requiredQty || 0);
+        const batchRef = u.batchNumber || 'Prod Batch';
+        const rmBatchTaken = u.batchNoTakenFrom || 'RM Lot';
+
         txList.push({
           id: `usage-${u.id}`,
           date: u.date,
           flow: 'OUT',
           type: 'PROD_USAGE',
           typeLabel: isInProgress ? 'Production Issue (In Progress WIP)' : 'Production Consumption',
-          quantity: Number(u.actualUsedQty || u.requiredQty || 0),
-          referenceNo: u.batchNumber || 'Prod Batch',
+          quantity: qty,
+          rate: 0,
+          amount: 0,
+          referenceNo: batchRef,
           batchId: u.batchId,
           batchStatus: isInProgress ? 'IN_PROGRESS' : 'COMPLETED',
           isInProgress,
           rawBatchStatus: u.batchStatus,
-          batchNumber: u.batchNoTakenFrom || 'RM Lot',
+          batchNumber: rmBatchTaken,
           partyName: `Product: ${u.productName}`,
           user: 'Production Team',
-          notes: `Status: ${u.batchStatus || 'Completed'}`
+          labStatus: 'QC_PASSED',
+          isLabRejected: false,
+          notes: `Status: ${u.batchStatus || 'Completed'}`,
+          compositeComment: `Batch: ${batchRef} | RM Lot: ${rmBatchTaken} | Product: ${u.productName} | Qty: ${qty} | Status: ${u.batchStatus || 'Completed'}`
         });
       });
 
       // Resale / Dispatches (OUT)
       (hData.resales || []).forEach(r => {
+        const qty = Number(r.quantity || 0);
         txList.push({
           id: `resale-${r.id}`,
           date: r.orderDate,
           flow: 'OUT',
           type: 'RESALE',
           typeLabel: 'Direct Resale / Dispatch',
-          quantity: Number(r.quantity || 0),
+          quantity: qty,
+          rate: 0,
+          amount: 0,
           referenceNo: r.docNo || r.referenceNo || 'SO',
           orderId: r.orderId,
           batchNumber: r.batchNo || 'Direct Stock',
           partyName: `Customer: ${r.customerName}`,
           user: 'Sales Team',
-          notes: `${r.docType}: ${r.status}`
+          labStatus: 'DISPATCHED',
+          isLabRejected: false,
+          notes: `${r.docType}: ${r.status}`,
+          compositeComment: `Order: ${r.docNo || 'SO'} | Customer: ${r.customerName} | Qty: ${qty}`
         });
       });
 
       // RM Wastage (OUT)
       (hData.wasteRecords || []).forEach(w => {
+        const qty = Number(w.quantity || 0);
         txList.push({
           id: `waste-${w.id}`,
           date: w.date,
           flow: 'OUT',
           type: 'WASTE',
           typeLabel: 'RM Scrap / Wastage',
-          quantity: Number(w.quantity || 0),
+          quantity: qty,
+          rate: 0,
+          amount: 0,
           referenceNo: w.referenceNo || 'WASTE',
           batchNumber: w.batchNumber || '—',
           partyName: `Wastage: ${w.remarks || w.notes || 'Scrap'}`,
           user: w.responsiblePerson || 'Store Staff',
-          notes: w.remarks || w.notes
+          labStatus: 'SCRAP_DISCARD',
+          isLabRejected: false,
+          notes: w.remarks || w.notes,
+          compositeComment: `Scrap Ref: ${w.referenceNo || 'WASTE'} | Qty: ${qty} | Reason: ${w.remarks || 'Scrap'}`
         });
       });
 
       // Purchase Returns (OUT)
       (hData.purchaseReturns || []).forEach(ret => {
+        const isLabRejected = String(ret.returnReason || '').toUpperCase().includes('LAB');
+        const qty = Number(ret.returnQty || 0);
         txList.push({
           id: `ret-${ret.id}`,
           date: ret.returnDate,
           flow: 'OUT',
           type: 'RETURN',
-          typeLabel: 'Purchase Return to Vendor',
-          quantity: Number(ret.returnQty || 0),
+          typeLabel: isLabRejected ? 'Purchase Return (Lab Rejected)' : 'Purchase Return to Vendor',
+          quantity: qty,
+          rate: 0,
+          amount: 0,
           referenceNo: ret.referenceNo || 'RETURN',
           poReferenceNo: ret.poReferenceNo,
           poId: ret.poId,
@@ -317,7 +369,12 @@ export default function RMINOUTStockPage() {
           batchNumber: 'Vendor Return',
           partyName: `Return: ${ret.supplierName}`,
           user: ret.createdByName || 'Staff',
-          notes: ret.returnReason
+          labStatus: isLabRejected ? 'LAB_REJECTED' : 'VENDOR_RETURN',
+          isLabRejected,
+          rejectedQty: isLabRejected ? qty : 0,
+          rejectionReason: ret.returnReason,
+          notes: ret.returnReason,
+          compositeComment: `Return Ref: ${ret.referenceNo || 'RETURN'} | PO: ${ret.poReferenceNo || 'N/A'} | Qty: ${qty} | Reason: ${ret.returnReason}`
         });
       });
 
@@ -325,10 +382,7 @@ export default function RMINOUTStockPage() {
 
       const updatedCache = {
         ...materialHistoryCache,
-        [matId]: {
-          hData,
-          txList
-        }
+        [matId]: { hData, txList }
       };
       setMaterialHistoryCache(updatedCache);
       return { hData, txList };
@@ -361,25 +415,24 @@ export default function RMINOUTStockPage() {
     }
   };
 
-  // Merge Base Stock with Dedicated Data (or Cache)
+  // Merge Base Stock with Dedicated Data
   const unifiedMaterials = useMemo(() => {
-    // If dedicated API returned rich results, map them directly
     if (dedicatedData?.materials && dedicatedData.materials.length > 0) {
       return dedicatedData.materials;
     }
 
-    // Otherwise, build from baseStock and materialHistoryCache
     return baseStock.map(item => {
       const curStock = Number(item.availableQuantity ?? item.currentStock ?? item.stock ?? 0);
       const alert = Number(item.alertLevel || 0);
       const rate = Number(item.rateWithTax || item.ratePerUnit || item.masterStandardRate || 0);
       const val = Number(item.valueWithTax || item.value || (curStock * rate) || 0);
 
-      // Check if we have loaded transactions for this item
       const cached = materialHistoryCache[item.id];
       let periodIn = 0;
       let periodOut = 0;
       let inProgressStock = 0;
+      let labRejectedQty = 0;
+      let hasLabRejection = false;
       let lastIn = null;
       let lastOut = null;
       let txs = [];
@@ -387,6 +440,10 @@ export default function RMINOUTStockPage() {
       if (cached?.txList) {
         cached.txList.forEach(tx => {
           const inRange = isDateInPeriod(tx.date);
+          if (tx.isLabRejected) {
+            hasLabRejection = true;
+            labRejectedQty += Number(tx.quantity || 0);
+          }
           if (tx.flow === 'IN') {
             if (!lastIn || new Date(tx.date) > new Date(lastIn.date)) {
               lastIn = { date: tx.date, ref: tx.referenceNo, qty: tx.quantity, party: tx.partyName, poId: tx.poId, grnId: tx.grnId };
@@ -421,6 +478,9 @@ export default function RMINOUTStockPage() {
         currentStock: curStock,
         inProgressStock: Math.round(inProgressStock * 100) / 100,
         availableStock: Math.round(availableStock * 100) / 100,
+        labRejectedQty: Math.round(labRejectedQty * 100) / 100,
+        hasLabRejection,
+        labStatus: hasLabRejection ? 'LAB_REJECTED' : 'QC_PASSED',
         alertLevel: alert,
         ratePerUnit: Math.round(rate * 100) / 100,
         valuation: Math.round(val * 100) / 100,
@@ -456,7 +516,7 @@ export default function RMINOUTStockPage() {
     return flat;
   }, [dedicatedData, materialHistoryCache, isDateInPeriod]);
 
-  // Overall Summary Metrics (with WIP and Available stock breakdown)
+  // Overall Summary Metrics
   const summary = useMemo(() => {
     if (dedicatedData?.summary) {
       return dedicatedData.summary;
@@ -468,6 +528,8 @@ export default function RMINOUTStockPage() {
     let totOut = 0;
     let totWip = 0;
     let totAvail = 0;
+    let totRejected = 0;
+    let rejectedCount = 0;
     let activeCount = 0;
 
     unifiedMaterials.forEach(m => {
@@ -481,6 +543,8 @@ export default function RMINOUTStockPage() {
       totOut += Number(m.periodOutQty || 0);
       totWip += wip;
       totAvail += avail;
+      totRejected += Number(m.labRejectedQty || 0);
+      if (m.hasLabRejection) rejectedCount++;
 
       if (Number(m.periodInQty || 0) > 0 || Number(m.periodOutQty || 0) > 0) {
         activeCount++;
@@ -494,6 +558,8 @@ export default function RMINOUTStockPage() {
       totalAvailableStock: Math.round(totAvail * 100) / 100,
       totalPeriodIn: Math.round(totIn * 100) / 100,
       totalPeriodOut: Math.round(totOut * 100) / 100,
+      totalLabRejectedQty: Math.round(totRejected * 100) / 100,
+      totalLabRejectedCount: rejectedCount,
       netMovement: Math.round((totIn - totOut) * 100) / 100,
       totalValuation: Math.round(totVal * 100) / 100,
       activeMovementCount: activeCount
@@ -549,7 +615,6 @@ export default function RMINOUTStockPage() {
   // Filtered & Sorted Materials
   const filteredMaterials = useMemo(() => {
     let result = unifiedMaterials.filter(item => {
-      // 1. Search filter
       const term = searchTerm.toLowerCase().trim();
       if (term) {
         const matchesTerm = (
@@ -562,20 +627,21 @@ export default function RMINOUTStockPage() {
           (item.transactions || []).some(t =>
             (t.referenceNo || '').toLowerCase().includes(term) ||
             (t.batchNumber || '').toLowerCase().includes(term) ||
-            (t.partyName || '').toLowerCase().includes(term)
+            (t.partyName || '').toLowerCase().includes(term) ||
+            (t.compositeComment || '').toLowerCase().includes(term)
           )
         );
         if (!matchesTerm) return false;
       }
 
-      // 2. Category filter
       if (categoryFilter !== 'ALL') {
         if ((item.category || 'Uncategorised') !== categoryFilter) return false;
       }
 
-      // 3. Movement / Stock filter
       if (movementFilter === 'IN_PROGRESS') {
         if (Number(item.inProgressStock || 0) <= 0) return false;
+      } else if (movementFilter === 'LAB_REJECTED') {
+        if (!item.hasLabRejection && item.labStatus !== 'LAB_REJECTED') return false;
       } else if (movementFilter === 'WITH_MOVEMENT') {
         if (Number(item.periodInQty || 0) === 0 && Number(item.periodOutQty || 0) === 0) return false;
       } else if (movementFilter === 'IN_ONLY') {
@@ -596,45 +662,19 @@ export default function RMINOUTStockPage() {
     });
 
     result.sort((a, b) => {
-      if (sortBy === 'code_asc') {
-        return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
-      }
-      if (sortBy === 'code_desc') {
-        return (b.code || '').localeCompare(a.code || '', undefined, { numeric: true, sensitivity: 'base' });
-      }
-      if (sortBy === 'name_asc') {
-        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
-      }
-      if (sortBy === 'name_desc') {
-        return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
-      }
-      if (sortBy === 'category_asc') {
-        return (a.category || '').localeCompare(b.category || '', undefined, { sensitivity: 'base' });
-      }
-      if (sortBy === 'stock_desc') {
-        return Number(b.currentStock || 0) - Number(a.currentStock || 0);
-      }
-      if (sortBy === 'stock_asc') {
-        return Number(a.currentStock || 0) - Number(b.currentStock || 0);
-      }
-      if (sortBy === 'wip_desc') {
-        return Number(b.inProgressStock || 0) - Number(a.inProgressStock || 0);
-      }
-      if (sortBy === 'in_desc') {
-        return Number(b.periodInQty || 0) - Number(a.periodInQty || 0);
-      }
-      if (sortBy === 'out_desc') {
-        return Number(b.periodOutQty || 0) - Number(a.periodOutQty || 0);
-      }
-      if (sortBy === 'net_desc') {
-        return Number(b.netMovement || 0) - Number(a.netMovement || 0);
-      }
-      if (sortBy === 'net_asc') {
-        return Number(a.netMovement || 0) - Number(b.netMovement || 0);
-      }
-      if (sortBy === 'valuation_desc') {
-        return Number(b.valuation || 0) - Number(a.valuation || 0);
-      }
+      if (sortBy === 'code_asc') return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+      if (sortBy === 'code_desc') return (b.code || '').localeCompare(a.code || '', undefined, { numeric: true, sensitivity: 'base' });
+      if (sortBy === 'name_asc') return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      if (sortBy === 'name_desc') return (b.name || '').localeCompare(a.name || '', undefined, { sensitivity: 'base' });
+      if (sortBy === 'category_asc') return (a.category || '').localeCompare(b.category || '', undefined, { sensitivity: 'base' });
+      if (sortBy === 'stock_desc') return Number(b.currentStock || 0) - Number(a.currentStock || 0);
+      if (sortBy === 'stock_asc') return Number(a.currentStock || 0) - Number(b.currentStock || 0);
+      if (sortBy === 'wip_desc') return Number(b.inProgressStock || 0) - Number(a.inProgressStock || 0);
+      if (sortBy === 'in_desc') return Number(b.periodInQty || 0) - Number(a.periodInQty || 0);
+      if (sortBy === 'out_desc') return Number(b.periodOutQty || 0) - Number(a.periodOutQty || 0);
+      if (sortBy === 'net_desc') return Number(b.netMovement || 0) - Number(a.netMovement || 0);
+      if (sortBy === 'net_asc') return Number(a.netMovement || 0) - Number(b.netMovement || 0);
+      if (sortBy === 'valuation_desc') return Number(b.valuation || 0) - Number(a.valuation || 0);
       return 0;
     });
 
@@ -655,7 +695,8 @@ export default function RMINOUTStockPage() {
           (tx.batchNumber || '').toLowerCase().includes(term) ||
           (tx.partyName || '').toLowerCase().includes(term) ||
           (tx.user || '').toLowerCase().includes(term) ||
-          (tx.notes || '').toLowerCase().includes(term)
+          (tx.notes || '').toLowerCase().includes(term) ||
+          (tx.compositeComment || '').toLowerCase().includes(term)
         );
         if (!matchesTerm) return false;
       }
@@ -666,6 +707,8 @@ export default function RMINOUTStockPage() {
 
       if (movementFilter === 'IN_PROGRESS') {
         if (!tx.isInProgress && tx.batchStatus !== 'IN_PROGRESS') return false;
+      } else if (movementFilter === 'LAB_REJECTED') {
+        if (!tx.isLabRejected && tx.labStatus !== 'LAB_REJECTED') return false;
       } else if (movementFilter === 'IN_ONLY') {
         if (tx.flow !== 'IN') return false;
       } else if (movementFilter === 'OUT_ONLY') {
@@ -763,90 +806,208 @@ export default function RMINOUTStockPage() {
     navigate('/production/standard');
   };
 
-  // Comprehensive Excel Export Function (Includes WIP and Free Stock)
-  const handleExportToExcel = () => {
+  // =========================================================================
+  // EXPORT ENGINE (2 Dedicated Types + Master Multi-Sheet Workbook)
+  // =========================================================================
+
+  // Build Summary Rows
+  const generateSummaryExportRows = useCallback(() => {
+    return filteredMaterials.map(m => {
+      const cur = Number(m.currentStock || 0);
+      const wip = Number(m.inProgressStock || 0);
+      const free = m.availableStock !== undefined ? Number(m.availableStock) : Math.max(0, cur - wip);
+      const rate = Number(m.ratePerUnit || 0);
+      const val = Number(m.valuation || 0);
+      const poRef = m.poReferenceNo || 'N/A';
+      const lastInBatch = m.lastIn?.ref || 'N/A';
+      const qcStatus = m.hasLabRejection ? '❌ LAB REJECTED' : 'APPROVED / QC PASSED';
+
+      const compositeComment = `PO: ${poRef} | Batch: ${lastInBatch} | In-Hand: ${cur} ${m.uom} | WIP: ${wip} | Free: ${free} | Rate: ₹${rate.toFixed(2)} | Valuation: ₹${val.toFixed(2)} | QC: ${qcStatus}`;
+
+      return {
+        'RM Code': m.code || '—',
+        'Raw Material Name': m.name || '—',
+        'Category': m.category || '—',
+        'UOM': m.uom || '—',
+        'Total Current Stock (In Hand)': cur,
+        'In-Progress Stock (Floor WIP)': wip,
+        'Available Stock (Free for Orders)': free,
+        [`Period Inward IN (${period})`]: m.periodInQty || 0,
+        [`Period Outward OUT (${period})`]: m.periodOutQty || 0,
+        'Net Movement': m.netMovement || 0,
+        'Standard Rate (₹/Unit)': rate,
+        'Total Valuation (₹)': val,
+        'Stock Status': m.status || 'OPTIMAL',
+        'Floor WIP Status': wip > 0 ? 'ACTIVE WIP RUNNING' : 'IDLE',
+        'Latest PO Number': poRef,
+        'Latest Inward Batch / Ref': lastInBatch,
+        'Last Inward Date': m.lastIn ? formatDate(m.lastIn.date) : '—',
+        'Last Outward Ref': m.lastOut?.ref || '—',
+        'Last Outward Date': m.lastOut ? formatDate(m.lastOut.date) : '—',
+        'Lab & Quality Decision': qcStatus,
+        'Lab Rejected Quantity': m.labRejectedQty || 0,
+        'Audit Comment & Inventory Notes': compositeComment
+      };
+    });
+  }, [filteredMaterials, period]);
+
+  // Build Ledger Rows
+  const generateLedgerExportRows = useCallback(() => {
+    return filteredTransactions.map(tx => {
+      const isIn = tx.flow === 'IN';
+      const rate = Number(tx.rate || 0);
+      const qty = Number(tx.quantity || 0);
+      const amt = Number(tx.amount || (rate * qty) || 0);
+      const qcStatus = tx.isLabRejected ? '❌ LAB REJECTED' : (tx.labStatus || 'PASSED');
+
+      const compositeComment = tx.compositeComment || `PO: ${tx.poReferenceNo || 'N/A'} | Batch: ${tx.batchNumber || 'N/A'} | Qty: ${qty} ${tx.uom || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amt.toFixed(2)} | QC: ${qcStatus}${tx.rejectionReason ? ` | Rejection: ${tx.rejectionReason}` : ''}`;
+
+      return {
+        'Date & Time': formatDateTime(tx.date),
+        'Flow Direction': tx.flow === 'IN' ? 'INWARD (IN)' : 'OUTWARD (OUT)',
+        'Batch Status': tx.isInProgress ? '🟡 IN PROGRESS (WIP)' : 'COMPLETED',
+        'Transaction Type': tx.typeLabel || 'Movement',
+        'RM Code': tx.rawMaterialCode || '—',
+        'Raw Material Name': tx.rawMaterialName || '—',
+        'Category': tx.category || '—',
+        'UOM': tx.uom || 'Unit',
+        'Document Reference': tx.referenceNo || '—',
+        'PO Reference': tx.poReferenceNo || '—',
+        'Batch / Lot Number': tx.batchNumber || '—',
+        'Inward Qty (IN)': isIn ? qty : 0,
+        'Outward Qty (OUT)': !isIn ? qty : 0,
+        'Floor WIP Allocated': tx.isInProgress ? qty : 0,
+        'Unit Rate (₹)': rate,
+        'Transaction Amount (₹)': amt,
+        'Quality & Lab Decision': qcStatus,
+        'Rejection / Discrepancy Note': tx.rejectionReason || tx.notes || '—',
+        'Supplier / Destination Party': tx.partyName || '—',
+        'Handled By / Operator': tx.user || '—',
+        'Detailed Audit Comment': compositeComment
+      };
+    });
+  }, [filteredTransactions]);
+
+  // Export Trigger: Type 1 (Summary Only)
+  const handleExportSummaryOnly = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const rows = generateSummaryExportRows();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'RM Stock Summary');
+      const fileName = `RM_Stock_Summary_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      setIsExportModalOpen(false);
+      Swal.fire({
+        icon: 'success',
+        title: 'Master Summary Exported',
+        text: `Exported ${rows.length} raw material records to ${fileName}`,
+        timer: 3000,
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false
+      });
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Export Failed', text: err.message });
+    }
+  };
+
+  // Export Trigger: Type 2 (Ledger Only)
+  const handleExportLedgerOnly = () => {
+    try {
+      const wb = XLSX.utils.book_new();
+      const rows = generateLedgerExportRows();
+      const ws = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(wb, ws, 'Date-Wise In-Out Ledger');
+      const fileName = `RM_Date_InOut_Ledger_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      setIsExportModalOpen(false);
+      Swal.fire({
+        icon: 'success',
+        title: 'Date Ledger Exported',
+        text: `Exported ${rows.length} chronological audit transactions to ${fileName}`,
+        timer: 3000,
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false
+      });
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Export Failed', text: err.message });
+    }
+  };
+
+  // Export Trigger: Type 3 (All-in-One Multi-Sheet Master Workbook)
+  const handleExportCompleteWorkbook = () => {
     try {
       const wb = XLSX.utils.book_new();
 
-      // Sheet 1: Material-wise IN-OUT Summary
-      const summaryRows = filteredMaterials.map(m => {
-        const cur = Number(m.currentStock || 0);
-        const wip = Number(m.inProgressStock || 0);
-        const free = m.availableStock !== undefined ? Number(m.availableStock) : Math.max(0, cur - wip);
-
-        return {
-          'RM Code': m.code || '—',
-          'Raw Material Name': m.name || '—',
-          'Category': m.category || '—',
-          'UOM': m.uom || '—',
-          'Total In-Hand Stock': cur,
-          'In-Progress Stock (Floor WIP)': wip,
-          'Available Stock (Free for Orders)': free,
-          [`Period IN (${period})`]: m.periodInQty || 0,
-          [`Period OUT (${period})`]: m.periodOutQty || 0,
-          'Net Period Movement': m.netMovement || 0,
-          'Rate (₹/Unit)': m.ratePerUnit || 0,
-          'Total Valuation (₹)': m.valuation || 0,
-          'Stock Status': m.status || '—',
-          'Active WIP Run': wip > 0 ? 'YES (In Progress)' : 'NO',
-          'Latest PO': m.poReferenceNo || 'N/A',
-          'Last In Date': m.lastIn ? formatDate(m.lastIn.date) : '—',
-          'Last In Ref': m.lastIn?.ref || '—',
-          'Last In Qty': m.lastIn?.qty || '—',
-          'Last Out Date': m.lastOut ? formatDate(m.lastOut.date) : '—',
-          'Last Out Ref': m.lastOut?.ref || '—',
-          'Last Out Qty': m.lastOut?.qty || '—'
-        };
-      });
-
+      // Sheet 1: Master Summary
+      const summaryRows = generateSummaryExportRows();
       const wsSummary = XLSX.utils.json_to_sheet(summaryRows);
-      XLSX.utils.book_append_sheet(wb, wsSummary, 'RM In-Out Summary');
+      XLSX.utils.book_append_sheet(wb, wsSummary, '1. RM Stock Summary');
 
-      // Sheet 2: Detailed Date-Wise Transactions
-      if (filteredTransactions.length > 0) {
-        const txRows = filteredTransactions.map(tx => ({
-          'Date & Time': formatDateTime(tx.date),
-          'Flow': tx.flow,
-          'Status': tx.isInProgress ? 'IN PROGRESS (WIP RUN)' : 'COMPLETED',
-          'Type': tx.typeLabel,
-          'RM Code': tx.rawMaterialCode,
-          'Raw Material Name': tx.rawMaterialName,
-          'Category': tx.category,
-          'UOM': tx.uom,
-          'Inward Qty (IN)': tx.flow === 'IN' ? tx.quantity : 0,
-          'Outward Qty (OUT)': tx.flow === 'OUT' ? tx.quantity : 0,
-          'Floor WIP Allocated': tx.isInProgress ? tx.quantity : 0,
-          'Reference No': tx.referenceNo,
-          'PO Reference': tx.poReferenceNo || '—',
-          'Batch / Lot No': tx.batchNumber || '—',
-          'Party / Destination': tx.partyName || '—',
-          'Handled By': tx.user || '—',
-          'Notes': tx.notes || '—'
+      // Sheet 2: Date-Wise Ledger
+      const ledgerRows = generateLedgerExportRows();
+      const wsLedger = XLSX.utils.json_to_sheet(ledgerRows);
+      XLSX.utils.book_append_sheet(wb, wsLedger, '2. Date-Wise Ledger');
+
+      // Sheet 3: Active Floor WIP (Filtered to WIP items)
+      const wipRows = filteredMaterials
+        .filter(m => Number(m.inProgressStock || 0) > 0)
+        .map(m => ({
+          'RM Code': m.code,
+          'Material Name': m.name,
+          'Category': m.category,
+          'UOM': m.uom,
+          'In-Progress Floor WIP': m.inProgressStock,
+          'Total In-Hand Stock': m.currentStock,
+          'Free Available Stock': m.availableStock,
+          'Standard Rate (₹)': m.ratePerUnit,
+          'WIP Valuation (₹)': Math.round((m.inProgressStock * m.ratePerUnit) * 100) / 100,
+          'Active Batches Running': 'YES (On Floor)'
         }));
-
-        const wsTx = XLSX.utils.json_to_sheet(txRows);
-        XLSX.utils.book_append_sheet(wb, wsTx, 'Date-Wise In-Out Ledger');
+      if (wipRows.length > 0) {
+        const wsWip = XLSX.utils.json_to_sheet(wipRows);
+        XLSX.utils.book_append_sheet(wb, wsWip, '3. Active Floor WIP');
       }
 
-      const fileName = `RM_IN_OUT_Stock_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      // Sheet 4: Lab & Quality Inspection Audit
+      const labRows = filteredTransactions
+        .filter(t => t.isLabRejected || String(t.labStatus || '').includes('REJECT') || Number(t.rejectedQty || 0) > 0)
+        .map(t => ({
+          'Date': formatDateTime(t.date),
+          'RM Code': t.rawMaterialCode,
+          'Material Name': t.rawMaterialName,
+          'Flow': t.flow,
+          'Reference': t.referenceNo,
+          'PO Reference': t.poReferenceNo || 'N/A',
+          'Batch / Lot': t.batchNumber || 'N/A',
+          'Rejected Quantity': t.rejectedQty || t.quantity,
+          'Inspection Decision': '❌ LAB REJECTED',
+          'Rejection Reason': t.rejectionReason || t.notes || 'Quality Discrepancy',
+          'Vendor / Party': t.partyName,
+          'Inspector / User': t.user
+        }));
+      if (labRows.length > 0) {
+        const wsLab = XLSX.utils.json_to_sheet(labRows);
+        XLSX.utils.book_append_sheet(wb, wsLab, '4. Lab Quality Audit');
+      }
+
+      const fileName = `RM_InOut_Enterprise_Audit_${period}_${new Date().toISOString().slice(0, 10)}.xlsx`;
       XLSX.writeFile(wb, fileName);
+      setIsExportModalOpen(false);
 
       Swal.fire({
         icon: 'success',
-        title: 'Excel Report Exported!',
-        text: `Exported ${filteredMaterials.length} materials with In-Hand, WIP & Free stock to ${fileName}`,
+        title: 'Enterprise Audit Exported',
+        text: `Exported multi-sheet workbook with ${summaryRows.length} materials and ${ledgerRows.length} audit transactions to ${fileName}`,
         timer: 3500,
-        showConfirmButton: false,
         toast: true,
-        position: 'top-end'
+        position: 'top-end',
+        showConfirmButton: false
       });
     } catch (err) {
-      console.error('Export error:', err);
-      Swal.fire({
-        icon: 'error',
-        title: 'Export Failed',
-        text: err.message || 'Could not export Excel report.'
-      });
+      Swal.fire({ icon: 'error', title: 'Export Failed', text: err.message });
     }
   };
 
@@ -854,41 +1015,47 @@ export default function RMINOUTStockPage() {
   const isAnyFetching = isBaseFetching || isDedicatedFetching;
 
   return (
-    <div className="w-full min-h-screen bg-slate-50/60 dark:bg-slate-950 p-3 sm:p-5 md:p-6 space-y-5 transition-colors">
-      {/* ── TOP HEADER & ACTIONS ── */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-5 shadow-xs">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <span className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
-              <Boxes className="w-5 h-5 sm:w-6 sm:h-6" />
+    <div className="w-full min-h-screen bg-slate-50/70 dark:bg-slate-950 px-2 sm:px-4 py-2 sm:py-3 space-y-2.5 transition-colors">
+      {/* ── TOP HEADER & ACTIONS (High-Density Bar) ── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 shadow-2xs">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
+              <Boxes className="w-5 h-5" />
             </span>
-            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+            <h1 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white tracking-tight">
               RM-IN-OUT Stock
             </h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 font-semibold uppercase tracking-wider">
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300 font-semibold uppercase tracking-wider">
               Stock In & Out Ledger
             </span>
             {summary.totalInProgressStock > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-xs px-2.5 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800 animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span>Active Floor WIP: {summary.totalInProgressStock}</span>
+              <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                <span>Floor WIP: {summary.totalInProgressStock}</span>
+              </span>
+            )}
+            {summary.totalLabRejectedCount > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 font-bold border border-rose-300 dark:border-rose-800">
+                <AlertOctagon className="w-3 h-3 text-rose-600" />
+                <span>Lab Rejected: {summary.totalLabRejectedCount} Items</span>
               </span>
             )}
           </div>
-          <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-            Raw material date-wise inward, outward, active production WIP tracking, adjustments & live stock audit
+          <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400">
+            Raw material date-wise inward, outward, production consumption, adjustments & live stock audit
           </p>
         </div>
 
-        {/* View Mode Toggle & Primary Actions */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+        {/* View Switcher, Density & Actions */}
+        <div className="flex flex-wrap items-center gap-2">
           {/* View Mode Switcher */}
-          <div className="inline-flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium">
+          <div className="inline-flex p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-medium">
             <button
               onClick={() => setViewMode('material')}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all text-xs ${
                 viewMode === 'material'
-                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs font-semibold'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -897,9 +1064,9 @@ export default function RMINOUTStockPage() {
             </button>
             <button
               onClick={() => setViewMode('ledger')}
-              className={`px-3 py-1.5 rounded-md flex items-center gap-1.5 transition-all ${
+              className={`px-2.5 py-1 rounded-md flex items-center gap-1.5 transition-all text-xs ${
                 viewMode === 'ledger'
-                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-xs font-semibold'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs font-semibold'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
               }`}
             >
@@ -907,6 +1074,15 @@ export default function RMINOUTStockPage() {
               <span>Date-Wise Ledger</span>
             </button>
           </div>
+
+          {/* Density Toggle */}
+          <button
+            onClick={() => setIsCompactDensity(!isCompactDensity)}
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+            title={isCompactDensity ? 'Switch to Comfortable View' : 'Switch to Compact ERP View'}
+          >
+            <TableProperties className="w-4 h-4" />
+          </button>
 
           {/* Quick Refresh */}
           <Button
@@ -917,37 +1093,38 @@ export default function RMINOUTStockPage() {
               refetchDedicated();
             }}
             disabled={isAnyFetching}
-            className="h-9 px-3 text-xs border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+            className="h-8 px-2.5 text-xs border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
-            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isAnyFetching ? 'animate-spin text-emerald-600' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 mr-1 ${isAnyFetching ? 'animate-spin text-emerald-600' : ''}`} />
             <span>Refresh</span>
           </Button>
 
-          {/* Export to Excel */}
+          {/* Export Report Dropdown Trigger */}
           <Button
             variant="default"
             size="sm"
-            onClick={handleExportToExcel}
-            className="h-9 px-3.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-xs"
+            onClick={() => setIsExportModalOpen(true)}
+            className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs flex items-center gap-1.5"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5 mr-1.5" />
-            <span>Export Excel</span>
+            <Download className="w-3.5 h-3.5" />
+            <span>Export Report</span>
+            <ChevronDown className="w-3 h-3 ml-0.5 opacity-80" />
           </Button>
         </div>
       </div>
 
-      {/* ── TIME PERIOD SELECTOR BAR ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 sm:p-4 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-            <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-              Time Period Filter:
+      {/* ── TIME PERIOD FILTER BAR (Single-Line Compact Strip) ── */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2 shadow-2xs space-y-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Calendar className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+              Time Period:
             </span>
           </div>
 
-          {/* Quick Period Buttons */}
-          <div className="flex flex-wrap items-center gap-1.5">
+          {/* Fast Period Pills */}
+          <div className="flex flex-wrap items-center gap-1">
             {[
               { id: 'today', label: 'Today' },
               { id: 'yesterday', label: 'Yesterday' },
@@ -956,7 +1133,7 @@ export default function RMINOUTStockPage() {
               { id: 'this_month', label: 'This Month' },
               { id: 'last_month', label: 'Last Month' },
               { id: 'all', label: 'All Time' },
-              { id: 'custom', label: 'Custom Date' }
+              { id: 'custom', label: 'Custom Date Range' }
             ].map(p => (
               <button
                 key={p.id}
@@ -967,9 +1144,9 @@ export default function RMINOUTStockPage() {
                     setAppliedCustomEnd('');
                   }
                 }}
-                className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-all ${
+                className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-all ${
                   period === p.id
-                    ? 'bg-emerald-600 text-white font-semibold shadow-xs'
+                    ? 'bg-emerald-600 text-white font-semibold shadow-2xs'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
                 }`}
               >
@@ -979,41 +1156,41 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Custom Date Form (Appears when 'custom' is selected) */}
+        {/* Custom Date Form (Appears when 'custom' is active) */}
         {period === 'custom' && (
           <form
             onSubmit={handleApplyCustomRange}
-            className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-end gap-3 animate-in fade-in duration-200"
+            className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-end gap-2 animate-in fade-in duration-150"
           >
             <div>
-              <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
+              <label className="text-[10px] font-medium text-slate-500 block mb-0.5">
                 From Date:
               </label>
               <input
                 type="date"
                 value={customStartDate}
                 onChange={(e) => setCustomStartDate(e.target.value)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-2 focus:ring-emerald-500"
+                className="text-xs px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
               />
             </div>
 
             <div>
-              <label className="text-[11px] font-medium text-slate-500 dark:text-slate-400 block mb-1">
+              <label className="text-[10px] font-medium text-slate-500 block mb-0.5">
                 To Date:
               </label>
               <input
                 type="date"
                 value={customEndDate}
                 onChange={(e) => setCustomEndDate(e.target.value)}
-                className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-2 focus:ring-emerald-500"
+                className="text-xs px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white outline-hidden focus:ring-1 focus:ring-emerald-500"
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Button
                 type="submit"
                 size="sm"
-                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-9"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs h-8 px-3"
               >
                 Apply Range
               </Button>
@@ -1029,7 +1206,7 @@ export default function RMINOUTStockPage() {
                     setAppliedCustomEnd('');
                     setPeriod('this_month');
                   }}
-                  className="text-xs h-9 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                  className="text-xs h-8 px-2.5 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
                 >
                   Clear
                 </Button>
@@ -1039,19 +1216,19 @@ export default function RMINOUTStockPage() {
         )}
       </div>
 
-      {/* ── KPI EXECUTIVE STAT CARDS (WITH IN-HAND, WIP & FREE STOCK) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        {/* Card 1: Total Live In-Hand Stock */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900">
-          <CardContent className="p-3.5 sm:p-4 space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
-              <span className="font-medium">Total In-Hand</span>
-              <Package className="w-4 h-4 text-blue-500" />
+      {/* ── KPI EXECUTIVE STAT CARDS (Compact 6-Metric Strip) ── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5">
+        {/* Card 1: Total Current Stock */}
+        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+          <CardContent className="p-2.5 sm:p-3 space-y-0.5">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px]">
+              <span className="font-medium">Total Current Stock</span>
+              <Package className="w-3.5 h-3.5 text-blue-500" />
             </div>
-            <div className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white font-mono">
+            <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white font-mono">
               {Number(summary.totalCurrentStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1">
+            <div className="text-[10px] text-slate-500 flex items-center gap-1 truncate">
               <span>Valuation:</span>
               <span className="font-semibold text-slate-700 dark:text-slate-300">
                 ₹{Number(summary.totalValuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
@@ -1060,85 +1237,85 @@ export default function RMINOUTStockPage() {
           </CardContent>
         </Card>
 
-        {/* Card 2: In-Progress Stock (WIP on Factory Floor) */}
-        <Card className="border-amber-300 dark:border-amber-900/60 shadow-xs bg-amber-50/60 dark:bg-amber-950/20">
-          <CardContent className="p-3.5 sm:p-4 space-y-1">
-            <div className="flex items-center justify-between text-amber-800 dark:text-amber-400 text-xs">
-              <span className="font-bold flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+        {/* Card 2: In-Progress WIP */}
+        <Card className="border-amber-300 dark:border-amber-900/60 shadow-2xs bg-amber-50/60 dark:bg-amber-950/20">
+          <CardContent className="p-2.5 sm:p-3 space-y-0.5">
+            <div className="flex items-center justify-between text-amber-800 dark:text-amber-400 text-[11px]">
+              <span className="font-bold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                 In-Progress WIP
               </span>
-              <Factory className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              <Factory className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
             </div>
-            <div className="text-lg sm:text-xl font-bold text-amber-700 dark:text-amber-300 font-mono">
+            <div className="text-base sm:text-lg font-bold text-amber-700 dark:text-amber-300 font-mono">
               {Number(summary.totalInProgressStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[11px] text-amber-700/80 dark:text-amber-400/80">
+            <div className="text-[10px] text-amber-700/80 dark:text-amber-400/80 truncate">
               Active floor batches
             </div>
           </CardContent>
         </Card>
 
         {/* Card 3: Free Available Stock */}
-        <Card className="border-emerald-200 dark:border-emerald-900/50 shadow-xs bg-emerald-50/40 dark:bg-emerald-950/20">
-          <CardContent className="p-3.5 sm:p-4 space-y-1">
-            <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-xs">
+        <Card className="border-emerald-200 dark:border-emerald-900/50 shadow-2xs bg-emerald-50/40 dark:bg-emerald-950/20">
+          <CardContent className="p-2.5 sm:p-3 space-y-0.5">
+            <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[11px]">
               <span className="font-semibold">Free Available</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <div className="text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-300 font-mono">
+            <div className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-300 font-mono">
               {Number(summary.totalAvailableStock !== undefined ? summary.totalAvailableStock : Math.max(0, (summary.totalCurrentStock || 0) - (summary.totalInProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400/80">
+            <div className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 truncate">
               Ready for new orders
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 4: Period Total Inward (IN) */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900">
-          <CardContent className="p-3.5 sm:p-4 space-y-1">
-            <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-xs">
+        {/* Card 4: Period Inward (IN) */}
+        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+          <CardContent className="p-2.5 sm:p-3 space-y-0.5">
+            <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400 text-[11px]">
               <span className="font-semibold">Period Inward (IN)</span>
-              <ArrowDownLeft className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
             </div>
-            <div className="text-lg sm:text-xl font-bold text-emerald-700 dark:text-emerald-300 font-mono">
+            <div className="text-base sm:text-lg font-bold text-emerald-700 dark:text-emerald-300 font-mono">
               +{Number(summary.totalPeriodIn || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="text-[10px] text-slate-500 truncate">
               GRN receipts & additions
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 5: Period Total Outward (OUT) */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900">
-          <CardContent className="p-3.5 sm:p-4 space-y-1">
-            <div className="flex items-center justify-between text-rose-700 dark:text-rose-400 text-xs">
+        {/* Card 5: Period Outward (OUT) */}
+        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+          <CardContent className="p-2.5 sm:p-3 space-y-0.5">
+            <div className="flex items-center justify-between text-rose-700 dark:text-rose-400 text-[11px]">
               <span className="font-semibold">Period Outward (OUT)</span>
-              <ArrowUpRight className="w-4 h-4 text-rose-600 dark:text-rose-400" />
+              <ArrowUpRight className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
             </div>
-            <div className="text-lg sm:text-xl font-bold text-rose-700 dark:text-rose-300 font-mono">
+            <div className="text-base sm:text-lg font-bold text-rose-700 dark:text-rose-300 font-mono">
               -{Number(summary.totalPeriodOut || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+            <div className="text-[10px] text-slate-500 truncate">
               Production, sales & waste
             </div>
           </CardContent>
         </Card>
 
-        {/* Card 6: Net Period Movement */}
-        <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900">
-          <CardContent className="p-3.5 sm:p-4 space-y-1">
-            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-xs">
+        {/* Card 6: Net Movement */}
+        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900">
+          <CardContent className="p-2.5 sm:p-3 space-y-0.5">
+            <div className="flex items-center justify-between text-slate-500 dark:text-slate-400 text-[11px]">
               <span className="font-medium">Net Movement</span>
               {Number(summary.netMovement || 0) >= 0 ? (
-                <TrendingUp className="w-4 h-4 text-emerald-500" />
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
               ) : (
-                <TrendingDown className="w-4 h-4 text-rose-500" />
+                <TrendingDown className="w-3.5 h-3.5 text-rose-500" />
               )}
             </div>
-            <div className={`text-lg sm:text-xl font-bold font-mono ${
+            <div className={`text-base sm:text-lg font-bold font-mono ${
               Number(summary.netMovement || 0) >= 0
                 ? 'text-emerald-600 dark:text-emerald-400'
                 : 'text-rose-600 dark:text-rose-400'
@@ -1146,30 +1323,30 @@ export default function RMINOUTStockPage() {
               {Number(summary.netMovement || 0) > 0 ? '+' : ''}
               {Number(summary.netMovement || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
             </div>
-            <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate">
-              {Number(summary.netMovement || 0) >= 0 ? 'Net Inflow (+)' : 'Net Drawdown (-)'}
+            <div className="text-[10px] text-slate-500 truncate">
+              {summary.activeMovementCount || 0} / {summary.totalMaterials || 0} moved in period
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* ── TOOLBAR: SEARCH, CATEGORY, STATUS & SORT ── */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-3 sm:p-4 shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 sm:p-3 shadow-2xs space-y-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
           {/* 1. Search Input */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Search code, name, category, PO, batch..."
+              placeholder="Search code, name, PO, batch, party..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full text-xs pl-9 pr-8 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 outline-hidden"
+              className="w-full text-xs pl-8 pr-7 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:ring-1 focus:ring-emerald-500 outline-hidden"
             />
             {searchTerm && (
               <button
                 onClick={() => setSearchTerm('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1181,7 +1358,7 @@ export default function RMINOUTStockPage() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="w-full text-xs px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-hidden"
+              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden"
             >
               <option value="ALL">All Categories ({unifiedMaterials.length})</option>
               {categoryOptions.map(cat => (
@@ -1190,15 +1367,16 @@ export default function RMINOUTStockPage() {
             </select>
           </div>
 
-          {/* 3. Movement / Stock Filter (With WIP Floor Runs Option) */}
+          {/* 3. Movement / Stock Filter */}
           <div>
             <select
               value={movementFilter}
               onChange={(e) => setMovementFilter(e.target.value)}
-              className="w-full text-xs px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-hidden"
+              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden"
             >
               <option value="ALL">All Movement Status</option>
               <option value="IN_PROGRESS">🟡 In-Progress WIP (Floor Runs)</option>
+              <option value="LAB_REJECTED">❌ Lab Rejected / QC Discrepancies</option>
               <option value="WITH_MOVEMENT">With Movement In Period</option>
               <option value="IN_ONLY">Inward Only (IN &gt; 0)</option>
               <option value="OUT_ONLY">Outward Only (OUT &gt; 0)</option>
@@ -1210,21 +1388,21 @@ export default function RMINOUTStockPage() {
           </div>
 
           {/* 4. Sorting Dropdown */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="w-full text-xs px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 outline-hidden"
+              className="w-full text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-1 focus:ring-emerald-500 outline-hidden"
             >
-              <option value="code_asc">Code (Ascending: RM-00001)</option>
+              <option value="code_asc">Code (RM-00001)</option>
               <option value="code_desc">Code (Descending)</option>
               <option value="name_asc">Name (A → Z)</option>
               <option value="name_desc">Name (Z → A)</option>
               <option value="stock_desc">In-Hand Stock (High → Low)</option>
               <option value="stock_asc">In-Hand Stock (Low → High)</option>
               <option value="wip_desc">In-Progress WIP (High → Low)</option>
-              <option value="in_desc">Period IN Qty (High → Low)</option>
-              <option value="out_desc">Period OUT Qty (High → Low)</option>
+              <option value="in_desc">Period IN (High → Low)</option>
+              <option value="out_desc">Period OUT (High → Low)</option>
               <option value="net_desc">Net Movement (+ to -)</option>
               <option value="valuation_desc">Valuation (High → Low)</option>
             </select>
@@ -1239,7 +1417,7 @@ export default function RMINOUTStockPage() {
                   setMovementFilter('ALL');
                   setSortBy('code_asc');
                 }}
-                className="h-9 px-2 text-xs border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                className="h-8 px-2 text-xs border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400"
                 title="Reset Filters"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
@@ -1248,8 +1426,8 @@ export default function RMINOUTStockPage() {
           </div>
         </div>
 
-        {/* Active Filter Pills Bar */}
-        <div className="flex items-center justify-between flex-wrap gap-2 pt-1 text-xs text-slate-500 dark:text-slate-400">
+        {/* Status Pills Bar */}
+        <div className="flex items-center justify-between flex-wrap gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
           <div className="flex items-center gap-2 flex-wrap">
             <span>Showing:</span>
             <span className="font-semibold text-slate-900 dark:text-white">
@@ -1260,56 +1438,62 @@ export default function RMINOUTStockPage() {
               {period.replace('_', ' ')}
             </span>
             {movementFilter === 'IN_PROGRESS' && (
-              <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold text-[10px]">
+              <span className="px-2 py-0.2 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-bold text-[10px]">
                 🟡 Filtered: In-Progress WIP Only
+              </span>
+            )}
+            {movementFilter === 'LAB_REJECTED' && (
+              <span className="px-2 py-0.2 rounded-full bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 font-bold text-[10px]">
+                ❌ Filtered: Lab Rejections Only
               </span>
             )}
           </div>
 
-          <div className="text-[11px] text-slate-400">
-            Last Refreshed: {lastRefreshed.toLocaleTimeString()}
+          <div className="text-[10px] text-slate-400">
+            Refreshed: {lastRefreshed.toLocaleTimeString()}
           </div>
         </div>
       </div>
 
       {/* ── MAIN CONTENT AREA ── */}
       {viewMode === 'material' ? (
-        /* ============================================================== */
         /* MODE 1: MATERIAL-WISE SUMMARY TABLE WITH EXPANDABLE IN-ROW LEDGER */
-        /* ============================================================== */
-        <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden">
+        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
           {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
-                  <TableHead className="w-10 text-center"></TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[110px]">
+                <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                  <TableHead className="w-8 text-center"></TableHead>
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[100px]">
                     Code
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[200px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[190px]">
                     Raw Material Name
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[130px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[120px]">
                     Category & UOM
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 text-right min-w-[145px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[140px]">
                     Current Stock & WIP
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-emerald-700 dark:text-emerald-400 text-right min-w-[130px]">
+                  <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[115px]">
                     Period IN
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-rose-700 dark:text-rose-400 text-right min-w-[130px]">
+                  <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[115px]">
                     Period OUT
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 text-right min-w-[120px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[105px]">
                     Net Flow
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 text-right min-w-[120px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[115px]">
                     Valuation
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 text-center min-w-[160px]">
-                    Actions & History
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[100px]">
+                    QC Status
+                  </TableHead>
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[130px]">
+                    Actions
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -1317,18 +1501,18 @@ export default function RMINOUTStockPage() {
                 {isAnyLoading ? (
                   Array.from({ length: 6 }).map((_, idx) => (
                     <TableRow key={idx}>
-                      <TableCell colSpan={10} className="py-4">
-                        <Skeleton className="h-6 w-full rounded-md" />
+                      <TableCell colSpan={11} className="py-3">
+                        <Skeleton className="h-5 w-full rounded-md" />
                       </TableCell>
                     </TableRow>
                   ))
                 ) : paginatedMaterials.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="py-12 text-center text-slate-400">
-                      <div className="flex flex-col items-center justify-center space-y-2">
-                        <Package className="w-8 h-8 text-slate-300 dark:text-slate-600" />
-                        <p className="text-sm font-medium">No raw materials match the current filters.</p>
-                        <p className="text-xs text-slate-500">Try adjusting your search keyword, category, or time period.</p>
+                    <TableCell colSpan={11} className="py-10 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center space-y-1.5">
+                        <Package className="w-7 h-7 text-slate-300 dark:text-slate-600" />
+                        <p className="text-xs font-medium">No raw materials match the current filters.</p>
+                        <p className="text-[11px] text-slate-500">Try adjusting your search keyword, category, or time period.</p>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1339,6 +1523,8 @@ export default function RMINOUTStockPage() {
                     const isLow = mat.status === 'LOW_STOCK';
                     const isOut = mat.status === 'OUT_OF_STOCK';
                     const hasWip = Number(mat.inProgressStock || 0) > 0;
+                    const hasReject = mat.hasLabRejection || mat.labStatus === 'LAB_REJECTED';
+                    const pyClass = isCompactDensity ? 'py-1.5' : 'py-2.5';
 
                     return (
                       <React.Fragment key={mat.id}>
@@ -1346,27 +1532,27 @@ export default function RMINOUTStockPage() {
                         <TableRow
                           className={`text-xs transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-b border-slate-200/80 dark:border-slate-800 ${
                             isExpanded ? 'bg-slate-50/90 dark:bg-slate-800/50' : ''
-                          } ${hasWip ? 'border-l-4 border-l-amber-500' : ''}`}
+                          } ${hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-amber-500' : ''}`}
                         >
                           {/* 0. Expand Button */}
-                          <TableCell className="text-center py-2.5 px-1">
+                          <TableCell className={`text-center ${pyClass} px-1`}>
                             <button
                               onClick={() => toggleExpandRow(mat.id)}
                               className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                              title={isExpanded ? 'Collapse ledger' : 'Expand date-wise in/out breakdown'}
+                              title={isExpanded ? 'Collapse movements' : 'Expand date-wise in/out breakdown'}
                             >
                               {isLoadingHistory ? (
-                                <Loader2 className="w-4 h-4 text-emerald-600 animate-spin" />
+                                <Loader2 className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
                               ) : isExpanded ? (
-                                <ChevronUp className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                <ChevronUp className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                               ) : (
-                                <ChevronDown className="w-4 h-4" />
+                                <ChevronDown className="w-3.5 h-3.5" />
                               )}
                             </button>
                           </TableCell>
 
                           {/* 1. Code */}
-                          <TableCell className="font-mono font-semibold py-2.5">
+                          <TableCell className={`font-mono font-semibold ${pyClass}`}>
                             <button
                               onClick={() => handleOpenHistory(mat.id)}
                               className="text-emerald-700 dark:text-emerald-400 hover:underline hover:text-emerald-800 text-left font-bold"
@@ -1374,19 +1560,24 @@ export default function RMINOUTStockPage() {
                             >
                               {mat.code || '—'}
                             </button>
-                            {hasWip && (
-                              <div className="mt-0.5">
-                                <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                            <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                              {hasWip && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300">
+                                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
                                   WIP Run
                                 </span>
-                              </div>
-                            )}
+                              )}
+                              {hasReject && (
+                                <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-900 dark:text-rose-300 font-bold border border-rose-300">
+                                  ❌ Reject
+                                </span>
+                              )}
+                            </div>
                           </TableCell>
 
                           {/* 2. Raw Material Name */}
-                          <TableCell className="py-2.5">
-                            <div className="font-medium text-slate-900 dark:text-slate-100">
+                          <TableCell className={pyClass}>
+                            <div className="font-medium text-slate-900 dark:text-slate-100 truncate max-w-[200px]" title={mat.name}>
                               {mat.name || '—'}
                             </div>
                             {mat.poReferenceNo && (
@@ -1402,54 +1593,54 @@ export default function RMINOUTStockPage() {
                           </TableCell>
 
                           {/* 3. Category & UOM */}
-                          <TableCell className="py-2.5">
-                            <div className="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                          <TableCell className={pyClass}>
+                            <div className="inline-block px-1.5 py-0.2 rounded-md text-[10px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 truncate max-w-[120px]">
                               {mat.category || 'Uncategorised'}
                             </div>
-                            <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                            <div className="text-[10px] text-slate-400 mt-0.2 font-mono">
                               Unit: {mat.uom || 'Unit'}
                             </div>
                           </TableCell>
 
-                          {/* 4. Current Stock, In-Progress WIP & Free Available Stock */}
-                          <TableCell className="text-right py-2.5 font-mono">
-                            <div className="font-bold text-slate-900 dark:text-white text-sm">
+                          {/* 4. Current Stock & WIP */}
+                          <TableCell className={`text-right ${pyClass} font-mono`}>
+                            <div className="font-bold text-slate-900 dark:text-white text-xs">
                               {Number(mat.currentStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
-                              <span className="text-[10px] text-slate-400 font-normal ml-1">{mat.uom}</span>
+                              <span className="text-[10px] text-slate-400 font-normal ml-0.5">{mat.uom}</span>
                             </div>
                             {hasWip ? (
-                              <div className="flex flex-col items-end gap-1 mt-1">
+                              <div className="flex flex-col items-end gap-0.5 mt-0.5">
                                 <span
-                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-sm bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300/80 dark:border-amber-800 shadow-2xs"
-                                  title="Material currently committed to active batches on the floor"
+                                  className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-sm bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 font-bold border border-amber-300"
+                                  title="Material committed to active batches on the floor"
                                 >
-                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                  WIP: {Number(mat.inProgressStock).toLocaleString('en-IN', { maximumFractionDigits: 2 })} {mat.uom}
+                                  <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+                                  WIP: {Number(mat.inProgressStock).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                 </span>
                                 <span
-                                  className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-sm bg-emerald-100 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-300 font-bold border border-emerald-300/80 dark:border-emerald-800 shadow-2xs"
+                                  className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-sm bg-emerald-100 dark:bg-emerald-950/70 text-emerald-900 dark:text-emerald-300 font-bold border border-emerald-300"
                                   title="Free available stock remaining for new production orders"
                                 >
-                                  Free: {Number(mat.availableStock !== undefined ? mat.availableStock : Math.max(0, (mat.currentStock || 0) - (mat.inProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 2 })} {mat.uom}
+                                  Free: {Number(mat.availableStock !== undefined ? mat.availableStock : Math.max(0, (mat.currentStock || 0) - (mat.inProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                                 </span>
                               </div>
                             ) : isOut ? (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 font-semibold">
-                                Out of Stock
+                              <span className="text-[9px] px-1 py-0.2 rounded-sm bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 font-semibold">
+                                Out
                               </span>
                             ) : isLow ? (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-semibold">
-                                Low Stock
+                              <span className="text-[9px] px-1 py-0.2 rounded-sm bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-semibold">
+                                Low
                               </span>
                             ) : (
                               <span className="text-[9px] text-slate-400">
-                                In Hand (100% Free)
+                                In Hand
                               </span>
                             )}
                           </TableCell>
 
                           {/* 5. Period IN */}
-                          <TableCell className="text-right py-2.5 font-mono">
+                          <TableCell className={`text-right ${pyClass} font-mono`}>
                             <div className="font-bold text-emerald-600 dark:text-emerald-400">
                               +{Number(mat.periodInQty || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                             </div>
@@ -1459,36 +1650,36 @@ export default function RMINOUTStockPage() {
                                   if (mat.lastIn.poId) handleRedirectToPO(mat.lastIn.poId, mat.lastIn.ref);
                                   else if (mat.lastIn.grnId) handleRedirectToGRN(mat.lastIn.grnId, mat.lastIn.ref);
                                 }}
-                                className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 hover:underline block text-right truncate max-w-[130px] ml-auto"
+                                className="text-[10px] text-emerald-600/80 dark:text-emerald-400/80 hover:underline block text-right truncate max-w-[120px] ml-auto"
                                 title={`Last In: ${mat.lastIn.party} on ${formatDate(mat.lastIn.date)}`}
                               >
                                 {mat.lastIn.ref}
                               </button>
                             ) : (
-                              <span className="text-[10px] text-slate-400">None in period</span>
+                              <span className="text-[10px] text-slate-400">None</span>
                             )}
                           </TableCell>
 
                           {/* 6. Period OUT */}
-                          <TableCell className="text-right py-2.5 font-mono">
+                          <TableCell className={`text-right ${pyClass} font-mono`}>
                             <div className="font-bold text-rose-600 dark:text-rose-400">
                               -{Number(mat.periodOutQty || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
                             </div>
                             {mat.lastOut ? (
                               <div
-                                className="text-[10px] text-rose-600/80 dark:text-rose-400/80 text-right truncate max-w-[130px] ml-auto"
+                                className="text-[10px] text-rose-600/80 dark:text-rose-400/80 text-right truncate max-w-[120px] ml-auto"
                                 title={`Last Out: ${mat.lastOut.party} on ${formatDate(mat.lastOut.date)}`}
                               >
                                 {mat.lastOut.ref}
                               </div>
                             ) : (
-                              <span className="text-[10px] text-slate-400">None in period</span>
+                              <span className="text-[10px] text-slate-400">None</span>
                             )}
                           </TableCell>
 
                           {/* 7. Net Movement */}
-                          <TableCell className="text-right py-2.5 font-mono">
-                            <span className={`inline-block px-1.5 py-0.5 rounded-sm font-semibold text-[11px] ${
+                          <TableCell className={`text-right ${pyClass} font-mono`}>
+                            <span className={`inline-block px-1.5 py-0.2 rounded-sm font-semibold text-[11px] ${
                               Number(mat.netMovement || 0) > 0
                                 ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300'
                                 : Number(mat.netMovement || 0) < 0
@@ -1496,13 +1687,13 @@ export default function RMINOUTStockPage() {
                                 : 'text-slate-400'
                             }`}>
                               {Number(mat.netMovement || 0) > 0 ? '+' : ''}
-                              {Number(mat.netMovement || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}
+                              {Number(mat.netMovement || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                             </span>
                           </TableCell>
 
                           {/* 8. Valuation */}
-                          <TableCell className="text-right py-2.5 font-mono">
-                            <div className="font-semibold text-slate-800 dark:text-slate-200">
+                          <TableCell className={`text-right ${pyClass} font-mono`}>
+                            <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
                               ₹{Number(mat.valuation || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                             </div>
                             <div className="text-[10px] text-slate-400">
@@ -1510,28 +1701,39 @@ export default function RMINOUTStockPage() {
                             </div>
                           </TableCell>
 
-                          {/* 9. Actions */}
-                          <TableCell className="text-center py-2.5">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {/* View Full History Drawer */}
+                          {/* 9. QC Status */}
+                          <TableCell className={`text-center ${pyClass}`}>
+                            {hasReject ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-bold text-[10px]">
+                                ❌ Rejected
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 font-semibold text-[10px]">
+                                🟢 Passed
+                              </span>
+                            )}
+                          </TableCell>
+
+                          {/* 10. Actions */}
+                          <TableCell className={`text-center ${pyClass}`}>
+                            <div className="flex items-center justify-center gap-1">
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleOpenHistory(mat.id)}
-                                className="h-7 px-2 text-[11px] border-slate-300 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
-                                title="Open full history drawer with timeline, batches & QC"
+                                className="h-6 px-1.5 text-[10px] border-slate-300 dark:border-slate-700 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50"
+                                title="Open full history drawer"
                               >
-                                <Eye className="w-3 h-3 mr-1" />
-                                <span>History</span>
+                                <Eye className="w-2.5 h-2.5 mr-0.5" />
+                                <span>Audit</span>
                               </Button>
 
-                              {/* Stock Query Modal */}
                               <Button
                                 size="sm"
                                 variant="outline"
                                 onClick={() => handleOpenStockQuery(mat.id)}
-                                className="h-7 px-2 text-[11px] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                                title="Open Tally-Prime style instant stock query sheet"
+                                className="h-6 px-1.5 text-[10px] border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                                title="Instant stock query"
                               >
                                 <span>Query</span>
                               </Button>
@@ -1542,83 +1744,92 @@ export default function RMINOUTStockPage() {
                         {/* Inline Expandable Date-Wise Sub-Table */}
                         {isExpanded && (
                           <TableRow className="bg-slate-50/50 dark:bg-slate-900/40 border-b border-slate-200 dark:border-slate-800">
-                            <TableCell colSpan={10} className="p-3 sm:p-4">
-                              <div className="space-y-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 sm:p-4 shadow-inner">
+                            <TableCell colSpan={11} className="p-2.5 sm:p-3">
+                              <div className="space-y-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-2.5 sm:p-3 shadow-inner">
                                 <div className="flex items-center justify-between flex-wrap gap-2">
                                   <div className="flex items-center gap-2 flex-wrap">
-                                    <Clock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                                    <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                                     <span className="text-xs font-bold text-slate-900 dark:text-white">
-                                      Date-Wise In-Out Movements for {mat.name} ({mat.code})
+                                      Date-Wise Movements: {mat.name} ({mat.code})
                                     </span>
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
-                                      {mat.transactions?.length || 0} Movements in Period
+                                    <span className="text-[10px] px-2 py-0.2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono">
+                                      {mat.transactions?.length || 0} Movements
                                     </span>
                                     {hasWip && (
-                                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300 dark:border-amber-800">
+                                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.2 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300">
                                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                        🟡 Floor WIP: {mat.inProgressStock} {mat.uom} Allocated to Active Batch
+                                        Floor WIP: {mat.inProgressStock} {mat.uom}
                                       </span>
                                     )}
                                   </div>
 
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-1.5">
                                     {mat.poReferenceNo && (
                                       <Button
                                         size="sm"
                                         variant="outline"
                                         onClick={() => handleRedirectToPO(mat.latestPoId, mat.poReferenceNo)}
-                                        className="h-7 text-[11px] border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400"
+                                        className="h-6 text-[10px] border-blue-200 text-blue-600"
                                       >
-                                        <ExternalLink className="w-3 h-3 mr-1" />
-                                        Redirect to PO ({mat.poReferenceNo})
+                                        <ExternalLink className="w-2.5 h-2.5 mr-1" />
+                                        PO ({mat.poReferenceNo})
                                       </Button>
                                     )}
                                     <Button
                                       size="sm"
                                       variant="outline"
                                       onClick={() => handleOpenHistory(mat.id)}
-                                      className="h-7 text-[11px] border-emerald-300 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400"
+                                      className="h-6 text-[10px] border-emerald-300 text-emerald-600"
                                     >
-                                      Full Lifecycle Audit
+                                      Lifecycle Audit
                                     </Button>
                                   </div>
                                 </div>
 
                                 {isLoadingHistory ? (
-                                  <div className="py-8 flex flex-col items-center justify-center space-y-2 text-slate-400 text-xs">
-                                    <Loader2 className="w-6 h-6 animate-spin text-emerald-600" />
-                                    <span>Loading chronological date movements from warehouse database...</span>
+                                  <div className="py-6 flex flex-col items-center justify-center space-y-1.5 text-slate-400 text-xs">
+                                    <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+                                    <span>Loading chronological date movements...</span>
                                   </div>
                                 ) : mat.transactions && mat.transactions.length > 0 ? (
                                   <div className="overflow-x-auto rounded-md border border-slate-200 dark:border-slate-800">
                                     <Table>
                                       <TableHeader>
-                                        <TableRow className="bg-slate-100/60 dark:bg-slate-800/40 text-[11px]">
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[120px]">
+                                        <TableRow className="bg-slate-100/60 dark:bg-slate-800/40 text-[10px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[110px]">
                                             Date & Time
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[110px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[100px]">
                                             Flow & Status
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[160px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[130px]">
                                             Transaction Type
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[130px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[110px]">
                                             Document Ref
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[100px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[90px]">
                                             Batch / Lot
                                           </TableHead>
-                                          <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[90px]">
-                                            Inward (IN)
+                                          <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[80px]">
+                                            In (Qty)
                                           </TableHead>
-                                          <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[110px]">
-                                            Outward (OUT)
+                                          <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[80px]">
+                                            Out (Qty)
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[150px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 text-right min-w-[85px]">
+                                            Rate (₹)
+                                          </TableHead>
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 text-right min-w-[85px]">
+                                            Amount (₹)
+                                          </TableHead>
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 text-center min-w-[90px]">
+                                            QC Decision
+                                          </TableHead>
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[140px]">
                                             Party / Destination
                                           </TableHead>
-                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[100px]">
+                                          <TableHead className="font-semibold text-slate-700 dark:text-slate-300 min-w-[85px]">
                                             Handled By
                                           </TableHead>
                                         </TableRow>
@@ -1629,30 +1840,40 @@ export default function RMINOUTStockPage() {
                                           const isInProgress = Boolean(
                                             tx.isInProgress ||
                                             tx.batchStatus === 'IN_PROGRESS' ||
-                                            String(tx.typeLabel || '').includes('In Progress') ||
-                                            String(tx.notes || '').toLowerCase().includes('in progress')
+                                            String(tx.typeLabel || '').includes('In Progress')
+                                          );
+                                          const isTxReject = Boolean(
+                                            tx.isLabRejected ||
+                                            String(tx.labStatus || '').includes('REJECT') ||
+                                            Number(tx.rejectedQty || 0) > 0
                                           );
 
                                           return (
                                             <TableRow
                                               key={tx.id}
                                               className={`text-[11px] transition-colors border-b ${
-                                                isInProgress
-                                                  ? 'bg-amber-50/80 dark:bg-amber-950/30 border-l-4 border-l-amber-500 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 border-amber-200 dark:border-amber-900/60'
+                                                isTxReject
+                                                  ? 'bg-rose-50/70 dark:bg-rose-950/30 border-l-4 border-l-rose-500'
+                                                  : isInProgress
+                                                  ? 'bg-amber-50/80 dark:bg-amber-950/30 border-l-4 border-l-amber-500'
                                                   : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border-slate-100 dark:border-slate-800/80'
                                               }`}
                                             >
-                                              <TableCell className="font-mono py-2 text-slate-600 dark:text-slate-400">
+                                              <TableCell className="font-mono py-1.5 text-slate-600 dark:text-slate-400">
                                                 {formatDateTime(tx.date)}
                                               </TableCell>
-                                              <TableCell className="py-2">
-                                                {isInProgress ? (
-                                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shadow-2xs">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                                    🟡 IN PROGRESS
+                                              <TableCell className="py-1.5">
+                                                {isTxReject ? (
+                                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                                                    ❌ REJECTED
+                                                  </span>
+                                                ) : isInProgress ? (
+                                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                                                    <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+                                                    🟡 WIP RUN
                                                   </span>
                                                 ) : (
-                                                  <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                  <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
                                                     isIn
                                                       ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                                                       : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
@@ -1661,87 +1882,70 @@ export default function RMINOUTStockPage() {
                                                   </span>
                                                 )}
                                               </TableCell>
-                                              <TableCell className="font-medium py-2">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                  <span>{tx.typeLabel}</span>
-                                                  {isInProgress && (
-                                                    <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 font-bold uppercase tracking-wider">
-                                                      Floor WIP
-                                                    </span>
-                                                  )}
+                                              <TableCell className="font-medium py-1.5">
+                                                <div className="truncate max-w-[140px]" title={tx.typeLabel}>
+                                                  {tx.typeLabel}
                                                 </div>
                                               </TableCell>
-                                              <TableCell className="font-mono py-2">
+                                              <TableCell className="font-mono py-1.5">
                                                 {tx.poId ? (
                                                   <button
                                                     onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)}
-                                                    className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold"
+                                                    className="text-blue-600 hover:underline flex items-center gap-0.5 font-semibold"
                                                   >
                                                     <span>{tx.referenceNo}</span>
-                                                    <ExternalLink className="w-2.5 h-2.5" />
+                                                    <ExternalLink className="w-2 h-2" />
                                                   </button>
                                                 ) : tx.grnId ? (
                                                   <button
                                                     onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)}
-                                                    className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
+                                                    className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold"
                                                   >
                                                     <span>{tx.referenceNo}</span>
-                                                    <ExternalLink className="w-2.5 h-2.5" />
+                                                    <ExternalLink className="w-2 h-2" />
                                                   </button>
                                                 ) : tx.batchId || isInProgress ? (
                                                   <button
                                                     onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                                                    className={`flex items-center gap-1 font-semibold hover:underline ${
-                                                      isInProgress
-                                                        ? 'text-amber-700 dark:text-amber-400 font-bold'
-                                                        : 'text-purple-600 dark:text-purple-400'
+                                                    className={`hover:underline flex items-center gap-0.5 font-semibold ${
+                                                      isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
                                                     }`}
-                                                    title={isInProgress ? 'Batch is actively running in production. Click to view.' : 'View batch'}
                                                   >
                                                     <span>{tx.referenceNo}</span>
-                                                    <ExternalLink className="w-2.5 h-2.5" />
-                                                  </button>
-                                                ) : tx.orderId ? (
-                                                  <button
-                                                    onClick={() => navigate('/sales/order')}
-                                                    className="text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-semibold"
-                                                  >
-                                                    <span>{tx.referenceNo}</span>
-                                                    <ExternalLink className="w-2.5 h-2.5" />
+                                                    <ExternalLink className="w-2 h-2" />
                                                   </button>
                                                 ) : (
                                                   <span>{tx.referenceNo || '—'}</span>
                                                 )}
                                               </TableCell>
-                                              <TableCell className="font-mono text-slate-500 dark:text-slate-400 py-2">
+                                              <TableCell className="font-mono text-slate-500 py-1.5">
                                                 {tx.batchNumber || '—'}
                                               </TableCell>
-                                              <TableCell className="text-right font-mono font-bold py-2 text-emerald-600 dark:text-emerald-400">
-                                                {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                                              <TableCell className="text-right font-mono font-bold py-1.5 text-emerald-600 dark:text-emerald-400">
+                                                {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
                                               </TableCell>
-                                              <TableCell className={`text-right font-mono font-bold py-2 ${
-                                                isInProgress ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'
+                                              <TableCell className={`text-right font-mono font-bold py-1.5 ${
+                                                isInProgress ? 'text-amber-700' : 'text-rose-600'
                                               }`}>
-                                                {!isIn ? (
-                                                  <div>
-                                                    <span>-{Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                                                    {isInProgress && (
-                                                      <div className="text-[9px] text-amber-600 dark:text-amber-400 font-normal">
-                                                        WIP Allocated
-                                                      </div>
-                                                    )}
-                                                  </div>
-                                                ) : '—'}
+                                                {!isIn ? `-${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
                                               </TableCell>
-                                              <TableCell className="py-2 text-slate-700 dark:text-slate-300 truncate max-w-[180px]">
-                                                {tx.partyName || '—'}
-                                                {isInProgress && (
-                                                  <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                                                    (Batch In Progress)
-                                                  </span>
+                                              <TableCell className="text-right font-mono py-1.5 text-slate-700 dark:text-slate-300">
+                                                {tx.rate ? `₹${Number(tx.rate).toFixed(2)}` : '—'}
+                                              </TableCell>
+                                              <TableCell className="text-right font-mono font-semibold py-1.5 text-slate-900 dark:text-white">
+                                                {tx.amount ? `₹${Number(tx.amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—'}
+                                              </TableCell>
+                                              <TableCell className="text-center py-1.5">
+                                                {isTxReject ? (
+                                                  <span className="text-rose-700 font-bold text-[10px]">❌ Rejected</span>
+                                                ) : (
+                                                  <span className="text-emerald-700 font-medium text-[10px]">Passed</span>
                                                 )}
                                               </TableCell>
-                                              <TableCell className="py-2 text-slate-500 dark:text-slate-400">
+                                              <TableCell className="py-1.5 text-slate-700 dark:text-slate-300 truncate max-w-[150px]" title={tx.partyName}>
+                                                {tx.partyName || '—'}
+                                              </TableCell>
+                                              <TableCell className="py-1.5 text-slate-500 text-[10px]">
                                                 {tx.user || '—'}
                                               </TableCell>
                                             </TableRow>
@@ -1751,8 +1955,8 @@ export default function RMINOUTStockPage() {
                                     </Table>
                                   </div>
                                 ) : (
-                                  <div className="py-6 text-center text-slate-400 text-xs">
-                                    No transaction movements recorded for this material within the selected time period ({period}). Click 'Full Lifecycle Audit' to check all historical records.
+                                  <div className="py-4 text-center text-slate-400 text-xs">
+                                    No transaction movements recorded for this material within the selected time period ({period}).
                                   </div>
                                 )}
                               </div>
@@ -1771,56 +1975,48 @@ export default function RMINOUTStockPage() {
           <div className="md:hidden divide-y divide-slate-200 dark:divide-slate-800">
             {isAnyLoading ? (
               Array.from({ length: 4 }).map((_, idx) => (
-                <div key={idx} className="p-4 space-y-3">
-                  <Skeleton className="h-5 w-2/3 rounded-sm" />
-                  <Skeleton className="h-16 w-full rounded-md" />
+                <div key={idx} className="p-3 space-y-2">
+                  <Skeleton className="h-4 w-2/3 rounded-sm" />
+                  <Skeleton className="h-12 w-full rounded-md" />
                 </div>
               ))
             ) : paginatedMaterials.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-xs">No raw materials match the current filters.</div>
+              <div className="py-6 text-center text-slate-400 text-xs">No raw materials match the current filters.</div>
             ) : (
               paginatedMaterials.map((mat) => {
                 const isExpanded = expandedMaterialIds.has(mat.id);
                 const isLoadingHistory = expandedLoadingIds.has(mat.id);
-                const isLow = mat.status === 'LOW_STOCK';
-                const isOut = mat.status === 'OUT_OF_STOCK';
                 const hasWip = Number(mat.inProgressStock || 0) > 0;
+                const hasReject = mat.hasLabRejection || mat.labStatus === 'LAB_REJECTED';
 
                 return (
                   <div
                     key={mat.id}
-                    className={`p-3.5 space-y-3 bg-white dark:bg-slate-900 transition-colors ${
-                      hasWip ? 'border-l-4 border-l-amber-500' : ''
+                    className={`p-3 space-y-2 bg-white dark:bg-slate-900 transition-colors ${
+                      hasReject ? 'border-l-4 border-l-rose-500' : hasWip ? 'border-l-4 border-l-amber-500' : ''
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-1.5">
                       <div className="space-y-0.5">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                        <div className="flex items-center gap-1 flex-wrap">
                           <button
                             onClick={() => handleOpenHistory(mat.id)}
                             className="font-mono text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline"
                           >
                             {mat.code}
                           </button>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                             {mat.category}
                           </span>
-                          {hasWip ? (
-                            <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 font-bold border border-amber-300">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                              WIP Run
+                          {hasWip && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0.2 rounded-full bg-amber-100 text-amber-900 font-bold border border-amber-300">
+                              <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+                              WIP
                             </span>
-                          ) : isOut ? (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-300 font-semibold">
-                              Out
-                            </span>
-                          ) : isLow ? (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-300 font-semibold">
-                              Low
-                            </span>
-                          ) : (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-300 font-medium">
-                              Optimal
+                          )}
+                          {hasReject && (
+                            <span className="text-[9px] px-1 py-0.2 rounded-full bg-rose-100 text-rose-900 font-bold border border-rose-300">
+                              ❌ Reject
                             </span>
                           )}
                         </div>
@@ -1838,32 +2034,28 @@ export default function RMINOUTStockPage() {
                       </div>
                     </div>
 
-                    {/* Quick Metrics Grid (Shows In Hand, Floor WIP, Free Stock & Net Flow) */}
-                    <div className="grid grid-cols-4 gap-1.5 p-2 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-center text-xs">
+                    {/* Quick Metrics Grid */}
+                    <div className="grid grid-cols-4 gap-1 p-1.5 rounded-lg bg-slate-50 dark:bg-slate-800/60 text-center text-xs">
                       <div>
-                        <span className="text-[9px] text-slate-500 block truncate">In-Hand</span>
+                        <span className="text-[9px] text-slate-500 block">In-Hand</span>
                         <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
                           {Number(mat.currentStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                         </span>
                       </div>
                       <div>
-                        <span className="text-[9px] text-amber-600 dark:text-amber-400 block truncate font-semibold">
-                          WIP Floor
-                        </span>
-                        <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                        <span className="text-[9px] text-amber-600 font-semibold block">WIP Floor</span>
+                        <span className="font-mono font-bold text-amber-600">
                           {Number(mat.inProgressStock || 0).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                         </span>
                       </div>
                       <div>
-                        <span className="text-[9px] text-emerald-600 dark:text-emerald-400 block truncate font-semibold">
-                          Free Stock
-                        </span>
-                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                        <span className="text-[9px] text-emerald-600 font-semibold block">Free Stock</span>
+                        <span className="font-mono font-bold text-emerald-600">
                           {Number(mat.availableStock !== undefined ? mat.availableStock : Math.max(0, (mat.currentStock || 0) - (mat.inProgressStock || 0))).toLocaleString('en-IN', { maximumFractionDigits: 1 })}
                         </span>
                       </div>
                       <div>
-                        <span className="text-[9px] text-slate-500 block truncate">Net Period</span>
+                        <span className="text-[9px] text-slate-500 block">Net Flow</span>
                         <span className={`font-mono font-bold ${
                           Number(mat.netMovement || 0) > 0 ? 'text-emerald-600' : Number(mat.netMovement || 0) < 0 ? 'text-rose-600' : 'text-slate-400'
                         }`}>
@@ -1873,36 +2065,35 @@ export default function RMINOUTStockPage() {
                     </div>
 
                     {/* Mobile Actions Bar */}
-                    <div className="flex items-center justify-between gap-2 pt-1">
+                    <div className="flex items-center justify-between gap-1 pt-1">
                       <button
                         onClick={() => toggleExpandRow(mat.id)}
-                        className="text-xs flex items-center gap-1 text-slate-600 dark:text-slate-400 hover:text-slate-900 font-medium"
+                        className="text-xs flex items-center gap-1 text-slate-600 dark:text-slate-400 font-medium"
                       >
                         {isLoadingHistory ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                          <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
                         ) : isExpanded ? (
-                          <ChevronUp className="w-3.5 h-3.5 text-emerald-600" />
+                          <ChevronUp className="w-3 h-3 text-emerald-600" />
                         ) : (
-                          <ChevronDown className="w-3.5 h-3.5" />
+                          <ChevronDown className="w-3 h-3" />
                         )}
-                        <span>{isExpanded ? 'Hide Ledger' : 'View Movements'}</span>
+                        <span>{isExpanded ? 'Hide' : 'Movements'} ({mat.transactions?.length || 0})</span>
                       </button>
 
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1">
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleOpenHistory(mat.id)}
-                          className="h-7 px-2 text-[11px] border-slate-300 dark:border-slate-700"
+                          className="h-6 px-1.5 text-[10px]"
                         >
-                          <Eye className="w-3 h-3 mr-1 text-emerald-600" />
-                          History
+                          Audit
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
                           onClick={() => handleOpenStockQuery(mat.id)}
-                          className="h-7 px-1.5 text-[11px]"
+                          className="h-6 px-1 text-[10px]"
                         >
                           Query
                         </Button>
@@ -1911,71 +2102,54 @@ export default function RMINOUTStockPage() {
 
                     {/* Inline Expanded Movements for Mobile */}
                     {isExpanded && (
-                      <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-800 space-y-2 animate-in fade-in duration-150">
-                        <div className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
-                          <span>Movements ({mat.transactions?.length || 0})</span>
-                          {mat.poReferenceNo && (
-                            <button
-                              onClick={() => handleRedirectToPO(mat.latestPoId, mat.poReferenceNo)}
-                              className="text-[10px] text-blue-600 hover:underline flex items-center gap-0.5"
-                            >
-                              PO: {mat.poReferenceNo} <ExternalLink className="w-2.5 h-2.5" />
-                            </button>
-                          )}
-                        </div>
-                        {isLoadingHistory ? (
-                          <div className="py-4 text-center text-xs text-slate-400">Loading movements...</div>
-                        ) : mat.transactions && mat.transactions.length > 0 ? (
-                          <div className="space-y-1.5">
-                            {mat.transactions.map((tx) => {
-                              const isIn = tx.flow === 'IN';
-                              const isInProgress = Boolean(
-                                tx.isInProgress ||
-                                tx.batchStatus === 'IN_PROGRESS' ||
-                                String(tx.typeLabel || '').includes('In Progress')
-                              );
+                      <div className="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-slate-800 space-y-1.5 animate-in fade-in duration-100">
+                        {mat.transactions && mat.transactions.length > 0 ? (
+                          mat.transactions.map((tx) => {
+                            const isIn = tx.flow === 'IN';
+                            const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
+                            const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT'));
 
-                              return (
-                                <div
-                                  key={tx.id}
-                                  className={`p-2 rounded-md text-[11px] space-y-1 border ${
-                                    isInProgress
-                                      ? 'bg-amber-50/80 dark:bg-amber-950/40 border-amber-300 dark:border-amber-800 border-l-4 border-l-amber-500'
-                                      : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800'
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between font-mono">
-                                    <span className="text-slate-500">{formatDate(tx.date)}</span>
-                                    {isInProgress ? (
-                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                        🟡 -{tx.quantity} WIP
-                                      </span>
-                                    ) : (
-                                      <span className={`px-1.5 py-0.2 rounded-sm font-bold text-[10px] ${
-                                        isIn ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                                      }`}>
-                                        {isIn ? `+${tx.quantity} IN` : `-${tx.quantity} OUT`}
-                                      </span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-semibold text-slate-800 dark:text-slate-200">
-                                      {tx.typeLabel}
+                            return (
+                              <div
+                                key={tx.id}
+                                className={`p-1.5 rounded-md text-[11px] space-y-0.5 border ${
+                                  isTxReject
+                                    ? 'bg-rose-50/80 border-rose-300 border-l-4 border-l-rose-500'
+                                    : isInProgress
+                                    ? 'bg-amber-50/80 border-amber-300 border-l-4 border-l-amber-500'
+                                    : 'bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between font-mono text-[10px]">
+                                  <span className="text-slate-500">{formatDate(tx.date)}</span>
+                                  {isTxReject ? (
+                                    <span className="px-1 py-0.2 rounded-sm font-bold bg-rose-100 text-rose-900">
+                                      ❌ REJECT
                                     </span>
-                                    <span className="font-mono text-slate-400 text-[10px]">
-                                      {tx.referenceNo}
+                                  ) : isInProgress ? (
+                                    <span className="px-1 py-0.2 rounded-sm font-bold bg-amber-100 text-amber-900">
+                                      🟡 -{tx.quantity} WIP
                                     </span>
-                                  </div>
-                                  <div className="text-slate-500 truncate text-[10px]">
-                                    {tx.partyName}
-                                  </div>
+                                  ) : (
+                                    <span className={`px-1 py-0.2 rounded-sm font-bold ${
+                                      isIn ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                    }`}>
+                                      {isIn ? `+${tx.quantity} IN` : `-${tx.quantity} OUT`}
+                                    </span>
+                                  )}
                                 </div>
-                              );
-                            })}
-                          </div>
+                                <div className="flex items-center justify-between text-[11px]">
+                                  <span className="font-semibold text-slate-800 dark:text-slate-200">{tx.typeLabel}</span>
+                                  <span className="font-mono text-slate-500 text-[10px]">{tx.referenceNo}</span>
+                                </div>
+                                <div className="text-slate-500 truncate text-[10px]">
+                                  {tx.partyName || tx.user}
+                                </div>
+                              </div>
+                            );
+                          })
                         ) : (
-                          <div className="py-2 text-center text-[11px] text-slate-400">No movements recorded in this period.</div>
+                          <div className="py-2 text-center text-[10px] text-slate-400">No movements recorded.</div>
                         )}
                       </div>
                     )}
@@ -1986,7 +2160,7 @@ export default function RMINOUTStockPage() {
           </div>
 
           {/* Pagination Controls */}
-          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2">
+          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-1.5">
             <Pagination
               currentPage={currentPage}
               totalPages={totalMaterialPages}
@@ -2001,47 +2175,51 @@ export default function RMINOUTStockPage() {
           </div>
         </Card>
       ) : (
-        /* ============================================================== */
-        /* MODE 2: GLOBAL DATE-WISE TRANSACTION STREAM LEDGER             */
-        /* ============================================================== */
-        <Card className="border-slate-200 dark:border-slate-800 shadow-xs bg-white dark:bg-slate-900 overflow-hidden">
+        /* MODE 2: GLOBAL DATE-WISE TRANSACTION STREAM LEDGER */
+        <Card className="border-slate-200 dark:border-slate-800 shadow-2xs bg-white dark:bg-slate-900 overflow-hidden">
           {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[130px]">
+                <TableRow className="bg-slate-100/70 dark:bg-slate-800/60 hover:bg-slate-100/70 dark:hover:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700 text-[11px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[110px]">
                     Date & Time
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 text-center min-w-[110px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[100px]">
                     Flow & Status
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[150px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[140px]">
                     Transaction Type
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[100px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[90px]">
                     RM Code
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[180px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[170px]">
                     Raw Material Name
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[130px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[115px]">
                     Document Ref
                   </TableHead>
-                  <TableHead className="font-semibold text-xs text-slate-700 dark:text-slate-200 min-w-[100px]">
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[90px]">
                     Batch / Lot
                   </TableHead>
-                  <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[100px]">
+                  <TableHead className="font-semibold text-emerald-700 dark:text-emerald-400 text-right min-w-[85px]">
                     Inward (IN)
                   </TableHead>
-                  <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[110px]">
+                  <TableHead className="font-semibold text-rose-700 dark:text-rose-400 text-right min-w-[85px]">
                     Outward (OUT)
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[160px]">
-                    Party / Destination
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[85px]">
+                    Rate (₹)
                   </TableHead>
-                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[100px]">
-                    User
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-right min-w-[85px]">
+                    Amount (₹)
+                  </TableHead>
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 text-center min-w-[95px]">
+                    QC Status
+                  </TableHead>
+                  <TableHead className="font-semibold text-slate-700 dark:text-slate-200 min-w-[150px]">
+                    Party / Notes
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -2049,55 +2227,53 @@ export default function RMINOUTStockPage() {
                 {isAnyLoading ? (
                   Array.from({ length: 6 }).map((_, idx) => (
                     <TableRow key={idx}>
-                      <TableCell colSpan={11} className="py-4">
-                        <Skeleton className="h-6 w-full rounded-md" />
+                      <TableCell colSpan={13} className="py-3">
+                        <Skeleton className="h-5 w-full rounded-md" />
                       </TableCell>
                     </TableRow>
                   ))
                 ) : paginatedTransactions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="py-12 text-center text-slate-400">
-                      <div className="flex flex-col items-center justify-center space-y-2">
-                        <Calendar className="w-8 h-8 text-slate-300 dark:text-slate-600" />
-                        <p className="text-sm font-medium">No transactions recorded for this period.</p>
-                        <p className="text-xs text-slate-500">
-                          Try choosing 'All Time' or expanding items in Material Summary view.
-                        </p>
+                    <TableCell colSpan={13} className="py-10 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center space-y-1.5">
+                        <Calendar className="w-7 h-7 text-slate-300 dark:text-slate-600" />
+                        <p className="text-xs font-medium">No transactions recorded for this period.</p>
                       </div>
                     </TableCell>
                   </TableRow>
                 ) : (
                   paginatedTransactions.map((tx) => {
                     const isIn = tx.flow === 'IN';
-                    const isInProgress = Boolean(
-                      tx.isInProgress ||
-                      tx.batchStatus === 'IN_PROGRESS' ||
-                      String(tx.typeLabel || '').includes('In Progress')
-                    );
+                    const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
+                    const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT'));
+                    const pyClass = isCompactDensity ? 'py-1.5' : 'py-2.5';
 
                     return (
                       <TableRow
                         key={tx.id}
                         className={`text-xs border-b transition-colors ${
-                          isInProgress
-                            ? 'bg-amber-50/70 dark:bg-amber-950/30 border-l-4 border-l-amber-500 hover:bg-amber-100/60 dark:hover:bg-amber-900/40 border-amber-200 dark:border-amber-900/60'
+                          isTxReject
+                            ? 'bg-rose-50/70 dark:bg-rose-950/30 border-l-4 border-l-rose-500'
+                            : isInProgress
+                            ? 'bg-amber-50/70 dark:bg-amber-950/30 border-l-4 border-l-amber-500'
                             : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/40 border-slate-200/80 dark:border-slate-800'
                         }`}
                       >
-                        {/* 1. Date */}
-                        <TableCell className="font-mono text-slate-600 dark:text-slate-400 py-2.5">
+                        <TableCell className={`font-mono text-slate-600 dark:text-slate-400 ${pyClass}`}>
                           {formatDateTime(tx.date)}
                         </TableCell>
-
-                        {/* 2. Flow Badge & WIP Indicator */}
-                        <TableCell className="text-center py-2.5">
-                          {isInProgress ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800 shadow-2xs">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                        <TableCell className={`text-center ${pyClass}`}>
+                          {isTxReject ? (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+                              ❌ REJECTED
+                            </span>
+                          ) : isInProgress ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
                               🟡 IN PROGRESS
                             </span>
                           ) : (
-                            <span className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
                               isIn
                                 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
                                 : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
@@ -2106,47 +2282,32 @@ export default function RMINOUTStockPage() {
                             </span>
                           )}
                         </TableCell>
-
-                        {/* 3. Transaction Type */}
-                        <TableCell className="font-medium py-2.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span>{tx.typeLabel}</span>
-                            {isInProgress && (
-                              <span className="text-[9px] px-1.5 py-0.2 rounded-sm bg-amber-200/80 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200 font-bold uppercase tracking-wider">
-                                Floor WIP
-                              </span>
-                            )}
+                        <TableCell className={`font-medium ${pyClass}`}>
+                          <div className="truncate max-w-[140px]" title={tx.typeLabel}>
+                            {tx.typeLabel}
                           </div>
                         </TableCell>
-
-                        {/* 4. RM Code */}
-                        <TableCell className="font-mono font-semibold py-2.5">
+                        <TableCell className={`font-mono font-semibold ${pyClass}`}>
                           <button
                             onClick={() => handleOpenHistory(tx.rawMaterialId)}
                             className="text-emerald-700 dark:text-emerald-400 hover:underline font-bold"
-                            title="Open history drawer for this raw material"
                           >
                             {tx.rawMaterialCode}
                           </button>
                         </TableCell>
-
-                        {/* 5. Raw Material Name */}
-                        <TableCell className="py-2.5">
-                          <div className="font-medium text-slate-900 dark:text-slate-100 truncate max-w-[200px]">
+                        <TableCell className={pyClass}>
+                          <div className="font-medium text-slate-900 dark:text-slate-100 truncate max-w-[170px]" title={tx.rawMaterialName}>
                             {tx.rawMaterialName}
                           </div>
                           <div className="text-[10px] text-slate-400">
                             {tx.category} • {tx.uom}
                           </div>
                         </TableCell>
-
-                        {/* 6. Document Ref (Clickable Redirection) */}
-                        <TableCell className="font-mono py-2.5">
+                        <TableCell className={`font-mono ${pyClass}`}>
                           {tx.poId ? (
                             <button
                               onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)}
-                              className="text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-semibold"
-                              title="Redirect to Purchase Order"
+                              className="text-blue-600 hover:underline flex items-center gap-0.5 font-semibold"
                             >
                               <span>{tx.referenceNo}</span>
                               <ExternalLink className="w-2.5 h-2.5" />
@@ -2154,8 +2315,7 @@ export default function RMINOUTStockPage() {
                           ) : tx.grnId ? (
                             <button
                               onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)}
-                              className="text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
-                              title="Redirect to GRN inspection"
+                              className="text-emerald-600 hover:underline flex items-center gap-0.5 font-semibold"
                             >
                               <span>{tx.referenceNo}</span>
                               <ExternalLink className="w-2.5 h-2.5" />
@@ -2163,21 +2323,9 @@ export default function RMINOUTStockPage() {
                           ) : tx.batchId || isInProgress ? (
                             <button
                               onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                              className={`hover:underline flex items-center gap-1 font-semibold ${
-                                isInProgress
-                                  ? 'text-amber-700 dark:text-amber-400 font-bold'
-                                  : 'text-purple-600 dark:text-purple-400'
+                              className={`hover:underline flex items-center gap-0.5 font-semibold ${
+                                isInProgress ? 'text-amber-700 font-bold' : 'text-purple-600'
                               }`}
-                              title={isInProgress ? 'Production batch is currently running. Click to view.' : 'Redirect to Production Batches'}
-                            >
-                              <span>{tx.referenceNo}</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </button>
-                          ) : tx.orderId ? (
-                            <button
-                              onClick={() => navigate('/sales/order')}
-                              className="text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1 font-semibold"
-                              title="Redirect to Customer Sales Order"
                             >
                               <span>{tx.referenceNo}</span>
                               <ExternalLink className="w-2.5 h-2.5" />
@@ -2186,46 +2334,30 @@ export default function RMINOUTStockPage() {
                             <span className="text-slate-700 dark:text-slate-300">{tx.referenceNo || '—'}</span>
                           )}
                         </TableCell>
-
-                        {/* 7. Batch No */}
-                        <TableCell className="font-mono text-slate-500 dark:text-slate-400 py-2.5">
+                        <TableCell className={`font-mono text-slate-500 ${pyClass}`}>
                           {tx.batchNumber || '—'}
                         </TableCell>
-
-                        {/* 8. Inward Qty */}
-                        <TableCell className="text-right font-mono font-bold py-2.5 text-emerald-600 dark:text-emerald-400">
-                          {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 2 })}` : '—'}
+                        <TableCell className={`text-right font-mono font-bold text-emerald-600 dark:text-emerald-400 ${pyClass}`}>
+                          {isIn ? `+${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
                         </TableCell>
-
-                        {/* 9. Outward Qty */}
-                        <TableCell className={`text-right font-mono font-bold py-2.5 ${
-                          isInProgress ? 'text-amber-700 dark:text-amber-400' : 'text-rose-600 dark:text-rose-400'
-                        }`}>
-                          {!isIn ? (
-                            <div>
-                              <span>-{Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 2 })}</span>
-                              {isInProgress && (
-                                <div className="text-[9px] text-amber-600 dark:text-amber-400 font-normal">
-                                  WIP Allocated
-                                </div>
-                              )}
-                            </div>
-                          ) : '—'}
+                        <TableCell className={`text-right font-mono font-bold ${isInProgress ? 'text-amber-700' : 'text-rose-600'} ${pyClass}`}>
+                          {!isIn ? `-${Number(tx.quantity).toLocaleString('en-IN', { maximumFractionDigits: 1 })}` : '—'}
                         </TableCell>
-
-                        {/* 10. Party / Destination */}
-                        <TableCell className="py-2.5 text-slate-700 dark:text-slate-300 truncate max-w-[180px]">
-                          {tx.partyName || '—'}
-                          {isInProgress && (
-                            <span className="ml-1 text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-                              (Batch In Progress)
-                            </span>
+                        <TableCell className={`text-right font-mono text-slate-700 dark:text-slate-300 ${pyClass}`}>
+                          {tx.rate ? `₹${Number(tx.rate).toFixed(2)}` : '—'}
+                        </TableCell>
+                        <TableCell className={`text-right font-mono font-semibold text-slate-900 dark:text-white ${pyClass}`}>
+                          {tx.amount ? `₹${Number(tx.amount).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—'}
+                        </TableCell>
+                        <TableCell className={`text-center ${pyClass}`}>
+                          {isTxReject ? (
+                            <span className="text-rose-700 font-bold text-[10px]">❌ Rejected</span>
+                          ) : (
+                            <span className="text-emerald-700 font-medium text-[10px]">Passed</span>
                           )}
                         </TableCell>
-
-                        {/* 11. Handled By */}
-                        <TableCell className="py-2.5 text-slate-500 dark:text-slate-400">
-                          {tx.user || '—'}
+                        <TableCell className={`${pyClass} text-slate-700 dark:text-slate-300 truncate max-w-[150px]`} title={tx.compositeComment || tx.partyName}>
+                          {tx.partyName || tx.user || '—'}
                         </TableCell>
                       </TableRow>
                     );
@@ -2239,50 +2371,50 @@ export default function RMINOUTStockPage() {
           <div className="md:hidden divide-y divide-slate-200 dark:divide-slate-800">
             {isAnyLoading ? (
               Array.from({ length: 4 }).map((_, idx) => (
-                <div key={idx} className="p-4 space-y-2">
+                <div key={idx} className="p-3 space-y-1.5">
                   <Skeleton className="h-4 w-1/3 rounded-sm" />
-                  <Skeleton className="h-12 w-full rounded-md" />
+                  <Skeleton className="h-10 w-full rounded-md" />
                 </div>
               ))
             ) : paginatedTransactions.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-xs">
-                No movements recorded for this period.
-              </div>
+              <div className="py-6 text-center text-slate-400 text-xs">No movements recorded.</div>
             ) : (
               paginatedTransactions.map((tx) => {
                 const isIn = tx.flow === 'IN';
-                const isInProgress = Boolean(
-                  tx.isInProgress ||
-                  tx.batchStatus === 'IN_PROGRESS' ||
-                  String(tx.typeLabel || '').includes('In Progress')
-                );
+                const isInProgress = Boolean(tx.isInProgress || tx.batchStatus === 'IN_PROGRESS');
+                const isTxReject = Boolean(tx.isLabRejected || String(tx.labStatus || '').includes('REJECT'));
 
                 return (
                   <div
                     key={tx.id}
-                    className={`p-3.5 space-y-2 bg-white dark:bg-slate-900 transition-colors ${
-                      isInProgress ? 'border-l-4 border-l-amber-500 bg-amber-50/40 dark:bg-amber-950/20' : ''
+                    className={`p-3 space-y-1.5 bg-white dark:bg-slate-900 transition-colors ${
+                      isTxReject
+                        ? 'border-l-4 border-l-rose-500 bg-rose-50/40'
+                        : isInProgress
+                        ? 'border-l-4 border-l-amber-500 bg-amber-50/40'
+                        : ''
                     }`}
                   >
                     <div className="flex items-center justify-between text-xs font-mono">
-                      <span className="text-slate-500 dark:text-slate-400">{formatDateTime(tx.date)}</span>
-                      {isInProgress ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      <span className="text-slate-500">{formatDateTime(tx.date)}</span>
+                      {isTxReject ? (
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900">
+                          ❌ REJECTED
+                        </span>
+                      ) : isInProgress ? (
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
                           🟡 -{tx.quantity} WIP
                         </span>
                       ) : (
-                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          isIn
-                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                        <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold ${
+                          isIn ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                         }`}>
                           {isIn ? `+${tx.quantity} IN` : `-${tx.quantity} OUT`}
                         </span>
                       )}
                     </div>
 
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-1.5">
                       <div>
                         <div className="text-xs font-bold text-slate-900 dark:text-white">
                           {tx.rawMaterialName}
@@ -2292,11 +2424,7 @@ export default function RMINOUTStockPage() {
                         </div>
                       </div>
                       <div className="text-right font-mono text-[11px]">
-                        <span className={`px-1.5 py-0.5 rounded-sm font-semibold ${
-                          isInProgress
-                            ? 'bg-amber-100 text-amber-900 dark:bg-amber-900/60 dark:text-amber-200'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                        }`}>
+                        <span className="px-1.5 py-0.5 rounded-sm bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold">
                           {tx.typeLabel}
                         </span>
                       </div>
@@ -2304,34 +2432,9 @@ export default function RMINOUTStockPage() {
 
                     <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100 dark:border-slate-800">
                       <div className="font-mono text-slate-600 dark:text-slate-400">
-                        Ref: {tx.poId ? (
-                          <button
-                            onClick={() => handleRedirectToPO(tx.poId, tx.referenceNo)}
-                            className="text-blue-600 hover:underline font-bold"
-                          >
-                            {tx.referenceNo}
-                          </button>
-                        ) : tx.grnId ? (
-                          <button
-                            onClick={() => handleRedirectToGRN(tx.grnId, tx.referenceNo)}
-                            className="text-emerald-600 hover:underline font-bold"
-                          >
-                            {tx.referenceNo}
-                          </button>
-                        ) : tx.batchId || isInProgress ? (
-                          <button
-                            onClick={() => handleRedirectToBatch(tx.batchId, tx.referenceNo)}
-                            className="text-amber-700 hover:underline font-bold"
-                          >
-                            {tx.referenceNo}
-                          </button>
-                        ) : (
-                          <span>{tx.referenceNo}</span>
-                        )}
-                        {tx.batchNumber && <span className="text-slate-400 ml-1">({tx.batchNumber})</span>}
+                        Ref: {tx.referenceNo} {tx.batchNumber ? `(${tx.batchNumber})` : ''}
                       </div>
-
-                      <div className="text-slate-500 text-[11px] truncate max-w-[150px]">
+                      <div className="text-slate-500 text-[10px] truncate max-w-[140px]">
                         {tx.partyName || tx.user}
                       </div>
                     </div>
@@ -2342,7 +2445,7 @@ export default function RMINOUTStockPage() {
           </div>
 
           {/* Pagination Controls */}
-          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-2">
+          <div className="border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 py-1.5">
             <Pagination
               currentPage={currentPage}
               totalPages={totalTransactionPages}
@@ -2358,6 +2461,114 @@ export default function RMINOUTStockPage() {
         </Card>
       )}
 
+      {/* ── EXPORT OPTIONS MODAL (2 Dedicated Types + Master Multi-Sheet Option) ── */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden space-y-4 p-5">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  Export Raw Material In-Out Reports
+                </h2>
+              </div>
+              <button
+                onClick={() => setIsExportModalOpen(false)}
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-400">
+              Select your export format. Both options include batch numbers, PO numbers, rates, valuations, lab inspection results, and full audit comments.
+            </p>
+
+            <div className="space-y-3">
+              {/* Option 1: Master Summary */}
+              <div
+                onClick={handleExportSummaryOnly}
+                className="group p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500 bg-slate-50/60 dark:bg-slate-800/40 hover:bg-emerald-50/30 transition-all cursor-pointer flex items-start gap-3"
+              >
+                <div className="p-2 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 shrink-0 group-hover:scale-105 transition-transform">
+                  <Package className="w-4 h-4" />
+                </div>
+                <div className="space-y-0.5 flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-700">
+                      1. Raw Material Master Summary Report
+                    </h3>
+                    <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                      {filteredMaterials.length} Items
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    All raw materials with Total Current Stock, In-Progress WIP, Free Available Stock, Period In/Out, Net Flow, Standard Rates, Valuations, Latest PO, Latest Batch, and Lab/QC Decision Comments.
+                  </p>
+                </div>
+              </div>
+
+              {/* Option 2: Date-Wise Ledger */}
+              <div
+                onClick={handleExportLedgerOnly}
+                className="group p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 dark:hover:border-emerald-500 bg-slate-50/60 dark:bg-slate-800/40 hover:bg-emerald-50/30 transition-all cursor-pointer flex items-start gap-3"
+              >
+                <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-400 shrink-0 group-hover:scale-105 transition-transform">
+                  <Calendar className="w-4 h-4" />
+                </div>
+                <div className="space-y-0.5 flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-white group-hover:text-emerald-700">
+                      2. Chronological Date-Wise In-Out Ledger
+                    </h3>
+                    <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
+                      {filteredTransactions.length} Transactions
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Complete chronological movement log with exact Date & Time, Flow (IN/OUT), Batch Status (Completed/WIP), Document Ref, PO Ref, Batch No, In Qty, Out Qty, Unit Rates, Amount, and Lab Rejections.
+                  </p>
+                </div>
+              </div>
+
+              {/* Option 3: All-in-One Master Workbook */}
+              <div
+                onClick={handleExportCompleteWorkbook}
+                className="group p-3.5 rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50/50 dark:bg-emerald-950/30 hover:bg-emerald-100/50 transition-all cursor-pointer flex items-start gap-3"
+              >
+                <div className="p-2 rounded-lg bg-emerald-600 text-white shrink-0 group-hover:scale-105 transition-transform shadow-xs">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div className="space-y-0.5 flex-1">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-emerald-900 dark:text-emerald-300">
+                      3. Complete Multi-Sheet Enterprise Workbook (All-in-One)
+                    </h3>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                      Recommended
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-800/90 dark:text-emerald-400/90">
+                    Multi-sheet Excel workbook containing: Sheet 1 (Summary), Sheet 2 (Date Ledger), Sheet 3 (Floor WIP Batches), and Sheet 4 (QC & Lab Audits).
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsExportModalOpen(false)}
+                className="text-xs h-8"
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── EMBEDDED RM HISTORY DRAWER ── */}
       {selectedMaterialId && (
         <RMHistoryDrawer
@@ -2371,7 +2582,7 @@ export default function RMINOUTStockPage() {
         />
       )}
 
-      {/* ── EMBEDDED TALLY PRIME STYLE RM STOCK QUERY MODAL ── */}
+      {/* ── EMBEDDED RM STOCK QUERY MODAL ── */}
       {selectedStockQueryId && (
         <RMStockQueryModal
           materialId={selectedStockQueryId}

@@ -3862,6 +3862,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         lifetimeIn: 0,
         lifetimeOut: 0,
         inProgressStock: 0,
+        labRejectedQty: 0,
+        labRejectedCount: 0,
         transactions: [],
         lastIn: null,
         lastOut: null
@@ -3932,7 +3934,22 @@ exports.getRmInOutStock = async (req, res, next) => {
       const supplierName = item.grn?.po?.supplier?.name || 'Vendor Receipt';
       const batchNo = item.batchNumber || item.grn?.inventoryBatches?.[0]?.batchNumber || '—';
 
+      const isLabRejected = String(item.grn?.status || '').toUpperCase().includes('REJECT') ||
+                            String(item.inspectionStatus || '').toUpperCase() === 'REJECTED' ||
+                            Number(item.rejectedQty || 0) > 0;
+      const labStatus = isLabRejected ? 'LAB_REJECTED' : (String(item.grn?.status || '').toUpperCase().includes('APPROVED') ? 'LAB_APPROVED' : (item.grn?.status || 'PENDING_LAB'));
+      const rejectionReason = item.rejectionReason || item.grn?.discrepancyNotes || null;
+      const rejectedQty = Number(item.rejectedQty || 0);
+
+      if (isLabRejected) {
+        target.labRejectedQty += (rejectedQty || qty);
+        target.labRejectedCount += 1;
+      }
+
       target.lifetimeIn += qty;
+
+      const rate = rmRateMap.get(rm.id)?.rate || Number(rm.ratePerUnit || 0);
+      const amount = Math.round(qty * rate * 100) / 100;
 
       const tx = {
         id: `grn-${item.id}`,
@@ -3944,8 +3961,10 @@ exports.getRmInOutStock = async (req, res, next) => {
         date,
         flow: 'IN',
         type: 'GRN',
-        typeLabel: 'GRN Inward Receipt',
+        typeLabel: isLabRejected ? 'GRN Inward (Lab Rejected)' : 'GRN Inward Receipt',
         quantity: qty,
+        rate,
+        amount,
         referenceNo: grnRef,
         poReferenceNo: poRef,
         poId,
@@ -3953,11 +3972,16 @@ exports.getRmInOutStock = async (req, res, next) => {
         batchNumber: batchNo,
         partyName: `Vendor: ${supplierName}`,
         user: item.grn?.receiver?.name || 'Store Receiver',
-        notes: `Challan: ${item.grn?.challanNumber || 'N/A'} | Invoice: ${item.grn?.invoiceNumber || 'N/A'}`
+        labStatus,
+        isLabRejected,
+        rejectedQty,
+        rejectionReason,
+        notes: `Challan: ${item.grn?.challanNumber || 'N/A'} | Invoice: ${item.grn?.invoiceNumber || 'N/A'}${rejectionReason ? ` | QC: ${rejectionReason}` : ''}`,
+        compositeComment: `PO: ${poRef} | Batch: ${batchNo} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Lab/QC: ${labStatus}${rejectionReason ? ` | Rejection: ${rejectionReason}` : ''}`
       };
 
       if (!target.lastIn || new Date(date) > new Date(target.lastIn.date)) {
-        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId, grnId };
+        target.lastIn = { date, ref: grnRef, qty, party: supplierName, poId, grnId, isLabRejected, labStatus };
       }
 
       if (isPeriod) {
@@ -4056,6 +4080,9 @@ exports.getRmInOutStock = async (req, res, next) => {
 
       target.lifetimeOut += qty;
 
+      const rate = rmRateMap.get(rm.id)?.rate || Number(rm.ratePerUnit || 0);
+      const amount = Math.round(qty * rate * 100) / 100;
+
       const tx = {
         id: `usage-${u.id}`,
         rawMaterialId: rm.id,
@@ -4070,6 +4097,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         isInProgress,
         batchStatus: isInProgress ? 'IN_PROGRESS' : 'COMPLETED',
         quantity: qty,
+        rate,
+        amount,
         referenceNo: batchRef,
         productionBatchId: u.batchId || u.batch?.id || null,
         poReferenceNo: null,
@@ -4078,7 +4107,10 @@ exports.getRmInOutStock = async (req, res, next) => {
         batchNumber: rmBatchTaken,
         partyName: `Production: ${productName}`,
         user: u.batch?.startedBy || 'Operator',
-        notes: `Product: ${productName} (Status: ${rawBatchStatus})`
+        labStatus: 'QC_PASSED',
+        isLabRejected: false,
+        notes: `Product: ${productName} (Status: ${rawBatchStatus})`,
+        compositeComment: `Batch: ${batchRef} | Taken From RM Lot: ${rmBatchTaken} | Product: ${productName} | Qty: ${qty} ${rm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Status: ${rawBatchStatus}`
       };
 
       if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
@@ -4289,7 +4321,17 @@ exports.getRmInOutStock = async (req, res, next) => {
       const retRef = ret.referenceNo || 'RETURN';
       const supplierName = ret.po?.supplier?.name || 'Supplier Return';
 
+      const isLabRejected = String(ret.returnReason || '').toUpperCase().includes('LAB') ||
+                            String(ret.initiatedBy || '').toUpperCase().includes('LAB');
+      if (isLabRejected) {
+        target.labRejectedQty += qty;
+        target.labRejectedCount += 1;
+      }
+
       target.lifetimeOut += qty;
+
+      const rate = rmRateMap.get(matchedRm.id)?.rate || Number(matchedRm.ratePerUnit || 0);
+      const amount = Math.round(qty * rate * 100) / 100;
 
       const tx = {
         id: `ret-${ret.id}`,
@@ -4301,8 +4343,10 @@ exports.getRmInOutStock = async (req, res, next) => {
         date,
         flow: 'OUT',
         type: 'RETURN',
-        typeLabel: 'Purchase Return to Vendor',
+        typeLabel: isLabRejected ? 'Purchase Return (Lab Rejected)' : 'Purchase Return to Vendor',
         quantity: qty,
+        rate,
+        amount,
         referenceNo: retRef,
         poReferenceNo: ret.po?.referenceNo || '—',
         poId: ret.poId || null,
@@ -4310,11 +4354,16 @@ exports.getRmInOutStock = async (req, res, next) => {
         batchNumber: 'Vendor Return',
         partyName: `Return: ${supplierName}`,
         user: ret.creator?.name || 'Purchase Staff',
-        notes: ret.returnReason || 'Defective / Rejected return'
+        labStatus: isLabRejected ? 'LAB_REJECTED' : 'VENDOR_RETURN',
+        isLabRejected,
+        rejectedQty: isLabRejected ? qty : 0,
+        rejectionReason: ret.reasonDescription || ret.returnReason || 'Vendor Return',
+        notes: ret.returnReason || 'Defective / Rejected return',
+        compositeComment: `Return Ref: ${retRef} | PO: ${ret.po?.referenceNo || 'N/A'} | Vendor: ${supplierName} | Qty: ${qty} ${matchedRm.unitId || ''} | Rate: ₹${rate.toFixed(2)} | Amount: ₹${amount.toFixed(2)} | Reason: ${ret.returnReason || 'Vendor Return'}`
       };
 
       if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
-        target.lastOut = { date, ref: retRef, qty, party: supplierName, poId: ret.poId };
+        target.lastOut = { date, ref: retRef, qty, party: supplierName, poId: ret.poId, isLabRejected };
       }
 
       if (isPeriod) {
@@ -4334,6 +4383,8 @@ exports.getRmInOutStock = async (req, res, next) => {
     let totalAvailableStock = 0;
     let totalPeriodIn = 0;
     let totalPeriodOut = 0;
+    let totalLabRejectedQty = 0;
+    let totalLabRejectedCount = 0;
     let activeMovementCount = 0;
 
     const materials = rms.map(rm => {
@@ -4343,6 +4394,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         lifetimeIn: 0,
         lifetimeOut: 0,
         inProgressStock: 0,
+        labRejectedQty: 0,
+        labRejectedCount: 0,
         transactions: [],
         lastIn: null,
         lastOut: null
@@ -4358,6 +4411,9 @@ exports.getRmInOutStock = async (req, res, next) => {
 
       const inProgressStock = Math.round((txData.inProgressStock || 0) * 1000) / 1000;
       const availableStock = Math.max(0, Math.round((curStock - inProgressStock) * 1000) / 1000);
+      const labRejectedQty = Math.round((txData.labRejectedQty || 0) * 1000) / 1000;
+      const hasLabRejection = (txData.labRejectedCount || 0) > 0;
+      const labStatus = hasLabRejection ? 'LAB_REJECTED' : 'QC_PASSED';
 
       totalCurrentStock += curStock;
       totalInProgressStock += inProgressStock;
@@ -4365,6 +4421,8 @@ exports.getRmInOutStock = async (req, res, next) => {
       totalStockValuation += valuation;
       totalPeriodIn += txData.periodIn;
       totalPeriodOut += txData.periodOut;
+      totalLabRejectedQty += labRejectedQty;
+      totalLabRejectedCount += (txData.labRejectedCount || 0);
 
       const hasMovementInPeriod = (txData.periodIn > 0 || txData.periodOut > 0);
       if (hasMovementInPeriod) {
@@ -4383,6 +4441,9 @@ exports.getRmInOutStock = async (req, res, next) => {
         currentStock: curStock,
         inProgressStock,
         availableStock,
+        labRejectedQty,
+        hasLabRejection,
+        labStatus,
         alertLevel: alert,
         ratePerUnit: rate,
         valuation,
@@ -4414,6 +4475,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         totalAvailableStock: Math.round(totalAvailableStock * 100) / 100,
         totalPeriodIn: Math.round(totalPeriodIn * 100) / 100,
         totalPeriodOut: Math.round(totalPeriodOut * 100) / 100,
+        totalLabRejectedQty: Math.round(totalLabRejectedQty * 100) / 100,
+        totalLabRejectedCount,
         netMovement: Math.round((totalPeriodIn - totalPeriodOut) * 100) / 100,
         totalValuation: Math.round(totalStockValuation * 100) / 100,
         activeMovementCount
