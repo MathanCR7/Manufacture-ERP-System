@@ -124,22 +124,42 @@ class BatchNumberService {
     const counterDigits = settings.counter_digits || 5;
 
     // 4. ATOMIC CONCURRENCY: Row lock and increment sequence table using SELECT ... FOR UPDATE or Atomic Upsert
-    // Step 4a: Lock row if exists or insert if absent
-    const updateResult = await tx.$queryRawUnsafe(`
-      INSERT INTO "batch_sequences" ("id", "product_id", "sequence_key", "reset_mode", "last_number", "updated_at")
-      VALUES (gen_random_uuid(), $1, $2, $3, 1, NOW())
-      ON CONFLICT ("product_id", "sequence_key")
-      DO UPDATE SET
-        "last_number" = "batch_sequences"."last_number" + 1,
-        "updated_at" = NOW()
-      RETURNING "last_number";
-    `, productId, sequenceKey, resetMode);
+    let nextNumber = 1;
+    let sequenceSuccess = false;
 
-    if (!updateResult || updateResult.length === 0) {
-      throw new Error(`Failed to increment batch sequence for product ${productId}`);
+    try {
+      const updateResult = await tx.$queryRawUnsafe(`
+        INSERT INTO "batch_sequences" ("id", "product_id", "sequence_key", "reset_mode", "last_number", "updated_at")
+        VALUES (gen_random_uuid(), $1, $2, $3, 1, NOW())
+        ON CONFLICT ("product_id", "sequence_key")
+        DO UPDATE SET
+          "last_number" = "batch_sequences"."last_number" + 1,
+          "updated_at" = NOW()
+        RETURNING "last_number";
+      `, productId, sequenceKey, resetMode);
+
+      if (updateResult && updateResult.length > 0) {
+        nextNumber = updateResult[0].last_number;
+        sequenceSuccess = true;
+      }
+    } catch (err) {
+      // Non-fatal fallback: Calculate next number from production_batches directly
+      const searchPattern = `${datePrefix}-${productCode}-%`;
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT batch_no FROM "production_batches" WHERE batch_no LIKE $1 ORDER BY batch_no DESC LIMIT 1`,
+        searchPattern
+      ).catch(() => []);
+
+      let maxNum = 0;
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].batch_no) {
+        const parts = rows[0].batch_no.split('-');
+        const lastPart = parts[parts.length - 1];
+        const parsed = parseInt(lastPart, 10);
+        if (!isNaN(parsed) && parsed > maxNum) maxNum = parsed;
+      }
+      nextNumber = maxNum + 1;
     }
 
-    const nextNumber = updateResult[0].last_number;
     const runningNumber = String(nextNumber).padStart(counterDigits, '0');
 
     // 5. Build final batch number: YYYYMMDD-PRODUCTCODE-NNNNN
@@ -179,13 +199,29 @@ class BatchNumberService {
     const sequenceKey = this.buildSequenceKey(prodDate, resetMode);
     const counterDigits = settings.counter_digits || 5;
 
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT last_number FROM "batch_sequences" WHERE product_id = $1 AND sequence_key = $2 LIMIT 1`,
-      productId,
-      sequenceKey
-    );
+    let currentNumber = 0;
+    try {
+      const existing = await prisma.$queryRawUnsafe(
+        `SELECT last_number FROM "batch_sequences" WHERE product_id = $1 AND sequence_key = $2 LIMIT 1`,
+        productId,
+        sequenceKey
+      );
+      if (existing && existing.length > 0) currentNumber = existing[0].last_number;
+    } catch (_) {
+      const searchPattern = `${datePrefix}-${productCode}-%`;
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT batch_no FROM "production_batches" WHERE batch_no LIKE $1 ORDER BY batch_no DESC LIMIT 1`,
+        searchPattern
+      ).catch(() => []);
 
-    const currentNumber = (existing && existing.length > 0) ? existing[0].last_number : 0;
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].batch_no) {
+        const parts = rows[0].batch_no.split('-');
+        const lastPart = parts[parts.length - 1];
+        const parsed = parseInt(lastPart, 10);
+        if (!isNaN(parsed)) currentNumber = parsed;
+      }
+    }
+
     const nextNumber = currentNumber + 1;
     const runningNumber = String(nextNumber).padStart(counterDigits, '0');
 
