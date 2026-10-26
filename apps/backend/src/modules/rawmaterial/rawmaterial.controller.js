@@ -3861,6 +3861,7 @@ exports.getRmInOutStock = async (req, res, next) => {
         periodOut: 0,
         lifetimeIn: 0,
         lifetimeOut: 0,
+        inProgressStock: 0,
         transactions: [],
         lastIn: null,
         lastOut: null
@@ -4042,6 +4043,17 @@ exports.getRmInOutStock = async (req, res, next) => {
       const productName = u.batch?.product?.name || 'Manufactured Item';
       const rmBatchTaken = u.internalBatchNo || u.supplierBatchNo || 'Floor Issue';
 
+      // Check if batch is currently In Progress (WIP)
+      const rawBatchStatus = u.batch?.status || u.batch?.approvalStatus || 'Completed';
+      const isInProgress = String(rawBatchStatus).toLowerCase().includes('progress') ||
+                           String(rawBatchStatus).toLowerCase().includes('running') ||
+                           String(rawBatchStatus).toLowerCase().includes('paused') ||
+                           String(rawBatchStatus).toLowerCase().includes('draft');
+
+      if (isInProgress) {
+        target.inProgressStock += qty;
+      }
+
       target.lifetimeOut += qty;
 
       const tx = {
@@ -4054,7 +4066,9 @@ exports.getRmInOutStock = async (req, res, next) => {
         date,
         flow: 'OUT',
         type: 'PROD_USAGE',
-        typeLabel: 'Production Consumption',
+        typeLabel: isInProgress ? 'Production Issue (In Progress WIP)' : 'Production Consumption',
+        isInProgress,
+        batchStatus: isInProgress ? 'IN_PROGRESS' : 'COMPLETED',
         quantity: qty,
         referenceNo: batchRef,
         productionBatchId: u.batchId || u.batch?.id || null,
@@ -4064,11 +4078,11 @@ exports.getRmInOutStock = async (req, res, next) => {
         batchNumber: rmBatchTaken,
         partyName: `Production: ${productName}`,
         user: u.batch?.startedBy || 'Operator',
-        notes: `Product: ${productName} (Status: ${u.batch?.status || 'Completed'})`
+        notes: `Product: ${productName} (Status: ${rawBatchStatus})`
       };
 
       if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
-        target.lastOut = { date, ref: batchRef, qty, party: productName, batchId: u.batchId };
+        target.lastOut = { date, ref: batchRef, qty, party: productName, batchId: u.batchId, isInProgress };
       }
 
       if (isPeriod) {
@@ -4316,6 +4330,8 @@ exports.getRmInOutStock = async (req, res, next) => {
     // Construct final material records
     let totalStockValuation = 0;
     let totalCurrentStock = 0;
+    let totalInProgressStock = 0;
+    let totalAvailableStock = 0;
     let totalPeriodIn = 0;
     let totalPeriodOut = 0;
     let activeMovementCount = 0;
@@ -4326,6 +4342,7 @@ exports.getRmInOutStock = async (req, res, next) => {
         periodOut: 0,
         lifetimeIn: 0,
         lifetimeOut: 0,
+        inProgressStock: 0,
         transactions: [],
         lastIn: null,
         lastOut: null
@@ -4339,7 +4356,12 @@ exports.getRmInOutStock = async (req, res, next) => {
       const rate = poRateInfo.rate || Number(rm.ratePerUnit || 0);
       const valuation = Math.round((curStock * rate) * 100) / 100;
 
+      const inProgressStock = Math.round((txData.inProgressStock || 0) * 1000) / 1000;
+      const availableStock = Math.max(0, Math.round((curStock - inProgressStock) * 1000) / 1000);
+
       totalCurrentStock += curStock;
+      totalInProgressStock += inProgressStock;
+      totalAvailableStock += availableStock;
       totalStockValuation += valuation;
       totalPeriodIn += txData.periodIn;
       totalPeriodOut += txData.periodOut;
@@ -4359,6 +4381,8 @@ exports.getRmInOutStock = async (req, res, next) => {
         categoryId: rm.categoryId,
         uom: rm.unitId,
         currentStock: curStock,
+        inProgressStock,
+        availableStock,
         alertLevel: alert,
         ratePerUnit: rate,
         valuation,
@@ -4386,6 +4410,8 @@ exports.getRmInOutStock = async (req, res, next) => {
       summary: {
         totalMaterials: rms.length,
         totalCurrentStock: Math.round(totalCurrentStock * 100) / 100,
+        totalInProgressStock: Math.round(totalInProgressStock * 100) / 100,
+        totalAvailableStock: Math.round(totalAvailableStock * 100) / 100,
         totalPeriodIn: Math.round(totalPeriodIn * 100) / 100,
         totalPeriodOut: Math.round(totalPeriodOut * 100) / 100,
         netMovement: Math.round((totalPeriodIn - totalPeriodOut) * 100) / 100,
