@@ -357,6 +357,68 @@ router.post('/receive',
         return res.status(409).json({ error: 'This Purchase Order has already been marked as fully delivered.' });
       }
 
+      // STRICT PO ITEM VALIDATION:
+      // Ensure every item being received is an authorized line item on this Purchase Order
+      const poItemsList = Array.isArray(po.items) && po.items.length > 0
+        ? po.items
+        : [{ id: po.rmId, rmId: po.rmId, name: po.name, quantity: po.quantity }];
+
+      for (const item of data.items) {
+        const itemIdentifier = String(item.rmId || '').trim();
+        const itemCleanName = String(item.rmName || '').trim().toLowerCase();
+
+        const matchesPo = poItemsList.some(pi => {
+          const piId = String(pi.id || '').trim();
+          const piRmId = String(pi.rmId || '').trim();
+          const piCode = String(pi.code || '').trim();
+          const piName = String(pi.name || '').trim().toLowerCase();
+
+          return (
+            (itemIdentifier && (itemIdentifier === piId || itemIdentifier === piRmId || itemIdentifier === piCode)) ||
+            (itemCleanName && piName && (itemCleanName === piName || itemCleanName.includes(piName) || piName.includes(itemCleanName))) ||
+            (itemIdentifier && po.rmId && itemIdentifier === String(po.rmId).trim()) ||
+            (itemCleanName && po.name && itemCleanName === String(po.name).trim().toLowerCase())
+          );
+        });
+
+        if (!matchesPo) {
+          return res.status(400).json({
+            error: `Item "${item.rmName}" (${item.rmId}) is not an ordered line item on Purchase Order ${po.referenceNo}. Goods receipt can only accept materials ordered on this PO.`
+          });
+        }
+      }
+
+      // DUPLICATE / OVER-DELIVERY GUARD:
+      const priorGrns = await prisma.gRNReceive.findMany({
+        where: { poId: po.id },
+        include: { items: true }
+      });
+      const totalOrderedQty = poItemsList.reduce((sum, pi) => sum + (Number(pi.quantity) || 0), 0);
+      const totalAlreadyReceived = priorGrns.reduce(
+        (sum, g) => sum + (g.items || []).reduce((s, gi) => s + (Number(gi.actualReceivedQty) || 0), 0),
+        0
+      );
+      if (totalAlreadyReceived >= totalOrderedQty && totalOrderedQty > 0 && po.deliveredStatus === 'FULLY_DELIVERED') {
+        return res.status(400).json({
+          error: `Purchase Order ${po.referenceNo} is already 100% fulfilled (${totalAlreadyReceived} / ${totalOrderedQty}). Additional goods receipts cannot be created.`
+        });
+      }
+
+      // Resolve true RawMaterial UUIDs for each item so rmId is NEVER a raw code string
+      for (const item of data.items) {
+        let rmRecord = await prisma.rawMaterial.findFirst({
+          where: { OR: [{ id: item.rmId }, { code: item.rmId }] }
+        });
+        if (!rmRecord && item.rmName) {
+          rmRecord = await prisma.rawMaterial.findFirst({
+            where: { name: { equals: item.rmName, mode: 'insensitive' } }
+          });
+        }
+        if (rmRecord) {
+          item.rmId = rmRecord.id;
+        }
+      }
+
       // Check if all items in this receipt are exempt from lab testing
       const isAllExempt = data.items.every(item => item.labTestRequired === false);
       const initialStatus = isAllExempt ? 'LAB_APPROVED' : 'PENDING_LAB';
