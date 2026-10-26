@@ -26,6 +26,7 @@ import HsnSelect from '@/components/forms/HsnSelect';
 import { Pagination } from '@/components/ui/Pagination';
 import MaterialMasterImportModal from '../components/MaterialMasterImportModal';
 import ProductPriceHistoryModal from '../components/ProductPriceHistoryModal';
+import DynamicProductSpecPanel from '../components/DynamicProductSpecPanel';
 
 // Standard Factory Workflow Stages for manufacturing
 const STANDARD_FACTORY_STAGES = [
