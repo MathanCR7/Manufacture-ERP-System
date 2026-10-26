@@ -3734,7 +3734,9 @@ exports.getRmInOutStock = async (req, res, next) => {
       grnItems,
       usages,
       adjustments,
-      wasteItems
+      wasteItems,
+      returns,
+      resaleItems
     ] = await Promise.all([
       prisma.rawMaterial.findMany({
         include: { category: true, uoms: true },
@@ -3809,6 +3811,37 @@ exports.getRmInOutStock = async (req, res, next) => {
           }
         },
         orderBy: { createdAt: 'desc' }
+      }),
+      prisma.purchaseReturn.findMany({
+        include: {
+          po: {
+            select: {
+              id: true,
+              referenceNo: true,
+              supplier: { select: { id: true, name: true } }
+            }
+          },
+          creator: { select: { id: true, name: true } }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.customerOrderItem.findMany({
+        where: {
+          rawMaterialId: { not: null }
+        },
+        include: {
+          order: {
+            select: {
+              id: true,
+              docNo: true,
+              referenceNo: true,
+              status: true,
+              customer: { select: { id: true, name: true } },
+              createdAt: true
+            }
+          }
+        },
+        orderBy: { id: 'desc' }
       })
     ]);
 
@@ -4166,6 +4199,108 @@ exports.getRmInOutStock = async (req, res, next) => {
 
       if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
         target.lastOut = { date, ref: wasteRef, qty, party: `Waste: ${reason}` };
+      }
+
+      if (isPeriod) {
+        target.periodOut += qty;
+        target.transactions.push(tx);
+        allTransactions.push(tx);
+      }
+    }
+
+    // 6. Process Resale / Sales Dispatches (OUT)
+    for (const item of resaleItems) {
+      const rm = findRm(item.rawMaterialId);
+      if (!rm) continue;
+
+      const target = rmTxMap.get(rm.id);
+      const date = item.order?.createdAt || new Date();
+      const qty = Number(item.quantity || 0);
+      const isPeriod = inRange(date);
+      const docNo = item.order?.docNo || item.order?.referenceNo || 'SO';
+      const customerName = item.order?.customer?.name || 'Customer Dispatch';
+
+      target.lifetimeOut += qty;
+
+      const tx = {
+        id: `resale-${item.id}`,
+        rawMaterialId: rm.id,
+        rawMaterialCode: rm.code,
+        rawMaterialName: rm.name,
+        category: rm.category?.name || 'Uncategorised',
+        uom: rm.unitId,
+        date,
+        flow: 'OUT',
+        type: 'RESALE',
+        typeLabel: 'Direct Resale / Dispatch',
+        quantity: qty,
+        referenceNo: docNo,
+        orderId: item.orderId || null,
+        poReferenceNo: null,
+        poId: null,
+        grnId: null,
+        batchNumber: item.batchNo || 'Direct Stock',
+        partyName: `Customer: ${customerName}`,
+        user: 'Sales Team',
+        notes: `Document: ${docNo} (${item.order?.status || 'Confirmed'})`
+      };
+
+      if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
+        target.lastOut = { date, ref: docNo, qty, party: customerName, orderId: item.orderId };
+      }
+
+      if (isPeriod) {
+        target.periodOut += qty;
+        target.transactions.push(tx);
+        allTransactions.push(tx);
+      }
+    }
+
+    // 7. Process Purchase Returns (OUT)
+    for (const ret of returns) {
+      const targetPo = pos.find(p => p.id === ret.poId);
+      let matchedRm = null;
+      if (targetPo) {
+        if (targetPo.rmId) matchedRm = findRm(targetPo.rmId);
+        else if (Array.isArray(targetPo.items) && targetPo.items[0]) {
+          matchedRm = findRm(targetPo.items[0].id) || findRm(targetPo.items[0].rmId) || findRm(targetPo.items[0].name);
+        }
+      }
+      if (!matchedRm) continue;
+
+      const target = rmTxMap.get(matchedRm.id);
+      const date = ret.returnDate || ret.createdAt;
+      const qty = Number(ret.returnQty || 0);
+      const isPeriod = inRange(date);
+      const retRef = ret.referenceNo || 'RETURN';
+      const supplierName = ret.po?.supplier?.name || 'Supplier Return';
+
+      target.lifetimeOut += qty;
+
+      const tx = {
+        id: `ret-${ret.id}`,
+        rawMaterialId: matchedRm.id,
+        rawMaterialCode: matchedRm.code,
+        rawMaterialName: matchedRm.name,
+        category: matchedRm.category?.name || 'Uncategorised',
+        uom: matchedRm.unitId,
+        date,
+        flow: 'OUT',
+        type: 'RETURN',
+        typeLabel: 'Purchase Return to Vendor',
+        quantity: qty,
+        referenceNo: retRef,
+        poReferenceNo: ret.po?.referenceNo || '—',
+        poId: ret.poId || null,
+        grnId: ret.grnId || null,
+        batchNumber: 'Vendor Return',
+        partyName: `Return: ${supplierName}`,
+        user: ret.creator?.name || 'Purchase Staff',
+        notes: ret.returnReason || 'Defective / Rejected return'
+      };
+
+      if (!target.lastOut || new Date(date) > new Date(target.lastOut.date)) {
+        target.lastOut = { date, ref: retRef, qty, party: supplierName, poId: ret.poId };
       }
 
       if (isPeriod) {
