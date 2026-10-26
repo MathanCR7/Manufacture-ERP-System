@@ -202,15 +202,15 @@ export default function RMINOUTStockPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  // URL query params
-  const initialPeriod = searchParams.get('period') || 'this_month';
+  // URL query params (defaults to 'all' - All Time)
+  const initialPeriod = searchParams.get('period') || 'all';
   const initialSearch = searchParams.get('search') || '';
   const initialCategory = searchParams.get('category') || 'ALL';
   const initialCode = searchParams.get('code') || 'ALL';
   const initialStartDate = searchParams.get('startDate') || '';
   const initialEndDate = searchParams.get('endDate') || '';
 
-  // Time Period State
+  // Time Period State - default is 'all' (All Time)
   const [period, setPeriod] = useState(initialPeriod); // today | yesterday | this_week | last_week | this_month | last_month | all | custom
   const [customStartDate, setCustomStartDate] = useState(initialStartDate);
   const [customEndDate, setCustomEndDate] = useState(initialEndDate);

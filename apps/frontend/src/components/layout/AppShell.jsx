@@ -726,7 +726,7 @@ const MENU_GROUPS = [
     roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'],
     items: [
       { name: '🏬 RM Stock', path: '/rm/stock', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },
-      { name: '🔄 RM-IN-OUT Stock', path: '/rm/stock/in-out', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'] },
+      { name: '🔄 RM-IN-OUT Stock', path: '/rm/stock/in-out?period=all', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'] },
       { name: '⏳ Upcoming & Expired RM', path: '/rm/stock/expiry', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER', 'PURCHASE_ACCOUNTANT', 'LAB_ASSISTANT'] },
       { name: '⚠️ Low Stock', path: '/rm/stock/low', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'], badgeKey: 'rmLowStock' },
       { name: '🔄 Stock Adjustment', path: '/rm/stock-adjustment/list', roles: ['MAIN_MASTER', 'SUPERVISOR', 'MATERIALS_RECEIVER'] },

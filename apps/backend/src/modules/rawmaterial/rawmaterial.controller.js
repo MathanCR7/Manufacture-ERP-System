@@ -3657,7 +3657,7 @@ exports.getRmInOutStock = async (req, res, next) => {
     res.setHeader('Expires', '0');
 
     const {
-      period = 'this_month',
+      period = 'all',
       startDate,
       endDate,
       categoryId,
